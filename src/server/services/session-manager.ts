@@ -148,7 +148,7 @@ export class SessionManager {
 
     const cliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
     const cliModel = session.cli_model ?? undefined;
-    const executionConfig = isAgentCliTool(cliTool)
+    const executionConfig = session.execution_profile_id || isAgentCliTool(cliTool)
       ? resolveExecutionConfig({ cliTool, model: cliModel, cliModelId: session.cli_model_id, cliEffort: session.cli_effort, executionProfileId: session.execution_profile_id, interactive: true })
       : null;
     const resolvedCliTool = executionConfig?.cliTool ?? cliTool;

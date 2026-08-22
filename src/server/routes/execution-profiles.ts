@@ -4,7 +4,7 @@ import * as queries from '../db/queries.js';
 const router = Router();
 const SLUG = /^[a-z0-9_-]+$/;
 
-function executorInput(value: unknown): queries.ExecutionProfileInput['executors'] {
+export function executorInput(value: unknown): queries.ExecutionProfileInput['executors'] {
   if (!Array.isArray(value)) throw new Error('executors must be an array');
   return value.map((raw, index) => {
     if (!raw || typeof raw !== 'object') throw new Error(`executor ${index + 1} must be an object`);
@@ -15,10 +15,6 @@ function executorInput(value: unknown): queries.ExecutionProfileInput['executors
     if (!model) throw new Error(`executor ${index + 1} references an unknown model`);
     const rawEffort = item.effortValue ?? item.effort_value;
     const effort = typeof rawEffort === 'string' && rawEffort.trim() ? rawEffort.trim() : null;
-    if (effort && model.supported_efforts) {
-      const supported = JSON.parse(model.supported_efforts) as string[];
-      if (!supported.includes(effort)) throw new Error(`Effort "${effort}" is not supported by model "${model.model_label}"`);
-    }
     return {
       ...(typeof item.id === 'string' ? { id: item.id } : {}),
       cli_model_id: model.id,

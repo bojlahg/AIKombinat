@@ -278,7 +278,7 @@ export class DiscussionOrchestrator {
 
     const cliTool = (agent?.cli_tool || project.cli_tool || 'claude') as CliTool;
     const cliModel = agent?.cli_model ?? undefined;
-    const executionConfig = isAgentCliTool(cliTool)
+    const executionConfig = agent?.execution_profile_id || isAgentCliTool(cliTool)
       ? resolveExecutionConfig({ cliTool, model: cliModel, cliModelId: agent?.cli_model_id, cliEffort: agent?.cli_effort, executionProfileId: agent?.execution_profile_id })
       : null;
     const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
@@ -331,7 +331,7 @@ export class DiscussionOrchestrator {
       queries.updateDiscussion(discussionId, { process_pid: pid });
 
       // Stream logs + capture output
-      const outputBuffer = this.streamToDiscussionDb(discussionId, messageId, message.agent_name, result.stdout, result.stderr, cliTool);
+      const outputBuffer = this.streamToDiscussionDb(discussionId, messageId, message.agent_name, result.stdout, result.stderr, resolvedCliTool);
 
       exitPromise.then((exitCode) => {
         const currentDiscussion = queries.getDiscussionById(discussionId);

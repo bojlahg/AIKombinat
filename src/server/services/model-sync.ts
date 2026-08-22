@@ -101,7 +101,8 @@ export function parseCodexModelList(payload: unknown): DiscoveredModel[] {
 async function discoverAntigravity(): Promise<ModelDiscoveryResult | null> {
   const output = await execText('agy', ['models']);
   if (output === null) return null;
-  return { models: parseAntigravityModels(output), source: 'antigravity-models', authoritative: true, primarySucceeded: true };
+  const models = parseAntigravityModels(output);
+  return { models, source: 'antigravity-models', authoritative: models.length > 0, primarySucceeded: models.length > 0 };
 }
 
 async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
@@ -131,7 +132,10 @@ async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
           const message = JSON.parse(line) as { id?: number; result?: unknown; error?: unknown };
           if (message.id === 2) {
             if (message.error) finish(null);
-            else finish({ models: parseCodexModelList(message.result), source: 'codex-app-server', authoritative: true, primarySucceeded: true });
+            else {
+              const models = parseCodexModelList(message.result);
+              finish({ models, source: 'codex-app-server', authoritative: models.length > 0, primarySucceeded: models.length > 0 });
+            }
           }
         } catch { /* ignore diagnostics */ }
       }
@@ -179,8 +183,9 @@ export async function refreshModelCatalog(
 ): Promise<ModelDiscoveryResult> {
   const now = new Date().toISOString();
   const discover = options.discover ?? discoverModelCatalog;
-  const result = await discover(tool, options.version ?? '');
-  if (result.models.length === 0 && !result.primarySucceeded) return { ...result, added: 0, updated: 0, restored: 0, markedMissing: 0 };
+  const discovered = await discover(tool, options.version ?? '');
+  const result = discovered.models.length > 0 ? discovered : { ...discovered, authoritative: false, primarySucceeded: false };
+  if (result.models.length === 0) return { ...result, added: 0, updated: 0, restored: 0, markedMissing: 0 };
 
   const counts = { added: 0, updated: 0, restored: 0, markedMissing: 0 };
   for (const model of result.models) {

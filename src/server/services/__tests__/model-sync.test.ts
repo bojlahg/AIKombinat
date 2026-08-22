@@ -37,6 +37,24 @@ describe('model catalog refresh', () => {
     expect(queries.getModelByValue('codex', 'gpt-good')).toMatchObject({ status: 'available', source: 'cli' });
   });
 
+  it.each([
+    ['Antigravity empty parsed output', 'antigravity', 'antigravity-models'],
+    ['Codex empty model/list result', 'codex', 'codex-app-server'],
+  ] as const)('%s is not an authoritative success and cannot mass-mark Missing', async (_name, tool, source) => {
+    await refreshModelCatalog(tool, { discover: async () => ({
+      models: [{ value: 'existing-model', label: 'Existing model' }], source, authoritative: true, primarySucceeded: true,
+    }) });
+    const result = await refreshModelCatalog(tool, { discover: async () => ({
+      models: [], source, authoritative: true, primarySucceeded: true,
+    }) });
+    expect(result).toMatchObject({ authoritative: false, primarySucceeded: false, markedMissing: 0 });
+    expect(queries.getModelByValue(tool, 'existing-model')).toMatchObject({ status: 'available' });
+  });
+
+  it('treats an unexpected Codex model/list schema as an empty parse', () => {
+    expect(parseCodexModelList({ response: { unknown: [{ identifier: 'gpt-surprise' }] } })).toEqual([]);
+  });
+
   it('weak discovery absence does not mark cached models unavailable', async () => {
     await refreshModelCatalog('claude', { discover: async () => ({
       models: [{ value: 'claude-old', label: 'Claude Old' }],

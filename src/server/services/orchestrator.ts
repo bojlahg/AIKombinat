@@ -512,7 +512,7 @@ Complete the task in the current directory.`;
     // Determine CLI tool: task-level overrides project-level
     const cliTool = (todo.cli_tool as CliTool) || (project.cli_tool as CliTool) || 'claude';
     const claudeModel = todo.cli_model ?? undefined;
-    const executionConfig = isAgentCliTool(cliTool)
+    const executionConfig = todo.execution_profile_id || isAgentCliTool(cliTool)
       ? resolveExecutionConfig({ cliTool, model: claudeModel, cliModelId: todo.cli_model_id, cliEffort: todo.cli_effort, executionProfileId: todo.execution_profile_id })
       : null;
     const resolvedCliTool = executionConfig?.cliTool ?? cliTool;

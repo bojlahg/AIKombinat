@@ -544,10 +544,30 @@ export function updateModel(id: string, updates: { model_label?: string; support
   return getModelById(id);
 }
 
-export function getModelUsage(id: string): Array<{ id: string; slug: string; name: string }> {
-  return getDatabase().prepare(`SELECT DISTINCT p.id, p.slug, p.name
+export interface ModelUsage {
+  execution_profiles: number;
+  todos: number;
+  schedules: number;
+  sessions: number;
+  discussion_agents: number;
+  profiles: Array<{ id: string; slug: string; name: string }>;
+}
+
+export function getModelUsage(id: string): ModelUsage {
+  const db = getDatabase();
+  const profiles = db.prepare(`SELECT DISTINCT p.id, p.slug, p.name
     FROM execution_profiles p JOIN execution_profile_executors e ON e.profile_id = p.id
     WHERE e.cli_model_id = ? ORDER BY p.sort_order, p.name`).all(id) as Array<{ id: string; slug: string; name: string }>;
+  const count = (table: 'todos' | 'schedules' | 'sessions' | 'discussion_agents') =>
+    (db.prepare(`SELECT COUNT(*) count FROM ${table} WHERE cli_model_id = ?`).get(id) as { count: number }).count;
+  return {
+    execution_profiles: profiles.length,
+    todos: count('todos'),
+    schedules: count('schedules'),
+    sessions: count('sessions'),
+    discussion_agents: count('discussion_agents'),
+    profiles,
+  };
 }
 
 export function removeModel(id: string): boolean {

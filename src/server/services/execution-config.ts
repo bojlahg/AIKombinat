@@ -46,7 +46,7 @@ export function resolveExecutionConfig(input: {
   if (input.executionProfileId) {
     const profile = queries.getExecutionProfileById(input.executionProfileId);
     if (!profile) throw new Error(`Execution profile "${input.executionProfileId}" no longer exists.`);
-    const warnings = profile.is_enabled ? [] : [`Execution profile "${profile.name}" is disabled.`];
+    if (!profile.is_enabled) throw new Error(`Execution profile "${profile.name}" is disabled.`);
     for (const executor of profile.executors.filter((candidate) => candidate.is_enabled).sort((a, b) => a.priority - b.priority)) {
       if (executor.model_status === 'missing') continue;
       if (input.interactive && !supportsInteractiveMode(executor.cli_tool)) continue;
@@ -56,7 +56,7 @@ export function resolveExecutionConfig(input: {
         return {
           cliTool: executor.cli_tool, source: 'profile', profileId: profile.id, profileSlug: profile.slug, profileName: profile.name,
           executorCandidateId: executor.id, cliModelId: model.id, requestedModel: model.model_value, model: model.model_value,
-          modelAvailability: 'available', effort: effortConfig(model, executor.effort_value), warnings, resolvedAt,
+          modelAvailability: 'available', effort: effortConfig(model, executor.effort_value), warnings: [], resolvedAt,
         };
       } catch { /* saved unsupported candidates remain visible but are ineligible */ }
     }

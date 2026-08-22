@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../db/queries.js', () => ({ getModelByValue: () => undefined }));
+
 import { getAdapter, supportsInteractiveMode, parseHelpForModels } from '../cli-adapters.js';
 
 describe('cli-adapters', () => {

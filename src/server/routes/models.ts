@@ -111,9 +111,10 @@ router.delete('/models/:id', (req: Request<{ id: string }>, res: Response) => {
   try {
     const model = queries.getModelById(req.params.id);
     if (!model) { res.status(404).json({ error: 'Model not found' }); return; }
-    const profiles = queries.getModelUsage(model.id);
-    if (profiles.length) {
-      res.status(409).json({ error: 'Model is used by execution profiles', usageCount: profiles.length, profiles }); return;
+    const usage = queries.getModelUsage(model.id);
+    const usageCount = usage.execution_profiles + usage.todos + usage.schedules + usage.sessions + usage.discussion_agents;
+    if (usageCount) {
+      res.status(409).json({ error: 'Model is in use', usageCount, usage }); return;
     }
     const removed = queries.removeModel(req.params.id);
     if (!removed) {
