@@ -139,6 +139,8 @@ export class Scheduler {
       schedule.memory_raw_file_paths,
       undefined,
       schedule.effort_level,
+      schedule.agent_profile_id,
+      schedule.cli_effort,
     );
 
     // Create run record

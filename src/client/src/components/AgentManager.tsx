@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Hammer, Pencil, Trash2, Users } from 'lucide-react';
 import type { DiscussionAgent } from '../types';
 import { useI18n, type Lang } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import * as discussionsApi from '../api/discussions';
 import EmptyState from './EmptyState';
+import type { AgentProfile } from '../api/agentProfiles';
 
 const ROLE_OPTIONS = ['architect', 'developer', 'reviewer', 'pm', 'tester', 'custom'] as const;
 
@@ -71,15 +72,22 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
   const [role, setRole] = useState('developer');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [cliTool, setCliTool] = useState<CliTool | ''>('');
+  const [cliModel, setCliModel] = useState('');
+  const [cliEffort, setCliEffort] = useState('');
+  const [agentProfileId, setAgentProfileId] = useState('');
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string }>>>({});
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
   const [canImplement, setCanImplement] = useState(false);
   const [saving, setSaving] = useState(false);
+  useEffect(() => { fetch('/api/agent-profiles', { credentials: 'include' }).then((r) => r.json()).then(setProfiles).catch(() => setProfiles([])); fetch('/api/models', { credentials: 'include' }).then((r) => r.json()).then(setModels).catch(() => setModels({})); }, []);
 
   const resetForm = () => {
     setName('');
     setRole('developer');
     setSystemPrompt('');
     setCliTool('');
+    setCliModel(''); setCliEffort(''); setAgentProfileId('');
     setAvatarColor(AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]);
     setCanImplement(false);
     setShowForm(false);
@@ -94,6 +102,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
         const updated = await discussionsApi.updateAgent(editingId, {
           name, role, system_prompt: systemPrompt, avatar_color: avatarColor,
           cli_tool: cliTool || null,
+          cli_model: agentProfileId ? null : cliModel || null, cli_effort: agentProfileId ? null : cliEffort || null, agent_profile_id: agentProfileId || null,
           can_implement: canImplement,
         });
         onAgentsChange(agents.map((a) => (a.id === editingId ? updated : a)));
@@ -101,6 +110,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
         const created = await discussionsApi.createAgent(projectId, {
           name, role, system_prompt: systemPrompt, avatar_color: avatarColor,
           ...(cliTool ? { cli_tool: cliTool } : {}),
+          cli_model: agentProfileId ? undefined : cliModel || undefined, cli_effort: agentProfileId ? null : cliEffort || null, agent_profile_id: agentProfileId || null,
           can_implement: canImplement,
         });
         onAgentsChange([...agents, created]);
@@ -117,6 +127,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
     setRole(agent.role);
     setSystemPrompt(agent.system_prompt);
     setCliTool((agent.cli_tool as CliTool) || '');
+    setCliModel(agent.cli_model ?? ''); setCliEffort(agent.cli_effort ?? ''); setAgentProfileId(agent.agent_profile_id ?? '');
     setAvatarColor(agent.avatar_color || AVATAR_COLORS[0]);
     setCanImplement(!!agent.can_implement);
     setShowForm(true);
@@ -265,7 +276,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
               <label className="block text-xs font-medium text-warm-500 mb-2">{t('agents.cliTool')}</label>
               <select
                 value={cliTool}
-                onChange={(e) => setCliTool(e.target.value as CliTool | '')}
+                onChange={(e) => { setCliTool(e.target.value as CliTool | ''); setCliModel(''); setCliEffort(''); setAgentProfileId(''); }}
                 className="input-field text-sm"
               >
                 <option value="">{t('agents.cliToolProjectDefault')}</option>
@@ -274,6 +285,9 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 ))}
               </select>
             </div>
+            {cliTool && cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('profiles.configuration')}</label><select className="input-field text-sm" value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.cliTool === cliTool && p.isEnabled).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
+            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.model')}</label><select className="input-field text-sm" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{models[cliTool]?.filter((m) => m.value).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>}
+            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.label')}</label><select className="input-field text-sm" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
           </div>
 
           {/* Can Implement toggle */}

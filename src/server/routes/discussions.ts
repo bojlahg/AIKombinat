@@ -3,6 +3,7 @@ import { createGit, resolveLocalBaseBranch } from '../lib/git.js';
 import fs from 'fs';
 import * as queries from '../db/queries.js';
 import { isEffortLevel } from '../services/effort-profiles.js';
+import { normalizeExecutionSelection } from '../services/execution-selection.js';
 import { discussionOrchestrator } from '../services/discussion-orchestrator.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { extractActionItems, type ExtractedActionItem } from '../services/discussion-extractor.js';
@@ -167,7 +168,7 @@ router.post('/projects/:id/agents', (req: Request<{ id: string }>, res: Response
       return;
     }
 
-    const { name, role, system_prompt, cli_tool, cli_model, effort_level, avatar_color, can_implement } = req.body;
+    const { name, role, system_prompt, cli_tool, cli_model, cli_effort, agent_profile_id, effort_level, avatar_color, can_implement } = req.body;
     if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
       res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
     }
@@ -176,11 +177,12 @@ router.post('/projects/:id/agents', (req: Request<{ id: string }>, res: Response
       return;
     }
 
-    const agent = queries.createDiscussionAgent(req.params.id, name, role, system_prompt, cli_tool, cli_model, avatar_color, Boolean(can_implement), isEffortLevel(effort_level) ? effort_level : null);
+    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliEffort: cli_effort, agentProfileId: agent_profile_id });
+    const agent = queries.createDiscussionAgent(req.params.id, name, role, system_prompt, execution.cliTool ?? undefined, execution.cliModel ?? undefined, avatar_color, Boolean(can_implement), isEffortLevel(effort_level) ? effort_level : null, execution.agentProfileId, execution.cliEffort);
     res.status(201).json(agent);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    res.status(message.startsWith('Agent profile') ? 400 : 500).json({ error: message });
   }
 });
 
@@ -210,7 +212,11 @@ router.put('/agents/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const updated = queries.updateDiscussionAgent(req.params.id, req.body);
+    const execution = req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_effort !== undefined || req.body.agent_profile_id !== undefined
+      ? normalizeExecutionSelection({ cliTool: req.body.cli_tool ?? agent.cli_tool, cliModel: req.body.cli_model, cliEffort: req.body.cli_effort, agentProfileId: req.body.agent_profile_id }) : null;
+    const updated = queries.updateDiscussionAgent(req.params.id, execution
+      ? { ...req.body, cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_effort: execution.cliEffort, agent_profile_id: execution.agentProfileId, effort_level: null }
+      : req.body);
     res.json(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

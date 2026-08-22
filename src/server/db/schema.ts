@@ -155,6 +155,18 @@ export function initDatabase(db: Database.Database): void {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS agent_profiles (
+      id TEXT PRIMARY KEY,
+      cli_tool TEXT NOT NULL CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
+      name TEXT NOT NULL,
+      model_value TEXT,
+      effort_value TEXT,
+      is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(cli_tool, name)
+    );
+
     CREATE TABLE IF NOT EXISTS discussion_logs (
       id TEXT PRIMARY KEY,
       discussion_id TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
@@ -357,6 +369,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'todos', column: 'cli_tool', definition: 'TEXT' },
     { table: 'todos', column: 'cli_model', definition: 'TEXT' },
     { table: 'todos', column: 'effort_level', definition: 'INTEGER' },
+    { table: 'todos', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'todos', column: 'cli_effort', definition: 'TEXT' },
     { table: 'todos', column: 'schedule_id', definition: 'TEXT' },
     { table: 'todos', column: 'images', definition: 'TEXT' },
     { table: 'todos', column: 'depends_on', definition: 'TEXT' },
@@ -370,6 +384,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'schedules', column: 'schedule_type', definition: "TEXT DEFAULT 'recurring'" },
     { table: 'schedules', column: 'run_at', definition: 'DATETIME' },
     { table: 'schedules', column: 'effort_level', definition: 'INTEGER' },
+    { table: 'schedules', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'schedules', column: 'cli_effort', definition: 'TEXT' },
     { table: 'schedules', column: 'max_turns', definition: 'INTEGER' },
     { table: 'schedules', column: 'use_worktree', definition: 'INTEGER' },
     { table: 'schedules', column: 'memory_inject_mode', definition: "TEXT DEFAULT 'none'" },
@@ -400,6 +416,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'cli_models', column: 'source', definition: "TEXT DEFAULT 'seed'" },
     { table: 'discussion_agents', column: 'can_implement', definition: 'INTEGER DEFAULT 0' },
     { table: 'discussion_agents', column: 'effort_level', definition: 'INTEGER' },
+    { table: 'discussion_agents', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'discussion_agents', column: 'cli_effort', definition: 'TEXT' },
     { table: 'projects', column: 'npm_auto_install', definition: 'INTEGER DEFAULT 0' },
     { table: 'todos', column: 'summary', definition: 'TEXT' },
     { table: 'todos', column: 'diff_lines', definition: 'INTEGER' },
@@ -436,6 +454,8 @@ export function initDatabase(db: Database.Database): void {
     // snapshots the user took mid-session, each usable as a Diff page's base.
     { table: 'sessions', column: 'snapshots', definition: 'TEXT' },
     { table: 'sessions', column: 'effort_level', definition: 'INTEGER' },
+    { table: 'sessions', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'sessions', column: 'cli_effort', definition: 'TEXT' },
     { table: 'cli_models', column: 'availability_status', definition: "TEXT DEFAULT 'unknown'" },
     { table: 'cli_models', column: 'supported_efforts', definition: 'TEXT' },
     { table: 'cli_models', column: 'last_seen_at', definition: 'DATETIME' },

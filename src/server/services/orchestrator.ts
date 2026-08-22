@@ -4,7 +4,7 @@ import { worktreeManager } from './worktree-manager.js';
 import { claudeManager, type ClaudeMode } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './effort-profiles.js';
-import { resolveExecutionConfig } from './execution-config.js';
+import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
 import { logStreamer } from './log-streamer.js';
 import { getTodoImagePaths } from '../routes/images.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
@@ -511,10 +511,15 @@ Complete the task in the current directory.`;
 
     // Determine CLI tool: task-level overrides project-level
     const cliTool = (todo.cli_tool as CliTool) || (project.cli_tool as CliTool) || 'claude';
+    const claudeModel = todo.cli_model ?? (todo.effort_level != null ? project.claude_model : undefined);
+    const executionConfig = isAgentCliTool(cliTool)
+      ? resolveExecutionConfig({ cliTool, model: claudeModel, cliEffort: todo.cli_effort, agentProfileId: todo.agent_profile_id, effortLevel: todo.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      : null;
+    const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
     const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
 
     // Sandbox: generate Claude CLI permission settings (worktree or project root)
-    if (sandboxMode === 'strict' && cliTool === 'claude') {
+    if (sandboxMode === 'strict' && resolvedCliTool === 'claude') {
       try {
         const claudeDir = path.join(workDir, '.claude');
         const settingsPath = path.join(claudeDir, 'settings.json');
@@ -568,14 +573,10 @@ Complete the task in the current directory.`;
       }
     }
 
-    const claudeModel = todo.cli_model || project.claude_model || undefined;
-    const executionConfig = isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: claudeModel, effortLevel: todo.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
-      : null;
     const claudeOptions = project.claude_options ? project.claude_options : undefined;
     const DEFAULT_MAX_TURNS = 30;
     const maxTurns = todo.max_turns ?? project.default_max_turns ?? DEFAULT_MAX_TURNS;
-    const adapter = getAdapter(cliTool);
+    const adapter = getAdapter(resolvedCliTool);
 
     // Prompt injection detection (warn only)
     const promptGuardContent = isContinue ? continueOptions!.followUpPrompt : (todo.description || todo.title);
@@ -595,8 +596,7 @@ Complete the task in the current directory.`;
     const auditPrompt = prompt.length > 2000 ? prompt.slice(0, 2000) + '... [truncated]' : prompt;
     queries.createTaskLog(todoId, 'prompt', auditPrompt, roundNumber);
     if (executionConfig) {
-      queries.createTaskLog(todoId, 'info', `[model] requested=${executionConfig.requestedModel ?? 'provider-default'} effective=${executionConfig.model ?? 'provider-default'} availability=${executionConfig.modelAvailability}`, roundNumber);
-      queries.createTaskLog(todoId, 'info', `[effort] level=${executionConfig.effort.requestedLevel} source=${executionConfig.effort.levelSource} target=${executionConfig.effort.profileTarget ?? 'provider-default'} native=${executionConfig.effort.nativeEffort ?? 'provider-default'} resolution=${executionConfig.effort.resolution}`, roundNumber);
+      queries.createTaskLog(todoId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`, roundNumber);
     }
 
     let pid: number;
@@ -605,7 +605,7 @@ Complete the task in the current directory.`;
     let debugSession: DebugSession | null = null;
 
     try {
-      const result = await claudeManager.startClaude(workDir, prompt, executionConfig?.model, claudeOptions, mode, cliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, executionConfig?.effort.nativeEffort);
+      const result = await claudeManager.startClaude(workDir, prompt, executionConfig?.model, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, executionConfig?.effort.nativeEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 
@@ -614,7 +614,7 @@ Complete the task in the current directory.`;
       let stderr = result.stderr;
       if (project.debug_logging) {
         debugSession = debugLogger.startSession({
-          todoId, projectPath, cliTool,
+          todoId, projectPath, cliTool: resolvedCliTool,
           command: result.command, args: result.args,
           workDir, model: executionConfig?.model, sandboxMode,
         });

@@ -46,6 +46,8 @@ export interface Todo {
   cli_tool: string | null;
   cli_model: string | null;
   effort_level: number | null;
+  agent_profile_id: string | null;
+  cli_effort: string | null;
   images: string | null;
   depends_on: string | null;
   max_turns: number | null;
@@ -110,6 +112,8 @@ export interface Schedule {
   cli_tool: string | null;
   cli_model: string | null;
   effort_level: number | null;
+  agent_profile_id: string | null;
+  cli_effort: string | null;
   max_turns: number | null;
   use_worktree: number | null;
   memory_inject_mode: string | null;
@@ -193,6 +197,8 @@ export interface DiscussionAgent {
   cli_tool: string | null;
   cli_model: string | null;
   effort_level: number | null;
+  agent_profile_id: string | null;
+  cli_effort: string | null;
   avatar_color: string | null;
   sort_order: number;
   can_implement: number;
@@ -262,6 +268,8 @@ export interface Session {
   cli_tool: string | null;
   cli_model: string | null;
   effort_level: number | null;
+  agent_profile_id: string | null;
+  cli_effort: string | null;
   process_pid: number | null;
   branch_name: string | null;
   worktree_path: string | null;

@@ -28,7 +28,6 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [maxConcurrent, setMaxConcurrent] = useState(project.max_concurrent ?? 3);
   const [defaultMaxTurns, setDefaultMaxTurns] = useState(project.default_max_turns ?? 30);
-  const [defaultEffortLevel, setDefaultEffortLevel] = useState<number | null>(project.default_effort_level ?? null);
   const [cliTool, setCliTool] = useState<CliTool>((project.cli_tool as CliTool) || 'claude');
   const [claudeOptions, setClaudeOptions] = useState(project.claude_options ?? '');
   const [sandboxMode, setSandboxMode] = useState<'strict' | 'permissive'>((project.sandbox_mode as 'strict' | 'permissive') || 'strict');
@@ -132,7 +131,6 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
       const updated = await projectsApi.updateProject(project.id, {
         max_concurrent: effectiveMaxConcurrent,
         default_max_turns: defaultMaxTurns,
-        default_effort_level: defaultEffortLevel,
         cli_tool: cliTool,
         sandbox_mode: sandboxMode,
         debug_logging: debugLogging ? 1 : 0,
@@ -331,14 +329,6 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                 className="input-field"
               />
               <p className="text-2xs text-warm-400 mt-1">{t('settings.defaultMaxTurnsHint')}</p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.projectDefault')}</label>
-              <select className="input-field" value={defaultEffortLevel ?? ''} onChange={(e) => setDefaultEffortLevel(e.target.value ? Number(e.target.value) : null)}>
-                <option value="">{t('effort.inheritAgentDefault')}</option>
-                {([1, 2, 3, 4, 5] as const).map((level) => <option key={level} value={level}>{'★'.repeat(level)}{'☆'.repeat(5 - level)}</option>)}
-              </select>
             </div>
 
             <div>

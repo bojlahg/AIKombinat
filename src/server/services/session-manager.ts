@@ -2,7 +2,7 @@ import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
 import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './effort-profiles.js';
-import { resolveExecutionConfig } from './execution-config.js';
+import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
@@ -147,10 +147,15 @@ export class SessionManager {
     if (!project) throw new Error('Project not found');
 
     const cliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
-    if (!supportsInteractiveMode(cliTool)) {
-      throw new Error(`${cliTool} does not support interactive mode`);
+    const cliModel = session.cli_model ?? (session.effort_level != null ? project.claude_model : undefined);
+    const executionConfig = isAgentCliTool(cliTool)
+      ? resolveExecutionConfig({ cliTool, model: cliModel, cliEffort: session.cli_effort, agentProfileId: session.agent_profile_id, effortLevel: session.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      : null;
+    const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
+    if (!supportsInteractiveMode(resolvedCliTool)) {
+      throw new Error(`${resolvedCliTool} does not support interactive mode`);
     }
-    const isRawShell = cliTool === 'raw-shell';
+    const isRawShell = resolvedCliTool === 'raw-shell';
 
     const useWorktree = !!session.use_worktree && !!project.is_git_repo;
     const resume = !!opts?.continueSession;
@@ -161,7 +166,7 @@ export class SessionManager {
       // --continue is currently only wired for Claude in interactive mode.
       // Antigravity/Codex have the adapter flag but their interactive resume is
       // not yet validated, so reject early with a clear message.
-      if (cliTool !== 'claude') {
+      if (resolvedCliTool !== 'claude') {
         throw new Error('Resume is only supported for Claude sessions');
       }
       // claude --continue picks the latest conversation in the cwd. If the
@@ -172,14 +177,9 @@ export class SessionManager {
       }
     }
 
-    const adapter = getAdapter(cliTool);
-    const cliModel = session.cli_model || project.claude_model || undefined;
-    const executionConfig = isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: cliModel, effortLevel: session.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
-      : null;
+    const adapter = getAdapter(resolvedCliTool);
     if (executionConfig) {
-      queries.createSessionLog(sessionId, 'info', `[model] requested=${executionConfig.requestedModel ?? 'provider-default'} effective=${executionConfig.model ?? 'provider-default'} availability=${executionConfig.modelAvailability}`);
-      queries.createSessionLog(sessionId, 'info', `[effort] level=${executionConfig.effort.requestedLevel} source=${executionConfig.effort.levelSource} native=${executionConfig.effort.nativeEffort ?? 'provider-default'} resolution=${executionConfig.effort.resolution}`);
+      queries.createSessionLog(sessionId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`);
     }
     let prompt = session.description || '';
 
@@ -294,7 +294,7 @@ export class SessionManager {
 
     try {
       const result = await claudeManager.startClaude(
-        workDir, '', executionConfig?.model, undefined, 'interactive', cliTool,
+        workDir, '', executionConfig?.model, undefined, 'interactive', resolvedCliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
         executionConfig?.effort.nativeEffort,

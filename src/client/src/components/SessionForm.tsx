@@ -9,7 +9,7 @@ import type { VaultInjectMode } from '../api/vault';
 import * as tagsApi from '../api/sessionTags';
 import * as settingsApi from '../api/sessionSettings';
 import { forceImeHandoff } from '../ime-handoff';
-import EffortStars from './EffortStars';
+import type { AgentProfile } from '../api/agentProfiles';
 
 export interface SessionFormInitial {
   title: string;
@@ -17,6 +17,8 @@ export interface SessionFormInitial {
   cliTool: string;
   cliModel: string;
   effortLevel: number | null;
+  cliEffort?: string | null;
+  agentProfileId?: string | null;
   useWorktree: boolean;
   memoryInjectMode: MemoryInjectMode;
   memoryNodeIds: string[];
@@ -39,6 +41,8 @@ interface SessionFormProps {
     tagId?: string | null,
     cliModel?: string,
     effortLevel?: number | null,
+    cliEffort?: string | null,
+    agentProfileId?: string | null,
   ) => void;
   onCancel: () => void;
   projectCliTool?: string;
@@ -55,9 +59,10 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [description, setDescription] = useState(initial?.description ?? '');
   const [cliTool, setCliTool] = useState(initial?.cliTool ?? (projectCliTool || ''));
   const [cliModel, setCliModel] = useState(initial?.cliModel ?? '');
-  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5 | null>(initial?.effortLevel == null ? null : Math.min(5, Math.max(1, initial.effortLevel)) as 1 | 2 | 3 | 4 | 5);
+  const [cliEffort, setCliEffort] = useState(initial?.cliEffort ?? '');
+  const [agentProfileId, setAgentProfileId] = useState(initial?.agentProfileId ?? '');
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
-  const [profileDefaults, setProfileDefaults] = useState<Record<string, number>>({});
   const [useWorktree, setUseWorktree] = useState(initial?.useWorktree ?? !!projectUseWorktree);
   const [vaultMode, setVaultMode] = useState<VaultInjectMode>((initial?.memoryInjectMode as VaultInjectMode | undefined) ?? 'none');
   const [vaultPaths, setVaultPaths] = useState<string[]>(initial?.memoryRawFilePaths ?? []);
@@ -76,11 +81,11 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   // the focus traversal for the form's lifetime.
   useEffect(() => {
     fetch('/api/models', { credentials: 'include' }).then((res) => res.json()).then(setModels).catch(() => setModels({}));
-    fetch('/api/agent-effort-profiles', { credentials: 'include' }).then((res) => res.json()).then((items: Array<{ cliTool: string; defaultLevel: number }>) => setProfileDefaults(Object.fromEntries(items.map((item) => [item.cliTool, item.defaultLevel])))).catch(() => setProfileDefaults({}));
+    fetch('/api/agent-profiles', { credentials: 'include' }).then((res) => res.json()).then(setProfiles).catch(() => setProfiles([]));
   }, []);
 
   const selectedForDefaults = cliTool || projectCliTool || 'claude';
-  const inheritedEffortLevel = (projectEffortLevel ?? profileDefaults[selectedForDefaults] ?? (selectedForDefaults === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5;
+  void projectEffortLevel;
 
   useEffect(() => {
     if (!forceImeHandoff(() => titleRef.current?.focus())) {
@@ -179,8 +184,10 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
       [],
       vaultPaths,
       tagId,
-      cliModel || undefined,
-      effortLevel,
+      agentProfileId ? undefined : cliModel || undefined,
+      null,
+      agentProfileId ? null : cliEffort || null,
+      agentProfileId || null,
     );
   };
 
@@ -211,7 +218,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
       <div className="flex gap-2">
         <select
           value={cliTool}
-          onChange={(e) => { setCliTool(e.target.value); setCliModel(''); }}
+          onChange={(e) => { setCliTool(e.target.value); setCliModel(''); setCliEffort(''); setAgentProfileId(''); }}
           className="input-field text-xs flex-1"
         >
           <option value="">{t('session.cliTool')} (Default)</option>
@@ -219,12 +226,14 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
             <option key={tool.value} value={tool.value}>{optionLabel(tool)}</option>
           ))}
         </select>
-        {!isRawShell && <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-xs flex-1" aria-label={t('effort.model')}>
+        {!isRawShell && <select value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)} className="input-field text-xs flex-1" aria-label={t('profiles.configuration')}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.cliTool === selectedTool && (p.isEnabled || p.id === agentProfileId)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}</select>}
+        {!isRawShell && !agentProfileId && <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-xs flex-1" aria-label={t('effort.model')}>
           <option value="">{t('effort.providerModelDefault')}</option>
           {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
         </select>}
       </div>
-      {!isRawShell && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><label className="mb-1 flex items-center gap-2 text-xs text-warm-500"><input type="checkbox" checked={effortLevel === null} onChange={(event) => setEffortLevel(event.target.checked ? null : inheritedEffortLevel)} />{t('effort.inheritProjectAgent')}</label><EffortStars value={effortLevel ?? inheritedEffortLevel} onChange={setEffortLevel} /></div>}
+      {!isRawShell && !agentProfileId && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-xs"><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
+      {agentProfileId && <p className="text-xs text-warm-500">{(() => { const p = profiles.find((item) => item.id === agentProfileId); return p ? `${p.modelValue ?? t('profiles.providerDefault')} / ${p.effortValue ?? t('profiles.providerDefault')}` : t('profiles.profileUnavailable'); })()}</p>}
       {tags.length > 0 && (
         <div className="flex items-center gap-2">
           {selectedTag && (

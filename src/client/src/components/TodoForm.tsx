@@ -5,7 +5,7 @@ import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import type { ImageMeta, MemoryInjectMode, Todo } from '../types';
 import type { VaultInjectMode } from '../api/vault';
 import { getTodoImageUrl } from '../api/todos';
-import EffortStars from './EffortStars';
+import type { AgentProfile } from '../api/agentProfiles';
 
 function parseRawFilePaths(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -26,13 +26,15 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null, cliEffort?: string | null, agentProfileId?: string | null) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
   initialCliTool?: string;
   initialCliModel?: string;
   initialEffortLevel?: number | null;
+  initialCliEffort?: string | null;
+  initialAgentProfileId?: string | null;
   initialDependsOn?: string;
   initialMaxTurns?: number;
   initialUseWorktree?: number | null;
@@ -59,6 +61,8 @@ export default function TodoForm({
   initialCliTool,
   initialCliModel,
   initialEffortLevel,
+  initialCliEffort,
+  initialAgentProfileId,
   initialDependsOn,
   initialMaxTurns,
   initialUseWorktree = null,
@@ -78,9 +82,10 @@ export default function TodoForm({
   const [description, setDescription] = useState(initialDescription);
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
   const [cliModel, setCliModel] = useState(initialCliModel ?? '');
-  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5 | null>(initialEffortLevel == null ? null : Math.min(5, Math.max(1, initialEffortLevel)) as 1 | 2 | 3 | 4 | 5);
+  const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
+  const [agentProfileId, setAgentProfileId] = useState(initialAgentProfileId ?? '');
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
-  const [profileDefaults, setProfileDefaults] = useState<Record<string, number>>({});
   const [dependsOn, setDependsOn] = useState(initialDependsOn ?? '');
   const [maxTurns, setMaxTurns] = useState(initialMaxTurns?.toString() ?? '');
   const [useWorktreeMode, setUseWorktreeMode] = useState<'inherit' | 'force-on' | 'force-off'>(
@@ -97,10 +102,10 @@ export default function TodoForm({
 
   useEffect(() => {
     fetch('/api/models', { credentials: 'include' }).then((res) => res.json()).then(setModels).catch(() => setModels({}));
-    fetch('/api/agent-effort-profiles', { credentials: 'include' }).then((res) => res.json()).then((items: Array<{ cliTool: string; defaultLevel: number }>) => setProfileDefaults(Object.fromEntries(items.map((item) => [item.cliTool, item.defaultLevel])))).catch(() => setProfileDefaults({}));
+    fetch('/api/agent-profiles', { credentials: 'include' }).then((res) => res.json()).then(setProfiles).catch(() => setProfiles([]));
   }, []);
 
-  const inheritedEffortLevel = (projectEffortLevel ?? profileDefaults[cliTool] ?? (cliTool === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5;
+  void initialEffortLevel; void projectEffortLevel;
   const toolModels = models[cliTool] ?? [];
   const selectableModels = toolModels.filter((model) => !model.deprecated && model.availabilityStatus !== 'unavailable' && model.value);
   const selectedModel = cliModel ? toolModels.find((model) => model.value === cliModel) : undefined;
@@ -185,7 +190,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, cliModel || undefined, effortLevel);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, agentProfileId ? undefined : cliModel || undefined, null, agentProfileId ? null : cliEffort || null, agentProfileId || null);
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -302,7 +307,7 @@ export default function TodoForm({
           </label>
           <select
             value={cliTool}
-            onChange={(e) => { setCliTool(e.target.value as CliTool); setCliModel(''); }}
+            onChange={(e) => { setCliTool(e.target.value as CliTool); setCliModel(''); setCliEffort(''); setAgentProfileId(''); }}
             className="input-field text-sm"
           >
             {CLI_TOOLS.map((tool) => (
@@ -311,17 +316,24 @@ export default function TodoForm({
           </select>
         </div>
         {cliTool !== 'raw-shell' && <div>
+          <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('profiles.configuration')}</label>
+          <select value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)} className="input-field text-sm">
+            <option value="">{t('profiles.manual')}</option>
+            {profiles.filter((p) => p.cliTool === cliTool && (p.isEnabled || p.id === agentProfileId)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}
+          </select>
+        </div>}
+        {cliTool !== 'raw-shell' && !agentProfileId && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label>
           <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-sm">
             <option value="">{t('effort.providerModelDefault')}</option>
             {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
           </select>
         </div>}
-        {cliTool !== 'raw-shell' && <div>
+        {cliTool !== 'raw-shell' && !agentProfileId && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label>
-          <label className="mb-1 flex items-center gap-2 text-xs text-warm-500"><input type="checkbox" checked={effortLevel === null} onChange={(event) => setEffortLevel(event.target.checked ? null : inheritedEffortLevel)} />{t('effort.inheritProjectAgent')}</label>
-          <EffortStars value={effortLevel ?? inheritedEffortLevel} onChange={setEffortLevel} />
+          <select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-sm"><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
         </div>}
+        {agentProfileId && <div className="self-end text-xs text-warm-500">{(() => { const p = profiles.find((item) => item.id === agentProfileId); return p ? `${p.modelValue ?? t('profiles.providerDefault')} / ${p.effortValue ?? t('profiles.providerDefault')}` : t('profiles.profileUnavailable'); })()}</div>}
       </div>
 
       {/* Max Turns */}

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import CronBuilder from './CronBuilder';
+import type { AgentProfile } from '../api/agentProfiles';
 
 type ScheduleType = 'recurring' | 'once';
 
@@ -11,6 +12,9 @@ interface ScheduleFormProps {
     description: string;
     cronExpression: string;
     cliTool?: string;
+    cliModel?: string;
+    cliEffort?: string | null;
+    agentProfileId?: string | null;
     skipIfRunning?: boolean;
     scheduleType: ScheduleType;
     runAt?: string;
@@ -20,6 +24,9 @@ interface ScheduleFormProps {
   initialDescription?: string;
   initialCronExpression?: string;
   initialCliTool?: string;
+  initialCliModel?: string | null;
+  initialCliEffort?: string | null;
+  initialAgentProfileId?: string | null;
   initialSkipIfRunning?: boolean;
   initialScheduleType?: ScheduleType;
   initialRunAt?: string;
@@ -56,6 +63,9 @@ export default function ScheduleForm({
   initialDescription = '',
   initialCronExpression = '',
   initialCliTool,
+  initialCliModel,
+  initialCliEffort,
+  initialAgentProfileId,
   initialSkipIfRunning = true,
   initialScheduleType = 'recurring',
   initialRunAt,
@@ -65,10 +75,16 @@ export default function ScheduleForm({
   const [description, setDescription] = useState(initialDescription);
   const [cronExpression, setCronExpression] = useState(initialCronExpression);
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
+  const [cliModel, setCliModel] = useState(initialCliModel ?? '');
+  const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
+  const [agentProfileId, setAgentProfileId] = useState(initialAgentProfileId ?? '');
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string }>>>({});
   const [skipIfRunning, setSkipIfRunning] = useState(initialSkipIfRunning);
   const [scheduleType, setScheduleType] = useState<ScheduleType>(initialScheduleType);
   const [runAt, setRunAt] = useState(initialRunAt ? toLocalDatetimeValue(initialRunAt) : getDefaultRunAt());
   const { t } = useI18n();
+  useEffect(() => { fetch('/api/agent-profiles', { credentials: 'include' }).then((r) => r.json()).then(setProfiles).catch(() => setProfiles([])); fetch('/api/models', { credentials: 'include' }).then((r) => r.json()).then(setModels).catch(() => setModels({})); }, []);
 
   const isOnce = scheduleType === 'once';
   const canSubmit = title.trim() && (isOnce ? !!runAt : !!cronExpression.trim());
@@ -81,6 +97,9 @@ export default function ScheduleForm({
       description: description.trim(),
       cronExpression: isOnce ? '' : cronExpression.trim(),
       cliTool,
+      cliModel: agentProfileId ? undefined : cliModel || undefined,
+      cliEffort: agentProfileId ? null : cliEffort || null,
+      agentProfileId: agentProfileId || null,
       skipIfRunning,
       scheduleType,
       runAt: isOnce ? new Date(runAt).toISOString() : undefined,
@@ -171,7 +190,7 @@ export default function ScheduleForm({
           </label>
           <select
             value={cliTool}
-            onChange={(e) => setCliTool(e.target.value as CliTool)}
+            onChange={(e) => { setCliTool(e.target.value as CliTool); setCliModel(''); setCliEffort(''); setAgentProfileId(''); }}
             className="input-field text-sm !py-2"
           >
             {CLI_TOOLS.map((tool) => (
@@ -179,6 +198,9 @@ export default function ScheduleForm({
             ))}
           </select>
         </div>
+        {cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('profiles.configuration')}</label><select className="input-field text-sm !py-2" value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.cliTool === cliTool && (p.isEnabled || p.id === agentProfileId)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}</select></div>}
+        {cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label><select className="input-field text-sm !py-2" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{models[cliTool]?.filter((m) => m.value).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>}
+        {cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label><select className="input-field text-sm !py-2" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
       </div>
 
       {/* Skip if Running (only for recurring) */}

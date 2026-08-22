@@ -102,6 +102,8 @@ describe('Scheduler execution', () => {
       '["notes.md"]',
       undefined,
       5,
+      undefined,
+      undefined,
     );
     expect(mocks.createScheduleRun).toHaveBeenCalledOnce();
     expect(mocks.startTodo).toHaveBeenCalledWith('todo-1');

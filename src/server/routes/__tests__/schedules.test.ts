@@ -59,7 +59,7 @@ describe('todo scheduling conversion', () => {
     expect(response.status).toBe(201);
     expect(mocks.createSchedule).toHaveBeenCalledWith(
       'project-1', 'Preserve me', 'Details', '* * * * *', 'codex', 'gpt-5.1', 1, 'once',
-      '2027-01-02T03:04:05.000Z', 4, 23, 0, 'selected', '["node-1"]', '["guide.md"]',
+      '2027-01-02T03:04:05.000Z', 4, 23, 0, 'selected', '["node-1"]', '["guide.md"]', undefined, undefined,
     );
   });
 
@@ -71,7 +71,7 @@ describe('todo scheduling conversion', () => {
     expect(response.status).toBe(201);
     expect(mocks.createSchedule).toHaveBeenCalledWith(
       'project-1', '[Reset] Continue after reset', 'Continue after reset', '* * * * *', 'codex', 'gpt-5.1', 1, 'once',
-      new Date(1_800_000_000 * 1000).toISOString(), 4, 23, 0, 'selected', '["node-1"]', '["guide.md"]',
+      new Date(1_800_000_000 * 1000).toISOString(), 4, 23, 0, 'selected', '["node-1"]', '["guide.md"]', undefined, undefined,
     );
   });
 });

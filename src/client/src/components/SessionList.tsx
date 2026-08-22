@@ -115,6 +115,8 @@ export default function SessionList({
       cliTool: editingSession.cli_tool ?? '',
       cliModel: editingSession.cli_model ?? '',
       effortLevel: editingSession.effort_level,
+      cliEffort: editingSession.cli_effort,
+      agentProfileId: editingSession.agent_profile_id,
       useWorktree: editingSession.use_worktree === 1,
       memoryInjectMode: (editingSession.memory_inject_mode as MemoryInjectMode | null) ?? 'none',
       memoryNodeIds: parseMemoryNodeIds(editingSession.memory_node_ids ?? null),
@@ -152,6 +154,8 @@ export default function SessionList({
     tagId?: string | null,
     cliModel?: string,
     effortLevel?: number | null,
+    cliEffort?: string | null,
+    agentProfileId?: string | null,
   ) => {
     setCreating(true);
     try {
@@ -160,7 +164,7 @@ export default function SessionList({
         description: description || undefined,
         cli_tool: cliTool,
         cli_model: cliModel,
-        effort_level: effortLevel,
+        effort_level: effortLevel, cli_effort: cliEffort, agent_profile_id: agentProfileId,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -185,6 +189,8 @@ export default function SessionList({
     tagId?: string | null,
     cliModel?: string,
     effortLevel?: number | null,
+    cliEffort?: string | null,
+    agentProfileId?: string | null,
   ) => {
     if (!editingId) return;
     setSaving(true);
@@ -195,7 +201,7 @@ export default function SessionList({
         description: description || undefined,
         cli_tool: cliTool,
         cli_model: cliModel,
-        effort_level: effortLevel,
+        effort_level: effortLevel, cli_effort: cliEffort, agent_profile_id: agentProfileId,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
