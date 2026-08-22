@@ -72,7 +72,7 @@ Key vars: `PORT` (default 3000), `DB_PATH`, `TUNNEL_ENABLED`, `HEADLESS`, `DISAB
 
 ## Language
 
-The UI supports English, Korean, and Russian. Add new UI strings through the existing i18n system and provide all required core locale keys; do not hardcode Korean, English, or Russian UI text. Code identifiers and comments remain in English. Commit messages may be in English or Korean.
+The UI supports English, Korean, and Russian. Add new UI strings through the existing i18n system and provide all required core locale keys; do not hardcode Korean, English, or Russian UI text. English is the canonical core locale: EN/KO/RU must always have identical key sets and identical placeholder sets for every key. Keep plugin translation fallback semantics separate from mandatory core locale parity. Code identifiers and comments remain in English. Commit messages may be in English or Korean.
 
 ## Task Execution Guidelines
 
