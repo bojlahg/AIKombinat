@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import { useI18n } from '../i18n';
+import LanguageSelector from './LanguageSelector';
 
 interface SetupPageProps {
   onSetup: (password: string, confirmPassword: string) => Promise<void>;
@@ -13,7 +14,7 @@ export default function SetupPage({ onSetup }: SetupPageProps) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { t, toggleLang } = useI18n();
+  const { t } = useI18n();
 
   const tooShort = password.length > 0 && password.length < MIN_LENGTH;
   const mismatch = confirm.length > 0 && password !== confirm;
@@ -35,12 +36,7 @@ export default function SetupPage({ onSetup }: SetupPageProps) {
 
   return (
     <div className="min-h-screen bg-theme-bg flex items-center justify-center px-4 relative">
-      <button
-        onClick={toggleLang}
-        className="lang-toggle absolute top-6 right-6"
-      >
-        {t('lang.toggle')}
-      </button>
+      <LanguageSelector className="lang-toggle absolute top-6 right-6" />
 
       <div className="w-full max-w-sm animate-fade-in">
         <div className="text-center mb-10">

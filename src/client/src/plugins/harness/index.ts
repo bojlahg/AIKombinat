@@ -6,6 +6,7 @@ export const harnessClientPlugin: ClientPluginManifest = {
   id: 'harness',
   displayName: 'Harness',
   displayNameKo: '하네스',
+  displayNameRu: 'Harness',
   PanelComponent: HarnessPanel,
   SettingsComponent: HarnessSettings,
   hasTab: false,

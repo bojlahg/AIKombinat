@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Hammer, Pencil, Trash2, Users } from 'lucide-react';
 import type { DiscussionAgent } from '../types';
-import { useI18n } from '../i18n';
+import { useI18n, type Lang } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import * as discussionsApi from '../api/discussions';
 import EmptyState from './EmptyState';
@@ -13,38 +13,49 @@ const AVATAR_COLORS = [
   '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
 ];
 
-const PRESET_AGENTS: Array<{ name: string; nameKo: string; role: string; prompt: string }> = [
+const PRESET_AGENTS: Array<{ name: string; nameKo: string; nameRu: string; role: string; prompt: string }> = [
   {
     name: 'Architect',
     nameKo: '아키텍트',
+    nameRu: 'Архитектор',
     role: 'architect',
     prompt: 'You are a senior software architect. Focus on system design, scalability, maintainability, and separation of concerns. Evaluate proposals for architectural soundness and suggest patterns that work well.',
   },
   {
     name: 'Developer',
     nameKo: '개발자',
+    nameRu: 'Разработчик',
     role: 'developer',
     prompt: 'You are a senior full-stack developer. Focus on implementation feasibility, code quality, existing patterns in the codebase, and developer experience. Be pragmatic about what can realistically be built.',
   },
   {
     name: 'Reviewer',
     nameKo: '리뷰어',
+    nameRu: 'Ревьюер',
     role: 'reviewer',
     prompt: 'You are a senior code reviewer and quality advocate. Focus on edge cases, error handling, security, performance, and testing strategy. Challenge assumptions and find potential issues.',
   },
   {
     name: 'Product Manager',
     nameKo: 'PM',
+    nameRu: 'Продакт-менеджер',
     role: 'pm',
     prompt: 'You are a product manager. Focus on user experience, feature scope, priorities, and trade-offs. Ensure the discussion stays grounded in user needs and business value.',
   },
   {
     name: 'Tester',
     nameKo: '테스터',
+    nameRu: 'Тестировщик',
     role: 'tester',
     prompt: 'You are a QA engineer and testing specialist. Focus on testability, test coverage strategy, edge cases, regression risks, and how to verify the feature works correctly.',
   },
 ];
+
+function presetName(preset: { name: string; nameKo: string; nameRu: string }, lang: Lang): string {
+  if (lang === 'ko') return preset.nameKo;
+  if (lang === 'ru') return preset.nameRu;
+  return preset.name;
+}
 
 interface AgentManagerProps {
   projectId: string;
@@ -117,7 +128,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
   };
 
   const handlePreset = (preset: typeof PRESET_AGENTS[number]) => {
-    setName(lang === 'ko' ? preset.nameKo : preset.name);
+    setName(presetName(preset, lang));
     setRole(preset.role);
     setSystemPrompt(preset.prompt);
     setAvatarColor(AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]);
@@ -204,7 +215,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                     onClick={() => handlePreset(preset)}
                     className="px-3 py-1.5 text-xs rounded-lg bg-warm-50 text-warm-600 hover:bg-warm-100 border border-warm-150 hover:border-warm-300 transition-colors font-medium"
                   >
-                    {lang === 'ko' ? preset.nameKo : preset.name}
+                    {presetName(preset, lang)}
                   </button>
                 ))}
               </div>

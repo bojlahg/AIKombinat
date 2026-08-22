@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import { useI18n } from '../i18n';
+import LanguageSelector from './LanguageSelector';
 
 interface LoginPageProps {
   onLogin: (password: string, remember: boolean) => Promise<void>;
@@ -23,7 +24,7 @@ export default function LoginPage({ onLogin, onChangePassword }: LoginPageProps)
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { t, toggleLang } = useI18n();
+  const { t } = useI18n();
 
   const tooShort = changeMode && newPassword.length > 0 && newPassword.length < MIN_LENGTH;
   const mismatch = changeMode && confirm.length > 0 && newPassword !== confirm;
@@ -59,13 +60,8 @@ export default function LoginPage({ onLogin, onChangePassword }: LoginPageProps)
 
   return (
     <div className="min-h-screen bg-theme-bg flex items-center justify-center px-4 relative">
-      {/* Language toggle */}
-      <button
-        onClick={toggleLang}
-        className="lang-toggle absolute top-6 right-6"
-      >
-        {t('lang.toggle')}
-      </button>
+      {/* Language selector */}
+      <LanguageSelector className="lang-toggle absolute top-6 right-6" />
 
       <div className="w-full max-w-sm animate-fade-in">
         {/* Logo */}

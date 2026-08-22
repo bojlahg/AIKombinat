@@ -19,12 +19,14 @@ export function getPluginsWithTabs(project: Project): ClientPluginManifest[] {
   return getClientPlugins().filter(p => p.hasTab && p.isEnabled(project));
 }
 
-export function getPluginTranslations(): { en: Record<string, string>; ko: Record<string, string> } {
+export function getPluginTranslations(): { en: Record<string, string>; ko: Record<string, string>; ru: Record<string, string> } {
   const en: Record<string, string> = {};
   const ko: Record<string, string> = {};
+  const ru: Record<string, string> = {};
   for (const plugin of plugins.values()) {
     Object.assign(en, plugin.translations.en);
     Object.assign(ko, plugin.translations.ko);
+    if (plugin.translations.ru) Object.assign(ru, plugin.translations.ru);
   }
-  return { en, ko };
+  return { en, ko, ru };
 }

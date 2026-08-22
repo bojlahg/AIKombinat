@@ -20,6 +20,7 @@ import ProjectColorPicker from './ProjectColorPicker';
 import { resolveProjectColor } from '../lib/projectColor';
 import { getErrorMessage } from '../lib/errors';
 import IconButton from './IconButton';
+import LanguageSelector from './LanguageSelector';
 
 interface SidebarProps {
   onLogout: () => void;
@@ -61,7 +62,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   const [dragOverGapIndex, setDragOverGapIndex] = useState<number | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const { t, toggleLang } = useI18n();
+  const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const { enabled: notifEnabled, supported: notifSupported, toggleNotification } = useNotification();
   const { error: toastError, success: toastSuccess, info: toastInfo, warning: toastWarning } = useToast();
@@ -775,13 +776,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
               <Sun size={16} />
             )}
           </IconButton>
-          <IconButton
-            onClick={toggleLang}
-            label={t('lang.toggle')}
-            className="text-xs font-medium"
-          >
-            {t('lang.toggle')}
-          </IconButton>
+          <LanguageSelector className="btn-icon btn-icon-md text-xs font-medium" />
           {notifSupported && (
             <IconButton
               onClick={toggleNotification}

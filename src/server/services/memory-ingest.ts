@@ -594,6 +594,8 @@ export async function ingestSource(
   const schema = getOrCreateSchemaNode(projectId);
   const langRule = locale === 'en'
     ? '- Write all titles, body text, tags, and edge labels in English.'
+    : locale === 'ru'
+    ? '- Write all titles, body text, tags, and edge labels in Russian (русский).'
     : '- Write all titles, body text, tags, and edge labels in Korean (한국어).';
 
   const chunks = chunkSourceText(sourceText, CHUNK_CHARS, MAX_CHUNKS);

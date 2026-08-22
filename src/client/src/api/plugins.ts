@@ -5,6 +5,7 @@ export interface PluginInfo {
   version: string;
   displayName: string;
   displayNameKo: string;
+  displayNameRu?: string;
   category: string;
   configFields: Array<{ key: string; type: string; sensitive?: boolean; required?: boolean }>;
   hasPanel: boolean;

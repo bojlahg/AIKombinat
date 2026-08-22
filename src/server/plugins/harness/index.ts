@@ -6,6 +6,7 @@ export const harnessPlugin: PluginManifest = {
   version: '1.0.0',
   displayName: 'Harness',
   displayNameKo: '하네스',
+  displayNameRu: 'Harness',
   category: 'external-service',
   hasPanel: true,
   routePrefix: '/api/harness',

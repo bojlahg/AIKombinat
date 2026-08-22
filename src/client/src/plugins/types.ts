@@ -16,6 +16,7 @@ export interface ClientPluginManifest {
   id: string;
   displayName: string;
   displayNameKo: string;
+  displayNameRu?: string;
   PanelComponent?: ComponentType<PluginPanelProps>;
   SettingsComponent: ComponentType<PluginSettingsProps>;
   hasTab: boolean;
@@ -23,5 +24,6 @@ export interface ClientPluginManifest {
   translations: {
     en: Record<string, string>;
     ko: Record<string, string>;
+    ru?: Record<string, string>;
   };
 }

@@ -17,6 +17,7 @@ export interface PluginManifest {
   version: string;
   displayName: string;
   displayNameKo: string;
+  displayNameRu?: string;
   category: 'external-service';
   configFields: PluginConfigField[];
   hasPanel: boolean;

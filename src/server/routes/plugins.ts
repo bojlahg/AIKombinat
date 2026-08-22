@@ -11,6 +11,7 @@ router.get('/', (_req: Request, res: Response) => {
     version: p.version,
     displayName: p.displayName,
     displayNameKo: p.displayNameKo,
+    displayNameRu: p.displayNameRu,
     category: p.category,
     configFields: p.configFields,
     hasPanel: p.hasPanel,
