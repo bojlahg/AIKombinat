@@ -3,7 +3,7 @@ import { createTodo, getTodosByProjectId, getTodoById, updateTodo, deleteTodo } 
 import { getProjectById } from '../db/queries.js';
 import { validatePromptContent, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from '../services/prompt-guard.js';
 import { cleanupTodoImages } from './images.js';
-import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
+import { isEffortLevel } from '../services/effort-profiles.js';
 
 const router = Router();
 
@@ -66,11 +66,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       ? (memory_node_ids.length > 0 ? JSON.stringify(memory_node_ids.map(String)) : null)
       : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
-    const effectiveTool = isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude');
-    const effortLevel = isEffortLevel(effort_level)
-      ? effort_level
-      : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(effectiveTool).defaultLevel);
-    const todo = createTodo(projectId, title, description, priority, cli_tool, cli_model, undefined, depends_on, parsedMaxTurns || undefined, normalizedUseWorktree, normalizedMemMode, normalizedMemIds, normalizedRawFilePaths === undefined ? null : normalizedRawFilePaths, undefined, effortLevel);
+    const todo = createTodo(projectId, title, description, priority, cli_tool, cli_model, undefined, depends_on, parsedMaxTurns || undefined, normalizedUseWorktree, normalizedMemMode, normalizedMemIds, normalizedRawFilePaths === undefined ? null : normalizedRawFilePaths, undefined, isEffortLevel(effort_level) ? effort_level : null);
     res.status(201).json(todo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

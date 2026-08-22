@@ -26,13 +26,13 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
   initialCliTool?: string;
   initialCliModel?: string;
-  initialEffortLevel?: number;
+  initialEffortLevel?: number | null;
   initialDependsOn?: string;
   initialMaxTurns?: number;
   initialUseWorktree?: number | null;
@@ -78,8 +78,8 @@ export default function TodoForm({
   const [description, setDescription] = useState(initialDescription);
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
   const [cliModel, setCliModel] = useState(initialCliModel ?? '');
-  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5>(Math.min(5, Math.max(1, initialEffortLevel ?? projectEffortLevel ?? (cliTool === 'claude' ? 3 : 2))) as 1 | 2 | 3 | 4 | 5);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean }>>>({});
+  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5 | null>(initialEffortLevel == null ? null : Math.min(5, Math.max(1, initialEffortLevel)) as 1 | 2 | 3 | 4 | 5);
+  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
   const [profileDefaults, setProfileDefaults] = useState<Record<string, number>>({});
   const [dependsOn, setDependsOn] = useState(initialDependsOn ?? '');
   const [maxTurns, setMaxTurns] = useState(initialMaxTurns?.toString() ?? '');
@@ -100,9 +100,21 @@ export default function TodoForm({
     fetch('/api/agent-effort-profiles', { credentials: 'include' }).then((res) => res.json()).then((items: Array<{ cliTool: string; defaultLevel: number }>) => setProfileDefaults(Object.fromEntries(items.map((item) => [item.cliTool, item.defaultLevel])))).catch(() => setProfileDefaults({}));
   }, []);
 
-  useEffect(() => {
-    if (initialEffortLevel === undefined) setEffortLevel((projectEffortLevel ?? profileDefaults[cliTool] ?? (cliTool === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5);
-  }, [cliTool, initialEffortLevel, profileDefaults, projectEffortLevel]);
+  const inheritedEffortLevel = (projectEffortLevel ?? profileDefaults[cliTool] ?? (cliTool === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5;
+  const toolModels = models[cliTool] ?? [];
+  const selectableModels = toolModels.filter((model) => !model.deprecated && model.availabilityStatus !== 'unavailable' && model.value);
+  const selectedModel = cliModel ? toolModels.find((model) => model.value === cliModel) : undefined;
+  const visibleModels = selectedModel && !selectableModels.some((model) => model.value === selectedModel.value)
+    ? [selectedModel, ...selectableModels]
+    : cliModel && !selectedModel
+      ? [{ value: cliModel, label: cliModel, availabilityStatus: 'unknown' }, ...selectableModels]
+      : selectableModels;
+  const modelLabel = (model: { value: string; label: string; deprecated?: boolean; availabilityStatus?: string }) => {
+    if (model.availabilityStatus === 'unavailable') return `${model.label} (${t('effort.modelUnavailable')})`;
+    if (model.deprecated) return `${model.label} (${t('effort.modelDeprecated')})`;
+    if (model.availabilityStatus === 'unknown' && model.value === cliModel) return `${model.label} (${t('effort.modelUnknown')})`;
+    return model.label;
+  };
 
   const addImagesFromFiles = useCallback((files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -302,12 +314,13 @@ export default function TodoForm({
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label>
           <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-sm">
             <option value="">{t('effort.providerModelDefault')}</option>
-            {(models[cliTool] ?? []).filter((model) => !model.deprecated && model.value).map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
+            {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
           </select>
         </div>}
         {cliTool !== 'raw-shell' && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label>
-          <EffortStars value={effortLevel} onChange={setEffortLevel} />
+          <label className="mb-1 flex items-center gap-2 text-xs text-warm-500"><input type="checkbox" checked={effortLevel === null} onChange={(event) => setEffortLevel(event.target.checked ? null : inheritedEffortLevel)} />{t('effort.inheritProjectAgent')}</label>
+          <EffortStars value={effortLevel ?? inheritedEffortLevel} onChange={setEffortLevel} />
         </div>}
       </div>
 

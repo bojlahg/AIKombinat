@@ -1,7 +1,8 @@
 import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
 import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool, resolveExecutionEffort } from './effort-profiles.js';
+import { isAgentCliTool } from './effort-profiles.js';
+import { resolveExecutionConfig } from './execution-config.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
@@ -173,9 +174,13 @@ export class SessionManager {
 
     const adapter = getAdapter(cliTool);
     const cliModel = session.cli_model || project.claude_model || undefined;
-    const resolvedEffort = isAgentCliTool(cliTool)
-      ? resolveExecutionEffort({ cliTool, model: cliModel, effortLevel: session.effort_level as 1 | 2 | 3 | 4 | 5 | null })
+    const executionConfig = isAgentCliTool(cliTool)
+      ? resolveExecutionConfig({ cliTool, model: cliModel, effortLevel: session.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
       : null;
+    if (executionConfig) {
+      queries.createSessionLog(sessionId, 'info', `[model] requested=${executionConfig.requestedModel ?? 'provider-default'} effective=${executionConfig.model ?? 'provider-default'} availability=${executionConfig.modelAvailability}`);
+      queries.createSessionLog(sessionId, 'info', `[effort] level=${executionConfig.effort.requestedLevel} source=${executionConfig.effort.levelSource} native=${executionConfig.effort.nativeEffort ?? 'provider-default'} resolution=${executionConfig.effort.resolution}`);
+    }
     let prompt = session.description || '';
 
     // Inject long-term memory if configured for this session. Mirrors the
@@ -289,10 +294,10 @@ export class SessionManager {
 
     try {
       const result = await claudeManager.startClaude(
-        workDir, '', cliModel, undefined, 'interactive', cliTool,
+        workDir, '', executionConfig?.model, undefined, 'interactive', cliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
-        resolvedEffort?.nativeEffort,
+        executionConfig?.effort.nativeEffort,
       );
       pid = result.pid;
       exitPromise = result.exitPromise;

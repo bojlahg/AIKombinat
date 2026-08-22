@@ -1,161 +1,83 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDatabase } from '../../db/schema.js';
 
 let testDb: Database.Database;
-
-vi.mock('../../db/connection.js', () => ({
-  getDatabase: () => testDb,
-}));
-
-// Mock the adapter module so we control probeModels() per test
-const mockProbe = vi.fn();
-vi.mock('../cli-adapters.js', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    getAdapter: (tool: string) => ({
-      ...actual.getAdapter(tool),
-      probeModels: () => mockProbe(tool),
-    }),
-  };
-});
+vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
 
 const queries = await import('../../db/queries.js');
-const { syncModels, maybeTriggerSync, lookupRegistry } = await import('../model-sync.js');
+const { refreshModelCatalog, maybeTriggerSync, parseAntigravityModels, parseCodexModelList } = await import('../model-sync.js');
 
-describe('model-sync', () => {
+describe('model catalog refresh', () => {
   beforeEach(() => {
     testDb = new Database(':memory:');
-    testDb.pragma('journal_mode = WAL');
     initDatabase(testDb);
-    mockProbe.mockReset();
+  });
+  afterEach(() => testDb.close());
+
+  it('forces discovery even when CLI version is unchanged', async () => {
+    queries.setCliDetectedVersion('codex', '1.2.3');
+    const discover = vi.fn().mockResolvedValue({
+      models: [{ value: 'gpt-current', label: 'GPT Current', supportedEfforts: ['low', 'high'] }],
+      source: 'codex-app-server', authoritative: true, primarySucceeded: true,
+    });
+    await refreshModelCatalog('codex', { version: '1.2.3', discover });
+    await refreshModelCatalog('codex', { version: '1.2.3', discover });
+    expect(discover).toHaveBeenCalledTimes(2);
   });
 
-  afterEach(() => {
-    testDb.close();
+  it('failed refresh retains the last good catalog', async () => {
+    await refreshModelCatalog('codex', { discover: async () => ({
+      models: [{ value: 'gpt-good', label: 'GPT Good', supportedEfforts: ['medium', 'high'] }],
+      source: 'codex-app-server', authoritative: true, primarySucceeded: true,
+    }) });
+    await refreshModelCatalog('codex', { discover: async () => ({
+      models: [], source: 'registry', authoritative: false, primarySucceeded: false,
+    }) });
+    expect(queries.getModelByValue('codex', 'gpt-good')).toMatchObject({ availability_status: 'available', deprecated: 0 });
   });
 
-  it('inserts probe-only models with source=probe and records version', async () => {
-    // claude-brand-new is not in registry → must come from probe with source=probe
-    mockProbe.mockResolvedValueOnce([
-      { value: 'claude-brand-new', label: 'claude-brand-new' },
+  it('weak discovery absence does not mark cached models unavailable', async () => {
+    await refreshModelCatalog('claude', { discover: async () => ({
+      models: [{ value: 'claude-old', label: 'Claude Old' }],
+      source: 'claude-help', authoritative: false, primarySucceeded: true,
+    }) });
+    await refreshModelCatalog('claude', { discover: async () => ({
+      models: [{ value: 'sonnet', label: 'Claude Sonnet' }],
+      source: 'claude-help', authoritative: false, primarySucceeded: true,
+    }) });
+    expect(queries.getModelByValue('claude', 'claude-old')?.availability_status).toBe('unknown');
+    expect(queries.getModelByValue('claude', 'claude-old')?.deprecated).toBe(0);
+    expect(queries.getModelByValue('claude', 'claude-old')?.last_seen_at).toBeTruthy();
+  });
+
+  it('authoritative discovery stores capabilities and marks absent models unavailable', async () => {
+    testDb.prepare(`INSERT INTO cli_models (id, cli_tool, model_value, model_label, source, availability_status) VALUES ('old', 'codex', 'gpt-old', 'GPT Old', 'codex-app-server', 'available')`).run();
+    await refreshModelCatalog('codex', { discover: async () => ({
+      models: [{ value: 'gpt-new', label: 'GPT New', supportedEfforts: ['low', 'medium', 'xhigh'] }],
+      source: 'codex-app-server', authoritative: true, primarySucceeded: true,
+    }) });
+    expect(JSON.parse(queries.getModelByValue('codex', 'gpt-new')!.supported_efforts!)).toEqual(['low', 'medium', 'xhigh']);
+    expect(queries.getModelByValue('codex', 'gpt-new')).toMatchObject({ availability_status: 'available', source: 'codex-app-server' });
+    expect(queries.getModelByValue('codex', 'gpt-old')).toMatchObject({ availability_status: 'unavailable', deprecated: 1 });
+  });
+
+  it('keeps installation version and model refresh timestamps independent', async () => {
+    queries.setCliDetectedVersion('claude', '2.0.0');
+    await refreshModelCatalog('claude', { discover: async () => ({ models: [{ value: 'sonnet', label: 'Sonnet' }], source: 'claude-alias', authoritative: false, primarySucceeded: true }) });
+    const before = queries.getCliVersion('claude')!;
+    await maybeTriggerSync('claude', '2.0.0');
+    const after = queries.getCliVersion('claude')!;
+    expect(after.last_version).toBe('2.0.0');
+    expect(after.last_synced_at).toBe(before.last_synced_at);
+  });
+
+  it('parses Antigravity and Codex capability output', () => {
+    expect(parseAntigravityModels('gemini-3-pro\n  gemini-3-flash')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'gemini-3-pro', supportedEfforts: ['low', 'medium', 'high'] }),
+    ]));
+    expect(parseCodexModelList({ data: [{ id: 'gpt-5', displayName: 'GPT-5', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }, { reasoningEffort: 'high' }] }] })).toEqual([
+      { value: 'gpt-5', label: 'GPT-5', supportedEfforts: ['medium', 'high'] },
     ]);
-
-    await syncModels('claude', '2.9.9');
-
-    const models = queries.getModelsByTool('claude');
-    const newOne = models.find((m) => m.model_value === 'claude-brand-new')!;
-    expect(newOne).toBeDefined();
-    expect(newOne.source).toBe('probe');
-    expect(newOne.deprecated).toBe(0);
-
-    const version = queries.getCliVersion('claude');
-    expect(version?.last_version).toBe('5|2.9.9');
-  });
-
-  it('uses registry even when probe succeeds (union strategy)', async () => {
-    // Probe reports only sonnet, but registry also has opus-4-7, opus-4-6, haiku
-    mockProbe.mockResolvedValueOnce([
-      { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
-    ]);
-
-    await syncModels('claude', '2.0.0');
-
-    const models = queries.getModelsByTool('claude');
-    const opus47 = models.find((m) => m.model_value === 'claude-opus-4-7');
-    const opus46 = models.find((m) => m.model_value === 'claude-opus-4-6');
-    const haiku = models.find((m) => m.model_value === 'claude-haiku-4-5');
-    expect(opus47).toBeDefined();
-    expect(opus47!.source).toBe('registry');
-    expect(opus46?.deprecated).toBe(0);
-    expect(haiku?.deprecated).toBe(0);
-  });
-
-  it('uses registry label over raw probe value', async () => {
-    // Probe returns ugly label (equal to value); registry has pretty label
-    mockProbe.mockResolvedValueOnce([
-      { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
-    ]);
-
-    await syncModels('claude', '2.0.0');
-
-    const sonnet = queries.getModelsByTool('claude').find((m) => m.model_value === 'claude-sonnet-4-6');
-    expect(sonnet?.model_label).toBe('Claude Sonnet 4.6');
-  });
-
-  it('deprecates seeded models that are absent from both registry and probe', async () => {
-    // Add a fake seed-sourced entry that's in neither registry nor probe
-    const db = testDb;
-    db.prepare(
-      `INSERT INTO cli_models (id, cli_tool, model_value, model_label, sort_order, is_default, source)
-       VALUES ('fake-1', 'claude', 'claude-ancient-3-0', 'Claude Ancient 3.0', 99, 0, 'seed')`
-    ).run();
-    mockProbe.mockResolvedValueOnce(null);
-
-    await syncModels('claude', '2.0.0');
-
-    const ancient = queries.getModelsByTool('claude').find((m) => m.model_value === 'claude-ancient-3-0');
-    expect(ancient?.deprecated).toBe(1);
-  });
-
-  it('does not deprecate user-added models on reconciliation', async () => {
-    queries.addModel('claude', 'my-custom-model', 'My Custom Model');
-
-    mockProbe.mockResolvedValueOnce([
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    ]);
-
-    await syncModels('claude', '2.9.9');
-
-    const custom = queries.getModelsByTool('claude').find((m) => m.model_value === 'my-custom-model');
-    expect(custom).toBeDefined();
-    expect(custom!.source).toBe('user');
-    expect(custom!.deprecated).toBe(0);
-  });
-
-  it('isModelSupported returns false for deprecated entries', async () => {
-    // Seed a stale model that is NOT in registry or probe so it will be deprecated
-    testDb.prepare(
-      `INSERT INTO cli_models (id, cli_tool, model_value, model_label, sort_order, is_default, source)
-       VALUES ('stale-1', 'claude', 'claude-stale-2-0', 'Claude Stale 2.0', 99, 0, 'seed')`
-    ).run();
-    mockProbe.mockResolvedValueOnce([
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    ]);
-
-    await syncModels('claude', '2.9.9');
-
-    expect(queries.isModelSupported('claude', 'claude-stale-2-0')).toBe(false);
-    expect(queries.isModelSupported('claude', 'claude-sonnet-4-6')).toBe(true);
-  });
-
-  it('maybeTriggerSync skips when version is unchanged', async () => {
-    mockProbe.mockResolvedValue([
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    ]);
-
-    // First call sets the version
-    await syncModels('claude', '2.9.9');
-    mockProbe.mockClear();
-
-    // Same version → should not invoke probe
-    maybeTriggerSync('claude', '2.9.9');
-    // Give microtasks a tick (maybeTriggerSync is fire-and-forget)
-    await Promise.resolve();
-    expect(mockProbe).not.toHaveBeenCalled();
-  });
-
-  it('lookupRegistry returns claude models for any version via wildcard', () => {
-    const models = lookupRegistry('claude', '999.0.0');
-    expect(models.length).toBeGreaterThan(0);
-    expect(models.some((m) => m.value === 'claude-sonnet-4-6')).toBe(true);
-  });
-
-  it('records version on antigravity even when probe fails (registry fallback)', async () => {
-    mockProbe.mockResolvedValueOnce(null);
-    await syncModels('antigravity', '1.0.0');
-    const version = queries.getCliVersion('antigravity');
-    expect(version?.last_version).toBe('5|1.0.0');
   });
 });

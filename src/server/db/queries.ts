@@ -315,6 +315,11 @@ export interface Schedule {
   cli_tool: string | null;
   cli_model: string | null;
   effort_level: number | null;
+  max_turns: number | null;
+  use_worktree: number | null;
+  memory_inject_mode: string | null;
+  memory_node_ids: string | null;
+  memory_raw_file_paths: string | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;
@@ -328,15 +333,17 @@ export interface Schedule {
 export function createSchedule(
   projectId: string, title: string, description: string | undefined,
   cronExpression: string, cliTool?: string, cliModel?: string, skipIfRunning = 1,
-  scheduleType = 'recurring', runAt?: string, effortLevel?: number | null
+  scheduleType = 'recurring', runAt?: string, effortLevel?: number | null,
+  maxTurns?: number | null, useWorktree?: number | null, memoryInjectMode?: string | null,
+  memoryNodeIds?: string | null, memoryRawFilePaths?: string | null,
 ): Schedule {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, skip_if_running, schedule_type, run_at, effort_level, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, cronExpression, cliTool ?? null, cliModel ?? null, skipIfRunning, scheduleType, runAt ?? null, effortLevel ?? null, now, now);
+    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, skip_if_running, schedule_type, run_at, effort_level, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, title, description ?? null, cronExpression, cliTool ?? null, cliModel ?? null, skipIfRunning, scheduleType, runAt ?? null, effortLevel ?? null, maxTurns ?? null, useWorktree ?? null, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, now, now);
   return getScheduleById(id)!;
 }
 
@@ -360,7 +367,7 @@ export function getActiveOnceSchedules(): Schedule[] {
   return db.prepare("SELECT * FROM schedules WHERE is_active = 1 AND schedule_type = 'once'").all() as Schedule[];
 }
 
-export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'effort_level' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
+export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'effort_level' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -371,6 +378,11 @@ export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'titl
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
   if (updates.effort_level !== undefined) { fields.push('effort_level = ?'); values.push(updates.effort_level); }
+  if (updates.max_turns !== undefined) { fields.push('max_turns = ?'); values.push(updates.max_turns); }
+  if (updates.use_worktree !== undefined) { fields.push('use_worktree = ?'); values.push(updates.use_worktree); }
+  if (updates.memory_inject_mode !== undefined) { fields.push('memory_inject_mode = ?'); values.push(updates.memory_inject_mode); }
+  if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
+  if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
   if (updates.skip_if_running !== undefined) { fields.push('skip_if_running = ?'); values.push(updates.skip_if_running); }
   if (updates.schedule_type !== undefined) { fields.push('schedule_type = ?'); values.push(updates.schedule_type); }
   if (updates.run_at !== undefined) { fields.push('run_at = ?'); values.push(updates.run_at); }
@@ -506,11 +518,16 @@ export interface CliModel {
   created_at: string;
 }
 
-export type ModelSource = 'seed' | 'probe' | 'registry' | 'user';
+export type ModelSource = 'seed' | 'registry' | 'user' | 'claude-alias' | 'claude-help' | 'antigravity-models' | 'codex-app-server' | 'codex-cache';
 
 export function getModelsByTool(tool: string): CliModel[] {
   const db = getDatabase();
   return db.prepare('SELECT * FROM cli_models WHERE cli_tool = ? ORDER BY sort_order ASC').all(tool) as CliModel[];
+}
+
+export function getModelByValue(cliTool: string, modelValue: string): CliModel | undefined {
+  return getDatabase().prepare('SELECT * FROM cli_models WHERE cli_tool = ? AND model_value = ?')
+    .get(cliTool, modelValue) as CliModel | undefined;
 }
 
 export function getAllModels(): Record<string, CliModel[]> {
@@ -543,25 +560,14 @@ export function removeModel(id: string): boolean {
   return result.changes > 0;
 }
 
-export function isModelSupported(cliTool: string, modelValue: string): boolean {
-  const db = getDatabase();
-  const row = db.prepare(
-    'SELECT 1 FROM cli_models WHERE cli_tool = ? AND model_value = ? AND deprecated = 0'
-  ).get(cliTool, modelValue);
-  return !!row;
-}
-
-/**
- * Upsert a discovered model. Updates label/source/last_verified_at and clears
- * the deprecated flag on conflict. Does not overwrite user-added (source='user')
- * entries except to refresh their verified timestamp.
- */
 export function upsertDiscoveredModel(
   cliTool: string,
   modelValue: string,
   modelLabel: string,
   source: ModelSource,
-  now: string
+  now: string,
+  availability: 'available' | 'unknown',
+  supportedEfforts: string[] | null,
 ): void {
   const db = getDatabase();
   const existing = db.prepare(
@@ -569,15 +575,17 @@ export function upsertDiscoveredModel(
   ).get(cliTool, modelValue) as CliModel | undefined;
 
   if (existing) {
-    if (existing.source === 'user') {
-      db.prepare(
-        `UPDATE cli_models SET deprecated = 0, last_verified_at = ? WHERE id = ?`
-      ).run(now, existing.id);
-    } else {
-      db.prepare(
-        `UPDATE cli_models SET model_label = ?, source = ?, deprecated = 0, last_verified_at = ? WHERE id = ?`
-      ).run(modelLabel, source, now, existing.id);
-    }
+    const nextAvailability = availability === 'available' ? 'available' : existing.availability_status;
+    db.prepare(
+      `UPDATE cli_models
+          SET model_label = CASE WHEN source = 'user' THEN model_label ELSE ? END,
+              source = CASE WHEN source = 'user' THEN source ELSE ? END,
+              deprecated = CASE WHEN ? = 'available' THEN 0 ELSE deprecated END,
+              availability_status = ?, supported_efforts = COALESCE(?, supported_efforts),
+              last_verified_at = ?, last_seen_at = ?,
+              last_checked_at = ?
+        WHERE id = ?`
+    ).run(modelLabel, source, availability, nextAvailability, supportedEfforts ? JSON.stringify(supportedEfforts) : null, now, now, now, existing.id);
     return;
   }
 
@@ -585,30 +593,18 @@ export function upsertDiscoveredModel(
   const maxOrder = db.prepare('SELECT MAX(sort_order) as max_order FROM cli_models WHERE cli_tool = ?').get(cliTool) as { max_order: number | null };
   const sortOrder = (maxOrder.max_order ?? -1) + 1;
   db.prepare(
-    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, sort_order, is_default, deprecated, last_verified_at, source)
-     VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`
-  ).run(id, cliTool, modelValue, modelLabel, sortOrder, now, source);
+    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, sort_order, is_default, deprecated, last_verified_at, source, availability_status, supported_efforts, last_seen_at, last_checked_at)
+     VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`
+  ).run(id, cliTool, modelValue, modelLabel, sortOrder, now, source, availability, supportedEfforts ? JSON.stringify(supportedEfforts) : null, now, now);
 }
 
-/**
- * Mark any non-user, non-default cli_models entries for the given tool as
- * deprecated if their model_value is NOT in the discovered list.
- */
-export function markDeprecatedExcept(cliTool: string, discoveredValues: string[]): void {
+export function markUnavailableExcept(cliTool: string, discoveredValues: string[], now: string): void {
   const db = getDatabase();
-  if (discoveredValues.length === 0) {
-    db.prepare(
-      `UPDATE cli_models SET deprecated = 1
-       WHERE cli_tool = ? AND is_default = 0 AND source IN ('seed','probe','registry')`
-    ).run(cliTool);
-    return;
-  }
-  const placeholders = discoveredValues.map(() => '?').join(',');
+  const excluded = discoveredValues.length > 0 ? `AND model_value NOT IN (${discoveredValues.map(() => '?').join(',')})` : '';
   db.prepare(
-    `UPDATE cli_models SET deprecated = 1
-     WHERE cli_tool = ? AND is_default = 0 AND source IN ('seed','probe','registry')
-       AND model_value NOT IN (${placeholders})`
-  ).run(cliTool, ...discoveredValues);
+    `UPDATE cli_models SET deprecated = 1, availability_status = 'unavailable', last_checked_at = ?
+     WHERE cli_tool = ? AND is_default = 0 AND source != 'user' ${excluded}`
+  ).run(now, cliTool, ...discoveredValues);
 }
 
 export interface CliVersionRow {
@@ -622,12 +618,20 @@ export function getCliVersion(cliTool: string): CliVersionRow | undefined {
   return db.prepare('SELECT * FROM cli_versions WHERE cli_tool = ?').get(cliTool) as CliVersionRow | undefined;
 }
 
-export function setCliVersion(cliTool: string, version: string | null, syncedAt: string): void {
+export function setCliDetectedVersion(cliTool: string, version: string | null): void {
   const db = getDatabase();
   db.prepare(
-    `INSERT INTO cli_versions (cli_tool, last_version, last_synced_at) VALUES (?, ?, ?)
-     ON CONFLICT(cli_tool) DO UPDATE SET last_version = excluded.last_version, last_synced_at = excluded.last_synced_at`
-  ).run(cliTool, version, syncedAt);
+    `INSERT INTO cli_versions (cli_tool, last_version) VALUES (?, ?)
+     ON CONFLICT(cli_tool) DO UPDATE SET last_version = excluded.last_version`
+  ).run(cliTool, version);
+}
+
+export function setModelCatalogRefreshedAt(cliTool: string, refreshedAt: string): void {
+  const db = getDatabase();
+  db.prepare(
+    `INSERT INTO cli_versions (cli_tool, last_synced_at) VALUES (?, ?)
+     ON CONFLICT(cli_tool) DO UPDATE SET last_synced_at = excluded.last_synced_at`
+  ).run(cliTool, refreshedAt);
 }
 
 // ── CLI Fallback ──

@@ -3,7 +3,8 @@ import path from 'path';
 import { worktreeManager } from './worktree-manager.js';
 import { claudeManager } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool, resolveExecutionEffort } from './effort-profiles.js';
+import { isAgentCliTool } from './effort-profiles.js';
+import { resolveExecutionConfig } from './execution-config.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
@@ -277,9 +278,13 @@ export class DiscussionOrchestrator {
 
     const cliTool = (agent?.cli_tool || project.cli_tool || 'claude') as CliTool;
     const cliModel = agent?.cli_model || project.claude_model || undefined;
-    const resolvedEffort = isAgentCliTool(cliTool)
-      ? resolveExecutionEffort({ cliTool, model: cliModel, effortLevel: (agent?.effort_level ?? null) as 1 | 2 | 3 | 4 | 5 | null })
+    const executionConfig = isAgentCliTool(cliTool)
+      ? resolveExecutionConfig({ cliTool, model: cliModel, effortLevel: (agent?.effort_level ?? null) as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
       : null;
+    if (executionConfig) {
+      queries.createDiscussionLog(discussionId, messageId, 'info', `[model] requested=${executionConfig.requestedModel ?? 'provider-default'} effective=${executionConfig.model ?? 'provider-default'} availability=${executionConfig.modelAvailability}`);
+      queries.createDiscussionLog(discussionId, messageId, 'info', `[effort] level=${executionConfig.effort.requestedLevel} source=${executionConfig.effort.levelSource} native=${executionConfig.effort.nativeEffort ?? 'provider-default'} resolution=${executionConfig.effort.resolution}`);
+    }
     const cliOptions = project.claude_options || undefined;
     const DEFAULT_MAX_TURNS = 30;
     const maxTurns = (isImplementation || canImplement) ? (project.default_max_turns ?? DEFAULT_MAX_TURNS) : 10;
@@ -319,7 +324,7 @@ export class DiscussionOrchestrator {
         }
       }
 
-      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, cliModel, cliOptions, 'headless', cliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, resolvedEffort?.nativeEffort);
+      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, executionConfig?.model, cliOptions, 'headless', cliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, executionConfig?.effort.nativeEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 

@@ -232,7 +232,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     });
   }, [onEvent, sendNotification, t]);
 
-  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => {
+  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => {
     if (!id) return;
     const newTodo = await todosApi.createTodo(id, {
       title, description, cli_tool: cliTool, cli_model: cliModel, effort_level: effortLevel,
@@ -291,7 +291,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setTodos((prev) => prev.filter((t) => t.id !== todoId));
   }, []);
 
-  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => {
+  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => {
     const updated = await todosApi.updateTodo(todoId, {
       title, description, cli_tool: cliTool, cli_model: cliModel, effort_level: effortLevel,
       depends_on: dependsOn ?? null, max_turns: maxTurns ?? null,

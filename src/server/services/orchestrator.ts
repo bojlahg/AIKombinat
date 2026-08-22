@@ -3,7 +3,8 @@ import path from 'path';
 import { worktreeManager } from './worktree-manager.js';
 import { claudeManager, type ClaudeMode } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool, resolveExecutionEffort } from './effort-profiles.js';
+import { isAgentCliTool } from './effort-profiles.js';
+import { resolveExecutionConfig } from './execution-config.js';
 import { logStreamer } from './log-streamer.js';
 import { getTodoImagePaths } from '../routes/images.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
@@ -568,8 +569,8 @@ Complete the task in the current directory.`;
     }
 
     const claudeModel = todo.cli_model || project.claude_model || undefined;
-    const resolvedEffort = isAgentCliTool(cliTool)
-      ? resolveExecutionEffort({ cliTool, model: claudeModel, effortLevel: todo.effort_level as 1 | 2 | 3 | 4 | 5 | null })
+    const executionConfig = isAgentCliTool(cliTool)
+      ? resolveExecutionConfig({ cliTool, model: claudeModel, effortLevel: todo.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
       : null;
     const claudeOptions = project.claude_options ? project.claude_options : undefined;
     const DEFAULT_MAX_TURNS = 30;
@@ -593,8 +594,9 @@ Complete the task in the current directory.`;
     // Audit log: record the prompt sent to CLI (truncated for storage)
     const auditPrompt = prompt.length > 2000 ? prompt.slice(0, 2000) + '... [truncated]' : prompt;
     queries.createTaskLog(todoId, 'prompt', auditPrompt, roundNumber);
-    if (resolvedEffort) {
-      queries.createTaskLog(todoId, 'info', `[effort] level=${resolvedEffort.requestedLevel ?? 'legacy'} target=${resolvedEffort.profileTarget ?? 'provider-default'} native=${resolvedEffort.nativeEffort ?? 'provider-default'} resolution=${resolvedEffort.resolution}`, roundNumber);
+    if (executionConfig) {
+      queries.createTaskLog(todoId, 'info', `[model] requested=${executionConfig.requestedModel ?? 'provider-default'} effective=${executionConfig.model ?? 'provider-default'} availability=${executionConfig.modelAvailability}`, roundNumber);
+      queries.createTaskLog(todoId, 'info', `[effort] level=${executionConfig.effort.requestedLevel} source=${executionConfig.effort.levelSource} target=${executionConfig.effort.profileTarget ?? 'provider-default'} native=${executionConfig.effort.nativeEffort ?? 'provider-default'} resolution=${executionConfig.effort.resolution}`, roundNumber);
     }
 
     let pid: number;
@@ -603,7 +605,7 @@ Complete the task in the current directory.`;
     let debugSession: DebugSession | null = null;
 
     try {
-      const result = await claudeManager.startClaude(workDir, prompt, claudeModel, claudeOptions, mode, cliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, resolvedEffort?.nativeEffort);
+      const result = await claudeManager.startClaude(workDir, prompt, executionConfig?.model, claudeOptions, mode, cliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, executionConfig?.effort.nativeEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 
@@ -614,7 +616,7 @@ Complete the task in the current directory.`;
         debugSession = debugLogger.startSession({
           todoId, projectPath, cliTool,
           command: result.command, args: result.args,
-          workDir, model: claudeModel, sandboxMode,
+          workDir, model: executionConfig?.model, sandboxMode,
         });
         debugSession.writeStdin(prompt);
         stdout = debugSession.teeStdout(result.stdout);

@@ -16,4 +16,4 @@ export const saveProfile = (profile: AgentEffortProfile) => patch<AgentEffortPro
   mapping: profile.mapping,
 });
 export const resetProfile = (cliTool: AgentCliTool) => post<AgentEffortProfile>(`/api/agent-effort-profiles/${cliTool}/reset`);
-export const refreshModels = () => post('/api/cli/status/refresh');
+export const refreshModels = (cliTool: AgentCliTool) => post<{ success: boolean; source: string; authoritative: boolean; count: number }>(`/api/models/refresh/${cliTool}`);

@@ -16,7 +16,7 @@ export interface SessionFormInitial {
   description: string;
   cliTool: string;
   cliModel: string;
-  effortLevel: number;
+  effortLevel: number | null;
   useWorktree: boolean;
   memoryInjectMode: MemoryInjectMode;
   memoryNodeIds: string[];
@@ -38,7 +38,7 @@ interface SessionFormProps {
     memoryRawFilePaths?: string[],
     tagId?: string | null,
     cliModel?: string,
-    effortLevel?: number,
+    effortLevel?: number | null,
   ) => void;
   onCancel: () => void;
   projectCliTool?: string;
@@ -55,8 +55,8 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [description, setDescription] = useState(initial?.description ?? '');
   const [cliTool, setCliTool] = useState(initial?.cliTool ?? (projectCliTool || ''));
   const [cliModel, setCliModel] = useState(initial?.cliModel ?? '');
-  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5>(Math.min(5, Math.max(1, initial?.effortLevel ?? 3)) as 1 | 2 | 3 | 4 | 5);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean }>>>({});
+  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5 | null>(initial?.effortLevel == null ? null : Math.min(5, Math.max(1, initial.effortLevel)) as 1 | 2 | 3 | 4 | 5);
+  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
   const [profileDefaults, setProfileDefaults] = useState<Record<string, number>>({});
   const [useWorktree, setUseWorktree] = useState(initial?.useWorktree ?? !!projectUseWorktree);
   const [vaultMode, setVaultMode] = useState<VaultInjectMode>((initial?.memoryInjectMode as VaultInjectMode | undefined) ?? 'none');
@@ -79,10 +79,8 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
     fetch('/api/agent-effort-profiles', { credentials: 'include' }).then((res) => res.json()).then((items: Array<{ cliTool: string; defaultLevel: number }>) => setProfileDefaults(Object.fromEntries(items.map((item) => [item.cliTool, item.defaultLevel])))).catch(() => setProfileDefaults({}));
   }, []);
 
-  useEffect(() => {
-    const selected = cliTool || projectCliTool || 'claude';
-    if (!initial) setEffortLevel((projectEffortLevel ?? profileDefaults[selected] ?? (selected === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5);
-  }, [cliTool, initial, profileDefaults, projectCliTool, projectEffortLevel]);
+  const selectedForDefaults = cliTool || projectCliTool || 'claude';
+  const inheritedEffortLevel = (projectEffortLevel ?? profileDefaults[selectedForDefaults] ?? (selectedForDefaults === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5;
 
   useEffect(() => {
     if (!forceImeHandoff(() => titleRef.current?.focus())) {
@@ -150,6 +148,20 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
     return tool.label;
   };
   const selectedTool = (cliTool || projectCliTool || 'claude') as CliTool;
+  const toolModels = models[selectedTool] ?? [];
+  const selectableModels = toolModels.filter((model) => !model.deprecated && model.availabilityStatus !== 'unavailable' && model.value);
+  const selectedModel = cliModel ? toolModels.find((model) => model.value === cliModel) : undefined;
+  const visibleModels = selectedModel && !selectableModels.some((model) => model.value === selectedModel.value)
+    ? [selectedModel, ...selectableModels]
+    : cliModel && !selectedModel
+      ? [{ value: cliModel, label: cliModel, availabilityStatus: 'unknown' }, ...selectableModels]
+      : selectableModels;
+  const modelLabel = (model: { value: string; label: string; deprecated?: boolean; availabilityStatus?: string }) => {
+    if (model.availabilityStatus === 'unavailable') return `${model.label} (${t('effort.modelUnavailable')})`;
+    if (model.deprecated) return `${model.label} (${t('effort.modelDeprecated')})`;
+    if (model.availabilityStatus === 'unknown' && model.value === cliModel) return `${model.label} (${t('effort.modelUnknown')})`;
+    return model.label;
+  };
   // Raw shell: no auto-submitted prompt, no wiki/memory injection.
   // Description/memory state is left untouched in the form so toggling
   // back to an AI CLI doesn't lose what the user already typed; the inputs
@@ -209,10 +221,10 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
         </select>
         {!isRawShell && <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-xs flex-1" aria-label={t('effort.model')}>
           <option value="">{t('effort.providerModelDefault')}</option>
-          {(models[selectedTool] ?? []).filter((model) => !model.deprecated && model.value).map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
+          {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
         </select>}
       </div>
-      {!isRawShell && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><EffortStars value={effortLevel} onChange={setEffortLevel} /></div>}
+      {!isRawShell && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><label className="mb-1 flex items-center gap-2 text-xs text-warm-500"><input type="checkbox" checked={effortLevel === null} onChange={(event) => setEffortLevel(event.target.checked ? null : inheritedEffortLevel)} />{t('effort.inheritProjectAgent')}</label><EffortStars value={effortLevel ?? inheritedEffortLevel} onChange={setEffortLevel} /></div>}
       {tags.length > 0 && (
         <div className="flex items-center gap-2">
           {selectedTag && (

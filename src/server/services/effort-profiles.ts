@@ -13,6 +13,7 @@ export interface AgentEffortProfile {
 
 export interface ResolvedEffort {
   requestedLevel: EffortLevel | null;
+  levelSource: 'record' | 'project' | 'profile';
   profileTarget: string | null;
   nativeEffort: string | undefined;
   supportedEfforts: string[] | null;
@@ -112,24 +113,28 @@ export function resolveExecutionEffort(input: {
   cliTool: AgentCliTool;
   model?: string;
   effortLevel: EffortLevel | null;
+  projectEffortLevel?: EffortLevel | null;
   supportedEfforts?: string[] | null;
 }): ResolvedEffort {
-  if (input.effortLevel === null) {
-    return { requestedLevel: null, profileTarget: null, nativeEffort: undefined, supportedEfforts: null, resolution: 'provider-default' };
-  }
   const profile = getProfile(input.cliTool);
-  const target = profile.mapping[String(input.effortLevel) as keyof EffortMapping];
+  const requestedLevel = isEffortLevel(input.effortLevel)
+    ? input.effortLevel
+    : isEffortLevel(input.projectEffortLevel)
+      ? input.projectEffortLevel
+      : profile.defaultLevel;
+  const levelSource = isEffortLevel(input.effortLevel) ? 'record' : isEffortLevel(input.projectEffortLevel) ? 'project' : 'profile';
+  const target = profile.mapping[String(requestedLevel) as keyof EffortMapping];
   if (target === 'provider-default') {
-    return { requestedLevel: input.effortLevel, profileTarget: target, nativeEffort: undefined, supportedEfforts: null, resolution: 'provider-default' };
+    return { requestedLevel, levelSource, profileTarget: target, nativeEffort: undefined, supportedEfforts: null, resolution: 'provider-default' };
   }
   const supported = input.supportedEfforts === undefined
     ? modelSupportedEfforts(input.cliTool, input.model)
     : input.supportedEfforts;
   if (!supported || supported.length === 0) {
-    return { requestedLevel: input.effortLevel, profileTarget: target, nativeEffort: target, supportedEfforts: null, resolution: 'capability-unknown' };
+    return { requestedLevel, levelSource, profileTarget: target, nativeEffort: target, supportedEfforts: null, resolution: 'capability-unknown' };
   }
   if (supported.includes(target)) {
-    return { requestedLevel: input.effortLevel, profileTarget: target, nativeEffort: target, supportedEfforts: supported, resolution: 'exact' };
+    return { requestedLevel, levelSource, profileTarget: target, nativeEffort: target, supportedEfforts: supported, resolution: 'exact' };
   }
   const targetRank = NATIVE_EFFORT_ORDER.indexOf(target);
   const ranked = supported
@@ -137,12 +142,13 @@ export function resolveExecutionEffort(input: {
     .filter((item) => item.rank >= 0)
     .sort((a, b) => a.rank - b.rank);
   if (targetRank < 0 || ranked.length === 0) {
-    return { requestedLevel: input.effortLevel, profileTarget: target, nativeEffort: target, supportedEfforts: supported, resolution: 'capability-unknown', warning: `Unknown effort capability for ${target}.` };
+    return { requestedLevel, levelSource, profileTarget: target, nativeEffort: target, supportedEfforts: supported, resolution: 'capability-unknown', warning: `Unknown effort capability for ${target}.` };
   }
   const lower = ranked.filter((item) => item.rank <= targetRank).at(-1);
   const effective = lower ?? ranked[0];
   return {
-    requestedLevel: input.effortLevel,
+    requestedLevel,
+    levelSource,
     profileTarget: target,
     nativeEffort: effective.value,
     supportedEfforts: supported,
@@ -155,10 +161,8 @@ export function resolveInheritedLevel(input: {
   recordLevel: number | null;
   projectLevel: number | null;
   cliTool: AgentCliTool;
-  legacyNull?: boolean;
-}): EffortLevel | null {
+}): EffortLevel {
   if (isEffortLevel(input.recordLevel)) return input.recordLevel;
-  if (input.legacyNull) return null;
   if (isEffortLevel(input.projectLevel)) return input.projectLevel;
   return getProfile(input.cliTool).defaultLevel;
 }

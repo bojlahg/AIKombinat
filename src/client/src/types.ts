@@ -110,6 +110,11 @@ export interface Schedule {
   cli_tool: string | null;
   cli_model: string | null;
   effort_level: number | null;
+  max_turns: number | null;
+  use_worktree: number | null;
+  memory_inject_mode: string | null;
+  memory_node_ids: string | null;
+  memory_raw_file_paths: string | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;

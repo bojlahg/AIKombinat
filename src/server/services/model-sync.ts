@@ -1,68 +1,56 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { execFile, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
-  upsertDiscoveredModel,
-  markDeprecatedExcept,
-  setCliVersion,
   getCliVersion,
+  markUnavailableExcept,
+  setCliDetectedVersion,
+  setModelCatalogRefreshedAt,
+  upsertDiscoveredModel,
+  type ModelSource,
 } from '../db/queries.js';
 import { getAdapter, type CliTool, type ProbedModel } from './cli-adapters.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REGISTRY_PATH = path.resolve(__dirname, '../data/cli-models-registry.json');
+const MODEL_REFRESH_TTL_MS = 6 * 60 * 60 * 1000;
+const DISCOVERY_TIMEOUT_MS = 10_000;
 
-/**
- * Bumped whenever syncModels' merge strategy or registry format changes in a
- * way that requires re-running reconciliation on existing databases. Stored
- * as a prefix on cli_versions.last_version so a bump causes maybeTriggerSync
- * to treat the current record as stale and resync on the next version probe.
- */
-const SYNC_ALGORITHM_VERSION = '5';
+export interface DiscoveredModel extends ProbedModel {
+  supportedEfforts?: string[] | null;
+}
 
-function encodeStoredVersion(version: string): string {
-  return `${SYNC_ALGORITHM_VERSION}|${version}`;
+export interface ModelDiscoveryResult {
+  models: DiscoveredModel[];
+  source: ModelSource;
+  authoritative: boolean;
+  primarySucceeded: boolean;
 }
 
 interface RegistryEntry {
   versionPrefix: string;
   models: Array<{ value: string; label: string }>;
 }
-
 type RegistryFile = Record<string, RegistryEntry[]>;
 
 const BUILTIN_REGISTRY: RegistryFile = {
-  claude: [
-    {
-      versionPrefix: '*',
-      models: [
-        { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-        { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-        { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-      ],
-    },
-  ],
-  antigravity: [
-    {
-      versionPrefix: '*',
-      // PROVISIONAL: exact `agy` model ids unconfirmed; probe fills them at runtime.
-      models: [],
-    },
-  ],
-  codex: [
-    {
-      versionPrefix: '*',
-      models: [
-        { value: 'gpt-4.1', label: 'GPT-4.1' },
-        { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
-        { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano' },
-        { value: 'o3', label: 'o3' },
-        { value: 'o4-mini', label: 'o4-mini' },
-      ],
-    },
-  ],
+  claude: [{ versionPrefix: '*', models: [
+    { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  ] }],
+  antigravity: [{ versionPrefix: '*', models: [] }],
+  codex: [{ versionPrefix: '*', models: [
+    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano' },
+    { value: 'o3', label: 'o3' },
+    { value: 'o4-mini', label: 'o4-mini' },
+  ] }],
 };
 
 let cachedRegistry: RegistryFile | null = null;
@@ -70,132 +58,200 @@ let cachedRegistry: RegistryFile | null = null;
 function loadRegistry(): RegistryFile {
   if (cachedRegistry) return cachedRegistry;
   try {
-    const raw = fs.readFileSync(REGISTRY_PATH, 'utf-8');
-    const parsed = JSON.parse(raw);
-    // Strip any "$comment" keys from the top-level for cleanliness
+    const parsed = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf-8'));
     delete parsed.$comment;
     cachedRegistry = parsed as RegistryFile;
     return cachedRegistry;
-  } catch (err) {
-    console.warn('[model-sync] Could not load registry file, using built-in fallback:', err);
-    // Do NOT cache — a later call (after the file is added or after a transient
-    // read failure) must be able to retry and pick up the richer file-based
-    // registry. The built-in fallback keeps deprecation/merge logic correct
-    // even when the file is unavailable (e.g. in CI test environments).
+  } catch {
     return BUILTIN_REGISTRY;
   }
 }
 
 export function lookupRegistry(tool: CliTool, version: string): ProbedModel[] {
-  const registry = loadRegistry();
-  const entries = registry[tool];
-  if (!entries || entries.length === 0) return [];
-
-  // Prefer the longest matching versionPrefix; '*' is the wildcard fallback.
-  let bestMatch: RegistryEntry | null = null;
-  let bestPrefixLength = -1;
-  for (const entry of entries) {
-    if (entry.versionPrefix === '*') {
-      if (!bestMatch) bestMatch = entry;
-      continue;
-    }
-    if (version.startsWith(entry.versionPrefix) && entry.versionPrefix.length > bestPrefixLength) {
-      bestMatch = entry;
-      bestPrefixLength = entry.versionPrefix.length;
-    }
-  }
-  return bestMatch ? bestMatch.models.map((m) => ({ ...m })) : [];
+  const entries = loadRegistry()[tool] ?? [];
+  const matching = entries
+    .filter((entry) => entry.versionPrefix === '*' || version.startsWith(entry.versionPrefix))
+    .sort((a, b) => b.versionPrefix.length - a.versionPrefix.length)[0];
+  return matching?.models.map((model) => ({ ...model })) ?? [];
 }
 
-/**
- * Merge registry and probe results. Registry is authoritative for labels
- * (pretty names like "Claude Opus 4.6"), and a probe-reported value that is
- * NOT in the registry is included as a bonus with source='probe'. This
- * matches the user preference of "CLI probing + bundled registry" where
- * the registry acts as a safety net against incomplete --help output.
- */
-function mergeDiscovered(
-  registryModels: ProbedModel[],
-  probedModels: ProbedModel[] | null
-): Array<ProbedModel & { source: 'registry' | 'probe' }> {
-  const merged = new Map<string, ProbedModel & { source: 'registry' | 'probe' }>();
-  for (const m of registryModels) {
-    if (!m.value) continue;
-    merged.set(m.value, { ...m, source: 'registry' });
+function execText(command: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(command, args, {
+      timeout: DISCOVERY_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024,
+      ...(process.platform === 'win32' ? { shell: true } : {}),
+    }, (error, stdout, stderr) => {
+      if (error && !stdout) resolve(null);
+      else resolve(`${stdout ?? ''}\n${stderr ?? ''}`.trim());
+    });
+  });
+}
+
+function effortValues(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const values = raw.map((item) => {
+    if (typeof item === 'string') return item;
+    if (!item || typeof item !== 'object') return null;
+    const obj = item as Record<string, unknown>;
+    return obj.reasoningEffort ?? obj.effort ?? obj.value ?? obj.id ?? null;
+  }).filter((value): value is string => typeof value === 'string' && value.length > 0);
+  return values.length > 0 ? [...new Set(values)] : null;
+}
+
+function parseModelObjects(raw: unknown): DiscoveredModel[] {
+  let items: unknown = raw;
+  if (!Array.isArray(items) && items && typeof items === 'object') {
+    const obj = items as Record<string, unknown>;
+    items = obj.data ?? obj.models ?? obj.items ?? obj.result ?? [];
+    if (!Array.isArray(items) && items && typeof items === 'object') {
+      const nested = items as Record<string, unknown>;
+      items = nested.data ?? nested.models ?? nested.items ?? [];
+    }
   }
-  if (probedModels) {
-    for (const m of probedModels) {
-      if (!m.value) continue;
-      if (!merged.has(m.value)) {
-        merged.set(m.value, { ...m, source: 'probe' });
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item): DiscoveredModel[] => {
+    if (typeof item === 'string') return [{ value: item, label: item }];
+    if (!item || typeof item !== 'object') return [];
+    const obj = item as Record<string, unknown>;
+    const value = obj.id ?? obj.slug ?? obj.model ?? obj.value ?? obj.name;
+    if (typeof value !== 'string' || !value.trim()) return [];
+    const label = obj.displayName ?? obj.display_name ?? obj.label ?? obj.name ?? value;
+    const supportedEfforts = effortValues(obj.supportedReasoningEfforts ?? obj.supported_efforts ?? obj.reasoningEfforts ?? obj.efforts);
+    return [{ value: value.trim(), label: typeof label === 'string' ? label : value.trim(), supportedEfforts }];
+  });
+}
+
+export function parseAntigravityModels(output: string): DiscoveredModel[] {
+  try {
+    const parsed = parseModelObjects(JSON.parse(output));
+    if (parsed.length > 0) return parsed.map((model) => ({ ...model, supportedEfforts: model.supportedEfforts ?? ['low', 'medium', 'high'] }));
+  } catch { /* parse text table below */ }
+  const ignored = /^(available|models?|name|slug|default|[-=]+)$/i;
+  const values = new Map<string, DiscoveredModel>();
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.replace(/^[*✓>\s]+/, '').trim();
+    if (!line) continue;
+    const value = line.split(/\s{2,}|\t/)[0].trim();
+    if (!value || ignored.test(value) || !/^[a-z0-9][a-z0-9._:/-]+$/i.test(value)) continue;
+    values.set(value, { value, label: value, supportedEfforts: ['low', 'medium', 'high'] });
+  }
+  return [...values.values()];
+}
+
+export function parseCodexModelList(payload: unknown): DiscoveredModel[] {
+  return parseModelObjects(payload);
+}
+
+async function discoverAntigravity(): Promise<ModelDiscoveryResult | null> {
+  const output = await execText('agy', ['models']);
+  if (output === null) return null;
+  return { models: parseAntigravityModels(output), source: 'antigravity-models', authoritative: true, primarySucceeded: true };
+}
+
+async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
+  return new Promise((resolve) => {
+    const child = spawn('codex', ['app-server'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...(process.platform === 'win32' ? { shell: true } : {}),
+    });
+    let buffer = '';
+    let settled = false;
+    const finish = (result: ModelDiscoveryResult | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish(null), DISCOVERY_TIMEOUT_MS);
+    child.on('error', () => finish(null));
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        try {
+          const message = JSON.parse(line) as { id?: number; result?: unknown; error?: unknown };
+          if (message.id === 2) {
+            if (message.error) finish(null);
+            else finish({ models: parseCodexModelList(message.result), source: 'codex-app-server', authoritative: true, primarySucceeded: true });
+          }
+        } catch { /* ignore diagnostics */ }
       }
-    }
-  }
-  return Array.from(merged.values());
+    });
+    child.stdin.write(`${JSON.stringify({ method: 'initialize', id: 1, params: { clientInfo: { name: 'clitrigger', title: 'CLITrigger', version: '1' } } })}\n`);
+    child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
+    child.stdin.write(`${JSON.stringify({ method: 'model/list', id: 2, params: { cursor: null } })}\n`);
+  });
 }
 
-/**
- * Discover the current model set for a CLI tool and reconcile the cli_models
- * table. Registry entries (matched against the reported CLI version) are the
- * baseline; probe results merely supplement it with anything new the CLI
- * reports that the registry hasn't learned about yet.
- *
- * Records the synced version in cli_versions regardless, so that repeated
- * --version polls do not retrigger sync on every request.
- */
-export async function syncModels(tool: CliTool, version: string): Promise<void> {
+function readCodexCache(): DiscoveredModel[] {
+  try {
+    return parseModelObjects(JSON.parse(fs.readFileSync(path.join(os.homedir(), '.codex', 'models_cache.json'), 'utf-8')));
+  } catch {
+    return [];
+  }
+}
+
+async function discoverClaude(version: string): Promise<ModelDiscoveryResult> {
+  const aliases: DiscoveredModel[] = ['default', 'sonnet', 'opus', 'haiku'].map((value) => ({ value, label: value === 'default' ? 'Default' : `Claude ${value[0].toUpperCase()}${value.slice(1)}` }));
+  const weak = await getAdapter('claude').probeModels?.() ?? [];
+  const fallback = weak.length > 0 ? [] : lookupRegistry('claude', version);
+  const merged = new Map<string, DiscoveredModel>();
+  [...aliases, ...weak, ...fallback].forEach((model) => merged.set(model.value, model));
+  return { models: [...merged.values()], source: weak.length > 0 ? 'claude-help' : 'claude-alias', authoritative: false, primarySucceeded: true };
+}
+
+export async function discoverModelCatalog(tool: CliTool, version = ''): Promise<ModelDiscoveryResult> {
+  if (tool === 'antigravity') {
+    const primary = await discoverAntigravity();
+    return primary ?? { models: lookupRegistry(tool, version), source: 'registry', authoritative: false, primarySucceeded: false };
+  }
+  if (tool === 'codex') {
+    const primary = await discoverCodexAppServer();
+    if (primary) return primary;
+    const cached = readCodexCache();
+    if (cached.length > 0) return { models: cached, source: 'codex-cache', authoritative: false, primarySucceeded: false };
+    return { models: lookupRegistry(tool, version), source: 'registry', authoritative: false, primarySucceeded: false };
+  }
+  return discoverClaude(version);
+}
+
+export async function refreshModelCatalog(
+  tool: CliTool,
+  options: { version?: string; discover?: (tool: CliTool, version: string) => Promise<ModelDiscoveryResult> } = {},
+): Promise<ModelDiscoveryResult> {
   const now = new Date().toISOString();
-  const adapter = getAdapter(tool);
+  const discover = options.discover ?? discoverModelCatalog;
+  const result = await discover(tool, options.version ?? '');
+  if (result.models.length === 0 && !result.primarySucceeded) return result;
 
-  let probed: ProbedModel[] | null = null;
-  if (adapter.probeModels) {
-    try {
-      probed = await adapter.probeModels();
-    } catch (err) {
-      console.warn(`[model-sync] probeModels(${tool}) threw:`, err);
-      probed = null;
-    }
+  for (const model of result.models) {
+    upsertDiscoveredModel(tool, model.value, model.label, result.source, now, result.authoritative ? 'available' : 'unknown', model.supportedEfforts ?? null);
   }
-
-  const registryModels = lookupRegistry(tool, version);
-  const discovered = mergeDiscovered(registryModels, probed);
-
-  if (discovered.length === 0) {
-    // Neither probe nor registry had anything usable; record version and bail.
-    setCliVersion(tool, encodeStoredVersion(version), now);
-    return;
+  if (result.authoritative && result.models.length > 0) {
+    markUnavailableExcept(tool, result.models.map((model) => model.value), now);
   }
-
-  for (const model of discovered) {
-    upsertDiscoveredModel(tool, model.value, model.label, model.source, now);
-  }
-  // Only run deprecation pass when the registry was available. `claude --help`
-  // and similar probes often list only a subset of supported models (e.g. only
-  // sonnet is named in the usage line), so the probe alone is NOT a reliable
-  // signal of "these are the only valid models". The registry is authoritative
-  // for that decision; if it failed to load, skip deprecation entirely and let
-  // existing rows keep their flags until the next successful sync.
-  if (registryModels.length > 0) {
-    markDeprecatedExcept(tool, discovered.map((m) => m.value));
-  }
-  setCliVersion(tool, encodeStoredVersion(version), now);
+  if (result.primarySucceeded) setModelCatalogRefreshedAt(tool, now);
+  return result;
 }
 
-/**
- * Wrapper used by cli-status.ts. Triggers a real sync only when the newly
- * detected version differs from the last recorded one OR when the sync
- * algorithm version has been bumped since the last reconciliation. Returns
- * a promise that callers may await to know sync is done (e.g. so that a
- * subsequent read of cli_models reflects the reconciliation). Swallows
- * errors internally — failures must never propagate to cli-status callers.
- */
+export async function syncModels(tool: CliTool, version: string): Promise<void> {
+  await refreshModelCatalog(tool, { version });
+}
+
 export async function maybeTriggerSync(tool: CliTool, version: string | null): Promise<void> {
   if (!version) return;
-  const last = getCliVersion(tool);
-  if (last?.last_version === encodeStoredVersion(version)) return;
+  const previous = getCliVersion(tool);
+  const versionChanged = previous?.last_version !== version;
+  const stale = !previous?.last_synced_at || Date.now() - new Date(previous.last_synced_at).getTime() >= MODEL_REFRESH_TTL_MS;
+  setCliDetectedVersion(tool, version);
+  if (!versionChanged && !stale) return;
   try {
-    await syncModels(tool, version);
+    await refreshModelCatalog(tool, { version });
   } catch (err) {
-    console.warn(`[model-sync] syncModels(${tool}) failed:`, err);
+    console.warn(`[model-sync] refreshModelCatalog(${tool}) failed:`, err);
   }
 }

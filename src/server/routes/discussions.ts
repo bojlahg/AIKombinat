@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { createGit, resolveLocalBaseBranch } from '../lib/git.js';
 import fs from 'fs';
 import * as queries from '../db/queries.js';
-import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
+import { isEffortLevel } from '../services/effort-profiles.js';
 import { discussionOrchestrator } from '../services/discussion-orchestrator.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { extractActionItems, type ExtractedActionItem } from '../services/discussion-extractor.js';
@@ -176,8 +176,7 @@ router.post('/projects/:id/agents', (req: Request<{ id: string }>, res: Response
       return;
     }
 
-    const effectiveTool = isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude');
-    const agent = queries.createDiscussionAgent(req.params.id, name, role, system_prompt, cli_tool, cli_model, avatar_color, Boolean(can_implement), isEffortLevel(effort_level) ? effort_level : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(effectiveTool).defaultLevel));
+    const agent = queries.createDiscussionAgent(req.params.id, name, role, system_prompt, cli_tool, cli_model, avatar_color, Boolean(can_implement), isEffortLevel(effort_level) ? effort_level : null);
     res.status(201).json(agent);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

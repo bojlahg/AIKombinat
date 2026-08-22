@@ -139,7 +139,7 @@ interface TodoItemProps {
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
   onCleanup: (id: string, deleteBranch: boolean) => Promise<void>;
   onRetry: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -438,7 +438,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         initialDescription={todo.description ?? undefined}
         initialCliTool={todo.cli_tool ?? undefined}
         initialCliModel={todo.cli_model ?? undefined}
-        initialEffortLevel={todo.effort_level ?? 3}
+        initialEffortLevel={todo.effort_level}
         initialDependsOn={todo.depends_on ?? undefined}
         initialMaxTurns={todo.max_turns ?? undefined}
         initialUseWorktree={todo.use_worktree ?? null}

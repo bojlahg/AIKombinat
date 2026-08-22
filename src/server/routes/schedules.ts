@@ -4,7 +4,7 @@ import * as queries from '../db/queries.js';
 import { scheduler } from '../services/scheduler.js';
 import { logStreamer } from '../services/log-streamer.js';
 import { cleanupTodoImages } from './images.js';
-import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
+import { isEffortLevel } from '../services/effort-profiles.js';
 
 const router = Router();
 
@@ -51,7 +51,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       skip_if_running !== undefined ? (skip_if_running ? 1 : 0) : 1,
       isOnce ? 'once' : 'recurring',
       isOnce ? run_at : undefined,
-      isEffortLevel(effort_level) ? effort_level : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude')).defaultLevel)
+      isEffortLevel(effort_level) ? effort_level : null
     );
 
     // Auto-register the job since new schedules are active by default
@@ -259,10 +259,16 @@ router.post('/todos/:id/schedule', (req: Request<{ id: string }>, res: Response)
       todo.description ?? undefined,
       '* * * * *',
       todo.cli_tool ?? undefined,
-      undefined,
+      todo.cli_model ?? undefined,
       1,
       'once',
-      run_at
+      run_at,
+      todo.effort_level,
+      todo.max_turns,
+      todo.use_worktree,
+      todo.memory_inject_mode,
+      todo.memory_node_ids,
+      todo.memory_raw_file_paths,
     );
 
     let originalDeleted = false;
@@ -317,10 +323,16 @@ router.post('/todos/:id/schedule-on-reset', (req: Request<{ id: string }>, res: 
       prompt,
       '* * * * *',  // placeholder cron (not used for once type)
       todo.cli_tool ?? undefined,
-      undefined,
+      todo.cli_model ?? undefined,
       1,  // skip_if_running
       'once',
       runAt,
+      todo.effort_level,
+      todo.max_turns,
+      todo.use_worktree,
+      todo.memory_inject_mode,
+      todo.memory_node_ids,
+      todo.memory_raw_file_paths,
     );
 
     scheduler.registerOnceJob(schedule);

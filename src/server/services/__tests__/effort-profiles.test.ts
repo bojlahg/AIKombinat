@@ -48,9 +48,24 @@ describe('agent effort profiles', () => {
     expect(effort.resolveExecutionEffort({ cliTool: 'claude', effortLevel: 2 })).toMatchObject({ nativeEffort: undefined, resolution: 'provider-default' });
   });
 
-  it('preserves legacy null and supports project/task precedence', () => {
-    expect(effort.resolveInheritedLevel({ recordLevel: null, projectLevel: 4, cliTool: 'claude', legacyNull: true })).toBeNull();
+  it('resolves NULL dynamically through project and profile defaults', () => {
     expect(effort.resolveInheritedLevel({ recordLevel: 2, projectLevel: 4, cliTool: 'claude' })).toBe(2);
     expect(effort.resolveInheritedLevel({ recordLevel: null, projectLevel: 4, cliTool: 'claude' })).toBe(4);
+    expect(effort.resolveInheritedLevel({ recordLevel: null, projectLevel: null, cliTool: 'claude' })).toBe(3);
+    expect(effort.resolveExecutionEffort({ cliTool: 'claude', effortLevel: null, projectEffortLevel: 4, supportedEfforts: ['low', 'medium', 'high'] })).toMatchObject({ requestedLevel: 4, levelSource: 'project', nativeEffort: 'high' });
+  });
+
+  it('re-resolves inherited effort after project or profile defaults change', () => {
+    expect(effort.resolveExecutionEffort({ cliTool: 'codex', effortLevel: null, projectEffortLevel: 2 })).toMatchObject({ requestedLevel: 2, levelSource: 'project' });
+    expect(effort.resolveExecutionEffort({ cliTool: 'codex', effortLevel: null, projectEffortLevel: 5 })).toMatchObject({ requestedLevel: 5, levelSource: 'project' });
+
+    const profile = effort.getProfile('codex');
+    effort.saveProfile('codex', 4, profile.mapping);
+    expect(effort.resolveExecutionEffort({ cliTool: 'codex', effortLevel: null, projectEffortLevel: null })).toMatchObject({ requestedLevel: 4, levelSource: 'profile' });
+  });
+
+  it('uses model-specific supported_efforts from the catalog', () => {
+    testDb.prepare(`INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts) VALUES ('cap', 'codex', 'gpt-cap', 'GPT Cap', ?)`).run(JSON.stringify(['low', 'medium', 'high']));
+    expect(effort.resolveExecutionEffort({ cliTool: 'codex', model: 'gpt-cap', effortLevel: 5 })).toMatchObject({ nativeEffort: 'high', resolution: 'clamped', supportedEfforts: ['low', 'medium', 'high'] });
   });
 });

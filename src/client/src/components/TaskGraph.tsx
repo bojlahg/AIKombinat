@@ -89,7 +89,7 @@ interface TaskGraphProps {
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
   projectEffortLevel?: number | null;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => Promise<void>;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => Promise<void>;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStopTodo: (id: string) => Promise<void>;
   onDeleteTodo: (id: string) => Promise<void>;

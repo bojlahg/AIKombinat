@@ -4,7 +4,7 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { execFileSync } from 'child_process';
 import * as queries from '../db/queries.js';
-import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
+import { isEffortLevel } from '../services/effort-profiles.js';
 import { sessionManager } from '../services/session-manager.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { writeImageToClipboard } from '../services/clipboard-writer.js';
@@ -78,7 +78,7 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       normalizedMemIds,
       normalizedRaw === undefined ? null : normalizedRaw,
       normalizedTagId,
-      isEffortLevel(effort_level) ? effort_level : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude')).defaultLevel),
+      isEffortLevel(effort_level) ? effort_level : null,
     );
     res.status(201).json(session);
   } catch (err: unknown) {

@@ -123,15 +123,7 @@ export class Scheduler {
 
     // Create todo from schedule template
     const todoTitle = `[Schedule] ${schedule.title} - ${now}`;
-    const todo = schedule.effort_level == null ? queries.createTodo(
-      schedule.project_id,
-      todoTitle,
-      schedule.description ?? undefined,
-      0,
-      schedule.cli_tool ?? undefined,
-      schedule.cli_model ?? undefined,
-      scheduleId,
-    ) : queries.createTodo(
+    const todo = queries.createTodo(
       schedule.project_id,
       todoTitle,
       schedule.description ?? undefined,
@@ -140,11 +132,11 @@ export class Scheduler {
       schedule.cli_model ?? undefined,
       scheduleId,
       undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+      schedule.max_turns ?? undefined,
+      schedule.use_worktree,
+      schedule.memory_inject_mode ?? undefined,
+      schedule.memory_node_ids,
+      schedule.memory_raw_file_paths,
       undefined,
       schedule.effort_level,
     );

@@ -1,6 +1,6 @@
 import path from 'path';
 import { execFile } from 'child_process';
-import { isModelSupported } from '../db/queries.js';
+import { getModelByValue } from '../db/queries.js';
 
 export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
@@ -104,11 +104,20 @@ export function sanitizeExtraOptions(extraOptions: string): string[] {
   return sanitized;
 }
 
+export function resolveExecutionModel(model: string | undefined, cliTool: CliTool, failUnavailable = true): { requestedModel: string | null; effectiveModel: string | undefined; availability: 'available' | 'unavailable' | 'unknown' } {
+  if (!model) return { requestedModel: null, effectiveModel: undefined, availability: 'unknown' };
+  let entry: ReturnType<typeof getModelByValue>;
+  try { entry = getModelByValue(cliTool, model); } catch { entry = undefined; }
+  const availability = entry?.availability_status ?? 'unknown';
+  if (availability === 'unavailable' && failUnavailable) {
+    throw new Error(`Selected ${cliTool} model "${model}" is unavailable. Choose another model or refresh the model catalog.`);
+  }
+  return { requestedModel: model, effectiveModel: model, availability };
+}
+
 function normalizeModel(model: string | undefined, cliTool: CliTool): string | undefined {
   if (!model) return undefined;
-  if (isModelSupported(cliTool, model)) return model;
-  console.warn(`Unsupported ${cliTool} model "${model}" ignored; falling back to default model.`);
-  return undefined;
+  return resolveExecutionModel(model, cliTool).effectiveModel;
 }
 
 /**

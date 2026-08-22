@@ -7,7 +7,7 @@ export function getTodos(projectId: string): Promise<Todo[]> {
 
 export function createTodo(
   projectId: string,
-  data: { title: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; effort_level?: number; depends_on?: string; max_turns?: number | null; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[] }
+  data: { title: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; effort_level?: number | null; depends_on?: string; max_turns?: number | null; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[] }
 ): Promise<Todo> {
   return post(`/api/projects/${projectId}/todos`, data);
 }

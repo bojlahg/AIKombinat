@@ -114,7 +114,7 @@ export default function SessionList({
       description: editingSession.description ?? '',
       cliTool: editingSession.cli_tool ?? '',
       cliModel: editingSession.cli_model ?? '',
-      effortLevel: editingSession.effort_level ?? 3,
+      effortLevel: editingSession.effort_level,
       useWorktree: editingSession.use_worktree === 1,
       memoryInjectMode: (editingSession.memory_inject_mode as MemoryInjectMode | null) ?? 'none',
       memoryNodeIds: parseMemoryNodeIds(editingSession.memory_node_ids ?? null),
@@ -151,7 +151,7 @@ export default function SessionList({
     memoryRawFilePaths?: string[],
     tagId?: string | null,
     cliModel?: string,
-    effortLevel?: number,
+    effortLevel?: number | null,
   ) => {
     setCreating(true);
     try {
@@ -184,7 +184,7 @@ export default function SessionList({
     memoryRawFilePaths?: string[],
     tagId?: string | null,
     cliModel?: string,
-    effortLevel?: number,
+    effortLevel?: number | null,
   ) => {
     if (!editingId) return;
     setSaving(true);

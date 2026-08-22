@@ -28,7 +28,7 @@ interface TodoListProps {
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
   projectEffortLevel?: number | null;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => Promise<void>;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null) => Promise<void>;
   onStartAll: () => void;
   onStopAll: () => void;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;

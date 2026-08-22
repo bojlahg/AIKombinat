@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import * as queries from '../db/queries.js';
-import { checkAllTools, clearCache } from '../services/cli-status.js';
+import { refreshModelCatalog } from '../services/model-sync.js';
+import { isAgentCliTool } from '../services/effort-profiles.js';
 
 const router = Router();
 
@@ -8,7 +9,7 @@ const router = Router();
 router.get('/models', (_req: Request, res: Response) => {
   try {
     const allModels = queries.getAllModels();
-    const result: Record<string, { value: string; label: string; id: string; isDefault: boolean; deprecated: boolean; availabilityStatus: string; supportedEfforts: string[] | null; lastCheckedAt: string | null; source: string }[]> = {};
+    const result: Record<string, { value: string; label: string; id: string; isDefault: boolean; deprecated: boolean; availabilityStatus: string; supportedEfforts: string[] | null; lastSeenAt: string | null; lastCheckedAt: string | null; source: string }[]> = {};
     for (const [tool, models] of Object.entries(allModels)) {
       result[tool] = models.map((m) => ({
         value: m.model_value,
@@ -18,6 +19,7 @@ router.get('/models', (_req: Request, res: Response) => {
         deprecated: m.deprecated === 1,
         availabilityStatus: m.availability_status,
         supportedEfforts: m.supported_efforts ? JSON.parse(m.supported_efforts) : null,
+        lastSeenAt: m.last_seen_at,
         lastCheckedAt: m.last_checked_at,
         source: m.source,
       }));
@@ -31,12 +33,34 @@ router.get('/models', (_req: Request, res: Response) => {
 
 router.post('/models/refresh', async (_req: Request, res: Response) => {
   try {
-    clearCache();
-    await checkAllTools();
-    res.json({ success: true });
+    const results = await Promise.all((['claude', 'codex', 'antigravity'] as const).map(async (tool) => {
+      const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '' });
+      return { tool, source: result.source, authoritative: result.authoritative, primarySucceeded: result.primarySucceeded, count: result.models.length };
+    }));
+    const success = results.every((result) => result.primarySucceeded);
+    res.status(success ? 200 : 503).json({ success, results, ...(!success ? { error: 'One or more live model discovery requests failed; cached catalogs were retained.' } : {}) });
   } catch (err) {
     console.error('Failed to refresh models:', err);
     res.status(500).json({ error: 'Failed to refresh models' });
+  }
+});
+
+router.post('/models/refresh/:cliTool', async (req: Request<{ cliTool: string }>, res: Response) => {
+  if (!isAgentCliTool(req.params.cliTool)) {
+    res.status(400).json({ error: 'Unknown cliTool' }); return;
+  }
+  try {
+    const tool = req.params.cliTool;
+    const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '' });
+    const body = { success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, count: result.models.length };
+    if (!result.primarySucceeded) {
+      res.status(503).json({ ...body, error: `Live ${tool} model discovery failed; the cached catalog was retained.` });
+      return;
+    }
+    res.json(body);
+  } catch (err) {
+    console.error(`Failed to refresh ${req.params.cliTool} models:`, err);
+    res.status(500).json({ error: `Failed to refresh ${req.params.cliTool} models` });
   }
 });
 

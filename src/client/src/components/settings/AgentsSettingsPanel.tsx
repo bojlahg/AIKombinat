@@ -42,7 +42,6 @@ export default function AgentsSettingsPanel() {
     <div className="space-y-5 p-5 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <div><h2 className="text-lg font-semibold">{t('effort.agentsTitle')}</h2><p className="text-sm text-warm-500">{t('effort.agentsDescription')}</p></div>
-        <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => api.refreshModels()}><RefreshCw size={14} />{t('effort.refreshModels')}</button>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
       {profiles.map((profile) => (
@@ -73,6 +72,7 @@ export default function AgentsSettingsPanel() {
           <div className="mt-5 flex flex-wrap gap-2">
             <button type="button" className="btn-primary flex items-center gap-2" disabled={busy === profile.cliTool} onClick={() => save(profile)}><Save size={14} />{t('common.save')}</button>
             <button type="button" className="btn-secondary flex items-center gap-2" disabled={busy === profile.cliTool} onClick={() => reset(profile.cliTool)}><RotateCcw size={14} />{t('effort.resetRecommended')}</button>
+            <button type="button" className="btn-secondary flex items-center gap-2" disabled={busy === profile.cliTool} onClick={async () => { setBusy(profile.cliTool); setError(''); try { await api.refreshModels(profile.cliTool); } catch (err) { setError(String(err)); } finally { setBusy(null); } }}><RefreshCw size={14} />{t('effort.refreshModels')}</button>
           </div>
         </section>
       ))}

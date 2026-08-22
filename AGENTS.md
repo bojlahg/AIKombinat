@@ -27,8 +27,12 @@ cd src/client && npx vitest run src/path/to/file.test.tsx  # single client test
 # Type checking
 npm run typecheck              # server + client
 
-# Desktop (Windows)
-scripts/build-win.bat          # --skip-install/-s skips npm ci; --msix for appx target
+# Desktop packaging
+npm run electron:build         # current platform
+npm run electron:build:win     # Windows
+npm run electron:build:mac     # macOS
+npm run electron:build:linux   # Linux
+scripts/build-win.bat          # Windows helper; --skip-install/-s skips npm ci; --msix for appx target
 ```
 
 ## Architecture
