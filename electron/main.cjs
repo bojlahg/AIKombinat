@@ -346,6 +346,10 @@ function createWindow(port) {
     },
   });
 
+  if (process.platform === 'win32' || process.platform === 'linux') {
+    mainWindow.setMenuBarVisibility(false);
+  }
+
   const localOrigins = [
     `http://127.0.0.1:${port}`,
     `http://localhost:${port}`,
