@@ -32,6 +32,7 @@ interface SessionListProps {
   projectCliTool?: string;
   isGitRepo?: boolean;
   projectUseWorktree?: boolean;
+  projectEffortLevel?: number | null;
   projectDefaultBranch?: string;
   onAddSession: (session: Session) => void;
   onUpdateSession: (session: Session) => void;
@@ -57,6 +58,7 @@ export default function SessionList({
   projectCliTool,
   isGitRepo,
   projectUseWorktree,
+  projectEffortLevel,
   projectDefaultBranch,
   onAddSession,
   onUpdateSession,
@@ -111,6 +113,8 @@ export default function SessionList({
       title: editingSession.title,
       description: editingSession.description ?? '',
       cliTool: editingSession.cli_tool ?? '',
+      cliModel: editingSession.cli_model ?? '',
+      effortLevel: editingSession.effort_level ?? 3,
       useWorktree: editingSession.use_worktree === 1,
       memoryInjectMode: (editingSession.memory_inject_mode as MemoryInjectMode | null) ?? 'none',
       memoryNodeIds: parseMemoryNodeIds(editingSession.memory_node_ids ?? null),
@@ -146,6 +150,8 @@ export default function SessionList({
     memoryNodeIds?: string[],
     memoryRawFilePaths?: string[],
     tagId?: string | null,
+    cliModel?: string,
+    effortLevel?: number,
   ) => {
     setCreating(true);
     try {
@@ -153,6 +159,8 @@ export default function SessionList({
         title,
         description: description || undefined,
         cli_tool: cliTool,
+        cli_model: cliModel,
+        effort_level: effortLevel,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -175,6 +183,8 @@ export default function SessionList({
     memoryNodeIds?: string[],
     memoryRawFilePaths?: string[],
     tagId?: string | null,
+    cliModel?: string,
+    effortLevel?: number,
   ) => {
     if (!editingId) return;
     setSaving(true);
@@ -184,6 +194,8 @@ export default function SessionList({
         title,
         description: description || undefined,
         cli_tool: cliTool,
+        cli_model: cliModel,
+        effort_level: effortLevel,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -233,6 +245,7 @@ export default function SessionList({
           projectCliTool={projectCliTool}
           isGitRepo={isGitRepo}
           projectUseWorktree={projectUseWorktree}
+          projectEffortLevel={projectEffortLevel}
         />
       )}
 

@@ -139,7 +139,7 @@ export interface CliAdapter {
   /** Whether this CLI supports long-lived interactive sessions */
   supportsInteractive?: boolean;
   /** Build the args array for spawning */
-  buildArgs(opts: { mode: CliMode; prompt: string; model?: string; extraOptions?: string; maxTurns?: number; workDir?: string; projectPath?: string; sandboxMode?: SandboxMode; continueSession?: boolean }): string[];
+  buildArgs(opts: { mode: CliMode; prompt: string; model?: string; effort?: string; extraOptions?: string; maxTurns?: number; workDir?: string; projectPath?: string; sandboxMode?: SandboxMode; continueSession?: boolean }): string[];
   /** Whether this mode needs stdin pipe */
   needsStdin(mode: CliMode): boolean;
   /** Format prompt for stdin delivery */
@@ -199,7 +199,7 @@ const claudeAdapter: CliAdapter = {
       blocksInitialPrompt: true,
     },
   ],
-  buildArgs({ mode, prompt, model, extraOptions, maxTurns, sandboxMode, continueSession }) {
+  buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, sandboxMode, continueSession }) {
     const normalizedModel = normalizeModel(model, 'claude');
     const args: string[] = [];
     if (sandboxMode === 'strict') {
@@ -212,6 +212,7 @@ const claudeAdapter: CliAdapter = {
     }
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
+    if (effort) args.push('--effort', effort);
     if (maxTurns && maxTurns > 0) args.push('--max-turns', String(maxTurns));
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
@@ -258,7 +259,7 @@ const antigravityAdapter: CliAdapter = {
       response: 'n\r',
     },
   ],
-  buildArgs({ mode, prompt, model, extraOptions, sandboxMode, continueSession }) {
+  buildArgs({ mode, prompt, model, effort, extraOptions, sandboxMode, continueSession }) {
     // Antigravity CLI (`agy`):
     //   --dangerously-skip-permissions auto-approves all tool actions (file writes, shell).
     //   --headless enables non-interactive mode; the actual prompt is delivered via stdin pipe.
@@ -274,6 +275,7 @@ const antigravityAdapter: CliAdapter = {
     if (mode !== 'interactive') args.push('--headless');
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
+    if (effort) args.push('--effort', effort);
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
     }
@@ -299,7 +301,7 @@ const codexAdapter: CliAdapter = {
   readyIndicatorPattern: /▍|›|>\s*$/,
   // No auto-respond rules yet — add once real startup/update prompts are captured.
   autoRespondRules: [],
-  buildArgs({ mode, prompt, model, extraOptions, workDir, projectPath, sandboxMode, continueSession }) {
+  buildArgs({ mode, prompt, model, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession }) {
     const normalizedModel = normalizeModel(model, 'codex');
     const args: string[] = [];
     if (mode !== 'interactive') {
@@ -323,6 +325,7 @@ const codexAdapter: CliAdapter = {
       args.push('--dangerously-bypass-approvals-and-sandbox');
     }
     if (normalizedModel) args.push('--model', normalizedModel);
+    if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
     }

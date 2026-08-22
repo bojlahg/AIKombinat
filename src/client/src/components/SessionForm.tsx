@@ -9,11 +9,14 @@ import type { VaultInjectMode } from '../api/vault';
 import * as tagsApi from '../api/sessionTags';
 import * as settingsApi from '../api/sessionSettings';
 import { forceImeHandoff } from '../ime-handoff';
+import EffortStars from './EffortStars';
 
 export interface SessionFormInitial {
   title: string;
   description: string;
   cliTool: string;
+  cliModel: string;
+  effortLevel: number;
   useWorktree: boolean;
   memoryInjectMode: MemoryInjectMode;
   memoryNodeIds: string[];
@@ -34,20 +37,27 @@ interface SessionFormProps {
     memoryNodeIds?: string[],
     memoryRawFilePaths?: string[],
     tagId?: string | null,
+    cliModel?: string,
+    effortLevel?: number,
   ) => void;
   onCancel: () => void;
   projectCliTool?: string;
   isGitRepo?: boolean;
   /** Default for `useWorktree` in create mode; ignored when `initial` is set. */
   projectUseWorktree?: boolean;
+  projectEffortLevel?: number | null;
 }
 
-export default function SessionForm({ projectId, initial, onSave, onCancel, projectCliTool, isGitRepo, projectUseWorktree }: SessionFormProps) {
+export default function SessionForm({ projectId, initial, onSave, onCancel, projectCliTool, isGitRepo, projectUseWorktree, projectEffortLevel }: SessionFormProps) {
   const { t } = useI18n();
   const isEdit = !!initial;
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [cliTool, setCliTool] = useState(initial?.cliTool ?? (projectCliTool || ''));
+  const [cliModel, setCliModel] = useState(initial?.cliModel ?? '');
+  const [effortLevel, setEffortLevel] = useState<1 | 2 | 3 | 4 | 5>(Math.min(5, Math.max(1, initial?.effortLevel ?? 3)) as 1 | 2 | 3 | 4 | 5);
+  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean }>>>({});
+  const [profileDefaults, setProfileDefaults] = useState<Record<string, number>>({});
   const [useWorktree, setUseWorktree] = useState(initial?.useWorktree ?? !!projectUseWorktree);
   const [vaultMode, setVaultMode] = useState<VaultInjectMode>((initial?.memoryInjectMode as VaultInjectMode | undefined) ?? 'none');
   const [vaultPaths, setVaultPaths] = useState<string[]>(initial?.memoryRawFilePaths ?? []);
@@ -64,6 +74,16 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   // cycle in main, then focus the title input) — falling back to a plain
   // focus() outside Electron. Also park every xterm helper textarea out of
   // the focus traversal for the form's lifetime.
+  useEffect(() => {
+    fetch('/api/models', { credentials: 'include' }).then((res) => res.json()).then(setModels).catch(() => setModels({}));
+    fetch('/api/agent-effort-profiles', { credentials: 'include' }).then((res) => res.json()).then((items: Array<{ cliTool: string; defaultLevel: number }>) => setProfileDefaults(Object.fromEntries(items.map((item) => [item.cliTool, item.defaultLevel])))).catch(() => setProfileDefaults({}));
+  }, []);
+
+  useEffect(() => {
+    const selected = cliTool || projectCliTool || 'claude';
+    if (!initial) setEffortLevel((projectEffortLevel ?? profileDefaults[selected] ?? (selected === 'claude' ? 3 : 2)) as 1 | 2 | 3 | 4 | 5);
+  }, [cliTool, initial, profileDefaults, projectCliTool, projectEffortLevel]);
+
   useEffect(() => {
     if (!forceImeHandoff(() => titleRef.current?.focus())) {
       titleRef.current?.focus();
@@ -147,6 +167,8 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
       [],
       vaultPaths,
       tagId,
+      cliModel || undefined,
+      effortLevel,
     );
   };
 
@@ -177,7 +199,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
       <div className="flex gap-2">
         <select
           value={cliTool}
-          onChange={(e) => setCliTool(e.target.value)}
+          onChange={(e) => { setCliTool(e.target.value); setCliModel(''); }}
           className="input-field text-xs flex-1"
         >
           <option value="">{t('session.cliTool')} (Default)</option>
@@ -185,7 +207,12 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
             <option key={tool.value} value={tool.value}>{optionLabel(tool)}</option>
           ))}
         </select>
+        {!isRawShell && <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-xs flex-1" aria-label={t('effort.model')}>
+          <option value="">{t('effort.providerModelDefault')}</option>
+          {(models[selectedTool] ?? []).filter((model) => !model.deprecated && model.value).map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
+        </select>}
       </div>
+      {!isRawShell && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><EffortStars value={effortLevel} onChange={setEffortLevel} /></div>}
       {tags.length > 0 && (
         <div className="flex items-center gap-2">
           {selectedTag && (

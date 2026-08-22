@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { Cloud, KeyRound, MonitorCog, Plug, Settings, TerminalSquare } from 'lucide-react';
+import { Bot, Cloud, KeyRound, MonitorCog, Plug, Settings, TerminalSquare } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import PasswordSettingsPanel from '../PasswordSettingsPanel';
 import SessionSettingsPanel from '../SessionSettingsPanel';
 import { TunnelSettingsPanel } from '../TunnelSettings';
 import McpSettingsPanel from '../McpSettingsPanel';
 import GeneralSettingsPanel from './GeneralSettingsPanel';
+import AgentsSettingsPanel from './AgentsSettingsPanel';
 
 export default function SettingsPage() {
   const { t } = useI18n();
@@ -14,6 +15,7 @@ export default function SettingsPage() {
   const [tunnelDirty, setTunnelDirty] = useState(false);
   const tabs = [
     { id: 'general', label: t('settings.tabs.general'), icon: MonitorCog },
+    { id: 'agents', label: t('settings.tabs.agents'), icon: Bot },
     { id: 'account', label: t('settings.tabs.account'), icon: KeyRound },
     { id: 'terminals', label: t('settings.tabs.session'), icon: TerminalSquare },
     { id: 'tunnel', label: t('settings.tabs.tunnel'), icon: Cloud },
@@ -59,6 +61,7 @@ export default function SettingsPage() {
             <Routes>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPanel />} />
+              <Route path="agents" element={<AgentsSettingsPanel />} />
               <Route path="account" element={<PasswordSettingsPanel />} />
               <Route path="terminals" element={<SessionSettingsPanel />} />
               <Route path="tunnel" element={<TunnelSettingsPanel onDirtyChange={setTunnelDirty} />} />

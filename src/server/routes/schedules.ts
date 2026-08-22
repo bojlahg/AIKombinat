@@ -4,6 +4,7 @@ import * as queries from '../db/queries.js';
 import { scheduler } from '../services/scheduler.js';
 import { logStreamer } from '../services/log-streamer.js';
 import { cleanupTodoImages } from './images.js';
+import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
 
 const router = Router();
 
@@ -16,9 +17,10 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       return;
     }
 
-    // cli_model is no longer accepted — model selection was removed and
-    // execution always uses the CLI's default model.
-    const { title, description, cron_expression, cli_tool, skip_if_running, schedule_type, run_at } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, effort_level, skip_if_running, schedule_type, run_at } = req.body;
+    if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
+      res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
+    }
     const isOnce = schedule_type === 'once';
 
     if (!title) {
@@ -45,10 +47,11 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
     const schedule = queries.createSchedule(
       req.params.id, title, description,
       isOnce ? '* * * * *' : cron_expression,
-      cli_tool, undefined,
+      cli_tool, cli_model,
       skip_if_running !== undefined ? (skip_if_running ? 1 : 0) : 1,
       isOnce ? 'once' : 'recurring',
-      isOnce ? run_at : undefined
+      isOnce ? run_at : undefined,
+      isEffortLevel(effort_level) ? effort_level : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude')).defaultLevel)
     );
 
     // Auto-register the job since new schedules are active by default
@@ -106,7 +109,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, skip_if_running, schedule_type, run_at } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, effort_level, skip_if_running, schedule_type, run_at } = req.body;
     const effectiveType = schedule_type ?? existing.schedule_type;
     const isOnce = effectiveType === 'once';
 
@@ -126,6 +129,8 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       updates.cron_expression = cron_expression;
     }
     if (cli_tool !== undefined) updates.cli_tool = cli_tool;
+    if (cli_model !== undefined) updates.cli_model = cli_model;
+    if (effort_level === null || isEffortLevel(effort_level)) updates.effort_level = effort_level;
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
 
     const schedule = queries.updateSchedule(req.params.id, updates);

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { createGit, resolveLocalBaseBranch } from '../lib/git.js';
 import fs from 'fs';
 import * as queries from '../db/queries.js';
+import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
 import { discussionOrchestrator } from '../services/discussion-orchestrator.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { extractActionItems, type ExtractedActionItem } from '../services/discussion-extractor.js';
@@ -166,15 +167,17 @@ router.post('/projects/:id/agents', (req: Request<{ id: string }>, res: Response
       return;
     }
 
-    // cli_model is no longer accepted — model selection was removed and
-    // execution always uses the CLI's default model.
-    const { name, role, system_prompt, cli_tool, avatar_color, can_implement } = req.body;
+    const { name, role, system_prompt, cli_tool, cli_model, effort_level, avatar_color, can_implement } = req.body;
+    if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
+      res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
+    }
     if (!name || !role || !system_prompt) {
       res.status(400).json({ error: 'name, role, and system_prompt are required' });
       return;
     }
 
-    const agent = queries.createDiscussionAgent(req.params.id, name, role, system_prompt, cli_tool, undefined, avatar_color, Boolean(can_implement));
+    const effectiveTool = isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude');
+    const agent = queries.createDiscussionAgent(req.params.id, name, role, system_prompt, cli_tool, cli_model, avatar_color, Boolean(can_implement), isEffortLevel(effort_level) ? effort_level : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(effectiveTool).defaultLevel));
     res.status(201).json(agent);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

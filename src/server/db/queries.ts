@@ -17,6 +17,7 @@ export interface Project {
   cli_tool: string;
   cli_fallback_chain: string | null;
   default_max_turns: number | null;
+  default_effort_level: number | null;
   sandbox_mode: string;
   debug_logging: number;
   use_worktree: number;
@@ -67,7 +68,7 @@ export function getProjectById(id: string): Project | undefined {
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | undefined;
 }
 
-export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'color'>>): Project | undefined {
+export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'default_effort_level' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'color'>>): Project | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -84,6 +85,7 @@ export function updateProject(id: string, updates: Partial<Pick<Project, 'name' 
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_fallback_chain !== undefined) { fields.push('cli_fallback_chain = ?'); values.push(updates.cli_fallback_chain); }
   if (updates.default_max_turns !== undefined) { fields.push('default_max_turns = ?'); values.push(updates.default_max_turns); }
+  if (updates.default_effort_level !== undefined) { fields.push('default_effort_level = ?'); values.push(updates.default_effort_level); }
   if (updates.sandbox_mode !== undefined) { fields.push('sandbox_mode = ?'); values.push(updates.sandbox_mode); }
   if (updates.debug_logging !== undefined) { fields.push('debug_logging = ?'); values.push(updates.debug_logging); }
   if (updates.use_worktree !== undefined) { fields.push('use_worktree = ?'); values.push(updates.use_worktree); }
@@ -156,6 +158,7 @@ export interface Todo {
   process_pid: number | null;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   schedule_id: string | null;
   images: string | null;
   depends_on: string | null;
@@ -181,15 +184,15 @@ export interface Todo {
   updated_at: string;
 }
 
-export function createTodo(projectId: string, title: string, description?: string, priority = 0, cliTool?: string, cliModel?: string, scheduleId?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: string, memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, delegatedFrom?: string): Todo {
+export function createTodo(projectId: string, title: string, description?: string, priority = 0, cliTool?: string, cliModel?: string, scheduleId?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: string, memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, delegatedFrom?: string, effortLevel?: number | null): Todo {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   const normalizedUseWorktree = useWorktree === 0 || useWorktree === 1 ? useWorktree : null;
   db.prepare(
-    `INSERT INTO todos (id, project_id, title, description, priority, cli_tool, cli_model, schedule_id, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, delegated_from, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, priority, cliTool ?? null, cliModel ?? null, scheduleId ?? null, dependsOn ?? null, maxTurns ?? null, normalizedUseWorktree, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, delegatedFrom ?? null, now, now);
+    `INSERT INTO todos (id, project_id, title, description, priority, cli_tool, cli_model, schedule_id, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, delegated_from, effort_level, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, title, description ?? null, priority, cliTool ?? null, cliModel ?? null, scheduleId ?? null, dependsOn ?? null, maxTurns ?? null, normalizedUseWorktree, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, delegatedFrom ?? null, effortLevel ?? null, now, now);
   return getTodoById(id)!;
 }
 
@@ -203,7 +206,7 @@ export function getTodoById(id: string): Todo | undefined {
   return db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths'>>): Todo | undefined {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'effort_level' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths'>>): Todo | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -216,6 +219,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.effort_level !== undefined) { fields.push('effort_level = ?'); values.push(updates.effort_level); }
   if (updates.images !== undefined) { fields.push('images = ?'); values.push(updates.images); }
   if (updates.depends_on !== undefined) { fields.push('depends_on = ?'); values.push(updates.depends_on); }
   if (updates.max_turns !== undefined) { fields.push('max_turns = ?'); values.push(updates.max_turns); }
@@ -310,6 +314,7 @@ export interface Schedule {
   cron_expression: string;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;
@@ -323,15 +328,15 @@ export interface Schedule {
 export function createSchedule(
   projectId: string, title: string, description: string | undefined,
   cronExpression: string, cliTool?: string, cliModel?: string, skipIfRunning = 1,
-  scheduleType = 'recurring', runAt?: string
+  scheduleType = 'recurring', runAt?: string, effortLevel?: number | null
 ): Schedule {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, skip_if_running, schedule_type, run_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, cronExpression, cliTool ?? null, cliModel ?? null, skipIfRunning, scheduleType, runAt ?? null, now, now);
+    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, skip_if_running, schedule_type, run_at, effort_level, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, title, description ?? null, cronExpression, cliTool ?? null, cliModel ?? null, skipIfRunning, scheduleType, runAt ?? null, effortLevel ?? null, now, now);
   return getScheduleById(id)!;
 }
 
@@ -355,7 +360,7 @@ export function getActiveOnceSchedules(): Schedule[] {
   return db.prepare("SELECT * FROM schedules WHERE is_active = 1 AND schedule_type = 'once'").all() as Schedule[];
 }
 
-export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
+export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'effort_level' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -365,6 +370,7 @@ export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'titl
   if (updates.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(updates.cron_expression); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.effort_level !== undefined) { fields.push('effort_level = ?'); values.push(updates.effort_level); }
   if (updates.skip_if_running !== undefined) { fields.push('skip_if_running = ?'); values.push(updates.skip_if_running); }
   if (updates.schedule_type !== undefined) { fields.push('schedule_type = ?'); values.push(updates.schedule_type); }
   if (updates.run_at !== undefined) { fields.push('run_at = ?'); values.push(updates.run_at); }
@@ -452,6 +458,37 @@ export function getScheduleRunsByScheduleId(scheduleId: string, limit = 50): (Sc
 
 // ── CLI Models ──
 
+export type AgentCliTool = 'claude' | 'codex' | 'antigravity';
+export type EffortMapping = Record<'1' | '2' | '3' | '4' | '5', string>;
+
+export interface AgentEffortProfileRow {
+  cli_tool: AgentCliTool;
+  default_level: number;
+  mapping_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getAgentEffortProfiles(): AgentEffortProfileRow[] {
+  return getDatabase().prepare(
+    `SELECT * FROM agent_effort_profiles
+     ORDER BY CASE cli_tool WHEN 'claude' THEN 1 WHEN 'codex' THEN 2 ELSE 3 END`,
+  ).all() as AgentEffortProfileRow[];
+}
+
+export function getAgentEffortProfile(cliTool: AgentCliTool): AgentEffortProfileRow | undefined {
+  return getDatabase().prepare('SELECT * FROM agent_effort_profiles WHERE cli_tool = ?')
+    .get(cliTool) as AgentEffortProfileRow | undefined;
+}
+
+export function updateAgentEffortProfile(cliTool: AgentCliTool, defaultLevel: number, mapping: EffortMapping): AgentEffortProfileRow {
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `UPDATE agent_effort_profiles SET default_level = ?, mapping_json = ?, updated_at = ? WHERE cli_tool = ?`,
+  ).run(defaultLevel, JSON.stringify(mapping), now, cliTool);
+  return getAgentEffortProfile(cliTool)!;
+}
+
 export interface CliModel {
   id: string;
   cli_tool: string;
@@ -462,6 +499,10 @@ export interface CliModel {
   deprecated: number;
   last_verified_at: string | null;
   source: string;
+  availability_status: 'available' | 'unavailable' | 'unknown';
+  supported_efforts: string | null;
+  last_seen_at: string | null;
+  last_checked_at: string | null;
   created_at: string;
 }
 
@@ -668,6 +709,7 @@ export interface DiscussionAgent {
   system_prompt: string;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   avatar_color: string | null;
   sort_order: number;
   can_implement: number;
@@ -677,7 +719,7 @@ export interface DiscussionAgent {
 
 export function createDiscussionAgent(
   projectId: string, name: string, role: string, systemPrompt: string,
-  cliTool?: string, cliModel?: string, avatarColor?: string, canImplement = false
+  cliTool?: string, cliModel?: string, avatarColor?: string, canImplement = false, effortLevel?: number | null
 ): DiscussionAgent {
   const db = getDatabase();
   const id = uuidv4();
@@ -685,9 +727,9 @@ export function createDiscussionAgent(
   const maxOrder = db.prepare('SELECT MAX(sort_order) as max_order FROM discussion_agents WHERE project_id = ?').get(projectId) as { max_order: number | null };
   const sortOrder = (maxOrder.max_order ?? -1) + 1;
   db.prepare(
-    `INSERT INTO discussion_agents (id, project_id, name, role, system_prompt, cli_tool, cli_model, avatar_color, sort_order, can_implement, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, name, role, systemPrompt, cliTool ?? null, cliModel ?? null, avatarColor ?? null, sortOrder, canImplement ? 1 : 0, now, now);
+    `INSERT INTO discussion_agents (id, project_id, name, role, system_prompt, cli_tool, cli_model, avatar_color, sort_order, can_implement, effort_level, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, name, role, systemPrompt, cliTool ?? null, cliModel ?? null, avatarColor ?? null, sortOrder, canImplement ? 1 : 0, effortLevel ?? null, now, now);
   return getDiscussionAgentById(id)!;
 }
 
@@ -701,7 +743,7 @@ export function getDiscussionAgentById(id: string): DiscussionAgent | undefined 
   return db.prepare('SELECT * FROM discussion_agents WHERE id = ?').get(id) as DiscussionAgent | undefined;
 }
 
-export function updateDiscussionAgent(id: string, updates: Partial<Pick<DiscussionAgent, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'avatar_color' | 'sort_order' | 'can_implement'>>): DiscussionAgent | undefined {
+export function updateDiscussionAgent(id: string, updates: Partial<Pick<DiscussionAgent, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'effort_level' | 'avatar_color' | 'sort_order' | 'can_implement'>>): DiscussionAgent | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -711,6 +753,7 @@ export function updateDiscussionAgent(id: string, updates: Partial<Pick<Discussi
   if (updates.system_prompt !== undefined) { fields.push('system_prompt = ?'); values.push(updates.system_prompt); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.effort_level !== undefined) { fields.push('effort_level = ?'); values.push(updates.effort_level); }
   if (updates.avatar_color !== undefined) { fields.push('avatar_color = ?'); values.push(updates.avatar_color); }
   if (updates.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(updates.sort_order); }
   if (updates.can_implement !== undefined) { fields.push('can_implement = ?'); values.push(updates.can_implement ? 1 : 0); }
@@ -934,6 +977,7 @@ export interface Session {
   status: string;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   process_pid: number | null;
   branch_name: string | null;
   worktree_path: string | null;
@@ -963,13 +1007,14 @@ export function createSession(
   memoryNodeIds?: string | null,
   memoryRawFilePaths?: string | null,
   tagId?: string | null,
+  effortLevel?: number | null,
 ): Session {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO sessions (id, project_id, title, description, cli_tool, cli_model, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (id, project_id, title, description, cli_tool, cli_model, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id, effort_level, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     projectId,
@@ -982,6 +1027,7 @@ export function createSession(
     memoryNodeIds ?? null,
     memoryRawFilePaths ?? null,
     tagId ?? null,
+    effortLevel ?? null,
     now,
     now,
   );
@@ -998,7 +1044,7 @@ export function getSessionById(id: string): Session | undefined {
   return db.prepare('SELECT s.*, p.is_git_repo FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = ?').get(id) as Session | undefined;
 }
 
-export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'process_pid' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id'>>): Session | undefined {
+export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'effort_level' | 'process_pid' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id'>>): Session | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1007,6 +1053,7 @@ export function updateSession(id: string, updates: Partial<Pick<Session, 'title'
   if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.effort_level !== undefined) { fields.push('effort_level = ?'); values.push(updates.effort_level); }
   if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
   if (updates.branch_name !== undefined) { fields.push('branch_name = ?'); values.push(updates.branch_name); }
   if (updates.worktree_path !== undefined) { fields.push('worktree_path = ?'); values.push(updates.worktree_path); }

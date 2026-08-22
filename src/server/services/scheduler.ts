@@ -123,15 +123,30 @@ export class Scheduler {
 
     // Create todo from schedule template
     const todoTitle = `[Schedule] ${schedule.title} - ${now}`;
-    const todo = queries.createTodo(
+    const todo = schedule.effort_level == null ? queries.createTodo(
       schedule.project_id,
       todoTitle,
       schedule.description ?? undefined,
       0,
       schedule.cli_tool ?? undefined,
-      // Model selection was removed — legacy schedule.cli_model is ignored.
-      undefined,
+      schedule.cli_model ?? undefined,
       scheduleId,
+    ) : queries.createTodo(
+      schedule.project_id,
+      todoTitle,
+      schedule.description ?? undefined,
+      0,
+      schedule.cli_tool ?? undefined,
+      schedule.cli_model ?? undefined,
+      scheduleId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      schedule.effort_level,
     );
 
     // Create run record

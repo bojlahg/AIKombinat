@@ -59,6 +59,10 @@ export function put<T>(url: string, body?: unknown): Promise<T> {
   return request<T>('PUT', url, body);
 }
 
+export function patch<T>(url: string, body?: unknown): Promise<T> {
+  return request<T>('PATCH', url, body);
+}
+
 export function del<T>(url: string): Promise<T> {
   return request<T>('DELETE', url);
 }

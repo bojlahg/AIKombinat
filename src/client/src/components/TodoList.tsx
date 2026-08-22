@@ -27,7 +27,8 @@ interface TodoListProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[]) => Promise<void>;
+  projectEffortLevel?: number | null;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => Promise<void>;
   onStartAll: () => void;
   onStopAll: () => void;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -72,6 +73,7 @@ export default function TodoList({
   projectCliTool,
   projectIsGitRepo,
   projectUseWorktree,
+  projectEffortLevel,
   onAddTodo,
   onStartAll,
   onStopAll,
@@ -401,6 +403,7 @@ export default function TodoList({
           projectCliTool={projectCliTool}
           projectIsGitRepo={projectIsGitRepo}
           projectUseWorktree={projectUseWorktree}
+          projectEffortLevel={projectEffortLevel}
           onAddTodo={onAddTodo}
           onStartTodo={onStartTodo}
           onStopTodo={onStopTodo}
@@ -499,9 +502,10 @@ export default function TodoList({
             projectCliTool={projectCliTool}
             projectIsGitRepo={projectIsGitRepo}
             projectUseWorktree={projectUseWorktree}
+            projectEffortLevel={projectEffortLevel}
             availableTodos={todos}
-            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths) => {
-              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths);
+            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, effortLevel) => {
+              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, effortLevel);
               setShowForm(false);
             }}
             onCancel={() => setShowForm(false)}

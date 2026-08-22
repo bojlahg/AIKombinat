@@ -12,6 +12,7 @@ export interface Project {
   cli_tool: string;
   cli_fallback_chain: string | null;
   default_max_turns: number | null;
+  default_effort_level: number | null;
   sandbox_mode: string;
   debug_logging: number;
   use_worktree: number;
@@ -44,6 +45,7 @@ export interface Todo {
   worktree_path: string | null;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   images: string | null;
   depends_on: string | null;
   max_turns: number | null;
@@ -107,6 +109,7 @@ export interface Schedule {
   cron_expression: string;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;
@@ -184,6 +187,7 @@ export interface DiscussionAgent {
   system_prompt: string;
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   avatar_color: string | null;
   sort_order: number;
   can_implement: number;
@@ -252,6 +256,7 @@ export interface Session {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
   cli_tool: string | null;
   cli_model: string | null;
+  effort_level: number | null;
   process_pid: number | null;
   branch_name: string | null;
   worktree_path: string | null;

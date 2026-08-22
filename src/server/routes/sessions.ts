@@ -4,6 +4,7 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { execFileSync } from 'child_process';
 import * as queries from '../db/queries.js';
+import { getProfile, isAgentCliTool, isEffortLevel } from '../services/effort-profiles.js';
 import { sessionManager } from '../services/session-manager.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { writeImageToClipboard } from '../services/clipboard-writer.js';
@@ -41,9 +42,10 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       return;
     }
 
-    // cli_model is no longer accepted — model selection was removed and
-    // execution always uses the CLI's default model.
-    const { title, description, cli_tool, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id } = req.body;
+    const { title, description, cli_tool, cli_model, effort_level, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id } = req.body;
+    if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
+      res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
+    }
     const trimmedTitle = typeof title === 'string' ? title.trim() : '';
     const finalTitle = trimmedTitle || `Session ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
     let normalizedTagId: string | null = null;
@@ -70,12 +72,13 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       finalTitle,
       description?.trim() || undefined,
       cli_tool || undefined,
-      undefined,
+      cli_model || undefined,
       !!use_worktree,
       normalizedMemMode,
       normalizedMemIds,
       normalizedRaw === undefined ? null : normalizedRaw,
       normalizedTagId,
+      isEffortLevel(effort_level) ? effort_level : (isEffortLevel(project.default_effort_level) ? project.default_effort_level : getProfile(isAgentCliTool(cli_tool) ? cli_tool : (isAgentCliTool(project.cli_tool) ? project.cli_tool : 'claude')).defaultLevel),
     );
     res.status(201).json(session);
   } catch (err: unknown) {
@@ -264,13 +267,14 @@ router.put('/sessions/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const allowed = ['title', 'description', 'cli_tool', 'use_worktree'] as const;
+    const allowed = ['title', 'description', 'cli_tool', 'cli_model', 'use_worktree'] as const;
     const updates: Record<string, unknown> = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         updates[key] = req.body[key];
       }
     }
+    if (req.body.effort_level === null || isEffortLevel(req.body.effort_level)) updates.effort_level = req.body.effort_level;
 
     if (req.body.memory_inject_mode !== undefined) {
       updates.memory_inject_mode =

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as queries from '../db/queries.js';
+import { checkAllTools, clearCache } from '../services/cli-status.js';
 
 const router = Router();
 
@@ -7,7 +8,7 @@ const router = Router();
 router.get('/models', (_req: Request, res: Response) => {
   try {
     const allModels = queries.getAllModels();
-    const result: Record<string, { value: string; label: string; id: string; isDefault: boolean; deprecated: boolean }[]> = {};
+    const result: Record<string, { value: string; label: string; id: string; isDefault: boolean; deprecated: boolean; availabilityStatus: string; supportedEfforts: string[] | null; lastCheckedAt: string | null; source: string }[]> = {};
     for (const [tool, models] of Object.entries(allModels)) {
       result[tool] = models.map((m) => ({
         value: m.model_value,
@@ -15,12 +16,27 @@ router.get('/models', (_req: Request, res: Response) => {
         id: m.id,
         isDefault: m.is_default === 1,
         deprecated: m.deprecated === 1,
+        availabilityStatus: m.availability_status,
+        supportedEfforts: m.supported_efforts ? JSON.parse(m.supported_efforts) : null,
+        lastCheckedAt: m.last_checked_at,
+        source: m.source,
       }));
     }
     res.json(result);
   } catch (err) {
     console.error('Failed to fetch models:', err);
     res.status(500).json({ error: 'Failed to fetch models' });
+  }
+});
+
+router.post('/models/refresh', async (_req: Request, res: Response) => {
+  try {
+    clearCache();
+    await checkAllTools();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to refresh models:', err);
+    res.status(500).json({ error: 'Failed to refresh models' });
   }
 });
 

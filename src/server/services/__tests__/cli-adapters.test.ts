@@ -81,6 +81,12 @@ describe('cli-adapters', () => {
     expect(adapter.formatStdinPrompt('hello')).toBe('hello\n');
   });
 
+  it('translates resolved effort for each CLI without touching global config', () => {
+    expect(getAdapter('claude').buildArgs({ mode: 'headless', prompt: '', effort: 'high' })).toContain('high');
+    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium' })).toEqual(expect.arrayContaining(['--effort', 'medium']));
+    expect(getAdapter('codex').buildArgs({ mode: 'headless', prompt: '', effort: 'xhigh' })).toEqual(expect.arrayContaining(['-c', 'model_reasoning_effort="xhigh"']));
+  });
+
   it('enables interactive mode for all CLI tools', () => {
     expect(supportsInteractiveMode('claude')).toBe(true);
     expect(supportsInteractiveMode('antigravity')).toBe(true);

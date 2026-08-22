@@ -88,7 +88,8 @@ interface TaskGraphProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[]) => Promise<void>;
+  projectEffortLevel?: number | null;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => Promise<void>;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStopTodo: (id: string) => Promise<void>;
   onDeleteTodo: (id: string) => Promise<void>;
@@ -113,6 +114,7 @@ export default function TaskGraph({
   projectCliTool,
   projectIsGitRepo,
   projectUseWorktree,
+  projectEffortLevel,
   onAddTodo,
   onStartTodo,
   onStopTodo,
@@ -350,9 +352,10 @@ export default function TaskGraph({
             projectCliTool={projectCliTool}
             projectIsGitRepo={projectIsGitRepo}
             projectUseWorktree={projectUseWorktree}
+            projectEffortLevel={projectEffortLevel}
             availableTodos={todos}
-            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths) => {
-              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths);
+            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, effortLevel) => {
+              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, effortLevel);
               setShowForm(false);
             }}
             onCancel={() => setShowForm(false)}

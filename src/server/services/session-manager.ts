@@ -1,6 +1,7 @@
 import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
 import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
+import { isAgentCliTool, resolveExecutionEffort } from './effort-profiles.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
@@ -171,9 +172,10 @@ export class SessionManager {
     }
 
     const adapter = getAdapter(cliTool);
-    // Model selection was removed — always the CLI's default model; legacy
-    // session.cli_model / project.claude_model values are ignored.
-    const cliModel = undefined;
+    const cliModel = session.cli_model || project.claude_model || undefined;
+    const resolvedEffort = isAgentCliTool(cliTool)
+      ? resolveExecutionEffort({ cliTool, model: cliModel, effortLevel: session.effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      : null;
     let prompt = session.description || '';
 
     // Inject long-term memory if configured for this session. Mirrors the
@@ -290,6 +292,7 @@ export class SessionManager {
         workDir, '', cliModel, undefined, 'interactive', cliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
+        resolvedEffort?.nativeEffort,
       );
       pid = result.pid;
       exitPromise = result.exitPromise;

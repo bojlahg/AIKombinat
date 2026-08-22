@@ -141,6 +141,14 @@ export function initDatabase(db: Database.Database): void {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS agent_effort_profiles (
+      cli_tool TEXT PRIMARY KEY CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
+      default_level INTEGER NOT NULL CHECK (default_level BETWEEN 1 AND 5),
+      mapping_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS discussion_logs (
       id TEXT PRIMARY KEY,
       discussion_id TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
@@ -339,8 +347,10 @@ export function initDatabase(db: Database.Database): void {
     { table: 'projects', column: 'is_git_repo', definition: 'INTEGER DEFAULT 1' },
     { table: 'projects', column: 'cli_tool', definition: "TEXT DEFAULT 'claude'" },
     { table: 'projects', column: 'default_max_turns', definition: 'INTEGER' },
+    { table: 'projects', column: 'default_effort_level', definition: 'INTEGER' },
     { table: 'todos', column: 'cli_tool', definition: 'TEXT' },
     { table: 'todos', column: 'cli_model', definition: 'TEXT' },
+    { table: 'todos', column: 'effort_level', definition: 'INTEGER' },
     { table: 'todos', column: 'schedule_id', definition: 'TEXT' },
     { table: 'todos', column: 'images', definition: 'TEXT' },
     { table: 'todos', column: 'depends_on', definition: 'TEXT' },
@@ -353,6 +363,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'todos', column: 'context_switch_count', definition: 'INTEGER DEFAULT 0' },
     { table: 'schedules', column: 'schedule_type', definition: "TEXT DEFAULT 'recurring'" },
     { table: 'schedules', column: 'run_at', definition: 'DATETIME' },
+    { table: 'schedules', column: 'effort_level', definition: 'INTEGER' },
     { table: 'projects', column: 'sandbox_mode', definition: "TEXT DEFAULT 'strict'" },
     { table: 'projects', column: 'debug_logging', definition: 'INTEGER DEFAULT 0' },
     { table: 'discussions', column: 'auto_implement', definition: 'INTEGER DEFAULT 0' },
@@ -377,6 +388,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'cli_models', column: 'last_verified_at', definition: 'DATETIME' },
     { table: 'cli_models', column: 'source', definition: "TEXT DEFAULT 'seed'" },
     { table: 'discussion_agents', column: 'can_implement', definition: 'INTEGER DEFAULT 0' },
+    { table: 'discussion_agents', column: 'effort_level', definition: 'INTEGER' },
     { table: 'projects', column: 'npm_auto_install', definition: 'INTEGER DEFAULT 0' },
     { table: 'todos', column: 'summary', definition: 'TEXT' },
     { table: 'todos', column: 'diff_lines', definition: 'INTEGER' },
@@ -412,6 +424,11 @@ export function initDatabase(db: Database.Database): void {
     // On-demand Diff capture points: JSON array of { seq, sha, at } working-tree
     // snapshots the user took mid-session, each usable as a Diff page's base.
     { table: 'sessions', column: 'snapshots', definition: 'TEXT' },
+    { table: 'sessions', column: 'effort_level', definition: 'INTEGER' },
+    { table: 'cli_models', column: 'availability_status', definition: "TEXT DEFAULT 'unknown'" },
+    { table: 'cli_models', column: 'supported_efforts', definition: 'TEXT' },
+    { table: 'cli_models', column: 'last_seen_at', definition: 'DATETIME' },
+    { table: 'cli_models', column: 'last_checked_at', definition: 'DATETIME' },
     // Auto-delegation rule: JSON {"from":"claude","to":"codex"}, NULL = disabled.
     { table: 'projects', column: 'auto_delegate', definition: 'TEXT' },
     // Parent todo id when this todo was auto-created as a delegated review task.
@@ -487,6 +504,20 @@ export function initDatabase(db: Database.Database): void {
   if (modelCount.count === 0) {
     seedCliModels(db);
   }
+  db.prepare(`UPDATE cli_models SET supported_efforts = COALESCE(supported_efforts, ?)
+              WHERE cli_tool = 'antigravity'`).run(JSON.stringify(['low', 'medium', 'high']));
+
+  seedAgentEffortProfiles(db);
+}
+
+function seedAgentEffortProfiles(db: Database.Database): void {
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO agent_effort_profiles (cli_tool, default_level, mapping_json)
+     VALUES (?, ?, ?)`,
+  );
+  insert.run('claude', 3, JSON.stringify({ 1: 'low', 2: 'medium', 3: 'high', 4: 'xhigh', 5: 'max' }));
+  insert.run('codex', 2, JSON.stringify({ 1: 'low', 2: 'medium', 3: 'high', 4: 'xhigh', 5: 'max' }));
+  insert.run('antigravity', 2, JSON.stringify({ 1: 'low', 2: 'medium', 3: 'high', 4: 'high', 5: 'high' }));
 }
 
 /**

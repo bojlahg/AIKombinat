@@ -3,6 +3,7 @@ import path from 'path';
 import { worktreeManager } from './worktree-manager.js';
 import { claudeManager, type ClaudeMode } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
+import { isAgentCliTool, resolveExecutionEffort } from './effort-profiles.js';
 import { logStreamer } from './log-streamer.js';
 import { getTodoImagePaths } from '../routes/images.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
@@ -566,10 +567,10 @@ Complete the task in the current directory.`;
       }
     }
 
-    // Model selection was removed from the product — always run on the CLI's
-    // default model. Stored todo.cli_model / project.claude_model values are
-    // intentionally ignored (legacy DB rows may still carry them).
-    const claudeModel = undefined;
+    const claudeModel = todo.cli_model || project.claude_model || undefined;
+    const resolvedEffort = isAgentCliTool(cliTool)
+      ? resolveExecutionEffort({ cliTool, model: claudeModel, effortLevel: todo.effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      : null;
     const claudeOptions = project.claude_options ? project.claude_options : undefined;
     const DEFAULT_MAX_TURNS = 30;
     const maxTurns = todo.max_turns ?? project.default_max_turns ?? DEFAULT_MAX_TURNS;
@@ -592,6 +593,9 @@ Complete the task in the current directory.`;
     // Audit log: record the prompt sent to CLI (truncated for storage)
     const auditPrompt = prompt.length > 2000 ? prompt.slice(0, 2000) + '... [truncated]' : prompt;
     queries.createTaskLog(todoId, 'prompt', auditPrompt, roundNumber);
+    if (resolvedEffort) {
+      queries.createTaskLog(todoId, 'info', `[effort] level=${resolvedEffort.requestedLevel ?? 'legacy'} target=${resolvedEffort.profileTarget ?? 'provider-default'} native=${resolvedEffort.nativeEffort ?? 'provider-default'} resolution=${resolvedEffort.resolution}`, roundNumber);
+    }
 
     let pid: number;
     let exitPromise: Promise<number>;
@@ -599,7 +603,7 @@ Complete the task in the current directory.`;
     let debugSession: DebugSession | null = null;
 
     try {
-      const result = await claudeManager.startClaude(workDir, prompt, claudeModel, claudeOptions, mode, cliTool, maxTurns, projectPath, sandboxMode, isContinue);
+      const result = await claudeManager.startClaude(workDir, prompt, claudeModel, claudeOptions, mode, cliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, resolvedEffort?.nativeEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 

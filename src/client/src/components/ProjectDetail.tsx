@@ -232,10 +232,10 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     });
   }, [onEvent, sendNotification, t]);
 
-  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[]) => {
+  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => {
     if (!id) return;
     const newTodo = await todosApi.createTodo(id, {
-      title, description, cli_tool: cliTool,
+      title, description, cli_tool: cliTool, cli_model: cliModel, effort_level: effortLevel,
       depends_on: dependsOn, max_turns: maxTurns ?? null, use_worktree: useWorktree ?? null,
       ...(memoryInjectMode ? { memory_inject_mode: memoryInjectMode } : {}),
       ...(memoryNodeIds ? { memory_node_ids: memoryNodeIds } : {}),
@@ -291,9 +291,9 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setTodos((prev) => prev.filter((t) => t.id !== todoId));
   }, []);
 
-  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[]) => {
+  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number) => {
     const updated = await todosApi.updateTodo(todoId, {
-      title, description, cli_tool: cliTool,
+      title, description, cli_tool: cliTool, cli_model: cliModel, effort_level: effortLevel,
       depends_on: dependsOn ?? null, max_turns: maxTurns ?? null,
       use_worktree: useWorktree === undefined ? null : useWorktree,
       ...(memoryInjectMode ? { memory_inject_mode: memoryInjectMode } : {}),
@@ -845,6 +845,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
           projectCliTool={project.cli_tool}
           projectIsGitRepo={!!project.is_git_repo}
           projectUseWorktree={project.use_worktree !== 0}
+          projectEffortLevel={project.default_effort_level}
           onAddTodo={handleAddTodo}
           onStartAll={handleStartAll}
           onStopAll={handleStopAll}
@@ -878,6 +879,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
           projectCliTool={project.cli_tool}
           isGitRepo={!!project.is_git_repo}
           projectUseWorktree={project.use_worktree !== 0}
+          projectEffortLevel={project.default_effort_level}
           projectDefaultBranch={project.default_branch}
           onAddSession={handleAddSession}
           onUpdateSession={handleUpdateSession}
