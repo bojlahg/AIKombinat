@@ -43,9 +43,27 @@ export function resolveExecutionConfig(input: {
     source = 'profile';
   }
   const model = resolveExecutionModel(requestedModel, cliTool, true);
+  if (nativeEffort === 'provider-default') nativeEffort = undefined;
+  let supportedEfforts: string[] | null = null;
+  let capabilitiesKnown = false;
+  if (source !== 'legacy' && model.effectiveModel) {
+    const catalogModel = queries.getModelByValue(cliTool, model.effectiveModel);
+    if (catalogModel?.supported_efforts) {
+      try {
+        const parsed = JSON.parse(catalogModel.supported_efforts);
+        if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'string')) {
+          supportedEfforts = parsed;
+          capabilitiesKnown = true;
+        }
+      } catch { /* malformed capability metadata is unknown, so the CLI remains authoritative */ }
+    }
+  }
+  if (nativeEffort && capabilitiesKnown && !supportedEfforts!.includes(nativeEffort)) {
+    throw new Error(`Effort "${nativeEffort}" is not supported by model "${model.effectiveModel}"`);
+  }
   const effort: ResolvedEffort = source === 'legacy'
     ? resolveExecutionEffort({ cliTool, model: model.effectiveModel, effortLevel: input.effortLevel ?? null, projectEffortLevel: input.projectEffortLevel ?? null })
-    : { requestedLevel: null, levelSource: 'record', profileTarget: nativeEffort ?? null, nativeEffort, supportedEfforts: null, resolution: nativeEffort ? 'capability-unknown' : 'provider-default' };
+    : { requestedLevel: null, levelSource: 'record', profileTarget: nativeEffort ?? null, nativeEffort, supportedEfforts, resolution: nativeEffort ? (capabilitiesKnown ? 'exact' : 'capability-unknown') : 'provider-default' };
   if (effort.warning) warnings.push(effort.warning);
   return {
     cliTool,

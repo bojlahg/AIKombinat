@@ -234,6 +234,8 @@ export const ko = {
     'effort.modelUnavailable': '사용 불가',
     'effort.modelDeprecated': '지원 중단',
     'effort.modelUnknown': '사용 가능 여부 알 수 없음',
+    'effort.unsupported': '지원되지 않음',
+    'effort.unsupportedWarning': '저장된 effort를 선택한 모델이 지원하지 않습니다. 실행 전에 다른 값을 선택하세요.',
     'effort.mapping': '노력 프로필',
     'effort.refreshModels': '모델 새로고침',
     'effort.resetRecommended': '권장값으로 재설정',

@@ -3,6 +3,7 @@ import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import CronBuilder from './CronBuilder';
 import type { AgentProfile } from '../api/agentProfiles';
+import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
 
 type ScheduleType = 'recurring' | 'once';
 
@@ -79,7 +80,7 @@ export default function ScheduleForm({
   const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
   const [agentProfileId, setAgentProfileId] = useState(initialAgentProfileId ?? '');
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string }>>>({});
+  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [skipIfRunning, setSkipIfRunning] = useState(initialSkipIfRunning);
   const [scheduleType, setScheduleType] = useState<ScheduleType>(initialScheduleType);
   const [runAt, setRunAt] = useState(initialRunAt ? toLocalDatetimeValue(initialRunAt) : getDefaultRunAt());
@@ -88,6 +89,10 @@ export default function ScheduleForm({
 
   const isOnce = scheduleType === 'once';
   const canSubmit = title.trim() && (isOnce ? !!runAt : !!cronExpression.trim());
+  const toolModels = models[cliTool] ?? [];
+  const visibleModels = visibleModelOptions(toolModels, cliModel);
+  const effort = cliTool === 'raw-shell' ? null : effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort);
+  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,8 +204,8 @@ export default function ScheduleForm({
           </select>
         </div>
         {cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('profiles.configuration')}</label><select className="input-field text-sm !py-2" value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.cliTool === cliTool && (p.isEnabled || p.id === agentProfileId)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}</select></div>}
-        {cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label><select className="input-field text-sm !py-2" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{models[cliTool]?.filter((m) => m.value).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>}
-        {cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label><select className="input-field text-sm !py-2" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
+        {cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label><select className="input-field text-sm !py-2" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}</select></div>}
+        {cliTool !== 'raw-shell' && !agentProfileId && effort && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label><select className="input-field text-sm !py-2" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
       </div>
 
       {/* Skip if Running (only for recurring) */}

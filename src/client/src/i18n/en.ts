@@ -232,6 +232,8 @@ export const en = {
     'effort.modelUnavailable': 'Unavailable',
     'effort.modelDeprecated': 'Deprecated',
     'effort.modelUnknown': 'Availability unknown',
+    'effort.unsupported': 'Unsupported',
+    'effort.unsupportedWarning': 'This saved effort is not supported by the selected model. Choose another value before running.',
     'effort.mapping': 'Effort profile',
     'effort.refreshModels': 'Refresh models',
     'effort.resetRecommended': 'Reset to recommended',

@@ -41,6 +41,33 @@ describe('named agent profiles', () => {
     expect(resolveExecutionConfig({ cliTool: 'claude', effortLevel: 3 })).toMatchObject({ source: 'legacy', effort: { requestedLevel: 3 } });
   });
 
+  it('rejects known unsupported native effort without clamping', () => {
+    testDb.prepare(`INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts) VALUES ('cap', 'codex', 'gpt-cap', 'GPT Cap', ?)`)
+      .run(JSON.stringify(['low', 'medium', 'high']));
+    expect(() => resolveExecutionConfig({ cliTool: 'codex', model: 'gpt-cap', cliEffort: 'max' }))
+      .toThrow('Effort "max" is not supported by model "gpt-cap"');
+    const profile = queries.createAgentProfile('codex', 'Unsupported', 'gpt-cap', 'max');
+    expect(() => resolveExecutionConfig({ cliTool: 'codex', agentProfileId: profile.id }))
+      .toThrow('Effort "max" is not supported by model "gpt-cap"');
+    expect(resolveExecutionConfig({ cliTool: 'codex', model: 'gpt-cap', cliEffort: 'high' })).toMatchObject({ effort: { nativeEffort: 'high', resolution: 'exact' } });
+  });
+
+  it('allows configured native effort when capabilities are unknown', () => {
+    expect(resolveExecutionConfig({ cliTool: 'codex', model: 'custom-unknown', cliEffort: 'max' })).toMatchObject({ effort: { nativeEffort: 'max', resolution: 'capability-unknown' } });
+    expect(resolveExecutionConfig({ cliTool: 'codex', cliEffort: 'provider-default' })).toMatchObject({ effort: { nativeEffort: undefined, resolution: 'provider-default' } });
+  });
+
+  it('does not rewrite effort when a profile model changes and pending records resolve current values', () => {
+    const profile = queries.createAgentProfile('codex', 'Mutable', 'old-model', 'xhigh');
+    const project = queries.createProject('pending-project', 'C:/pending-project');
+    const todo = queries.createTodo(project.id, 'pending');
+    queries.updateTodo(todo.id, { cli_tool: 'codex', agent_profile_id: profile.id });
+    queries.updateAgentProfile(profile.id, { model_value: 'new-model' });
+    expect(queries.getAgentProfileById(profile.id)).toMatchObject({ model_value: 'new-model', effort_value: 'xhigh' });
+    const pending = queries.getTodoById(todo.id)!;
+    expect(resolveExecutionConfig({ cliTool: pending.cli_tool as 'codex', agentProfileId: pending.agent_profile_id })).toMatchObject({ model: 'new-model', effort: { nativeEffort: 'xhigh' } });
+  });
+
   it('rejects missing and disabled profiles and bypasses AI fields for raw shell', () => {
     expect(() => resolveExecutionConfig({ cliTool: 'codex', agentProfileId: 'missing' })).toThrow(/no longer exists/);
     const profile = queries.createAgentProfile('codex', 'Off', null, null, false);

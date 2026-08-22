@@ -6,6 +6,7 @@ import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import * as discussionsApi from '../api/discussions';
 import EmptyState from './EmptyState';
 import type { AgentProfile } from '../api/agentProfiles';
+import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
 
 const ROLE_OPTIONS = ['architect', 'developer', 'reviewer', 'pm', 'tester', 'custom'] as const;
 
@@ -76,11 +77,15 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
   const [cliEffort, setCliEffort] = useState('');
   const [agentProfileId, setAgentProfileId] = useState('');
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string }>>>({});
+  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
   const [canImplement, setCanImplement] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => { fetch('/api/agent-profiles', { credentials: 'include' }).then((r) => r.json()).then(setProfiles).catch(() => setProfiles([])); fetch('/api/models', { credentials: 'include' }).then((r) => r.json()).then(setModels).catch(() => setModels({})); }, []);
+  const toolModels = cliTool ? models[cliTool] ?? [] : [];
+  const visibleModels = visibleModelOptions(toolModels, cliModel);
+  const effort = cliTool && cliTool !== 'raw-shell' ? effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort) : null;
+  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
 
   const resetForm = () => {
     setName('');
@@ -286,8 +291,8 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
               </select>
             </div>
             {cliTool && cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('profiles.configuration')}</label><select className="input-field text-sm" value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.cliTool === cliTool && p.isEnabled).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
-            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.model')}</label><select className="input-field text-sm" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{models[cliTool]?.filter((m) => m.value).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>}
-            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.label')}</label><select className="input-field text-sm" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
+            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.model')}</label><select className="input-field text-sm" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}</select></div>}
+            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && effort && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.label')}</label><select className="input-field text-sm" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
           </div>
 
           {/* Can Implement toggle */}

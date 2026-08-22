@@ -2,20 +2,16 @@ import { useEffect, useState } from 'react';
 import { Copy, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import * as api from '../../api/agentProfiles';
+import { effortOptions, modelOptionLabel, visibleModelOptions, type CatalogModel } from '../../execution-options';
 
 const AGENTS: Array<{ value: api.AgentCliTool; label: string }> = [
   { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex CLI' }, { value: 'antigravity', label: 'Antigravity CLI' },
 ];
-const EFFORTS: Record<api.AgentCliTool, string[]> = {
-  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
-  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-  antigravity: ['low', 'medium', 'high'],
-};
 
 export default function AgentsSettingsPanel() {
   const { t } = useI18n();
   const [profiles, setProfiles] = useState<api.AgentProfile[]>([]);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
+  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const load = () => Promise.all([api.getProfiles(), fetch('/api/models', { credentials: 'include' }).then((r) => r.json())]).then(([p, m]) => { setProfiles(p); setModels(m); });
@@ -35,11 +31,13 @@ export default function AgentsSettingsPanel() {
       <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">{agent.label}</h3><button className="btn-secondary flex items-center gap-1 text-xs" onClick={() => create(agent.value)}><Plus size={14} />{t('profiles.new')}</button></div>
       <div className="space-y-3">{profiles.filter((p) => p.cliTool === agent.value).map((profile) => {
         const catalog = models[agent.value] ?? [];
-        const missing = profile.modelValue && !catalog.some((m) => m.value === profile.modelValue);
+        const visibleModels = visibleModelOptions(catalog, profile.modelValue);
+        const effort = effortOptions(agent.value, catalog, profile.modelValue, profile.effortValue);
+        const label = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
         return <div key={profile.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1.1fr_1.4fr_1fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
           <input className="input-field text-sm" value={profile.name} aria-label={t('profiles.name')} onChange={(e) => replace({ ...profile, name: e.target.value })} />
-          <select className="input-field text-sm" value={profile.modelValue ?? ''} onChange={(e) => replace({ ...profile, modelValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{missing && <option value={profile.modelValue!}>{profile.modelValue} ({t('effort.modelUnavailable')})</option>}{catalog.filter((m) => m.value && !m.deprecated && m.availabilityStatus !== 'unavailable').map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select>
-          <select className="input-field text-sm" value={profile.effortValue ?? ''} onChange={(e) => replace({ ...profile, effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{profile.effortValue && !EFFORTS[agent.value].includes(profile.effortValue) && <option value={profile.effortValue}>{profile.effortValue}</option>}{EFFORTS[agent.value].map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select>
+          <select className="input-field text-sm" value={profile.modelValue ?? ''} onChange={(e) => replace({ ...profile, modelValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{label(model)}</option>)}</select>
+          <div><select className="input-field text-sm" value={profile.effortValue ?? ''} onChange={(e) => replace({ ...profile, effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === profile.effortValue && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>
           <div className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={profile.isEnabled} onChange={(e) => replace({ ...profile, isEnabled: e.target.checked })} />{t('profiles.enabled')}</label><button title={t('common.save')} onClick={() => save(profile)}><Save size={15} /></button><button title={t('profiles.duplicate')} onClick={() => create(agent.value, profile)}><Copy size={15} /></button><button title={t('common.delete')} onClick={() => remove(profile)}><Trash2 size={15} /></button></div>
         </div>;
       })}</div>

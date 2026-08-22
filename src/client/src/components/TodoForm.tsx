@@ -6,6 +6,7 @@ import type { ImageMeta, MemoryInjectMode, Todo } from '../types';
 import type { VaultInjectMode } from '../api/vault';
 import { getTodoImageUrl } from '../api/todos';
 import type { AgentProfile } from '../api/agentProfiles';
+import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
 
 function parseRawFilePaths(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -85,7 +86,7 @@ export default function TodoForm({
   const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
   const [agentProfileId, setAgentProfileId] = useState(initialAgentProfileId ?? '');
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
+  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [dependsOn, setDependsOn] = useState(initialDependsOn ?? '');
   const [maxTurns, setMaxTurns] = useState(initialMaxTurns?.toString() ?? '');
   const [useWorktreeMode, setUseWorktreeMode] = useState<'inherit' | 'force-on' | 'force-off'>(
@@ -107,19 +108,9 @@ export default function TodoForm({
 
   void initialEffortLevel; void projectEffortLevel;
   const toolModels = models[cliTool] ?? [];
-  const selectableModels = toolModels.filter((model) => !model.deprecated && model.availabilityStatus !== 'unavailable' && model.value);
-  const selectedModel = cliModel ? toolModels.find((model) => model.value === cliModel) : undefined;
-  const visibleModels = selectedModel && !selectableModels.some((model) => model.value === selectedModel.value)
-    ? [selectedModel, ...selectableModels]
-    : cliModel && !selectedModel
-      ? [{ value: cliModel, label: cliModel, availabilityStatus: 'unknown' }, ...selectableModels]
-      : selectableModels;
-  const modelLabel = (model: { value: string; label: string; deprecated?: boolean; availabilityStatus?: string }) => {
-    if (model.availabilityStatus === 'unavailable') return `${model.label} (${t('effort.modelUnavailable')})`;
-    if (model.deprecated) return `${model.label} (${t('effort.modelDeprecated')})`;
-    if (model.availabilityStatus === 'unknown' && model.value === cliModel) return `${model.label} (${t('effort.modelUnknown')})`;
-    return model.label;
-  };
+  const visibleModels = visibleModelOptions(toolModels, cliModel);
+  const effort = cliTool === 'raw-shell' ? null : effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort);
+  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
 
   const addImagesFromFiles = useCallback((files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -329,9 +320,10 @@ export default function TodoForm({
             {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
           </select>
         </div>}
-        {cliTool !== 'raw-shell' && !agentProfileId && <div>
+        {cliTool !== 'raw-shell' && !agentProfileId && effort && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label>
-          <select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-sm"><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-sm"><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>
+          {effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}
         </div>}
         {agentProfileId && <div className="self-end text-xs text-warm-500">{(() => { const p = profiles.find((item) => item.id === agentProfileId); return p ? `${p.modelValue ?? t('profiles.providerDefault')} / ${p.effortValue ?? t('profiles.providerDefault')}` : t('profiles.profileUnavailable'); })()}</div>}
       </div>

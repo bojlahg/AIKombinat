@@ -10,6 +10,7 @@ import * as tagsApi from '../api/sessionTags';
 import * as settingsApi from '../api/sessionSettings';
 import { forceImeHandoff } from '../ime-handoff';
 import type { AgentProfile } from '../api/agentProfiles';
+import { effortOptions, modelOptionLabel, visibleModelOptions, type CatalogModel, type AgentCliTool } from '../execution-options';
 
 export interface SessionFormInitial {
   title: string;
@@ -62,7 +63,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [cliEffort, setCliEffort] = useState(initial?.cliEffort ?? '');
   const [agentProfileId, setAgentProfileId] = useState(initial?.agentProfileId ?? '');
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [models, setModels] = useState<Record<string, Array<{ value: string; label: string; deprecated?: boolean; availabilityStatus?: string }>>>({});
+  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [useWorktree, setUseWorktree] = useState(initial?.useWorktree ?? !!projectUseWorktree);
   const [vaultMode, setVaultMode] = useState<VaultInjectMode>((initial?.memoryInjectMode as VaultInjectMode | undefined) ?? 'none');
   const [vaultPaths, setVaultPaths] = useState<string[]>(initial?.memoryRawFilePaths ?? []);
@@ -154,19 +155,9 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   };
   const selectedTool = (cliTool || projectCliTool || 'claude') as CliTool;
   const toolModels = models[selectedTool] ?? [];
-  const selectableModels = toolModels.filter((model) => !model.deprecated && model.availabilityStatus !== 'unavailable' && model.value);
-  const selectedModel = cliModel ? toolModels.find((model) => model.value === cliModel) : undefined;
-  const visibleModels = selectedModel && !selectableModels.some((model) => model.value === selectedModel.value)
-    ? [selectedModel, ...selectableModels]
-    : cliModel && !selectedModel
-      ? [{ value: cliModel, label: cliModel, availabilityStatus: 'unknown' }, ...selectableModels]
-      : selectableModels;
-  const modelLabel = (model: { value: string; label: string; deprecated?: boolean; availabilityStatus?: string }) => {
-    if (model.availabilityStatus === 'unavailable') return `${model.label} (${t('effort.modelUnavailable')})`;
-    if (model.deprecated) return `${model.label} (${t('effort.modelDeprecated')})`;
-    if (model.availabilityStatus === 'unknown' && model.value === cliModel) return `${model.label} (${t('effort.modelUnknown')})`;
-    return model.label;
-  };
+  const visibleModels = visibleModelOptions(toolModels, cliModel);
+  const effort = selectedTool === 'raw-shell' ? null : effortOptions(selectedTool as AgentCliTool, toolModels, cliModel, cliEffort);
+  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
   // Raw shell: no auto-submitted prompt, no wiki/memory injection.
   // Description/memory state is left untouched in the form so toggling
   // back to an AI CLI doesn't lose what the user already typed; the inputs
@@ -232,7 +223,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
           {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
         </select>}
       </div>
-      {!isRawShell && !agentProfileId && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-xs"><option value="">{t('profiles.providerDefault')}</option>{['none','minimal','low','medium','high','xhigh','max'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
+      {!isRawShell && !agentProfileId && effort && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-xs"><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
       {agentProfileId && <p className="text-xs text-warm-500">{(() => { const p = profiles.find((item) => item.id === agentProfileId); return p ? `${p.modelValue ?? t('profiles.providerDefault')} / ${p.effortValue ?? t('profiles.providerDefault')}` : t('profiles.profileUnavailable'); })()}</p>}
       {tags.length > 0 && (
         <div className="flex items-center gap-2">

@@ -234,6 +234,8 @@ export const ru = {
     'effort.modelUnavailable': 'Недоступна',
     'effort.modelDeprecated': 'Устарела',
     'effort.modelUnknown': 'Доступность неизвестна',
+    'effort.unsupported': 'Не поддерживается',
+    'effort.unsupportedWarning': 'Сохранённый effort не поддерживается выбранной моделью. Выберите другое значение перед запуском.',
     'effort.mapping': 'Профиль усилия',
     'effort.refreshModels': 'Обновить модели',
     'effort.resetRecommended': 'Сбросить к рекомендуемым',
