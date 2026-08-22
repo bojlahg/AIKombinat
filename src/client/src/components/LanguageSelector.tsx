@@ -42,6 +42,7 @@ export default function LanguageSelector({ className }: LanguageSelectorProps) {
           anchorRef={btnRef}
           width={160}
           onClose={() => setOpen(false)}
+          flip
           className="z-tooltip"
           style={{
             background: 'var(--color-bg-elevated, #1f1f23)',
