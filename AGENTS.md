@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file is the primary repository contract and guidance for coding agents working in this repository.
 
 ## Project Overview
 
@@ -52,7 +52,7 @@ These encode constraints that aren't obvious from the code. Apply when touching 
 
 ## UI Guidelines
 
-> 시각 디자인 결정은 `.claude/docs/design.md`를 기준으로 참조할 것.
+> Use `.claude/docs/design.md` as the reference for visual design decisions.
 
 ### Floating elements must render via portal
 
@@ -72,14 +72,14 @@ Key vars: `PORT` (default 3000), `DB_PATH`, `TUNNEL_ENABLED`, `HEADLESS`, `DISAB
 
 ## Language
 
-UI and documentation are primarily in Korean. Commit messages: Korean or English. Codebase (identifiers, comments): English.
+The UI supports English, Korean, and Russian. Add new UI strings through the existing i18n system and provide all required core locale keys; do not hardcode Korean, English, or Russian UI text. Code identifiers and comments remain in English. Commit messages may be in English or Korean.
 
 ## Task Execution Guidelines
 
 ### Efficiency
 - Use grep/glob to find relevant files FIRST. Do NOT read files one by one to explore.
 - Only read files you intend to modify or that are directly needed.
-- Do NOT launch Agent/Explore subagents for simple tasks. Use direct grep → read → edit.
+- Do NOT launch subagents for simple tasks. Use direct grep → read → edit.
 - Make all related edits in a single pass. Prefer `replace_all: true` for repetitive changes.
 - Aim for under 15 tool calls for simple tasks, under 30 for complex ones.
 

@@ -1,5 +1,3 @@
 @AGENTS.md
 
-# Claude Code Notes
-
-Use AGENTS.md as the main project contract.
+Use `AGENTS.md` as the primary repository contract.
