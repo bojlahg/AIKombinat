@@ -3,7 +3,15 @@ const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const { pathToFileURL } = require('node:url');
+const {
+  buildLinuxAutostartEntry,
+  isDesktopPlatform,
+  linuxAutostartEntryMatches,
+  linuxAutostartFile,
+  trayIconName,
+} = require('./desktop-lifecycle.cjs');
 
 // Windows: Chromium의 네이티브 윈도우 가림 계산이 창을 잘못 "가려짐"으로 판정하면
 // 입력/IME가 멎고 IME 조합 창이 화면 좌상단에 고착된다(다른 앱에 포커스를 줬다
@@ -16,6 +24,7 @@ if (process.platform === 'win32') {
 
 let mainWindow = null;
 let tray = null;
+let traySupported = false;
 let isQuitting = false;
 let closeBehavior = 'tray';
 let trayLanguage = 'en';
@@ -142,7 +151,7 @@ function readOrInitConfig() {
     mutated = true;
   }
   if (config.desktop.closeBehavior !== 'tray' && config.desktop.closeBehavior !== 'quit') {
-    config.desktop.closeBehavior = process.platform === 'win32' ? 'tray' : 'quit';
+    config.desktop.closeBehavior = 'tray';
     mutated = true;
   }
   closeBehavior = config.desktop.closeBehavior;
@@ -166,6 +175,11 @@ function showMainWindow() {
   mainWindow.webContents.focus();
 }
 
+function requestRealQuit() {
+  isQuitting = true;
+  app.quit();
+}
+
 function rebuildTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   const labels = trayLabels[trayLanguage] || trayLabels.en;
@@ -174,20 +188,82 @@ function rebuildTrayMenu() {
     { type: 'separator' },
     {
       label: labels.exit,
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
+      click: requestRealQuit,
     },
   ]));
 }
 
 function createTray() {
-  if (process.platform !== 'win32' || (tray && !tray.isDestroyed())) return;
-  tray = new Tray(path.join(app.getAppPath(), 'build', 'icon.ico'));
-  tray.setToolTip('CLITrigger');
-  tray.on('click', showMainWindow);
-  rebuildTrayMenu();
+  if (!isDesktopPlatform(process.platform)) return;
+  if (tray && !tray.isDestroyed()) {
+    traySupported = true;
+    return;
+  }
+  try {
+    tray = new Tray(path.join(app.getAppPath(), 'build', trayIconName(process.platform)));
+    traySupported = true;
+    tray.setToolTip('CLITrigger');
+    if (process.platform !== 'darwin') tray.on('click', showMainWindow);
+    rebuildTrayMenu();
+  } catch (err) {
+    tray = null;
+    traySupported = false;
+    console.error(`[desktop] tray initialization failed on ${process.platform}:`, err);
+  }
+}
+
+function linuxExecutablePath() {
+  return process.env.APPIMAGE || process.execPath;
+}
+
+function getLinuxAutostartFile() {
+  return linuxAutostartFile(process.env.XDG_CONFIG_HOME, os.homedir());
+}
+
+function getOpenAtLogin() {
+  if (!app.isPackaged) return false;
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    return app.getLoginItemSettings().openAtLogin;
+  }
+  if (process.platform !== 'linux') return false;
+  try {
+    const contents = fs.readFileSync(getLinuxAutostartFile(), 'utf-8');
+    return linuxAutostartEntryMatches(contents, linuxExecutablePath());
+  } catch {
+    return false;
+  }
+}
+
+function setOpenAtLogin(enabled) {
+  if (!app.isPackaged) throw new Error('Startup is only available in packaged builds');
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    app.setLoginItemSettings({ openAtLogin: enabled });
+    return;
+  }
+  if (process.platform !== 'linux') throw new Error('Startup is unavailable');
+  const autostartFile = getLinuxAutostartFile();
+  if (enabled) {
+    fs.mkdirSync(path.dirname(autostartFile), { recursive: true });
+    fs.writeFileSync(autostartFile, buildLinuxAutostartEntry(linuxExecutablePath()), 'utf-8');
+  } else {
+    try { fs.unlinkSync(autostartFile); } catch (err) {
+      if (!err || err.code !== 'ENOENT') throw err;
+    }
+  }
+}
+
+function getDesktopSettings() {
+  const supported = isDesktopPlatform(process.platform);
+  const autostartSupported = supported && app.isPackaged;
+  return {
+    supported,
+    platform: process.platform,
+    packaged: app.isPackaged,
+    traySupported,
+    autostartSupported,
+    closeBehavior: closeBehavior === 'tray' && !traySupported ? 'quit' : closeBehavior,
+    openAtLogin: autostartSupported ? getOpenAtLogin() : false,
+  };
 }
 
 function isPortFree(port) {
@@ -398,13 +474,10 @@ function createWindow(port) {
   }
 
   mainWindow.on('close', (event) => {
-    if (process.platform !== 'win32' || isQuitting) return;
+    if (!isDesktopPlatform(process.platform) || isQuitting) return;
     event.preventDefault();
-    if (closeBehavior === 'tray') mainWindow.hide();
-    else {
-      isQuitting = true;
-      app.quit();
-    }
+    if (closeBehavior === 'tray' && traySupported) mainWindow.hide();
+    else requestRealQuit();
   });
   mainWindow.on('query-session-end', () => { isQuitting = true; });
   mainWindow.on('session-end', () => { isQuitting = true; });
@@ -434,39 +507,28 @@ ipcMain.on('ime:set-debug', (_event, enabled) => {
   }
 });
 
-ipcMain.handle('desktop:get-settings', () => ({
-  supported: process.platform === 'win32',
-  platform: process.platform,
-  packaged: app.isPackaged,
-  closeBehavior,
-  openAtLogin: process.platform === 'win32' && app.isPackaged
-    ? app.getLoginItemSettings().openAtLogin
-    : false,
-}));
+ipcMain.handle('desktop:get-settings', getDesktopSettings);
 
 ipcMain.handle('desktop:update-settings', (_event, patch) => {
-  if (process.platform !== 'win32' || !patch || typeof patch !== 'object' || Array.isArray(patch)) {
+  if (!isDesktopPlatform(process.platform) || !patch || typeof patch !== 'object' || Array.isArray(patch)) {
     throw new Error('Desktop settings are unavailable');
   }
   if ('closeBehavior' in patch) {
     if (patch.closeBehavior !== 'tray' && patch.closeBehavior !== 'quit') {
       throw new Error('Invalid close behavior');
     }
+    if (patch.closeBehavior === 'tray' && !traySupported) {
+      throw new Error('Tray integration is unavailable');
+    }
     updateDesktopConfig({ closeBehavior: patch.closeBehavior });
   }
   if ('openAtLogin' in patch) {
-    if (typeof patch.openAtLogin !== 'boolean' || !app.isPackaged) {
-      throw new Error('Windows startup is only available in packaged builds');
+    if (typeof patch.openAtLogin !== 'boolean' || !getDesktopSettings().autostartSupported) {
+      throw new Error('Startup is only available in packaged desktop builds');
     }
-    app.setLoginItemSettings({ openAtLogin: patch.openAtLogin });
+    setOpenAtLogin(patch.openAtLogin);
   }
-  return {
-    supported: true,
-    platform: process.platform,
-    packaged: app.isPackaged,
-    closeBehavior,
-    openAtLogin: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
-  };
+  return getDesktopSettings();
 });
 
 ipcMain.on('desktop:set-language', (_event, language) => {
@@ -685,7 +747,8 @@ function buildMenu() {
 }
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (isQuitting || (closeBehavior === 'tray' && traySupported)) return;
+  requestRealQuit();
 });
 
 app.on('activate', () => {

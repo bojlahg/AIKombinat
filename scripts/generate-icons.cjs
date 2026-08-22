@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Generate build/icon.png (1024x1024) and build/icon.ico (multi-size) from
-// src/client/public/logo-icon.svg. electron-builder picks these up by
-// convention to embed the brand icon into the .exe / installer / window.
+// Generate application and cross-platform tray icons. electron-builder picks
+// these up from build/ for the packaged app.
 //
 // Skip-if-exists: a hand-crafted build/icon.png|ico is preserved on rerun.
 // Delete the file you want regenerated to refresh it.
@@ -15,12 +14,20 @@ const SRC_SVG = path.join(ROOT, 'src', 'client', 'public', 'logo-icon.svg');
 const OUT_DIR = path.join(ROOT, 'build');
 const OUT_PNG = path.join(OUT_DIR, 'icon.png');
 const OUT_ICO = path.join(OUT_DIR, 'icon.ico');
+const TRAY_SVG = path.join(OUT_DIR, 'tray-icon.svg');
+const TRAY_TEMPLATE = path.join(OUT_DIR, 'trayTemplate.png');
+const TRAY_TEMPLATE_2X = path.join(OUT_DIR, 'trayTemplate@2x.png');
+const TRAY_LINUX = path.join(OUT_DIR, 'tray-linux.png');
 
 const ICO_SIZES = [16, 32, 48, 64, 128, 256];
 
 async function main() {
   if (!fs.existsSync(SRC_SVG)) {
     console.error(`Icon source not found: ${SRC_SVG}`);
+    process.exit(1);
+  }
+  if (!fs.existsSync(TRAY_SVG)) {
+    console.error(`Tray icon source not found: ${TRAY_SVG}`);
     process.exit(1);
   }
   fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -52,6 +59,38 @@ async function main() {
     const ico = await pngToIco(buffers);
     fs.writeFileSync(OUT_ICO, ico);
     console.log(`  Wrote build/icon.ico (${ICO_SIZES.join('/')})`);
+  }
+
+  const traySvgBuf = fs.readFileSync(TRAY_SVG);
+  for (const [target, size] of [[TRAY_TEMPLATE, 16], [TRAY_TEMPLATE_2X, 32]]) {
+    if (fs.existsSync(target)) {
+      console.log(`  ${path.relative(ROOT, target)} exists — skipping (delete to regenerate)`);
+      continue;
+    }
+    await sharp(traySvgBuf, { density: size * 8 })
+      .resize(size, size)
+      .withMetadata({ density: size === 16 ? 72 : 144 })
+      .png()
+      .toFile(target);
+    console.log(`  Wrote ${path.relative(ROOT, target)} (${size}x${size})`);
+  }
+
+  if (fs.existsSync(TRAY_LINUX)) {
+    console.log(`  build/tray-linux.png exists — skipping (delete to regenerate)`);
+  } else {
+    const background = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect x="1" y="1" width="30" height="30" rx="7" fill="#1e1e1e"/></svg>'
+    );
+    const whiteMark = await sharp(traySvgBuf, { density: 256 })
+      .resize(22, 22)
+      .negate({ alpha: false })
+      .png()
+      .toBuffer();
+    await sharp(background)
+      .composite([{ input: whiteMark, left: 5, top: 5 }])
+      .png()
+      .toFile(TRAY_LINUX);
+    console.log('  Wrote build/tray-linux.png (32x32)');
   }
 }
 

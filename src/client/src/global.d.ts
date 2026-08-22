@@ -6,6 +6,8 @@ interface DesktopSettings {
   supported: boolean;
   platform: string;
   packaged: boolean;
+  traySupported: boolean;
+  autostartSupported: boolean;
   closeBehavior: 'tray' | 'quit';
   openAtLogin: boolean;
 }
