@@ -156,7 +156,7 @@ export default function VaultLayout({ projectId, onCreateTask, onEvent, sendMess
     } catch { /* write failed — proceed unfiltered rather than blocking */ }
     setOnboardSaving(false);
     finishOnboarding();
-  }, [projectId, finishOnboarding]);
+  }, [projectId, finishOnboarding, t]);
 
   // Ctrl/Cmd + wheel → Vault font zoom. React onWheel is passive by default
   // so we attach natively with passive:false to preventDefault the browser's

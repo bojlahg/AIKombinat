@@ -124,7 +124,7 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
       .then((r) => setContent(r.content))
       .catch(() => setError(t('vault.ignore.loadError')))
       .finally(() => setLoading(false));
-  }, [open, projectId]);
+  }, [open, projectId, t]);
 
   useEffect(() => {
     if (!open) return;
