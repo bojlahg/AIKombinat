@@ -15,11 +15,23 @@ describe('cli-adapters', () => {
     expect(args).toEqual(['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox', '--model', 'o3', '--color=never']);
   });
 
-  it('adds headless flag for Antigravity in non-interactive mode', () => {
+  it('does not skip Antigravity permissions in strict mode', () => {
     const adapter = getAdapter('antigravity');
     const args = adapter.buildArgs({
       mode: 'headless',
       prompt: 'Fix the login disclaimer',
+      sandboxMode: 'strict',
+    });
+
+    expect(args).toEqual(['--headless']);
+  });
+
+  it('skips Antigravity permissions in permissive mode', () => {
+    const adapter = getAdapter('antigravity');
+    const args = adapter.buildArgs({
+      mode: 'headless',
+      prompt: 'Fix the login disclaimer',
+      sandboxMode: 'permissive',
     });
 
     expect(args).toEqual(['--dangerously-skip-permissions', '--headless']);
@@ -30,6 +42,7 @@ describe('cli-adapters', () => {
     const args = adapter.buildArgs({
       mode: 'headless',
       prompt: 'Follow up',
+      sandboxMode: 'permissive',
       continueSession: true,
     });
 

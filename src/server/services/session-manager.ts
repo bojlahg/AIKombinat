@@ -1,6 +1,6 @@
 import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
-import { getAdapter, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
+import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
@@ -288,7 +288,7 @@ export class SessionManager {
     try {
       const result = await claudeManager.startClaude(
         workDir, '', cliModel, undefined, 'interactive', cliTool,
-        undefined, project.path, undefined, resume,
+        undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
       );
       pid = result.pid;

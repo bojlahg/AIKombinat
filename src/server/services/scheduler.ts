@@ -37,7 +37,7 @@ export class Scheduler {
     }
 
     const task = cron.schedule(schedule.cron_expression, () => {
-      this.executeSchedule(schedule.id).catch((err) => {
+      this.executeSchedule(schedule.id, 'scheduled').catch((err) => {
         console.error(`Schedule "${schedule.title}" execution error:`, err);
       });
     });
@@ -62,7 +62,7 @@ export class Scheduler {
     if (delay <= 0) {
       // run_at is in the past — execute immediately
       console.log(`One-time schedule "${schedule.title}" run_at is in the past, executing now`);
-      this.executeSchedule(schedule.id).catch((err) => {
+      this.executeSchedule(schedule.id, 'scheduled').catch((err) => {
         console.error(`One-time schedule "${schedule.title}" execution error:`, err);
       });
       return;
@@ -70,7 +70,7 @@ export class Scheduler {
 
     const timer = setTimeout(() => {
       this.timers.delete(schedule.id);
-      this.executeSchedule(schedule.id).catch((err) => {
+      this.executeSchedule(schedule.id, 'scheduled').catch((err) => {
         console.error(`One-time schedule "${schedule.title}" execution error:`, err);
       });
     }, delay);
@@ -96,11 +96,11 @@ export class Scheduler {
   }
 
   /**
-   * Core execution logic — called by cron callback.
+   * Core execution logic shared by scheduled and manual runs.
    */
-  private async executeSchedule(scheduleId: string): Promise<void> {
+  private async executeSchedule(scheduleId: string, source: 'scheduled' | 'manual'): Promise<void> {
     const schedule = queries.getScheduleById(scheduleId);
-    if (!schedule || !schedule.is_active) return;
+    if (!schedule || (source === 'scheduled' && !schedule.is_active)) return;
 
     const now = new Date().toISOString();
 
@@ -122,8 +122,7 @@ export class Scheduler {
     }
 
     // Create todo from schedule template
-    const timestamp = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-    const todoTitle = `[Schedule] ${schedule.title} - ${timestamp}`;
+    const todoTitle = `[Schedule] ${schedule.title} - ${now}`;
     const todo = queries.createTodo(
       schedule.project_id,
       todoTitle,
@@ -173,13 +172,7 @@ export class Scheduler {
     const schedule = queries.getScheduleById(scheduleId);
     if (!schedule) return null;
 
-    // Temporarily treat as active for manual trigger
-    const origActive = schedule.is_active;
-    if (!origActive) {
-      // Allow manual trigger even if paused — just don't check is_active in executeSchedule
-    }
-
-    await this.executeSchedule(scheduleId);
+    await this.executeSchedule(scheduleId, 'manual');
 
     // Return the latest run
     const runs = queries.getScheduleRunsByScheduleId(scheduleId, 1);

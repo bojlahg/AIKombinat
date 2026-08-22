@@ -50,6 +50,7 @@ import { logStreamer } from './services/log-streamer.js';
 import { checkAllTools } from './services/cli-status.js';
 import { registerPlugin, mountPluginRoutes } from './plugins/registry.js';
 import { harnessPlugin } from './plugins/harness/index.js';
+import { resolveBindHost } from './utils/bind-host.js';
 
 const app = express();
 const server = createServer(app);
@@ -351,11 +352,9 @@ if (process.env.DISABLE_AUTH === 'true' && process.env.TUNNEL_ENABLED === 'true'
   console.error('[security] Refusing to start: DISABLE_AUTH=true with TUNNEL_ENABLED=true would expose an unauthenticated server. Disable one of them.');
   process.exit(1);
 }
-// Bind to loopback when auth is disabled (plugin/headless mode); otherwise all
-// interfaces, or BIND_HOST when explicitly set for intentional LAN sharing.
-const bindHost = process.env.DISABLE_AUTH === 'true'
-  ? '127.0.0.1'
-  : (process.env.BIND_HOST || '0.0.0.0');
+// Default to loopback for desktop/local use. BIND_HOST explicitly enables LAN
+// sharing, except when auth is disabled (plugin/headless mode).
+const bindHost = resolveBindHost();
 
 function tryListen(port: number, attempt: number) {
   server.listen(port, bindHost, () => {

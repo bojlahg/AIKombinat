@@ -258,7 +258,7 @@ const antigravityAdapter: CliAdapter = {
       response: 'n\r',
     },
   ],
-  buildArgs({ mode, prompt, model, extraOptions, continueSession }) {
+  buildArgs({ mode, prompt, model, extraOptions, sandboxMode, continueSession }) {
     // Antigravity CLI (`agy`):
     //   --dangerously-skip-permissions auto-approves all tool actions (file writes, shell).
     //   --headless enables non-interactive mode; the actual prompt is delivered via stdin pipe.
@@ -267,7 +267,10 @@ const antigravityAdapter: CliAdapter = {
     // stdin. If it instead requires `-p <prompt>` inline, move the prompt into
     // args here and make needsStdin(mode) return only mode === 'interactive'.
     const normalizedModel = normalizeModel(model, 'antigravity');
-    const args = ['--dangerously-skip-permissions'];
+    const args: string[] = [];
+    // Preserve the legacy default when no mode is supplied, while respecting
+    // the project's explicit strict mode.
+    if (sandboxMode !== 'strict') args.push('--dangerously-skip-permissions');
     if (mode !== 'interactive') args.push('--headless');
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
