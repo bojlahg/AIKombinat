@@ -14,9 +14,10 @@ const HOSTNAME_PATTERN = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
 
 interface PanelProps {
   onClose?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export function TunnelSettingsPanel({ onClose }: PanelProps) {
+export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
   const { t } = useI18n();
   const { error: toastError, success: toastSuccess } = useToast();
   const [tunnelName, setTunnelName] = useState('');
@@ -46,6 +47,20 @@ export function TunnelSettingsPanel({ onClose }: PanelProps) {
   const trimmedName = tunnelName.trim();
   const trimmedHost = customHostname.trim();
   const dirty = trimmedName !== initialName.trim() || trimmedHost !== initialHostname.trim();
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', warnBeforeUnload);
+      onDirtyChange?.(false);
+    };
+  }, [dirty, onDirtyChange]);
 
   const hostnameInvalid = !!trimmedHost && (
     !HOSTNAME_PATTERN.test(trimmedHost) ||

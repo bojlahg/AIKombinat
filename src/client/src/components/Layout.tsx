@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Sidebar from './Sidebar';
 import ParticleBackground from './ParticleBackground';
 import type { WsEvent } from '../hooks/useWebSocket';
@@ -22,6 +22,19 @@ export default function Layout({ children, onLogout, authRequired, connected, on
   // Desktop-only collapse to a 56px icon rail. Hydrated synchronously so the
   // first paint matches the persisted width (no expand→collapse flash).
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+  const [homeParticles, setHomeParticles] = useState(() => {
+    const saved = localStorage.getItem('clitrigger-home-particles');
+    if (saved !== null) return saved === 'on';
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+
+  useEffect(() => {
+    const onChange = (event: Event) => {
+      setHomeParticles((event as CustomEvent<boolean>).detail);
+    };
+    window.addEventListener('home-particles:changed', onChange);
+    return () => window.removeEventListener('home-particles:changed', onChange);
+  }, []);
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -90,7 +103,7 @@ export default function Layout({ children, onLogout, authRequired, connected, on
             marginBottom: 'var(--dock-inset-bottom, 0px)',
           }}
         >
-          {location.pathname === '/' && <ParticleBackground />}
+          {location.pathname === '/' && homeParticles && <ParticleBackground />}
           <div className="relative" style={{ zIndex: 1 }}>
             {children}
           </div>

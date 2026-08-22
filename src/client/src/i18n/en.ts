@@ -204,12 +204,25 @@ export const en = {
     'tunnel.starting': 'Starting…',
     'tunnel.urlCopied': 'External URL copied to clipboard',
 
-    // Settings modal
+    // Settings
     'settings.title': 'Settings',
+    'settings.tabs.general': 'General',
     'settings.tabs.account': 'Account',
     'settings.tabs.session': 'Terminals',
     'settings.tabs.tunnel': 'Tunnel',
     'settings.tabs.mcp': 'MCP',
+    'settings.general.description': 'Appearance and desktop application behavior.',
+    'settings.appearance.title': 'Appearance',
+    'settings.appearance.particles': 'Animated home background',
+    'settings.appearance.particlesHint': 'Show the animated particle canvas on the home page.',
+    'settings.desktop.title': 'Desktop behavior',
+    'settings.desktop.openAtLogin': 'Start CLITrigger with Windows',
+    'settings.desktop.packagedOnly': 'Available in the installed Windows app.',
+    'settings.desktop.closePrompt': 'When I close the main window:',
+    'settings.desktop.closeToTray': 'Minimize to system tray',
+    'settings.desktop.quit': 'Exit CLITrigger',
+    'settings.desktop.saveFailed': 'Failed to update desktop settings.',
+    'settings.discardConfirm': 'Discard unsaved changes?',
 
     // MCP connection (panel inside Settings modal)
     'mcp.title': 'MCP Connection',

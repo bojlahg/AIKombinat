@@ -206,12 +206,25 @@ export const ko = {
     'tunnel.starting': '시작 중…',
     'tunnel.urlCopied': '외부 URL을 클립보드에 복사했습니다.',
 
-    // Settings modal
+    // Settings
     'settings.title': '설정',
+    'settings.tabs.general': '일반',
     'settings.tabs.account': '계정',
     'settings.tabs.session': '터미널',
     'settings.tabs.tunnel': '터널',
     'settings.tabs.mcp': 'MCP',
+    'settings.general.description': '화면 표시와 데스크톱 앱 동작을 설정합니다.',
+    'settings.appearance.title': '화면 표시',
+    'settings.appearance.particles': '홈 배경 애니메이션',
+    'settings.appearance.particlesHint': '홈 화면에 움직이는 파티클 배경을 표시합니다.',
+    'settings.desktop.title': '데스크톱 동작',
+    'settings.desktop.openAtLogin': 'Windows 시작 시 CLITrigger 실행',
+    'settings.desktop.packagedOnly': '설치된 Windows 앱에서 사용할 수 있습니다.',
+    'settings.desktop.closePrompt': '메인 창을 닫을 때:',
+    'settings.desktop.closeToTray': '시스템 트레이로 최소화',
+    'settings.desktop.quit': 'CLITrigger 종료',
+    'settings.desktop.saveFailed': '데스크톱 설정을 업데이트하지 못했습니다.',
+    'settings.discardConfirm': '저장하지 않은 변경 사항을 버릴까요?',
 
     // MCP connection (panel inside Settings modal)
     'mcp.title': 'MCP 연결',

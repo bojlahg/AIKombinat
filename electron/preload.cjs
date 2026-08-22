@@ -41,4 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Resolve a dropped File to its absolute OS path (terminal drag-drop).
   // File.path was removed in Electron 30; webUtils is the supported path.
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
+  desktopGetSettings: () => ipcRenderer.invoke('desktop:get-settings'),
+  desktopUpdateSettings: (patch) => ipcRenderer.invoke('desktop:update-settings', patch),
+  desktopSetLanguage: (language) => ipcRenderer.send('desktop:set-language', language),
 });

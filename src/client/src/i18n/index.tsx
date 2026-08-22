@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import { getPluginTranslations } from '../plugins/registry';
 import { en } from './en';
 import { ko } from './ko';
@@ -36,6 +36,10 @@ const I18nContext = createContext<I18nContextType | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(detectDefaultLang);
+
+  useEffect(() => {
+    window.electronAPI?.desktopSetLanguage?.(lang);
+  }, [lang]);
 
   const setLang = useCallback((next: Lang) => {
     localStorage.setItem(LANG_STORAGE_KEY, next);

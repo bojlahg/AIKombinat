@@ -17,6 +17,7 @@ import PopoutPage from './components/popout/PopoutPage';
 import { getSessionSettings } from './api/sessionSettings';
 import { setGlobalDefaultFontSize } from './hooks/useSessionFontSize';
 import { forceImeHandoff } from './ime-handoff';
+import SettingsPage from './components/settings/SettingsPage';
 
 function App() {
   const { authenticated, authRequired, setupRequired, loading, login, logout, setup, changePassword } = useAuth();
@@ -206,6 +207,7 @@ function App() {
                       <PersonalAgenda />
                     }
                   />
+                  <Route path="/settings/*" element={<SettingsPage />} />
                   <Route
                     path="/projects/:id"
                     element={

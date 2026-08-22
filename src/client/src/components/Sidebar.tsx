@@ -15,7 +15,6 @@ import { useToast } from '../hooks/useToast';
 import type { WsEvent } from '../hooks/useWebSocket';
 import ProjectForm from './ProjectForm';
 import FavoriteForm from './FavoriteForm';
-import SettingsModal from './SettingsModal';
 import ProjectColorPicker from './ProjectColorPicker';
 import { resolveProjectColor } from '../lib/projectColor';
 import { getErrorMessage } from '../lib/errors';
@@ -55,7 +54,6 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [showFavoriteForm, setShowFavoriteForm] = useState(false);
   const [editingFavorite, setEditingFavorite] = useState<Favorite | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus | null>(null);
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [dragSourceId, setDragSourceId] = useState<string | null>(null);
@@ -493,13 +491,12 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
           {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         </IconButton>
         <IconButton
-          onClick={() => setShowSettings(true)}
+          onClick={() => { navigate('/settings/general'); handleNav(); }}
           label={t('settings.title')}
           size="lg"
         >
           <Settings size={16} />
         </IconButton>
-        <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
       </div>
     );
   }
@@ -759,8 +756,6 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
         />
       )}
 
-      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
-
       {/* Bottom section */}
       <div className="px-3 pb-4 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
         {/* Controls row with connection status */}
@@ -804,7 +799,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
             <Cloud size={16} />
           </IconButton>
           <IconButton
-            onClick={() => setShowSettings(true)}
+            onClick={() => { navigate('/settings/general'); handleNav(); }}
             label={t('settings.title')}
           >
             <Settings size={16} />

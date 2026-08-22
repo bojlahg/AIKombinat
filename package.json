@@ -133,6 +133,8 @@
       "dist/**/*",
       "electron/**/*",
       "bin/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "package.json",
       "!**/*.map",
       "!**/*.ts",

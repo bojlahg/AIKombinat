@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, shell, Menu, nativeTheme, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, shell, Menu, nativeTheme, ipcMain, Tray } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -15,6 +15,10 @@ if (process.platform === 'win32') {
 }
 
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+let closeBehavior = 'tray';
+let trayLanguage = 'en';
 let serverPort = null;
 let cleanupStarted = false;
 let updateCheckInFlight = false;
@@ -23,6 +27,12 @@ const userDataDir = app.getPath('userData');
 const configFile = path.join(userDataDir, 'config.json');
 const dbPath = path.join(userDataDir, 'clitrigger.db');
 const migratedFlag = path.join(userDataDir, '.password-migrated');
+
+const trayLabels = {
+  en: { open: 'Open CLITrigger', exit: 'Exit CLITrigger' },
+  ru: { open: 'Открыть CLITrigger', exit: 'Выйти из CLITrigger' },
+  ko: { open: 'CLITrigger 열기', exit: 'CLITrigger 종료' },
+};
 
 // IME diagnostics — toggleable from Settings ▸ Terminal (the renderer sends
 // ime:set-debug), or seeded from the CLITRIGGER_IME_DEBUG env var. When
@@ -127,8 +137,57 @@ function readOrInitConfig() {
     config.tunnel = false;
     mutated = true;
   }
+  if (!config.desktop || typeof config.desktop !== 'object' || Array.isArray(config.desktop)) {
+    config.desktop = {};
+    mutated = true;
+  }
+  if (config.desktop.closeBehavior !== 'tray' && config.desktop.closeBehavior !== 'quit') {
+    config.desktop.closeBehavior = process.platform === 'win32' ? 'tray' : 'quit';
+    mutated = true;
+  }
+  closeBehavior = config.desktop.closeBehavior;
   if (mutated) fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
   return config;
+}
+
+function updateDesktopConfig(patch) {
+  const config = readOrInitConfig();
+  config.desktop = { ...config.desktop, ...patch };
+  fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+  closeBehavior = config.desktop.closeBehavior;
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.moveTop();
+  mainWindow.webContents.focus();
+}
+
+function rebuildTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  const labels = trayLabels[trayLanguage] || trayLabels.en;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: labels.open, click: showMainWindow },
+    { type: 'separator' },
+    {
+      label: labels.exit,
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]));
+}
+
+function createTray() {
+  if (process.platform !== 'win32' || (tray && !tray.isDestroyed())) return;
+  tray = new Tray(path.join(app.getAppPath(), 'build', 'icon.ico'));
+  tray.setToolTip('CLITrigger');
+  tray.on('click', showMainWindow);
+  rebuildTrayMenu();
 }
 
 function isPortFree(port) {
@@ -338,6 +397,18 @@ function createWindow(port) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
+  mainWindow.on('close', (event) => {
+    if (process.platform !== 'win32' || isQuitting) return;
+    event.preventDefault();
+    if (closeBehavior === 'tray') mainWindow.hide();
+    else {
+      isQuitting = true;
+      app.quit();
+    }
+  });
+  mainWindow.on('query-session-end', () => { isQuitting = true; });
+  mainWindow.on('session-end', () => { isQuitting = true; });
+
   mainWindow.on('closed', () => { mainWindow = null; });
 
   // Windows lock-screen / screensaver hands the native HWND keyboard focus
@@ -361,6 +432,47 @@ ipcMain.on('ime:set-debug', (_event, enabled) => {
   } else {
     imeDebugEnabled = on;
   }
+});
+
+ipcMain.handle('desktop:get-settings', () => ({
+  supported: process.platform === 'win32',
+  platform: process.platform,
+  packaged: app.isPackaged,
+  closeBehavior,
+  openAtLogin: process.platform === 'win32' && app.isPackaged
+    ? app.getLoginItemSettings().openAtLogin
+    : false,
+}));
+
+ipcMain.handle('desktop:update-settings', (_event, patch) => {
+  if (process.platform !== 'win32' || !patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('Desktop settings are unavailable');
+  }
+  if ('closeBehavior' in patch) {
+    if (patch.closeBehavior !== 'tray' && patch.closeBehavior !== 'quit') {
+      throw new Error('Invalid close behavior');
+    }
+    updateDesktopConfig({ closeBehavior: patch.closeBehavior });
+  }
+  if ('openAtLogin' in patch) {
+    if (typeof patch.openAtLogin !== 'boolean' || !app.isPackaged) {
+      throw new Error('Windows startup is only available in packaged builds');
+    }
+    app.setLoginItemSettings({ openAtLogin: patch.openAtLogin });
+  }
+  return {
+    supported: true,
+    platform: process.platform,
+    packaged: app.isPackaged,
+    closeBehavior,
+    openAtLogin: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
+  };
+});
+
+ipcMain.on('desktop:set-language', (_event, language) => {
+  if (!Object.hasOwn(trayLabels, language)) return;
+  trayLanguage = language;
+  rebuildTrayMenu();
 });
 
 // Raise the sender's OS window to the front. Renderers can't do this
@@ -496,7 +608,10 @@ function setupAutoUpdater() {
         detail: '지금 재시작하면 업데이트가 적용됩니다. 나중에 선택 시 다음 종료 시점에 자동 설치됩니다.',
       })
       .then((result) => {
-        if (result.response === 0) autoUpdater.quitAndInstall();
+        if (result.response === 0) {
+          isQuitting = true;
+          autoUpdater.quitAndInstall();
+        }
       });
   });
 
@@ -576,10 +691,18 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && serverPort) {
     createWindow(serverPort);
+  } else {
+    showMainWindow();
   }
 });
 
 app.on('before-quit', (event) => {
+  isQuitting = true;
+  // A rejected second instance never booted the in-process server, so it has
+  // nothing to clean up and should exit immediately.
+  if (!gotLock) return;
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
   if (cleanupStarted) return;
   cleanupStarted = true;
   event.preventDefault();
@@ -592,10 +715,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    showMainWindow();
   });
 
   app.whenReady().then(async () => {
@@ -603,6 +723,7 @@ if (!gotLock) {
       const { port } = await bootServer();
       buildMenu();
       createWindow(port);
+      createTray();
       setupAutoUpdater();
     } catch (err) {
       dialog.showErrorBox(
@@ -613,3 +734,8 @@ if (!gotLock) {
     }
   });
 }
+
+app.on('will-quit', () => {
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
+});

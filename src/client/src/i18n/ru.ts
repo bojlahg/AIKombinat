@@ -206,12 +206,25 @@ export const ru = {
     'tunnel.starting': 'Запуск…',
     'tunnel.urlCopied': 'Внешний URL скопирован в буфер обмена',
 
-    // Settings modal
+    // Settings
     'settings.title': 'Настройки',
+    'settings.tabs.general': 'Общие',
     'settings.tabs.account': 'Аккаунт',
     'settings.tabs.session': 'Терминалы',
     'settings.tabs.tunnel': 'Туннель',
     'settings.tabs.mcp': 'MCP',
+    'settings.general.description': 'Внешний вид и поведение настольного приложения.',
+    'settings.appearance.title': 'Внешний вид',
+    'settings.appearance.particles': 'Анимированный фон главной страницы',
+    'settings.appearance.particlesHint': 'Показывать анимированные частицы на главной странице.',
+    'settings.desktop.title': 'Поведение приложения',
+    'settings.desktop.openAtLogin': 'Запускать CLITrigger вместе с Windows',
+    'settings.desktop.packagedOnly': 'Доступно в установленном приложении для Windows.',
+    'settings.desktop.closePrompt': 'При закрытии главного окна:',
+    'settings.desktop.closeToTray': 'Свернуть в системный трей',
+    'settings.desktop.quit': 'Выйти из CLITrigger',
+    'settings.desktop.saveFailed': 'Не удалось обновить настройки приложения.',
+    'settings.discardConfirm': 'Отменить несохранённые изменения?',
 
     // MCP connection (panel inside Settings modal)
     'mcp.title': 'Подключение MCP',
