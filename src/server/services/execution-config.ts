@@ -1,91 +1,95 @@
 import * as queries from '../db/queries.js';
-import { resolveExecutionModel, type CliTool } from './cli-adapters.js';
-import { resolveExecutionEffort, type EffortLevel, type ResolvedEffort } from './effort-profiles.js';
+import { resolveExecutionModel, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
 
 export interface ResolvedExecutionConfig {
   cliTool: CliTool;
-  source: 'profile' | 'manual' | 'legacy';
+  source: 'profile' | 'manual';
   profileId?: string;
+  profileSlug?: string;
   profileName?: string;
+  executorCandidateId?: string;
+  cliModelId?: string;
   requestedModel: string | null;
   model: string | undefined;
   modelAvailability: 'available' | 'unavailable' | 'unknown';
-  effort: ResolvedEffort;
+  effort: { nativeEffort: string | undefined; supportedEfforts: string[] | null; resolution: 'exact' | 'capability-unknown' | 'provider-default' };
   warnings: string[];
   resolvedAt: string;
 }
 
+function parsedEfforts(model: queries.CliModel): string[] | null {
+  if (!model.supported_efforts) return null;
+  try {
+    const values = JSON.parse(model.supported_efforts);
+    return Array.isArray(values) && values.every((value) => typeof value === 'string') ? values : null;
+  } catch { return null; }
+}
+
+function effortConfig(model: queries.CliModel | undefined, effort: string | null | undefined) {
+  const nativeEffort = effort && effort !== 'provider-default' ? effort : undefined;
+  const supportedEfforts = model ? parsedEfforts(model) : null;
+  if (nativeEffort && supportedEfforts && !supportedEfforts.includes(nativeEffort)) {
+    throw new Error(`Effort "${nativeEffort}" is not supported by model "${model!.model_label}"`);
+  }
+  return { nativeEffort, supportedEfforts, resolution: !nativeEffort ? 'provider-default' as const : supportedEfforts ? 'exact' as const : 'capability-unknown' as const };
+}
+
 export function resolveExecutionConfig(input: {
-  cliTool: CliTool;
+  cliTool?: CliTool | null;
   model?: string | null;
+  cliModelId?: string | null;
   cliEffort?: string | null;
-  agentProfileId?: string | null;
-  effortLevel?: EffortLevel | null;
-  projectEffortLevel?: EffortLevel | null;
+  executionProfileId?: string | null;
+  interactive?: boolean;
 }): ResolvedExecutionConfig {
-  if (input.cliTool === 'raw-shell') {
-    return { cliTool: 'raw-shell', source: 'manual', requestedModel: null, model: undefined, modelAvailability: 'unknown', effort: { requestedLevel: null, levelSource: 'record', profileTarget: null, nativeEffort: undefined, supportedEfforts: null, resolution: 'provider-default' }, warnings: [], resolvedAt: new Date().toISOString() };
-  }
-  const warnings: string[] = [];
-  let cliTool = input.cliTool;
-  let requestedModel = input.model ?? undefined;
-  let nativeEffort = input.cliEffort ?? undefined;
-  let source: ResolvedExecutionConfig['source'] = input.cliEffort != null || input.effortLevel == null ? 'manual' : 'legacy';
-  let profile: queries.AgentProfile | undefined;
-  if (input.agentProfileId) {
-    profile = queries.getAgentProfileById(input.agentProfileId);
-    if (!profile) throw new Error(`Agent profile "${input.agentProfileId}" no longer exists.`);
-    if (!profile.is_enabled) throw new Error(`Agent profile "${profile.name}" is disabled.`);
-    if (profile.cli_tool !== cliTool) warnings.push(`Record agent ${cliTool} did not match profile agent ${profile.cli_tool}; profile agent was used.`);
-    cliTool = profile.cli_tool;
-    requestedModel = profile.model_value ?? undefined;
-    nativeEffort = profile.effort_value ?? undefined;
-    source = 'profile';
-  }
-  const model = resolveExecutionModel(requestedModel, cliTool, true);
-  if (nativeEffort === 'provider-default') nativeEffort = undefined;
-  let supportedEfforts: string[] | null = null;
-  let capabilitiesKnown = false;
-  if (source !== 'legacy' && model.effectiveModel) {
-    const catalogModel = queries.getModelByValue(cliTool, model.effectiveModel);
-    if (catalogModel?.supported_efforts) {
+  const resolvedAt = new Date().toISOString();
+  if (input.executionProfileId) {
+    const profile = queries.getExecutionProfileById(input.executionProfileId);
+    if (!profile) throw new Error(`Execution profile "${input.executionProfileId}" no longer exists.`);
+    const warnings = profile.is_enabled ? [] : [`Execution profile "${profile.name}" is disabled.`];
+    for (const executor of profile.executors.filter((candidate) => candidate.is_enabled).sort((a, b) => a.priority - b.priority)) {
+      if (executor.model_status === 'missing') continue;
+      if (input.interactive && !supportsInteractiveMode(executor.cli_tool)) continue;
+      const model = queries.getModelById(executor.cli_model_id);
+      if (!model) continue;
       try {
-        const parsed = JSON.parse(catalogModel.supported_efforts);
-        if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'string')) {
-          supportedEfforts = parsed;
-          capabilitiesKnown = true;
-        }
-      } catch { /* malformed capability metadata is unknown, so the CLI remains authoritative */ }
+        return {
+          cliTool: executor.cli_tool, source: 'profile', profileId: profile.id, profileSlug: profile.slug, profileName: profile.name,
+          executorCandidateId: executor.id, cliModelId: model.id, requestedModel: model.model_value, model: model.model_value,
+          modelAvailability: 'available', effort: effortConfig(model, executor.effort_value), warnings, resolvedAt,
+        };
+      } catch { /* saved unsupported candidates remain visible but are ineligible */ }
     }
+    throw new Error(`Execution profile "${profile.name}" has no eligible executors.`);
   }
-  if (nativeEffort && capabilitiesKnown && !supportedEfforts!.includes(nativeEffort)) {
-    throw new Error(`Effort "${nativeEffort}" is not supported by model "${model.effectiveModel}"`);
+
+  const catalogModel = input.cliModelId ? queries.getModelById(input.cliModelId) : undefined;
+  if (input.cliModelId && !catalogModel) throw new Error('Selected model no longer exists.');
+  if (catalogModel?.status === 'missing') throw new Error(`Selected model "${catalogModel.model_label}" is missing from the latest CLI refresh.`);
+  const cliTool = (catalogModel?.cli_tool ?? input.cliTool ?? 'claude') as CliTool;
+  if (cliTool === 'raw-shell') {
+    return { cliTool, source: 'manual', requestedModel: null, model: undefined, modelAvailability: 'unknown', effort: effortConfig(undefined, null), warnings: [], resolvedAt };
   }
-  const effort: ResolvedEffort = source === 'legacy'
-    ? resolveExecutionEffort({ cliTool, model: model.effectiveModel, effortLevel: input.effortLevel ?? null, projectEffortLevel: input.projectEffortLevel ?? null })
-    : { requestedLevel: null, levelSource: 'record', profileTarget: nativeEffort ?? null, nativeEffort, supportedEfforts, resolution: nativeEffort ? (capabilitiesKnown ? 'exact' : 'capability-unknown') : 'provider-default' };
-  if (effort.warning) warnings.push(effort.warning);
+  const requested = catalogModel?.model_value ?? input.model ?? undefined;
+  const model = resolveExecutionModel(requested, cliTool, true);
   return {
-    cliTool,
-    source,
-    profileId: profile?.id,
-    profileName: profile?.name,
-    requestedModel: model.requestedModel,
-    model: model.effectiveModel,
+    cliTool, source: 'manual', cliModelId: catalogModel?.id, requestedModel: model.requestedModel, model: model.effectiveModel,
     modelAvailability: model.availability,
-    effort,
-    warnings,
-    resolvedAt: new Date().toISOString(),
+    effort: effortConfig(catalogModel ?? (requested ? queries.getModelByValue(cliTool, requested) : undefined), input.cliEffort),
+    warnings: [], resolvedAt,
   };
 }
 
 export const executionSnapshot = (config: ResolvedExecutionConfig) => ({
-  agent: config.cliTool,
   configuration: config.source,
   profileId: config.profileId ?? null,
+  profileSlug: config.profileSlug ?? null,
   profileName: config.profileName ?? null,
-  resolvedModel: config.model ?? null,
-  resolvedEffort: config.effort.nativeEffort ?? null,
+  executorCandidateId: config.executorCandidateId ?? null,
+  agent: config.cliTool,
+  cliModelId: config.cliModelId ?? null,
+  model: config.model ?? null,
+  effort: config.effort.nativeEffort ?? null,
   resolvedAt: config.resolvedAt,
   warnings: config.warnings,
 });

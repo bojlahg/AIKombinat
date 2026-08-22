@@ -53,7 +53,9 @@ const pausedSchedule: Schedule = {
   cron_expression: '0 0 * * *',
   cli_tool: 'antigravity',
   cli_model: 'gemini-2.5-pro',
-  effort_level: 5,
+  cli_model_id: 'model-1',
+  execution_profile_id: null,
+  cli_effort: 'high',
   max_turns: 12,
   use_worktree: 1,
   memory_inject_mode: 'selected',
@@ -101,9 +103,9 @@ describe('Scheduler execution', () => {
       '["node-1"]',
       '["notes.md"]',
       undefined,
-      5,
-      undefined,
-      undefined,
+      null,
+      'high',
+      'model-1',
     );
     expect(mocks.createScheduleRun).toHaveBeenCalledOnce();
     expect(mocks.startTodo).toHaveBeenCalledWith('todo-1');

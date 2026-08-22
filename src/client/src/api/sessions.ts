@@ -56,14 +56,14 @@ export function captureSessionSnapshot(id: string): Promise<{ available: boolean
 
 export function createSession(
   projectId: string,
-  data: { title: string; description?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; agent_profile_id?: string | null; effort_level?: number | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null }
+  data: { title: string; description?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null }
 ): Promise<Session> {
   return post(`/api/projects/${projectId}/sessions`, data);
 }
 
 export function updateSession(
   id: string,
-  data: { title?: string; description?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; agent_profile_id?: string | null; effort_level?: number | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null }
+  data: { title?: string; description?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null }
 ): Promise<Session> {
   return put(`/api/sessions/${id}`, data);
 }

@@ -7,14 +7,14 @@ export function getTodos(projectId: string): Promise<Todo[]> {
 
 export function createTodo(
   projectId: string,
-  data: { title: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; cli_effort?: string | null; agent_profile_id?: string | null; effort_level?: number | null; depends_on?: string; max_turns?: number | null; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[] }
+  data: { title: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; execution_profile?: string; depends_on?: string; max_turns?: number | null; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[] }
 ): Promise<Todo> {
   return post(`/api/projects/${projectId}/todos`, data);
 }
 
 export function updateTodo(
   id: string,
-  data: { title?: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; cli_effort?: string | null; agent_profile_id?: string | null; effort_level?: number | null; depends_on?: string | null; max_turns?: number | null; position_x?: number; position_y?: number; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[] }
+  data: { title?: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; execution_profile?: string; depends_on?: string | null; max_turns?: number | null; position_x?: number; position_y?: number; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[] }
 ): Promise<Todo> {
   return put(`/api/todos/${id}`, data);
 }

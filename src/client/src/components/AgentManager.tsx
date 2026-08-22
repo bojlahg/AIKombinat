@@ -5,7 +5,7 @@ import { useI18n, type Lang } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import * as discussionsApi from '../api/discussions';
 import EmptyState from './EmptyState';
-import type { AgentProfile } from '../api/agentProfiles';
+import type { ExecutionProfile } from '../api/executionProfiles';
 import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
 
 const ROLE_OPTIONS = ['architect', 'developer', 'reviewer', 'pm', 'tester', 'custom'] as const;
@@ -75,13 +75,13 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
   const [cliTool, setCliTool] = useState<CliTool | ''>('');
   const [cliModel, setCliModel] = useState('');
   const [cliEffort, setCliEffort] = useState('');
-  const [agentProfileId, setAgentProfileId] = useState('');
-  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [executionProfileId, setExecutionProfileId] = useState('');
+  const [profiles, setProfiles] = useState<ExecutionProfile[]>([]);
   const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
   const [canImplement, setCanImplement] = useState(false);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { fetch('/api/agent-profiles', { credentials: 'include' }).then((r) => r.json()).then(setProfiles).catch(() => setProfiles([])); fetch('/api/models', { credentials: 'include' }).then((r) => r.json()).then(setModels).catch(() => setModels({})); }, []);
+  useEffect(() => { fetch('/api/execution-profiles?includeDisabled=true', { credentials: 'include' }).then((r) => r.json()).then(setProfiles).catch(() => setProfiles([])); fetch('/api/models', { credentials: 'include' }).then((r) => r.json()).then(setModels).catch(() => setModels({})); }, []);
   const toolModels = cliTool ? models[cliTool] ?? [] : [];
   const visibleModels = visibleModelOptions(toolModels, cliModel);
   const effort = cliTool && cliTool !== 'raw-shell' ? effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort) : null;
@@ -92,7 +92,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
     setRole('developer');
     setSystemPrompt('');
     setCliTool('');
-    setCliModel(''); setCliEffort(''); setAgentProfileId('');
+    setCliModel(''); setCliEffort(''); setExecutionProfileId('');
     setAvatarColor(AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]);
     setCanImplement(false);
     setShowForm(false);
@@ -107,7 +107,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
         const updated = await discussionsApi.updateAgent(editingId, {
           name, role, system_prompt: systemPrompt, avatar_color: avatarColor,
           cli_tool: cliTool || null,
-          cli_model: agentProfileId ? null : cliModel || null, cli_effort: agentProfileId ? null : cliEffort || null, agent_profile_id: agentProfileId || null,
+          cli_model: executionProfileId ? null : cliModel || null, cli_effort: executionProfileId ? null : cliEffort || null, execution_profile_id: executionProfileId || null,
           can_implement: canImplement,
         });
         onAgentsChange(agents.map((a) => (a.id === editingId ? updated : a)));
@@ -115,7 +115,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
         const created = await discussionsApi.createAgent(projectId, {
           name, role, system_prompt: systemPrompt, avatar_color: avatarColor,
           ...(cliTool ? { cli_tool: cliTool } : {}),
-          cli_model: agentProfileId ? undefined : cliModel || undefined, cli_effort: agentProfileId ? null : cliEffort || null, agent_profile_id: agentProfileId || null,
+          cli_model: executionProfileId ? undefined : cliModel || undefined, cli_effort: executionProfileId ? null : cliEffort || null, execution_profile_id: executionProfileId || null,
           can_implement: canImplement,
         });
         onAgentsChange([...agents, created]);
@@ -132,7 +132,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
     setRole(agent.role);
     setSystemPrompt(agent.system_prompt);
     setCliTool((agent.cli_tool as CliTool) || '');
-    setCliModel(agent.cli_model ?? ''); setCliEffort(agent.cli_effort ?? ''); setAgentProfileId(agent.agent_profile_id ?? '');
+    setCliModel(agent.cli_model ?? ''); setCliEffort(agent.cli_effort ?? ''); setExecutionProfileId(agent.execution_profile_id ?? '');
     setAvatarColor(agent.avatar_color || AVATAR_COLORS[0]);
     setCanImplement(!!agent.can_implement);
     setShowForm(true);
@@ -281,7 +281,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
               <label className="block text-xs font-medium text-warm-500 mb-2">{t('agents.cliTool')}</label>
               <select
                 value={cliTool}
-                onChange={(e) => { setCliTool(e.target.value as CliTool | ''); setCliModel(''); setCliEffort(''); setAgentProfileId(''); }}
+                onChange={(e) => { setCliTool(e.target.value as CliTool | ''); setCliModel(''); setCliEffort(''); setExecutionProfileId(''); }}
                 className="input-field text-sm"
               >
                 <option value="">{t('agents.cliToolProjectDefault')}</option>
@@ -290,9 +290,9 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 ))}
               </select>
             </div>
-            {cliTool && cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('profiles.configuration')}</label><select className="input-field text-sm" value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.cliTool === cliTool && p.isEnabled).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
-            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.model')}</label><select className="input-field text-sm" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}</select></div>}
-            {cliTool && cliTool !== 'raw-shell' && !agentProfileId && effort && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.label')}</label><select className="input-field text-sm" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
+            {cliTool && cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('profiles.configuration')}</label><select className="input-field text-sm" value={executionProfileId} onChange={(e) => setExecutionProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.isEnabled || p.id === executionProfileId).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
+            {cliTool && cliTool !== 'raw-shell' && !executionProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.model')}</label><select className="input-field text-sm" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}</select></div>}
+            {cliTool && cliTool !== 'raw-shell' && !executionProfileId && effort && <div><label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.label')}</label><select className="input-field text-sm" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
           </div>
 
           {/* Can Implement toggle */}

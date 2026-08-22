@@ -7,7 +7,7 @@ import { I18nProvider } from '../../i18n';
 const catalog = {
   codex: [
     { value: 'current', label: 'Current', availabilityStatus: 'available', supportedEfforts: ['low', 'high'] },
-    { value: 'retired', label: 'Retired', availabilityStatus: 'unavailable', deprecated: true, supportedEfforts: ['low'] },
+    { value: 'retired', label: 'Retired', status: 'missing', supportedEfforts: ['low'] },
   ],
 };
 

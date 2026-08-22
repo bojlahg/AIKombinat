@@ -19,7 +19,7 @@ describe('explicit model resolution', () => {
   });
 
   it('fails clearly when the explicitly requested model is definitely unavailable', () => {
-    getModelByValue.mockReturnValue({ availability_status: 'unavailable', deprecated: 1 });
+    getModelByValue.mockReturnValue({ status: 'missing' });
     expect(() => resolveExecutionModel('gpt-retired', 'codex')).toThrow('Selected codex model "gpt-retired" is unavailable');
     expect(() => getAdapter('codex').buildArgs({ mode: 'headless', prompt: '', model: 'gpt-retired' })).toThrow('Selected codex model "gpt-retired" is unavailable');
   });

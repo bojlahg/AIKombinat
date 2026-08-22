@@ -10,7 +10,7 @@ describe('TodoForm model selection', () => {
       json: () => Promise.resolve(url === '/api/models' ? {
         codex: [
           { value: 'gpt-current', label: 'GPT Current', availabilityStatus: 'available' },
-          { value: 'gpt-retired', label: 'GPT Retired', availabilityStatus: 'unavailable', deprecated: true },
+          { value: 'gpt-retired', label: 'GPT Retired', status: 'missing' },
         ],
       } : [{ cliTool: 'codex', defaultLevel: 2 }]),
     })));

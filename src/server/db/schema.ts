@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import type Database from 'better-sqlite3';
 
 export function initDatabase(db: Database.Database): void {
@@ -46,7 +45,9 @@ export function initDatabase(db: Database.Database): void {
       cron_expression TEXT NOT NULL,
       cli_tool TEXT,
       cli_model TEXT,
-      effort_level INTEGER,
+      cli_model_id TEXT,
+      cli_effort TEXT,
+      execution_profile_id TEXT,
       max_turns INTEGER,
       use_worktree INTEGER,
       memory_inject_mode TEXT DEFAULT 'none',
@@ -72,16 +73,40 @@ export function initDatabase(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS cli_models (
       id TEXT PRIMARY KEY,
-      cli_tool TEXT NOT NULL,
+      cli_tool TEXT NOT NULL CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
       model_value TEXT NOT NULL,
       model_label TEXT NOT NULL,
-      sort_order INTEGER DEFAULT 0,
-      is_default INTEGER DEFAULT 0,
-      deprecated INTEGER DEFAULT 0,
-      last_verified_at DATETIME,
-      source TEXT DEFAULT 'seed',
+      supported_efforts TEXT,
+      status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing')),
+      source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('cli', 'manual')),
+      last_seen_at DATETIME,
+      last_checked_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(cli_tool, model_value)
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_profiles (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      is_enabled INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_profile_executors (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL REFERENCES execution_profiles(id) ON DELETE CASCADE,
+      cli_model_id TEXT NOT NULL REFERENCES cli_models(id),
+      effort_value TEXT,
+      priority INTEGER NOT NULL DEFAULT 0,
+      is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(profile_id, cli_model_id, effort_value)
     );
 
     CREATE TABLE IF NOT EXISTS cli_versions (
@@ -145,26 +170,6 @@ export function initDatabase(db: Database.Database): void {
       started_at DATETIME,
       completed_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_effort_profiles (
-      cli_tool TEXT PRIMARY KEY CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
-      default_level INTEGER NOT NULL CHECK (default_level BETWEEN 1 AND 5),
-      mapping_json TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_profiles (
-      id TEXT PRIMARY KEY,
-      cli_tool TEXT NOT NULL CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
-      name TEXT NOT NULL,
-      model_value TEXT,
-      effort_value TEXT,
-      is_enabled INTEGER NOT NULL DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(cli_tool, name)
     );
 
     CREATE TABLE IF NOT EXISTS discussion_logs (
@@ -365,11 +370,11 @@ export function initDatabase(db: Database.Database): void {
     { table: 'projects', column: 'is_git_repo', definition: 'INTEGER DEFAULT 1' },
     { table: 'projects', column: 'cli_tool', definition: "TEXT DEFAULT 'claude'" },
     { table: 'projects', column: 'default_max_turns', definition: 'INTEGER' },
-    { table: 'projects', column: 'default_effort_level', definition: 'INTEGER' },
     { table: 'todos', column: 'cli_tool', definition: 'TEXT' },
     { table: 'todos', column: 'cli_model', definition: 'TEXT' },
-    { table: 'todos', column: 'effort_level', definition: 'INTEGER' },
-    { table: 'todos', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'todos', column: 'cli_model_id', definition: 'TEXT REFERENCES cli_models(id)' },
+    { table: 'todos', column: 'execution_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'todos', column: 'execution_snapshot', definition: 'TEXT' },
     { table: 'todos', column: 'cli_effort', definition: 'TEXT' },
     { table: 'todos', column: 'schedule_id', definition: 'TEXT' },
     { table: 'todos', column: 'images', definition: 'TEXT' },
@@ -383,8 +388,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'todos', column: 'context_switch_count', definition: 'INTEGER DEFAULT 0' },
     { table: 'schedules', column: 'schedule_type', definition: "TEXT DEFAULT 'recurring'" },
     { table: 'schedules', column: 'run_at', definition: 'DATETIME' },
-    { table: 'schedules', column: 'effort_level', definition: 'INTEGER' },
-    { table: 'schedules', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'schedules', column: 'cli_model_id', definition: 'TEXT REFERENCES cli_models(id)' },
+    { table: 'schedules', column: 'execution_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
     { table: 'schedules', column: 'cli_effort', definition: 'TEXT' },
     { table: 'schedules', column: 'max_turns', definition: 'INTEGER' },
     { table: 'schedules', column: 'use_worktree', definition: 'INTEGER' },
@@ -411,12 +416,9 @@ export function initDatabase(db: Database.Database): void {
     { table: 'sessions', column: 'base_commit', definition: 'TEXT' },
     { table: 'planner_items', column: 'images', definition: 'TEXT' },
     { table: 'planner_items', column: 'page_id', definition: 'TEXT' },
-    { table: 'cli_models', column: 'deprecated', definition: 'INTEGER DEFAULT 0' },
-    { table: 'cli_models', column: 'last_verified_at', definition: 'DATETIME' },
-    { table: 'cli_models', column: 'source', definition: "TEXT DEFAULT 'seed'" },
     { table: 'discussion_agents', column: 'can_implement', definition: 'INTEGER DEFAULT 0' },
-    { table: 'discussion_agents', column: 'effort_level', definition: 'INTEGER' },
-    { table: 'discussion_agents', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'discussion_agents', column: 'cli_model_id', definition: 'TEXT REFERENCES cli_models(id)' },
+    { table: 'discussion_agents', column: 'execution_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
     { table: 'discussion_agents', column: 'cli_effort', definition: 'TEXT' },
     { table: 'projects', column: 'npm_auto_install', definition: 'INTEGER DEFAULT 0' },
     { table: 'todos', column: 'summary', definition: 'TEXT' },
@@ -453,13 +455,16 @@ export function initDatabase(db: Database.Database): void {
     // On-demand Diff capture points: JSON array of { seq, sha, at } working-tree
     // snapshots the user took mid-session, each usable as a Diff page's base.
     { table: 'sessions', column: 'snapshots', definition: 'TEXT' },
-    { table: 'sessions', column: 'effort_level', definition: 'INTEGER' },
-    { table: 'sessions', column: 'agent_profile_id', definition: 'TEXT REFERENCES agent_profiles(id)' },
+    { table: 'sessions', column: 'cli_model_id', definition: 'TEXT REFERENCES cli_models(id)' },
+    { table: 'sessions', column: 'execution_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'sessions', column: 'execution_snapshot', definition: 'TEXT' },
     { table: 'sessions', column: 'cli_effort', definition: 'TEXT' },
-    { table: 'cli_models', column: 'availability_status', definition: "TEXT DEFAULT 'unknown'" },
     { table: 'cli_models', column: 'supported_efforts', definition: 'TEXT' },
+    { table: 'cli_models', column: 'status', definition: "TEXT NOT NULL DEFAULT 'available'" },
+    { table: 'cli_models', column: 'source', definition: "TEXT NOT NULL DEFAULT 'cli'" },
     { table: 'cli_models', column: 'last_seen_at', definition: 'DATETIME' },
     { table: 'cli_models', column: 'last_checked_at', definition: 'DATETIME' },
+    { table: 'cli_models', column: 'updated_at', definition: 'DATETIME' },
     // Auto-delegation rule: JSON {"from":"claude","to":"codex"}, NULL = disabled.
     { table: 'projects', column: 'auto_delegate', definition: 'TEXT' },
     // Parent todo id when this todo was auto-created as a delegated review task.
@@ -522,6 +527,42 @@ export function initDatabase(db: Database.Database): void {
     // unique index creation may fail if dedupe missed a corner case; leave index off rather than crash startup
   }
 
+  // Normalize catalogs created by older versions without turning a bundled
+  // registry into a second source of truth.
+  db.prepare(`UPDATE cli_models SET source = CASE WHEN source IN ('user', 'manual') THEN 'manual' ELSE 'cli' END`).run();
+  const cliModelColumns = db.pragma('table_info(cli_models)') as Array<{ name: string }>;
+  if (cliModelColumns.some((column) => column.name === 'availability_status')) {
+    db.prepare(`UPDATE cli_models SET status = CASE WHEN status = 'missing' OR availability_status = 'unavailable' THEN 'missing' ELSE 'available' END`).run();
+  }
+
+  // Legacy single-agent profiles and star mappings are intentionally
+  // destructive. SQLite 3.35+ can drop these columns in-place; older engines
+  // retain only the column shell while all runtime paths ignore it.
+  for (const [table, column] of [
+    ['projects', 'default_effort_level'],
+    ['todos', 'effort_level'], ['todos', 'agent_profile_id'],
+    ['schedules', 'effort_level'], ['schedules', 'agent_profile_id'],
+    ['sessions', 'effort_level'], ['sessions', 'agent_profile_id'],
+    ['discussion_agents', 'effort_level'], ['discussion_agents', 'agent_profile_id'],
+    ['cli_models', 'sort_order'], ['cli_models', 'is_default'], ['cli_models', 'deprecated'],
+    ['cli_models', 'last_verified_at'], ['cli_models', 'availability_status'],
+  ] as const) dropColumnIfPresent(db, table, column);
+  db.exec(`DELETE FROM execution_profile_executors
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid) FROM execution_profile_executors
+      GROUP BY profile_id, cli_model_id, COALESCE(effort_value, '')
+    )`);
+  db.exec(`
+    DROP TABLE IF EXISTS agent_profiles;
+    DROP TABLE IF EXISTS agent_effort_profiles;
+    CREATE INDEX IF NOT EXISTS idx_execution_profile_executors_profile
+      ON execution_profile_executors(profile_id, priority);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_profile_executor_unique
+      ON execution_profile_executors(profile_id, cli_model_id, COALESCE(effort_value, ''));
+    CREATE INDEX IF NOT EXISTS idx_cli_models_tool_status
+      ON cli_models(cli_tool, status);
+  `);
+
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
 
@@ -530,25 +571,11 @@ export function initDatabase(db: Database.Database): void {
   // once no 'gemini' rows remain these UPDATEs are no-ops.
   migrateGeminiToAntigravity(db);
 
-  // Seed cli_models if empty
-  const modelCount = db.prepare('SELECT COUNT(*) as count FROM cli_models').get() as { count: number };
-  if (modelCount.count === 0) {
-    seedCliModels(db);
-  }
-  db.prepare(`UPDATE cli_models SET supported_efforts = COALESCE(supported_efforts, ?)
-              WHERE cli_tool = 'antigravity'`).run(JSON.stringify(['low', 'medium', 'high']));
-
-  seedAgentEffortProfiles(db);
 }
-
-function seedAgentEffortProfiles(db: Database.Database): void {
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO agent_effort_profiles (cli_tool, default_level, mapping_json)
-     VALUES (?, ?, ?)`,
-  );
-  insert.run('claude', 3, JSON.stringify({ 1: 'low', 2: 'medium', 3: 'high', 4: 'xhigh', 5: 'max' }));
-  insert.run('codex', 2, JSON.stringify({ 1: 'low', 2: 'medium', 3: 'high', 4: 'xhigh', 5: 'max' }));
-  insert.run('antigravity', 2, JSON.stringify({ 1: 'low', 2: 'medium', 3: 'high', 4: 'high', 5: 'high' }));
+function dropColumnIfPresent(db: Database.Database, table: string, column: string): void {
+  const columns = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) return;
+  try { db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`); } catch { /* old SQLite or dependent legacy constraint */ }
 }
 
 /**
@@ -628,31 +655,4 @@ function dedupeMemoryNodeTitles(db: Database.Database): void {
     }
   });
   tx();
-}
-
-function seedCliModels(db: Database.Database): void {
-  const seed = db.prepare(
-    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, sort_order, is_default) VALUES (?, ?, ?, ?, ?, ?)`
-  );
-
-  const models = [
-    // Claude
-    ['claude', '', 'Default', 0, 1],
-    ['claude', 'claude-sonnet-4-6', 'Claude Sonnet 4.6', 1, 0],
-    ['claude', 'claude-opus-4-6', 'Claude Opus 4.6', 2, 0],
-    ['claude', 'claude-haiku-4-5', 'Claude Haiku 4.5', 3, 0],
-    // Antigravity
-    ['antigravity', '', 'Default (Antigravity)', 0, 1],
-    // Codex
-    ['codex', '', 'Default', 0, 1],
-    ['codex', 'gpt-4.1', 'GPT-4.1', 1, 0],
-    ['codex', 'gpt-4.1-mini', 'GPT-4.1 Mini', 2, 0],
-    ['codex', 'gpt-4.1-nano', 'GPT-4.1 Nano', 3, 0],
-    ['codex', 'o3', 'o3', 4, 0],
-    ['codex', 'o4-mini', 'o4-mini', 5, 0],
-  ];
-
-  for (const [tool, value, label, order, isDefault] of models) {
-    seed.run(randomUUID(), tool, value, label, order, isDefault);
-  }
 }

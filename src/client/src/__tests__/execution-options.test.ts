@@ -14,8 +14,8 @@ describe('execution option capabilities', () => {
 
   it('filters unavailable models for new selection but preserves the selected model', () => {
     const models = [
-      { value: 'gone', label: 'Gone', availabilityStatus: 'unavailable' },
-      { value: 'current', label: 'Current', availabilityStatus: 'available' },
+      { value: 'gone', label: 'Gone', status: 'missing' as const },
+      { value: 'current', label: 'Current', status: 'available' as const },
     ];
     expect(visibleModelOptions(models).map((model) => model.value)).toEqual(['current']);
     expect(visibleModelOptions(models, 'gone').map((model) => model.value)).toEqual(['gone', 'current']);

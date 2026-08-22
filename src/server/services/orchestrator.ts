@@ -3,7 +3,7 @@ import path from 'path';
 import { worktreeManager } from './worktree-manager.js';
 import { claudeManager, type ClaudeMode } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool } from './effort-profiles.js';
+import { isAgentCliTool } from './provider-types.js';
 import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
 import { logStreamer } from './log-streamer.js';
 import { getTodoImagePaths } from '../routes/images.js';
@@ -511,9 +511,9 @@ Complete the task in the current directory.`;
 
     // Determine CLI tool: task-level overrides project-level
     const cliTool = (todo.cli_tool as CliTool) || (project.cli_tool as CliTool) || 'claude';
-    const claudeModel = todo.cli_model ?? (todo.effort_level != null ? project.claude_model : undefined);
+    const claudeModel = todo.cli_model ?? undefined;
     const executionConfig = isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: claudeModel, cliEffort: todo.cli_effort, agentProfileId: todo.agent_profile_id, effortLevel: todo.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      ? resolveExecutionConfig({ cliTool, model: claudeModel, cliModelId: todo.cli_model_id, cliEffort: todo.cli_effort, executionProfileId: todo.execution_profile_id })
       : null;
     const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
     const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
@@ -596,6 +596,7 @@ Complete the task in the current directory.`;
     const auditPrompt = prompt.length > 2000 ? prompt.slice(0, 2000) + '... [truncated]' : prompt;
     queries.createTaskLog(todoId, 'prompt', auditPrompt, roundNumber);
     if (executionConfig) {
+      queries.updateTodo(todoId, { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) });
       queries.createTaskLog(todoId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`, roundNumber);
     }
 

@@ -3,8 +3,7 @@ import { createTodo, getTodosByProjectId, getTodoById, updateTodo, deleteTodo } 
 import { getProjectById } from '../db/queries.js';
 import { validatePromptContent, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from '../services/prompt-guard.js';
 import { cleanupTodoImages } from './images.js';
-import { isEffortLevel } from '../services/effort-profiles.js';
-import { normalizeExecutionSelection } from '../services/execution-selection.js';
+import { ExecutionSelectionError, normalizeExecutionSelection } from '../services/execution-selection.js';
 
 const router = Router();
 
@@ -35,10 +34,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       return;
     }
 
-    const { title, description, priority, cli_tool, cli_model, cli_effort, agent_profile_id, effort_level, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths } = req.body;
-    if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
-      res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
-    }
+    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths } = req.body;
     if (!title) {
       res.status(400).json({ error: 'title is required' });
       return;
@@ -67,12 +63,12 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       ? (memory_node_ids.length > 0 ? JSON.stringify(memory_node_ids.map(String)) : null)
       : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
-    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliEffort: cli_effort, agentProfileId: agent_profile_id });
-    const todo = createTodo(projectId, title, description, priority, execution.cliTool ?? undefined, execution.cliModel ?? undefined, undefined, depends_on, parsedMaxTurns || undefined, normalizedUseWorktree, normalizedMemMode, normalizedMemIds, normalizedRawFilePaths === undefined ? null : normalizedRawFilePaths, undefined, isEffortLevel(effort_level) ? effort_level : null, execution.agentProfileId, execution.cliEffort);
+    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
+    const todo = createTodo(projectId, title, description, priority, execution.cliTool ?? undefined, execution.cliModel ?? undefined, undefined, depends_on, parsedMaxTurns || undefined, normalizedUseWorktree, normalizedMemMode, normalizedMemIds, normalizedRawFilePaths === undefined ? null : normalizedRawFilePaths, undefined, execution.executionProfileId, execution.cliEffort, execution.cliModelId);
     res.status(201).json(todo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(message.startsWith('Agent profile') ? 400 : 500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -90,7 +86,7 @@ router.get('/projects/:id/todos', (req: Request<{ id: string }>, res: Response) 
     res.json(todos);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(message.startsWith('Agent profile') ? 400 : 500).json({ error: message });
+    res.status(500).json({ error: message });
   }
 });
 
@@ -103,9 +99,9 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, priority, cli_tool, cli_model, cli_effort, agent_profile_id, effort_level, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths } = req.body;
-    const execution = (cli_tool !== undefined || cli_model !== undefined || cli_effort !== undefined || agent_profile_id !== undefined)
-      ? normalizeExecutionSelection({ cliTool: cli_tool ?? existing.cli_tool, cliModel: cli_model, cliEffort: cli_effort, agentProfileId: agent_profile_id }) : null;
+    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths } = req.body;
+    const execution = (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined)
+      ? normalizeExecutionSelection({ cliTool: cli_tool ?? existing.cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile }) : null;
     const parsedMaxTurns = max_turns !== undefined ? (max_turns != null ? parseInt(max_turns, 10) || null : null) : undefined;
     const normalizedUseWorktree = use_worktree === undefined
       ? undefined
@@ -123,8 +119,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
     const todo = updateTodo(req.params.id, {
       title, description, priority, cli_tool: execution?.cliTool ?? cli_tool, cli_model: execution ? execution.cliModel : cli_model, depends_on, position_x, position_y,
-      ...(execution ? { agent_profile_id: execution.agentProfileId, cli_effort: execution.cliEffort, effort_level: null } : {}),
-      ...(effort_level === null || isEffortLevel(effort_level) ? { effort_level } : {}),
+      ...(execution ? { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, execution_profile_id: execution.executionProfileId, cli_effort: execution.cliEffort } : {}),
       ...(parsedMaxTurns !== undefined ? { max_turns: parsedMaxTurns } : {}),
       ...(normalizedUseWorktree !== undefined ? { use_worktree: normalizedUseWorktree } : {}),
       ...(normalizedMemMode !== undefined ? { memory_inject_mode: normalizedMemMode } : {}),

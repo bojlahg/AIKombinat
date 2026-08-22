@@ -2,7 +2,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFile, spawn } from 'child_process';
-import { fileURLToPath } from 'url';
 import {
   getCliVersion,
   markUnavailableExcept,
@@ -13,9 +12,6 @@ import {
 } from '../db/queries.js';
 import { getAdapter, type CliTool, type ProbedModel } from './cli-adapters.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const REGISTRY_PATH = path.resolve(__dirname, '../data/cli-models-registry.json');
 const MODEL_REFRESH_TTL_MS = 6 * 60 * 60 * 1000;
 const DISCOVERY_TIMEOUT_MS = 10_000;
 
@@ -28,51 +24,10 @@ export interface ModelDiscoveryResult {
   source: ModelSource;
   authoritative: boolean;
   primarySucceeded: boolean;
-}
-
-interface RegistryEntry {
-  versionPrefix: string;
-  models: Array<{ value: string; label: string }>;
-}
-type RegistryFile = Record<string, RegistryEntry[]>;
-
-const BUILTIN_REGISTRY: RegistryFile = {
-  claude: [{ versionPrefix: '*', models: [
-    { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-  ] }],
-  antigravity: [{ versionPrefix: '*', models: [] }],
-  codex: [{ versionPrefix: '*', models: [
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
-    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
-    { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano' },
-    { value: 'o3', label: 'o3' },
-    { value: 'o4-mini', label: 'o4-mini' },
-  ] }],
-};
-
-let cachedRegistry: RegistryFile | null = null;
-
-function loadRegistry(): RegistryFile {
-  if (cachedRegistry) return cachedRegistry;
-  try {
-    const parsed = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf-8'));
-    delete parsed.$comment;
-    cachedRegistry = parsed as RegistryFile;
-    return cachedRegistry;
-  } catch {
-    return BUILTIN_REGISTRY;
-  }
-}
-
-export function lookupRegistry(tool: CliTool, version: string): ProbedModel[] {
-  const entries = loadRegistry()[tool] ?? [];
-  const matching = entries
-    .filter((entry) => entry.versionPrefix === '*' || version.startsWith(entry.versionPrefix))
-    .sort((a, b) => b.versionPrefix.length - a.versionPrefix.length)[0];
-  return matching?.models.map((model) => ({ ...model })) ?? [];
+  added?: number;
+  updated?: number;
+  restored?: number;
+  markedMissing?: number;
 }
 
 function execText(command: string, args: string[]): Promise<string | null> {
@@ -198,23 +153,22 @@ function readCodexCache(): DiscoveredModel[] {
 async function discoverClaude(version: string): Promise<ModelDiscoveryResult> {
   const aliases: DiscoveredModel[] = ['default', 'sonnet', 'opus', 'haiku'].map((value) => ({ value, label: value === 'default' ? 'Default' : `Claude ${value[0].toUpperCase()}${value.slice(1)}` }));
   const weak = await getAdapter('claude').probeModels?.() ?? [];
-  const fallback = weak.length > 0 ? [] : lookupRegistry('claude', version);
   const merged = new Map<string, DiscoveredModel>();
-  [...aliases, ...weak, ...fallback].forEach((model) => merged.set(model.value, model));
+  [...aliases, ...weak].forEach((model) => merged.set(model.value, model));
   return { models: [...merged.values()], source: weak.length > 0 ? 'claude-help' : 'claude-alias', authoritative: false, primarySucceeded: true };
 }
 
 export async function discoverModelCatalog(tool: CliTool, version = ''): Promise<ModelDiscoveryResult> {
   if (tool === 'antigravity') {
     const primary = await discoverAntigravity();
-    return primary ?? { models: lookupRegistry(tool, version), source: 'registry', authoritative: false, primarySucceeded: false };
+    return primary ?? { models: [], source: 'registry', authoritative: false, primarySucceeded: false };
   }
   if (tool === 'codex') {
     const primary = await discoverCodexAppServer();
     if (primary) return primary;
     const cached = readCodexCache();
     if (cached.length > 0) return { models: cached, source: 'codex-cache', authoritative: false, primarySucceeded: false };
-    return { models: lookupRegistry(tool, version), source: 'registry', authoritative: false, primarySucceeded: false };
+    return { models: [], source: 'registry', authoritative: false, primarySucceeded: false };
   }
   return discoverClaude(version);
 }
@@ -226,16 +180,17 @@ export async function refreshModelCatalog(
   const now = new Date().toISOString();
   const discover = options.discover ?? discoverModelCatalog;
   const result = await discover(tool, options.version ?? '');
-  if (result.models.length === 0 && !result.primarySucceeded) return result;
+  if (result.models.length === 0 && !result.primarySucceeded) return { ...result, added: 0, updated: 0, restored: 0, markedMissing: 0 };
 
+  const counts = { added: 0, updated: 0, restored: 0, markedMissing: 0 };
   for (const model of result.models) {
-    upsertDiscoveredModel(tool, model.value, model.label, result.source, now, result.authoritative ? 'available' : 'unknown', model.supportedEfforts ?? null);
+    counts[upsertDiscoveredModel(tool, model.value, model.label, result.source, now, model.supportedEfforts ?? null)] += 1;
   }
-  if (result.authoritative && result.models.length > 0) {
-    markUnavailableExcept(tool, result.models.map((model) => model.value), now);
+  if (result.authoritative && result.primarySucceeded) {
+    counts.markedMissing = markUnavailableExcept(tool, result.models.map((model) => model.value), now);
   }
   if (result.primarySucceeded) setModelCatalogRefreshedAt(tool, now);
-  return result;
+  return { ...result, ...counts };
 }
 
 export async function syncModels(tool: CliTool, version: string): Promise<void> {

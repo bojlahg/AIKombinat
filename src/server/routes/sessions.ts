@@ -4,8 +4,7 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { execFileSync } from 'child_process';
 import * as queries from '../db/queries.js';
-import { isEffortLevel } from '../services/effort-profiles.js';
-import { normalizeExecutionSelection } from '../services/execution-selection.js';
+import { ExecutionSelectionError, normalizeExecutionSelection } from '../services/execution-selection.js';
 import { sessionManager } from '../services/session-manager.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { writeImageToClipboard } from '../services/clipboard-writer.js';
@@ -43,10 +42,7 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       return;
     }
 
-    const { title, description, cli_tool, cli_model, cli_effort, agent_profile_id, effort_level, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id } = req.body;
-    if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
-      res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
-    }
+    const { title, description, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id } = req.body;
     const trimmedTitle = typeof title === 'string' ? title.trim() : '';
     const finalTitle = trimmedTitle || `Session ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
     let normalizedTagId: string | null = null;
@@ -68,7 +64,7 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRaw = normalizeRawFilePaths(memory_raw_file_paths);
 
-    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliEffort: cli_effort, agentProfileId: agent_profile_id });
+    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
     const session = queries.createSession(
       req.params.id,
       finalTitle,
@@ -80,14 +76,14 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       normalizedMemIds,
       normalizedRaw === undefined ? null : normalizedRaw,
       normalizedTagId,
-      isEffortLevel(effort_level) ? effort_level : null,
-      execution.agentProfileId,
+      execution.executionProfileId,
       execution.cliEffort,
+      execution.cliModelId,
     );
     res.status(201).json(session);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(message.startsWith('Agent profile') ? 400 : 500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -278,11 +274,10 @@ router.put('/sessions/:id', (req: Request<{ id: string }>, res: Response) => {
         updates[key] = req.body[key];
       }
     }
-    if (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_effort !== undefined || req.body.agent_profile_id !== undefined) {
-      const execution = normalizeExecutionSelection({ cliTool: req.body.cli_tool ?? session.cli_tool, cliModel: req.body.cli_model, cliEffort: req.body.cli_effort, agentProfileId: req.body.agent_profile_id });
-      Object.assign(updates, { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_effort: execution.cliEffort, agent_profile_id: execution.agentProfileId, effort_level: null });
+    if (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined) {
+      const execution = normalizeExecutionSelection({ cliTool: req.body.cli_tool ?? session.cli_tool, cliModel: req.body.cli_model, cliModelId: req.body.cli_model_id, cliEffort: req.body.cli_effort, executionProfileId: req.body.execution_profile_id });
+      Object.assign(updates, { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, cli_effort: execution.cliEffort, execution_profile_id: execution.executionProfileId });
     }
-    if (req.body.effort_level === null || isEffortLevel(req.body.effort_level)) updates.effort_level = req.body.effort_level;
 
     if (req.body.memory_inject_mode !== undefined) {
       updates.memory_inject_mode =

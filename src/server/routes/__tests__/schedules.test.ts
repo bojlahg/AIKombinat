@@ -26,7 +26,7 @@ let baseUrl: string;
 
 const todo = {
   id: 'todo-1', project_id: 'project-1', title: 'Preserve me', description: 'Details', status: 'pending',
-  cli_tool: 'codex', cli_model: 'gpt-5.1', effort_level: 4, max_turns: 23, use_worktree: 0,
+  cli_tool: 'codex', cli_model: 'gpt-5.1', cli_model_id: 'model-1', cli_effort: 'high', execution_profile_id: null, max_turns: 23, use_worktree: 0,
   memory_inject_mode: 'selected', memory_node_ids: '["node-1"]', memory_raw_file_paths: '["guide.md"]',
 };
 
@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 describe('todo scheduling conversion', () => {
-  it('preserves model, effort, and execution settings for a one-time schedule', async () => {
+  it('preserves manual model and native effort settings for a one-time schedule', async () => {
     const response = await fetch(`${baseUrl}/api/todos/todo-1/schedule`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ run_at: '2027-01-02T03:04:05.000Z', keep_original: true }),
@@ -59,11 +59,11 @@ describe('todo scheduling conversion', () => {
     expect(response.status).toBe(201);
     expect(mocks.createSchedule).toHaveBeenCalledWith(
       'project-1', 'Preserve me', 'Details', '* * * * *', 'codex', 'gpt-5.1', 1, 'once',
-      '2027-01-02T03:04:05.000Z', 4, 23, 0, 'selected', '["node-1"]', '["guide.md"]', undefined, undefined,
+      '2027-01-02T03:04:05.000Z', 23, 0, 'selected', '["node-1"]', '["guide.md"]', null, 'high', 'model-1',
     );
   });
 
-  it('preserves model, effort, and execution settings when scheduling on reset', async () => {
+  it('preserves manual model and native effort settings when scheduling on reset', async () => {
     const response = await fetch(`${baseUrl}/api/todos/todo-1/schedule-on-reset`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prompt: 'Continue after reset' }),
@@ -71,7 +71,7 @@ describe('todo scheduling conversion', () => {
     expect(response.status).toBe(201);
     expect(mocks.createSchedule).toHaveBeenCalledWith(
       'project-1', '[Reset] Continue after reset', 'Continue after reset', '* * * * *', 'codex', 'gpt-5.1', 1, 'once',
-      new Date(1_800_000_000 * 1000).toISOString(), 4, 23, 0, 'selected', '["node-1"]', '["guide.md"]', undefined, undefined,
+      new Date(1_800_000_000 * 1000).toISOString(), 23, 0, 'selected', '["node-1"]', '["guide.md"]', null, 'high', 'model-1',
     );
   });
 });

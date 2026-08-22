@@ -108,7 +108,7 @@ export function resolveExecutionModel(model: string | undefined, cliTool: CliToo
   if (!model) return { requestedModel: null, effectiveModel: undefined, availability: 'unknown' };
   let entry: ReturnType<typeof getModelByValue>;
   try { entry = getModelByValue(cliTool, model); } catch { entry = undefined; }
-  const availability = entry?.availability_status ?? 'unknown';
+  const availability = entry ? (entry.status === 'missing' ? 'unavailable' : 'available') : 'unknown';
   if (availability === 'unavailable' && failUnavailable) {
     throw new Error(`Selected ${cliTool} model "${model}" is unavailable. Choose another model or refresh the model catalog.`);
   }

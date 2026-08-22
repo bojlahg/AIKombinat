@@ -4,8 +4,7 @@ import * as queries from '../db/queries.js';
 import { scheduler } from '../services/scheduler.js';
 import { logStreamer } from '../services/log-streamer.js';
 import { cleanupTodoImages } from './images.js';
-import { isEffortLevel } from '../services/effort-profiles.js';
-import { normalizeExecutionSelection } from '../services/execution-selection.js';
+import { ExecutionSelectionError, normalizeExecutionSelection } from '../services/execution-selection.js';
 
 const router = Router();
 
@@ -18,10 +17,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, cli_model, cli_effort, agent_profile_id, effort_level, skip_if_running, schedule_type, run_at } = req.body;
-    if (effort_level !== undefined && effort_level !== null && !isEffortLevel(effort_level)) {
-      res.status(400).json({ error: 'effort_level must be an integer from 1 to 5' }); return;
-    }
+    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at } = req.body;
     const isOnce = schedule_type === 'once';
 
     if (!title) {
@@ -45,7 +41,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       }
     }
 
-    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliEffort: cli_effort, agentProfileId: agent_profile_id });
+    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
     const schedule = queries.createSchedule(
       req.params.id, title, description,
       isOnce ? '* * * * *' : cron_expression,
@@ -53,9 +49,8 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       skip_if_running !== undefined ? (skip_if_running ? 1 : 0) : 1,
       isOnce ? 'once' : 'recurring',
       isOnce ? run_at : undefined,
-      isEffortLevel(effort_level) ? effort_level : null,
       undefined, undefined, undefined, undefined, undefined,
-      execution.agentProfileId, execution.cliEffort,
+      execution.executionProfileId, execution.cliEffort, execution.cliModelId,
     );
 
     // Auto-register the job since new schedules are active by default
@@ -68,7 +63,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
     res.status(201).json(schedule);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(message.startsWith('Agent profile') ? 400 : 500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -113,7 +108,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, cli_model, cli_effort, agent_profile_id, effort_level, skip_if_running, schedule_type, run_at } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at } = req.body;
     const effectiveType = schedule_type ?? existing.schedule_type;
     const isOnce = effectiveType === 'once';
 
@@ -134,11 +129,10 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
     }
     if (cli_tool !== undefined) updates.cli_tool = cli_tool;
     if (cli_model !== undefined) updates.cli_model = cli_model;
-    if (cli_tool !== undefined || cli_model !== undefined || cli_effort !== undefined || agent_profile_id !== undefined) {
-      const execution = normalizeExecutionSelection({ cliTool: cli_tool ?? existing.cli_tool, cliModel: cli_model, cliEffort: cli_effort, agentProfileId: agent_profile_id });
-      updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_effort = execution.cliEffort; updates.agent_profile_id = execution.agentProfileId; updates.effort_level = null;
+    if (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined) {
+      const execution = normalizeExecutionSelection({ cliTool: cli_tool ?? existing.cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
+      updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_model_id = execution.cliModelId; updates.cli_effort = execution.cliEffort; updates.execution_profile_id = execution.executionProfileId;
     }
-    if (effort_level === null || isEffortLevel(effort_level)) updates.effort_level = effort_level;
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
 
     const schedule = queries.updateSchedule(req.params.id, updates);
@@ -271,14 +265,14 @@ router.post('/todos/:id/schedule', (req: Request<{ id: string }>, res: Response)
       1,
       'once',
       run_at,
-      todo.effort_level,
       todo.max_turns,
       todo.use_worktree,
       todo.memory_inject_mode,
       todo.memory_node_ids,
       todo.memory_raw_file_paths,
-      todo.agent_profile_id,
+      todo.execution_profile_id,
       todo.cli_effort,
+      todo.cli_model_id,
     );
 
     let originalDeleted = false;
@@ -337,14 +331,14 @@ router.post('/todos/:id/schedule-on-reset', (req: Request<{ id: string }>, res: 
       1,  // skip_if_running
       'once',
       runAt,
-      todo.effort_level,
       todo.max_turns,
       todo.use_worktree,
       todo.memory_inject_mode,
       todo.memory_node_ids,
       todo.memory_raw_file_paths,
-      todo.agent_profile_id,
+      todo.execution_profile_id,
       todo.cli_effort,
+      todo.cli_model_id,
     );
 
     scheduler.registerOnceJob(schedule);

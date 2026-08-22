@@ -1,10 +1,11 @@
 export type AgentCliTool = 'claude' | 'codex' | 'antigravity';
 
 export interface CatalogModel {
+  id?: string;
   value: string;
   label: string;
-  deprecated?: boolean;
-  availabilityStatus?: string;
+  status?: 'available' | 'missing';
+  source?: 'cli' | 'manual';
   supportedEfforts?: string[] | null;
 }
 
@@ -15,18 +16,16 @@ export const PROVIDER_EFFORT_FALLBACKS: Record<AgentCliTool, string[]> = {
 };
 
 export function visibleModelOptions(models: CatalogModel[], selectedValue?: string | null): CatalogModel[] {
-  const selectable = models.filter((model) => model.value && !model.deprecated && model.availabilityStatus !== 'unavailable');
+  const selectable = models.filter((model) => model.value && model.status !== 'missing');
   if (!selectedValue) return selectable;
   const selected = models.find((model) => model.value === selectedValue);
   if (selected && !selectable.some((model) => model.value === selected.value)) return [selected, ...selectable];
-  if (!selected) return [{ value: selectedValue, label: selectedValue, availabilityStatus: 'unknown', supportedEfforts: null }, ...selectable];
+  if (!selected) return [{ value: selectedValue, label: selectedValue, supportedEfforts: null }, ...selectable];
   return selectable;
 }
 
 export function modelOptionLabel(model: CatalogModel, labels: { unavailable: string; deprecated: string; unknown: string }): string {
-  if (model.availabilityStatus === 'unavailable') return `${model.label} (${labels.unavailable})`;
-  if (model.deprecated) return `${model.label} (${labels.deprecated})`;
-  if (model.availabilityStatus === 'unknown') return `${model.label} (${labels.unknown})`;
+  if (model.status === 'missing') return `${model.label} (${labels.unavailable})`;
   return model.label;
 }
 

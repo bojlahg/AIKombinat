@@ -32,7 +32,6 @@ interface SessionListProps {
   projectCliTool?: string;
   isGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  projectEffortLevel?: number | null;
   projectDefaultBranch?: string;
   onAddSession: (session: Session) => void;
   onUpdateSession: (session: Session) => void;
@@ -58,7 +57,6 @@ export default function SessionList({
   projectCliTool,
   isGitRepo,
   projectUseWorktree,
-  projectEffortLevel,
   projectDefaultBranch,
   onAddSession,
   onUpdateSession,
@@ -114,9 +112,8 @@ export default function SessionList({
       description: editingSession.description ?? '',
       cliTool: editingSession.cli_tool ?? '',
       cliModel: editingSession.cli_model ?? '',
-      effortLevel: editingSession.effort_level,
       cliEffort: editingSession.cli_effort,
-      agentProfileId: editingSession.agent_profile_id,
+      executionProfileId: editingSession.execution_profile_id,
       useWorktree: editingSession.use_worktree === 1,
       memoryInjectMode: (editingSession.memory_inject_mode as MemoryInjectMode | null) ?? 'none',
       memoryNodeIds: parseMemoryNodeIds(editingSession.memory_node_ids ?? null),
@@ -153,9 +150,8 @@ export default function SessionList({
     memoryRawFilePaths?: string[],
     tagId?: string | null,
     cliModel?: string,
-    effortLevel?: number | null,
     cliEffort?: string | null,
-    agentProfileId?: string | null,
+    executionProfileId?: string | null,
   ) => {
     setCreating(true);
     try {
@@ -164,7 +160,7 @@ export default function SessionList({
         description: description || undefined,
         cli_tool: cliTool,
         cli_model: cliModel,
-        effort_level: effortLevel, cli_effort: cliEffort, agent_profile_id: agentProfileId,
+        cli_effort: cliEffort, execution_profile_id: executionProfileId,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -188,9 +184,8 @@ export default function SessionList({
     memoryRawFilePaths?: string[],
     tagId?: string | null,
     cliModel?: string,
-    effortLevel?: number | null,
     cliEffort?: string | null,
-    agentProfileId?: string | null,
+    executionProfileId?: string | null,
   ) => {
     if (!editingId) return;
     setSaving(true);
@@ -201,7 +196,7 @@ export default function SessionList({
         description: description || undefined,
         cli_tool: cliTool,
         cli_model: cliModel,
-        effort_level: effortLevel, cli_effort: cliEffort, agent_profile_id: agentProfileId,
+        cli_effort: cliEffort, execution_profile_id: executionProfileId,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -251,7 +246,6 @@ export default function SessionList({
           projectCliTool={projectCliTool}
           isGitRepo={isGitRepo}
           projectUseWorktree={projectUseWorktree}
-          projectEffortLevel={projectEffortLevel}
         />
       )}
 

@@ -9,7 +9,7 @@ interface ScheduleItemProps {
   schedule: Schedule;
   onToggle: (id: string, activate: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; agent_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string }) => Promise<void>;
+  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string }) => Promise<void>;
   onTrigger: (id: string) => Promise<void>;
   onMergeRun?: (todoId: string) => Promise<void>;
   onCleanupRun?: (todoId: string) => Promise<void>;
@@ -93,7 +93,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
         initialCliTool={schedule.cli_tool ?? undefined}
         initialCliModel={schedule.cli_model}
         initialCliEffort={schedule.cli_effort}
-        initialAgentProfileId={schedule.agent_profile_id}
+        initialExecutionProfileId={schedule.execution_profile_id}
         initialSkipIfRunning={!!schedule.skip_if_running}
         initialScheduleType={schedule.schedule_type}
         initialRunAt={schedule.run_at ?? undefined}
@@ -105,7 +105,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
             cli_tool: data.cliTool,
             cli_model: data.cliModel,
             cli_effort: data.cliEffort,
-            agent_profile_id: data.agentProfileId,
+            execution_profile_id: data.executionProfileId,
             skip_if_running: data.skipIfRunning,
             schedule_type: data.scheduleType,
             run_at: data.runAt,

@@ -5,7 +5,7 @@ import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import type { ImageMeta, MemoryInjectMode, Todo } from '../types';
 import type { VaultInjectMode } from '../api/vault';
 import { getTodoImageUrl } from '../api/todos';
-import type { AgentProfile } from '../api/agentProfiles';
+import type { ExecutionProfile } from '../api/executionProfiles';
 import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
 
 function parseRawFilePaths(raw: string | null | undefined): string[] {
@@ -27,15 +27,14 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null, cliEffort?: string | null, agentProfileId?: string | null) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
   initialCliTool?: string;
   initialCliModel?: string;
-  initialEffortLevel?: number | null;
   initialCliEffort?: string | null;
-  initialAgentProfileId?: string | null;
+  initialExecutionProfileId?: string | null;
   initialDependsOn?: string;
   initialMaxTurns?: number;
   initialUseWorktree?: number | null;
@@ -45,7 +44,6 @@ interface TodoFormProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  projectEffortLevel?: number | null;
   existingImages?: ImageMeta[];
   todoId?: string;
   onDeleteImage?: (imageId: string) => void;
@@ -61,9 +59,8 @@ export default function TodoForm({
   initialDescription = '',
   initialCliTool,
   initialCliModel,
-  initialEffortLevel,
   initialCliEffort,
-  initialAgentProfileId,
+  initialExecutionProfileId,
   initialDependsOn,
   initialMaxTurns,
   initialUseWorktree = null,
@@ -73,7 +70,6 @@ export default function TodoForm({
   projectCliTool = 'claude',
   projectIsGitRepo = false,
   projectUseWorktree = true,
-  projectEffortLevel = null,
   existingImages = [],
   todoId,
   onDeleteImage,
@@ -84,8 +80,8 @@ export default function TodoForm({
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
   const [cliModel, setCliModel] = useState(initialCliModel ?? '');
   const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
-  const [agentProfileId, setAgentProfileId] = useState(initialAgentProfileId ?? '');
-  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [executionProfileId, setExecutionProfileId] = useState(initialExecutionProfileId ?? '');
+  const [profiles, setProfiles] = useState<ExecutionProfile[]>([]);
   const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [dependsOn, setDependsOn] = useState(initialDependsOn ?? '');
   const [maxTurns, setMaxTurns] = useState(initialMaxTurns?.toString() ?? '');
@@ -103,10 +99,9 @@ export default function TodoForm({
 
   useEffect(() => {
     fetch('/api/models', { credentials: 'include' }).then((res) => res.json()).then(setModels).catch(() => setModels({}));
-    fetch('/api/agent-profiles', { credentials: 'include' }).then((res) => res.json()).then(setProfiles).catch(() => setProfiles([]));
+    fetch('/api/execution-profiles?includeDisabled=true', { credentials: 'include' }).then((res) => res.json()).then(setProfiles).catch(() => setProfiles([]));
   }, []);
 
-  void initialEffortLevel; void projectEffortLevel;
   const toolModels = models[cliTool] ?? [];
   const visibleModels = visibleModelOptions(toolModels, cliModel);
   const effort = cliTool === 'raw-shell' ? null : effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort);
@@ -181,7 +176,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, agentProfileId ? undefined : cliModel || undefined, null, agentProfileId ? null : cliEffort || null, agentProfileId || null);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null);
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -298,7 +293,7 @@ export default function TodoForm({
           </label>
           <select
             value={cliTool}
-            onChange={(e) => { setCliTool(e.target.value as CliTool); setCliModel(''); setCliEffort(''); setAgentProfileId(''); }}
+            onChange={(e) => { setCliTool(e.target.value as CliTool); setCliModel(''); setCliEffort(''); setExecutionProfileId(''); }}
             className="input-field text-sm"
           >
             {CLI_TOOLS.map((tool) => (
@@ -308,24 +303,24 @@ export default function TodoForm({
         </div>
         {cliTool !== 'raw-shell' && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('profiles.configuration')}</label>
-          <select value={agentProfileId} onChange={(e) => setAgentProfileId(e.target.value)} className="input-field text-sm">
+          <select value={executionProfileId} onChange={(e) => setExecutionProfileId(e.target.value)} className="input-field text-sm">
             <option value="">{t('profiles.manual')}</option>
-            {profiles.filter((p) => p.cliTool === cliTool && (p.isEnabled || p.id === agentProfileId)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}
+            {profiles.filter((p) => p.isEnabled || p.id === executionProfileId).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}
           </select>
         </div>}
-        {cliTool !== 'raw-shell' && !agentProfileId && <div>
+        {cliTool !== 'raw-shell' && !executionProfileId && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label>
           <select value={cliModel} onChange={(e) => setCliModel(e.target.value)} className="input-field text-sm">
             <option value="">{t('effort.providerModelDefault')}</option>
             {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
           </select>
         </div>}
-        {cliTool !== 'raw-shell' && !agentProfileId && effort && <div>
+        {cliTool !== 'raw-shell' && !executionProfileId && effort && <div>
           <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label>
           <select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-sm"><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>
           {effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}
         </div>}
-        {agentProfileId && <div className="self-end text-xs text-warm-500">{(() => { const p = profiles.find((item) => item.id === agentProfileId); return p ? `${p.modelValue ?? t('profiles.providerDefault')} / ${p.effortValue ?? t('profiles.providerDefault')}` : t('profiles.profileUnavailable'); })()}</div>}
+        {executionProfileId && <div className="self-end text-xs text-warm-500">{profiles.find((item) => item.id === executionProfileId)?.description || t('profiles.profileUnavailable')}</div>}
       </div>
 
       {/* Max Turns */}

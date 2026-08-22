@@ -34,7 +34,7 @@ describe('model catalog refresh', () => {
     await refreshModelCatalog('codex', { discover: async () => ({
       models: [], source: 'registry', authoritative: false, primarySucceeded: false,
     }) });
-    expect(queries.getModelByValue('codex', 'gpt-good')).toMatchObject({ availability_status: 'available', deprecated: 0 });
+    expect(queries.getModelByValue('codex', 'gpt-good')).toMatchObject({ status: 'available', source: 'cli' });
   });
 
   it('weak discovery absence does not mark cached models unavailable', async () => {
@@ -46,20 +46,30 @@ describe('model catalog refresh', () => {
       models: [{ value: 'sonnet', label: 'Claude Sonnet' }],
       source: 'claude-help', authoritative: false, primarySucceeded: true,
     }) });
-    expect(queries.getModelByValue('claude', 'claude-old')?.availability_status).toBe('unknown');
-    expect(queries.getModelByValue('claude', 'claude-old')?.deprecated).toBe(0);
+    expect(queries.getModelByValue('claude', 'claude-old')?.status).toBe('available');
     expect(queries.getModelByValue('claude', 'claude-old')?.last_seen_at).toBeTruthy();
   });
 
   it('authoritative discovery stores capabilities and marks absent models unavailable', async () => {
-    testDb.prepare(`INSERT INTO cli_models (id, cli_tool, model_value, model_label, source, availability_status) VALUES ('old', 'codex', 'gpt-old', 'GPT Old', 'codex-app-server', 'available')`).run();
+    testDb.prepare(`INSERT INTO cli_models (id, cli_tool, model_value, model_label, source, status) VALUES ('old', 'codex', 'gpt-old', 'GPT Old', 'cli', 'available')`).run();
     await refreshModelCatalog('codex', { discover: async () => ({
       models: [{ value: 'gpt-new', label: 'GPT New', supportedEfforts: ['low', 'medium', 'xhigh'] }],
       source: 'codex-app-server', authoritative: true, primarySucceeded: true,
     }) });
     expect(JSON.parse(queries.getModelByValue('codex', 'gpt-new')!.supported_efforts!)).toEqual(['low', 'medium', 'xhigh']);
-    expect(queries.getModelByValue('codex', 'gpt-new')).toMatchObject({ availability_status: 'available', source: 'codex-app-server' });
-    expect(queries.getModelByValue('codex', 'gpt-old')).toMatchObject({ availability_status: 'unavailable', deprecated: 1 });
+    expect(queries.getModelByValue('codex', 'gpt-new')).toMatchObject({ status: 'available', source: 'cli' });
+    expect(queries.getModelByValue('codex', 'gpt-old')).toMatchObject({ status: 'missing' });
+  });
+
+  it('never marks manual-only models missing and restores rediscovered CLI models', async () => {
+    const manual = queries.addModel('codex', 'private', 'Private', ['high']);
+    testDb.prepare(`INSERT INTO cli_models (id, cli_tool, model_value, model_label, source, status) VALUES ('old', 'codex', 'old', 'Old', 'cli', 'missing')`).run();
+    const result = await refreshModelCatalog('codex', { discover: async () => ({
+      models: [{ value: 'old', label: 'Old restored' }], source: 'codex-app-server', authoritative: true, primarySucceeded: true,
+    }) });
+    expect(queries.getModelById(manual.id)?.status).toBe('available');
+    expect(queries.getModelByValue('codex', 'old')?.status).toBe('available');
+    expect(result).toMatchObject({ restored: 1, markedMissing: 0 });
   });
 
   it('keeps installation version and model refresh timestamps independent', async () => {

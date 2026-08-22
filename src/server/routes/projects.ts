@@ -9,7 +9,6 @@ import { worktreeManager } from '../services/worktree-manager.js';
 import { parseAutoDelegate } from '../services/auto-delegate.js';
 import { isSvnRepository } from '../lib/svn.js';
 import { cleanupProjectImages } from './images.js';
-import { isEffortLevel } from '../services/effort-profiles.js';
 
 const router = Router();
 
@@ -368,12 +367,7 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, default_effort_level, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, svn_enabled, color } = req.body;
-
-    if (default_effort_level !== undefined && default_effort_level !== null && !isEffortLevel(default_effort_level)) {
-      res.status(400).json({ error: 'default_effort_level must be null or an integer from 1 to 5' });
-      return;
-    }
+    const { name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, svn_enabled, color } = req.body;
 
     if (auto_delegate !== undefined && auto_delegate !== null && parseAutoDelegate(auto_delegate) === null) {
       res.status(400).json({ error: 'auto_delegate must be JSON like {"from":"claude","to":"codex"} with valid CLI tools' });
@@ -398,7 +392,7 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
     }
 
     const project = updateProject(req.params.id, {
-      name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, default_effort_level, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, color,
+      name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, color,
       ...(svn_enabled !== undefined ? { svn_enabled: Number(svn_enabled) } : {}),
       ...(vcsTypePatch !== undefined ? { vcs_type: vcsTypePatch } : {}),
     });

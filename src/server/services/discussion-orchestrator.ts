@@ -3,7 +3,7 @@ import path from 'path';
 import { worktreeManager } from './worktree-manager.js';
 import { claudeManager } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool } from './effort-profiles.js';
+import { isAgentCliTool } from './provider-types.js';
 import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
@@ -277,9 +277,9 @@ export class DiscussionOrchestrator {
     }
 
     const cliTool = (agent?.cli_tool || project.cli_tool || 'claude') as CliTool;
-    const cliModel = agent?.cli_model ?? (agent?.effort_level != null ? project.claude_model : undefined);
+    const cliModel = agent?.cli_model ?? undefined;
     const executionConfig = isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: cliModel, cliEffort: agent?.cli_effort, agentProfileId: agent?.agent_profile_id, effortLevel: (agent?.effort_level ?? null) as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      ? resolveExecutionConfig({ cliTool, model: cliModel, cliModelId: agent?.cli_model_id, cliEffort: agent?.cli_effort, executionProfileId: agent?.execution_profile_id })
       : null;
     const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
     if (executionConfig) {

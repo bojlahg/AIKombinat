@@ -1,46 +1,158 @@
 import { useEffect, useState } from 'react';
-import { Copy, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
-import * as api from '../../api/agentProfiles';
-import { effortOptions, modelOptionLabel, visibleModelOptions, type CatalogModel } from '../../execution-options';
+import * as profilesApi from '../../api/executionProfiles';
 
-const AGENTS: Array<{ value: api.AgentCliTool; label: string }> = [
-  { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex CLI' }, { value: 'antigravity', label: 'Antigravity CLI' },
+type Tool = profilesApi.AgentCliTool;
+type Model = {
+  id: string; value: string; label: string; status: 'available' | 'missing'; source: 'cli' | 'manual';
+  supportedEfforts: string[] | null; lastSeenAt: string | null; lastCheckedAt: string | null;
+};
+
+const AGENTS: Array<{ value: Tool; label: string }> = [
+  { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }, { value: 'antigravity', label: 'Antigravity' },
 ];
+const FALLBACK_EFFORTS: Record<Tool, string[]> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  antigravity: ['low', 'medium', 'high'],
+};
+
+async function json<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...init });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  return body;
+}
 
 export default function AgentsSettingsPanel() {
   const { t } = useI18n();
-  const [profiles, setProfiles] = useState<api.AgentProfile[]>([]);
-  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
+  const [models, setModels] = useState<Record<string, Model[]>>({});
+  const [profiles, setProfiles] = useState<profilesApi.ExecutionProfile[]>([]);
   const [busy, setBusy] = useState(true);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const load = () => Promise.all([api.getProfiles(), fetch('/api/models', { credentials: 'include' }).then((r) => r.json())]).then(([p, m]) => { setProfiles(p); setModels(m); });
-  useEffect(() => { load().catch((e) => setError(String(e))).finally(() => setBusy(false)); }, []);
-  const replace = (value: api.AgentProfile) => setProfiles((items) => items.map((item) => item.id === value.id ? value : item));
-  const create = async (cliTool: api.AgentCliTool, source?: api.AgentProfile) => {
-    setError('');
-    try { const created = await api.createProfile({ cliTool, name: source ? `${source.name} copy` : t('profiles.newProfile'), modelValue: source?.modelValue ?? null, effortValue: source?.effortValue ?? null, isEnabled: true }); setProfiles((items) => [...items, created]); } catch (e) { setError(String(e)); }
+  const [notice, setNotice] = useState('');
+
+  const load = async () => {
+    const [catalog, executionProfiles] = await Promise.all([
+      json<Record<string, Model[]>>('/api/models'),
+      profilesApi.getProfiles(true),
+    ]);
+    setModels(catalog);
+    setProfiles(executionProfiles);
   };
-  const save = async (profile: api.AgentProfile) => { try { replace(await api.updateProfile(profile.id, profile)); } catch (e) { setError(String(e)); } };
-  const remove = async (profile: api.AgentProfile) => { try { await api.deleteProfile(profile.id); setProfiles((items) => items.filter((item) => item.id !== profile.id)); } catch (e) { setError(String(e)); } };
+  useEffect(() => { load().catch((e) => setError(String(e))).finally(() => setBusy(false)); }, []);
+
+  const refresh = async (tool?: Tool) => {
+    setRefreshing(tool ?? 'all'); setError(''); setNotice('');
+    try {
+      const result = await json<{ authoritative?: boolean; results?: Array<{ authoritative: boolean }> }>(`/api/models/refresh${tool ? `/${tool}` : ''}`, { method: 'POST' });
+      if (result.authoritative === false || result.results?.some((item) => !item.authoritative)) setNotice(t('catalog.partial'));
+    }
+    catch (e) { setError(String(e)); }
+    finally { await load().catch(() => undefined); setRefreshing(null); }
+  };
+  const addModel = async (tool: Tool) => {
+    const value = window.prompt(t('catalog.modelId'))?.trim();
+    if (!value) return;
+    const label = window.prompt(t('catalog.label'), value)?.trim();
+    if (!label) return;
+    const efforts = window.prompt(t('catalog.effortsPrompt'), FALLBACK_EFFORTS[tool].join(', '));
+    try {
+      await json('/api/models', { method: 'POST', body: JSON.stringify({ cliTool: tool, modelValue: value, modelLabel: label, supportedEfforts: efforts?.split(',').map((item) => item.trim()).filter(Boolean) ?? null }) });
+      await load();
+    } catch (e) { setError(String(e)); }
+  };
+  const saveModel = async (model: Model) => {
+    try { await json(`/api/models/${model.id}`, { method: 'PATCH', body: JSON.stringify({ modelLabel: model.label, supportedEfforts: model.supportedEfforts }) }); await load(); }
+    catch (e) { setError(String(e)); }
+  };
+  const deleteModel = async (model: Model) => {
+    try { await json(`/api/models/${model.id}`, { method: 'DELETE' }); await load(); }
+    catch (e) { setError(String(e)); }
+  };
+  const updateModelDraft = (tool: Tool, id: string, change: Partial<Model>) => setModels((current) => ({
+    ...current, [tool]: (current[tool] ?? []).map((model) => model.id === id ? { ...model, ...change } : model),
+  }));
+
+  const replaceProfile = (profile: profilesApi.ExecutionProfile) => setProfiles((current) => current.map((item) => item.id === profile.id ? profile : item));
+  const createProfile = async () => {
+    try {
+      const suffix = Date.now().toString(36);
+      const created = await profilesApi.createProfile({ slug: `profile-${suffix}`, name: t('profiles.newProfile'), description: '', isEnabled: true, sortOrder: profiles.length, executors: [] });
+      setProfiles((current) => [...current, created]);
+    } catch (e) { setError(String(e)); }
+  };
+  const saveProfile = async (profile: profilesApi.ExecutionProfile) => {
+    try {
+      const saved = await profilesApi.updateProfile(profile.id, {
+        slug: profile.slug, name: profile.name, description: profile.description, isEnabled: profile.isEnabled, sortOrder: profile.sortOrder,
+        executors: (profile.executors ?? []).map((executor, index) => ({ id: executor.id, cliModelId: executor.cliModelId, effortValue: executor.effortValue, priority: index, isEnabled: executor.isEnabled })),
+      });
+      replaceProfile(saved);
+    } catch (e) { setError(String(e)); }
+  };
+  const deleteProfile = async (profile: profilesApi.ExecutionProfile) => {
+    try { await profilesApi.deleteProfile(profile.id); setProfiles((current) => current.filter((item) => item.id !== profile.id)); }
+    catch (e) { setError(String(e)); }
+  };
+  const addExecutor = (profile: profilesApi.ExecutionProfile) => {
+    const tool = AGENTS.find((agent) => (models[agent.value] ?? []).some((model) => model.status === 'available'))?.value;
+    const model = tool ? (models[tool] ?? []).find((item) => item.status === 'available') : undefined;
+    if (!tool || !model) { setError(t('profiles.noModels')); return; }
+    replaceProfile({ ...profile, executors: [...(profile.executors ?? []), {
+      id: `new-${Date.now()}`, cliModelId: model.id, cliTool: tool, modelValue: model.value, modelLabel: model.label, modelStatus: model.status,
+      supportedEfforts: model.supportedEfforts, effortValue: null, priority: profile.executors?.length ?? 0, isEnabled: true,
+    }] });
+  };
+  const changeExecutor = (profile: profilesApi.ExecutionProfile, index: number, change: Partial<profilesApi.ExecutionProfileExecutor>) => {
+    const executors = [...(profile.executors ?? [])]; executors[index] = { ...executors[index], ...change }; replaceProfile({ ...profile, executors });
+  };
+  const moveExecutor = (profile: profilesApi.ExecutionProfile, index: number, direction: -1 | 1) => {
+    const next = index + direction; if (next < 0 || next >= (profile.executors?.length ?? 0)) return;
+    const executors = [...(profile.executors ?? [])]; [executors[index], executors[next]] = [executors[next], executors[index]]; replaceProfile({ ...profile, executors });
+  };
+
   if (busy) return <div className="flex justify-center p-12"><Loader2 className="animate-spin" /></div>;
-  return <div className="space-y-5 p-5 sm:p-6">
-    <div><h2 className="text-lg font-semibold">{t('effort.agentsTitle')}</h2><p className="text-sm text-warm-500">{t('profiles.description')}</p></div>
-    {error && <p className="text-sm text-red-500">{error}</p>}
-    {AGENTS.map((agent) => <section key={agent.value} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
-      <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">{agent.label}</h3><button className="btn-secondary flex items-center gap-1 text-xs" onClick={() => create(agent.value)}><Plus size={14} />{t('profiles.new')}</button></div>
-      <div className="space-y-3">{profiles.filter((p) => p.cliTool === agent.value).map((profile) => {
-        const catalog = models[agent.value] ?? [];
-        const visibleModels = visibleModelOptions(catalog, profile.modelValue);
-        const effort = effortOptions(agent.value, catalog, profile.modelValue, profile.effortValue);
-        const label = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
-        return <div key={profile.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1.1fr_1.4fr_1fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
-          <input className="input-field text-sm" value={profile.name} aria-label={t('profiles.name')} onChange={(e) => replace({ ...profile, name: e.target.value })} />
-          <select className="input-field text-sm" value={profile.modelValue ?? ''} onChange={(e) => replace({ ...profile, modelValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{label(model)}</option>)}</select>
-          <div><select className="input-field text-sm" value={profile.effortValue ?? ''} onChange={(e) => replace({ ...profile, effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === profile.effortValue && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>
-          <div className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={profile.isEnabled} onChange={(e) => replace({ ...profile, isEnabled: e.target.checked })} />{t('profiles.enabled')}</label><button title={t('common.save')} onClick={() => save(profile)}><Save size={15} /></button><button title={t('profiles.duplicate')} onClick={() => create(agent.value, profile)}><Copy size={15} /></button><button title={t('common.delete')} onClick={() => remove(profile)}><Trash2 size={15} /></button></div>
-        </div>;
-      })}</div>
-    </section>)}
+  return <div className="space-y-8 p-5 sm:p-6">
+    {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
+    {notice && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-status-warning">{notice}</p>}
+    <section className="space-y-4">
+      <div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{t('catalog.title')}</h2><p className="text-sm text-warm-500">{t('catalog.description')}</p></div><button className="btn-secondary flex items-center gap-1 text-xs" disabled={!!refreshing} onClick={() => refresh()}><RefreshCw size={14} className={refreshing === 'all' ? 'animate-spin' : ''} />{t('catalog.refreshAll')}</button></div>
+      {AGENTS.map((agent) => <div key={agent.value} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
+        <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">{agent.label}</h3><div className="flex gap-2"><button className="btn-secondary flex items-center gap-1 text-xs" disabled={!!refreshing} onClick={() => refresh(agent.value)}><RefreshCw size={13} className={refreshing === agent.value ? 'animate-spin' : ''} />{t('catalog.refresh')}</button><button className="btn-secondary flex items-center gap-1 text-xs" onClick={() => addModel(agent.value)}><Plus size={13} />{t('catalog.addManual')}</button></div></div>
+        <div className="space-y-2">{(models[agent.value] ?? []).map((model) => <div key={model.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[1.2fr_1.5fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
+          <div><input className="input-field text-sm" value={model.label} onChange={(e) => updateModelDraft(agent.value, model.id, { label: e.target.value })} /><p className="mt-1 text-2xs text-warm-500">{model.value} · {model.source === 'manual' ? t('catalog.manual') : t('catalog.cli')}</p><p className="text-2xs text-warm-500">{t('catalog.lastSeen')}: {model.lastSeenAt ? new Date(model.lastSeenAt).toLocaleString() : t('catalog.never')}</p>{model.status === 'missing' && <p className="text-2xs text-status-warning">{t('catalog.missing')}</p>}</div>
+          <input className="input-field text-sm" value={model.supportedEfforts?.join(', ') ?? ''} placeholder={t('catalog.unknownEfforts')} onChange={(e) => updateModelDraft(agent.value, model.id, { supportedEfforts: e.target.value ? e.target.value.split(',').map((item) => item.trim()).filter(Boolean) : null })} />
+          <div className="flex items-center gap-2"><button title={t('common.save')} onClick={() => saveModel(model)}><Save size={15} /></button><button title={t('common.delete')} onClick={() => deleteModel(model)}><Trash2 size={15} /></button></div>
+        </div>)}</div>
+      </div>)}
+    </section>
+
+    <section className="space-y-4">
+      <div className="flex items-start justify-between"><div><h2 className="text-lg font-semibold">{t('profiles.executionTitle')}</h2><p className="text-sm text-warm-500">{t('profiles.executionDescription')}</p></div><button className="btn-secondary flex items-center gap-1 text-xs" onClick={createProfile}><Plus size={14} />{t('profiles.new')}</button></div>
+      {profiles.map((profile) => <div key={profile.id} className="space-y-3 rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
+        <div className="grid gap-2 sm:grid-cols-2"><input className="input-field text-sm" aria-label={t('profiles.name')} value={profile.name} onChange={(e) => replaceProfile({ ...profile, name: e.target.value })} /><input className="input-field text-sm" aria-label={t('profiles.slug')} value={profile.slug} onChange={(e) => replaceProfile({ ...profile, slug: e.target.value.toLowerCase() })} /></div>
+        <textarea className="input-field min-h-20 text-sm" aria-label={t('profiles.profileDescription')} value={profile.description} onChange={(e) => replaceProfile({ ...profile, description: e.target.value })} />
+        {!(profile.executors ?? []).some((executor) => executor.isEnabled && executor.modelStatus === 'available') && <p className="text-xs text-status-warning">{t('profiles.noEligible')}</p>}
+        <div className="space-y-2">{(profile.executors ?? []).map((executor, index) => {
+          const toolModels = models[executor.cliTool] ?? [];
+          const selectedModel = toolModels.find((model) => model.id === executor.cliModelId);
+          const efforts = selectedModel?.supportedEfforts ?? FALLBACK_EFFORTS[executor.cliTool];
+          const unsupported = !!executor.effortValue && !!selectedModel?.supportedEfforts && !selectedModel.supportedEfforts.includes(executor.effortValue);
+          const effortValues = unsupported ? [executor.effortValue!, ...efforts] : efforts;
+          return <div key={executor.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[auto_1fr_1.4fr_1fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
+            <span className="self-center text-xs text-warm-500">{index + 1}</span>
+            <select className="input-field text-sm" value={executor.cliTool} onChange={(e) => { const tool = e.target.value as Tool; const model = (models[tool] ?? [])[0]; if (model) changeExecutor(profile, index, { cliTool: tool, cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, effortValue: null }); }}>{AGENTS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label}</option>)}</select>
+            <select className="input-field text-sm" value={executor.cliModelId} onChange={(e) => { const model = toolModels.find((item) => item.id === e.target.value); if (model) changeExecutor(profile, index, { cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, effortValue: null }); }}>{toolModels.map((model) => <option key={model.id} value={model.id}>{model.label}{model.status === 'missing' ? ` (${t('catalog.missingShort')})` : ''}</option>)}</select>
+            <div><select className="input-field text-sm" value={executor.effortValue ?? ''} onChange={(e) => changeExecutor(profile, index, { effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{[...new Set(effortValues)].map((effort) => <option key={effort} value={effort}>{effort}{unsupported && effort === executor.effortValue ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{unsupported && <p className="text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>
+            <div className="flex items-center gap-1"><button onClick={() => moveExecutor(profile, index, -1)}><ArrowUp size={14} /></button><button onClick={() => moveExecutor(profile, index, 1)}><ArrowDown size={14} /></button><button onClick={() => replaceProfile({ ...profile, executors: profile.executors?.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 size={14} /></button></div>
+          </div>;
+        })}</div>
+        <button className="btn-secondary flex items-center gap-1 text-xs" onClick={() => addExecutor(profile)}><Plus size={13} />{t('profiles.addExecutor')}</button>
+        <div className="flex items-center justify-between"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={profile.isEnabled} onChange={(e) => replaceProfile({ ...profile, isEnabled: e.target.checked })} />{t('profiles.enabled')}</label><div className="flex gap-3"><button title={t('common.save')} onClick={() => saveProfile(profile)}><Save size={16} /></button><button title={t('common.delete')} onClick={() => deleteProfile(profile)}><Trash2 size={16} /></button></div></div>
+      </div>)}
+    </section>
   </div>;
 }

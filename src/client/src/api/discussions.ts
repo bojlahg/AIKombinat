@@ -40,7 +40,7 @@ export function createAgent(projectId: string, data: {
   cli_tool?: string;
   cli_model?: string;
   cli_effort?: string | null;
-  agent_profile_id?: string | null;
+  execution_profile_id?: string | null;
   avatar_color?: string;
   can_implement?: boolean;
 }): Promise<DiscussionAgent> {
@@ -54,7 +54,7 @@ export function updateAgent(id: string, data: Partial<{
   cli_tool: string | null;
   cli_model: string | null;
   cli_effort: string | null;
-  agent_profile_id: string | null;
+  execution_profile_id: string | null;
   avatar_color: string | null;
   sort_order: number;
   can_implement: boolean;

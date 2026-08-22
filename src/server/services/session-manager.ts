@@ -1,7 +1,7 @@
 import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
 import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool } from './effort-profiles.js';
+import { isAgentCliTool } from './provider-types.js';
 import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
@@ -147,9 +147,9 @@ export class SessionManager {
     if (!project) throw new Error('Project not found');
 
     const cliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
-    const cliModel = session.cli_model ?? (session.effort_level != null ? project.claude_model : undefined);
+    const cliModel = session.cli_model ?? undefined;
     const executionConfig = isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: cliModel, cliEffort: session.cli_effort, agentProfileId: session.agent_profile_id, effortLevel: session.effort_level as 1 | 2 | 3 | 4 | 5 | null, projectEffortLevel: project.default_effort_level as 1 | 2 | 3 | 4 | 5 | null })
+      ? resolveExecutionConfig({ cliTool, model: cliModel, cliModelId: session.cli_model_id, cliEffort: session.cli_effort, executionProfileId: session.execution_profile_id, interactive: true })
       : null;
     const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
     if (!supportsInteractiveMode(resolvedCliTool)) {
@@ -179,6 +179,7 @@ export class SessionManager {
 
     const adapter = getAdapter(resolvedCliTool);
     if (executionConfig) {
+      queries.updateSession(sessionId, { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) });
       queries.createSessionLog(sessionId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`);
     }
     let prompt = session.description || '';

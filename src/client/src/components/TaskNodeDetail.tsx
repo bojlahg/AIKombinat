@@ -16,7 +16,7 @@ interface TaskNodeDetailProps {
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
   onClose: () => void;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, effortLevel?: number | null, cliEffort?: string | null, agentProfileId?: string | null) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null) => Promise<void>;
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
@@ -172,9 +172,8 @@ export default function TaskNodeDetail({
           initialDescription={todo.description ?? undefined}
         initialCliTool={todo.cli_tool ?? undefined}
         initialCliModel={todo.cli_model ?? undefined}
-        initialEffortLevel={todo.effort_level}
         initialCliEffort={todo.cli_effort}
-        initialAgentProfileId={todo.agent_profile_id}
+        initialExecutionProfileId={todo.execution_profile_id}
           initialDependsOn={todo.depends_on ?? undefined}
           initialMaxTurns={todo.max_turns ?? undefined}
           initialUseWorktree={todo.use_worktree ?? null}
@@ -184,8 +183,8 @@ export default function TaskNodeDetail({
           todoId={todo.id}
           availableTodos={allTodos.filter(t => t.id !== todo.id)}
           onDeleteImage={async (imageId) => { await todosApi.deleteTodoImage(todo.id, imageId); }}
-          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, effortLevel, cliEffort, agentProfileId) => {
-            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, effortLevel, cliEffort, agentProfileId);
+          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId) => {
+            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId);
             if (newImages && newImages.length > 0) {
               await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
             }
