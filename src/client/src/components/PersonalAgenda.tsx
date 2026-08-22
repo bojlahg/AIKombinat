@@ -1394,7 +1394,7 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
           {/* 1. Site URL */}
           <div>
             <label className={labelCls} style={{ color: 'var(--color-text-secondary)' }}>{t('agenda.jira.baseUrlLabel')}</label>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://회사이름.atlassian.net" className="input-field text-sm font-mono" />
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t('agenda.jira.baseUrlPlaceholder')} className="input-field text-sm font-mono" />
             <p className={hintCls} style={{ color: 'var(--color-text-muted)' }}>{t('agenda.jira.baseUrlHint')}</p>
           </div>
 

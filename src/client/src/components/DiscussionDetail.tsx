@@ -51,7 +51,7 @@ type DraftItem = discussionsApi.ExtractedActionItem & { selected: boolean };
 export default function DiscussionDetail({ onEvent, connected }: DiscussionDetailProps) {
   const { id, discussionId } = useParams<{ id: string; discussionId: string }>();
   const navigate = useNavigate();
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const { sendNotification } = useNotification();
   const [discussion, setDiscussion] = useState<DiscussionWithMessages | null>(null);
   const [projectAgents, setProjectAgents] = useState<DiscussionAgent[]>([]);
@@ -235,12 +235,12 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
       setExtractItems(items.map((it) => ({ ...it, selected: true })));
       setErrorMessage('');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : (lang === 'ko' ? '추출에 실패했습니다.' : 'Extraction failed.'));
+      setErrorMessage(error instanceof Error ? error.message : t('discussions.extractFailed'));
       setExtractOpen(false);
     } finally {
       setExtractLoading(false);
     }
-  }, [discussionId, lang]);
+  }, [discussionId, t]);
 
   const handleConfirmExtract = useCallback(async () => {
     if (!discussionId || !id) return;
@@ -250,7 +250,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
       priority: it.priority,
     }));
     if (selected.length === 0) {
-      setErrorMessage(lang === 'ko' ? '항목을 하나 이상 선택해 주세요.' : 'Select at least one item.');
+      setErrorMessage(t('discussions.selectAtLeastOne'));
       return;
     }
     setExtractSaving(true);
@@ -260,11 +260,11 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
       setExtractItems([]);
       navigate(`/projects/${id}?tab=planner`);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : (lang === 'ko' ? 'Planner 변환에 실패했습니다.' : 'Failed to create planner items.'));
+      setErrorMessage(error instanceof Error ? error.message : t('discussions.plannerConvertFailed'));
     } finally {
       setExtractSaving(false);
     }
-  }, [discussionId, id, extractItems, lang, navigate]);
+  }, [discussionId, id, extractItems, t, navigate]);
 
   const handleUpdateDiscussion = useCallback(async (values: discussionsApi.DiscussionInput) => {
     if (!discussionId || !discussion) return;
@@ -292,11 +292,11 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
       setShowEditModal(false);
       setErrorMessage('');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : lang === 'ko' ? '토론 저장에 실패했습니다.' : 'Failed to save discussion.');
+      setErrorMessage(error instanceof Error ? error.message : t('discussions.saveFailed'));
     } finally {
       setSavingDiscussion(false);
     }
-  }, [discussionId, discussion, lang]);
+  }, [discussionId, discussion, t]);
 
   if (loading) {
     return (
@@ -427,7 +427,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
         <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-warm-400">
           <span>{t('discussions.maxRounds')}: {discussion.max_rounds}</span>
           <span>{t('discussions.agents')}: {discussion.agents.map((agent) => agent.name).join(', ') || '-'}</span>
-          <span>{t('discussions.autoImplement')}: {discussion.auto_implement ? (lang === 'ko' ? '사용' : 'Enabled') : (lang === 'ko' ? '사용 안 함' : 'Disabled')}</span>
+          <span>{t('discussions.autoImplement')}: {discussion.auto_implement ? t('discussions.enabled') : t('discussions.disabled')}</span>
         </div>
         {errorMessage && (
           <p className="mt-3 text-xs text-status-error">{errorMessage}</p>

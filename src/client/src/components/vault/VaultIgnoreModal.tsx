@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { getVaultIgnore, saveVaultIgnore } from '../../api/vault';
+import { useI18n } from '../../i18n';
 
 interface Props {
   open: boolean;
@@ -10,20 +11,15 @@ interface Props {
   onSaved: () => void;
 }
 
-const PLACEHOLDER = `# gitignore 문법
-# 예시:
-# *.draft.md
-# private/**
-# !private/keep.md
-# release-notes-*.md`;
-
 // Static usage guide behind the "?" button in the vault sidebar rail.
-// Same modal shell as VaultIgnoreModal; hardcoded Korean like its sibling.
+// Same modal shell as VaultIgnoreModal.
 export function VaultIgnoreHelpModal({ open, onClose, onOpenEditor }: {
   open: boolean;
   onClose: () => void;
   onOpenEditor: () => void;
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -45,7 +41,7 @@ export function VaultIgnoreHelpModal({ open, onClose, onOpenEditor }: {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-warm-200">
-          <div className="text-sm font-semibold text-warm-800">.vaultignore 사용법</div>
+          <div className="text-sm font-semibold text-warm-800">{t('vault.ignore.helpTitle')}</div>
           <button
             type="button"
             onClick={onClose}
@@ -58,26 +54,33 @@ export function VaultIgnoreHelpModal({ open, onClose, onOpenEditor }: {
 
         <div className="px-4 py-3 text-xs text-warm-600 space-y-3 overflow-y-auto">
           <p>
-            프로젝트 루트의 <code className="text-warm-800">.vaultignore</code> 파일로
-            문서(그래프·검색·태그·주입)에서 제외할 파일을 정합니다.
-            gitignore 문법(<code>*</code>, <code>**</code>, <code>!</code>)을 그대로 사용합니다.
+            {t('vault.ignore.helpIntro1')}
+            <code className="text-warm-800">.vaultignore</code>
+            {t('vault.ignore.helpIntro2')}
+            <code>*</code>, <code>**</code>, <code>!</code>
+            {t('vault.ignore.helpIntro5')}
           </p>
           <pre className="rounded-md border border-warm-300 bg-[var(--color-bg-input)] text-warm-800 px-3 py-2 font-mono leading-relaxed">
-{`*.draft.md        # 특정 확장자 숨김
-private/**        # 폴더 전체 숨김
-!private/keep.md  # 예외로 다시 표시
-*                 # 전부 숨김으로 시작`}
+{`*.draft.md        # ${t('vault.ignore.example.line1Comment')}
+private/**        # ${t('vault.ignore.example.line2Comment')}
+!private/keep.md  # ${t('vault.ignore.example.line3Comment')}
+*                 # ${t('vault.ignore.example.line4Comment')}`}
           </pre>
           <ul className="list-disc pl-4 space-y-1">
             <li>
-              <code className="text-warm-800">*</code> 하나만 있으면 모든 문서가 숨겨집니다(온보딩의 "전부 숨김으로 시작").
-              파일 탐색기에서 우클릭 → <span className="text-warm-800">"문서에 다시 보이기"</span>로 필요한 문서만 해제하세요.
+              <code className="text-warm-800">*</code>
+              {t('vault.ignore.item1Part1')} "{t('vault.ignore.startHiddenLabel')}"{t('vault.ignore.item1Part2')}
+              <span className="text-warm-800">"{t('vault.onboarding.step2Quoted')}"</span>
+              {t('vault.ignore.item1Part3')}
             </li>
             <li>
-              탐색기 우클릭 → <span className="text-warm-800">"문서에서 숨기기"</span>로 개별 파일/폴더를 다시 숨길 수 있습니다.
+              {t('vault.ignore.item2Part1')}
+              <span className="text-warm-800">"{t('vault.ignore.hideLabel')}"</span>
+              {t('vault.ignore.item2Part2')}
             </li>
             <li>
-              <code className="text-warm-800">node_modules</code>, <code className="text-warm-800">.git</code>, <code className="text-warm-800">dist</code> 등은 기본 제외라 적지 않아도 됩니다.
+              <code className="text-warm-800">node_modules</code>, <code className="text-warm-800">.git</code>, <code className="text-warm-800">dist</code>
+              {t('vault.ignore.item3After')}
             </li>
           </ul>
         </div>
@@ -88,14 +91,14 @@ private/**        # 폴더 전체 숨김
             onClick={onOpenEditor}
             className="px-3 py-1.5 rounded-md text-xs text-warm-700 hover:bg-warm-200"
           >
-            .vaultignore 직접 편집
+            {t('vault.ignore.editDirectly')}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="px-3 py-1.5 rounded-md text-xs bg-accent text-white hover:bg-accent-dark"
           >
-            닫기
+            {t('vault.ignore.close')}
           </button>
         </div>
       </div>
@@ -105,10 +108,13 @@ private/**        # 폴더 전체 숨김
 }
 
 export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
+  const { t } = useI18n();
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const placeholder = `${t('vault.ignore.placeholderHeader')}\n${t('vault.ignore.placeholderExamples')}\n# *.draft.md\n# private/**\n# !private/keep.md\n# release-notes-*.md`;
 
   useEffect(() => {
     if (!open) return;
@@ -116,7 +122,7 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
     setError(null);
     getVaultIgnore(projectId)
       .then((r) => setContent(r.content))
-      .catch(() => setError('불러오기 실패'))
+      .catch(() => setError(t('vault.ignore.loadError')))
       .finally(() => setLoading(false));
   }, [open, projectId]);
 
@@ -137,7 +143,7 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
       onSaved();
       onClose();
     } catch {
-      setError('저장 실패');
+      setError(t('vault.ignore.saveError'));
     } finally {
       setSaving(false);
     }
@@ -167,16 +173,20 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
         </div>
 
         <div className="px-4 py-3 text-xs text-warm-600 border-b border-warm-200">
-          프로젝트 루트의 <code className="text-warm-800">.vaultignore</code> 파일.
-          gitignore 문법(<code>*</code>, <code>**</code>, <code>!</code>) 그대로 동작.
-          <code className="text-warm-800">node_modules</code>, <code className="text-warm-800">.git</code> 등은 기본 제외라 안 적어도 됨.
+          {t('vault.ignore.desc1')}
+          <code className="text-warm-800">.vaultignore</code>
+          {t('vault.ignore.desc2')}
+          <code>*</code>, <code>**</code>, <code>!</code>
+          {t('vault.ignore.desc3')}
+          <code className="text-warm-800">node_modules</code>, <code className="text-warm-800">.git</code>
+          {t('vault.ignore.desc4')}
         </div>
 
         <div className="flex-1 p-4 min-h-0">
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder={PLACEHOLDER}
+            placeholder={placeholder}
             disabled={loading || saving}
             spellCheck={false}
             className="w-full h-[300px] resize-none rounded-md border border-warm-300 bg-[var(--color-bg-input)] text-warm-800 placeholder:text-warm-400 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent"
@@ -192,7 +202,7 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
             onClick={onClose}
             className="px-3 py-1.5 rounded-md text-xs text-warm-700 hover:bg-warm-200"
           >
-            취소
+            {t('vault.ignore.cancel')}
           </button>
           <button
             type="button"
@@ -200,7 +210,7 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
             disabled={loading || saving}
             className="px-3 py-1.5 rounded-md text-xs bg-accent text-white hover:bg-accent-dark disabled:opacity-50"
           >
-            {saving ? '저장 중…' : '저장'}
+            {saving ? t('vault.ignore.saving') : t('vault.ignore.save')}
           </button>
         </div>
       </div>

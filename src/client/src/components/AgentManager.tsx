@@ -220,7 +220,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="input-field"
-                placeholder={lang === 'ko' ? '에이전트 이름' : 'Agent name'}
+                placeholder={t('agents.namePlaceholder')}
               />
             </div>
             <div>
@@ -241,10 +241,10 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
               onChange={(e) => setSystemPrompt(e.target.value)}
               rows={5}
               className="input-field resize-y min-h-[100px]"
-              placeholder={lang === 'ko' ? '이 에이전트의 전문 분야와 관점을 설명하세요...' : "Describe this agent's expertise and perspective..."}
+              placeholder={t('agents.systemPromptPlaceholder')}
             />
             <p className="text-2xs text-warm-400 mt-1.5">
-              {lang === 'ko' ? '토론 시 이 에이전트가 어떤 관점에서 발언할지 결정합니다.' : 'Determines what perspective this agent brings to the discussion.'}
+              {t('agents.systemPromptHint')}
             </p>
           </div>
 
@@ -257,7 +257,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 onChange={(e) => setCliTool(e.target.value as CliTool | '')}
                 className="input-field text-sm"
               >
-                <option value="">{lang === 'ko' ? '프로젝트 기본값 사용' : 'Use project default'}</option>
+                <option value="">{t('agents.cliToolProjectDefault')}</option>
                 {CLI_TOOLS.map((tool) => (
                   <option key={tool.value} value={tool.value}>{tool.label}</option>
                 ))}

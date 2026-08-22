@@ -248,14 +248,14 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setTodos((prev) => [...prev, newTodo]);
   }, [id]);
 
-  // File explorer right-click → 작업으로 보내기: create a task referencing the
+  // File explorer right-click → "Send to task": create a task referencing the
   // file by @path (CLI reads it inside the worktree). Reuses handleAddTodo so
   // the list updates immediately.
   const handleCreateTaskFromFile = useCallback((path: string, linkedPaths: string[] = []) => {
     const name = path.split('/').filter(Boolean).pop() ?? path;
     const refs = [path, ...linkedPaths].map((p) => `@${p}`).join('\n');
-    return handleAddTodo(name, `다음 파일을 참고하세요:\n${refs}`);
-  }, [handleAddTodo]);
+    return handleAddTodo(name, `${t('detail.taskFromFile.refPrompt')}\n${refs}`);
+  }, [handleAddTodo, t]);
 
   const handleStartTodo = useCallback(async (todoId: string, mode?: 'headless' | 'interactive' | 'verbose') => {
     const shouldTrackInteractive = mode === 'interactive';

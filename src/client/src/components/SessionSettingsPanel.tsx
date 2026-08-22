@@ -535,7 +535,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
       <section className="mt-7">
         <h3 className="text-sm font-semibold text-warm-700 mb-2 flex items-center gap-1.5">
           <Bug size={14} />
-          IME 디버그 로그
+          {t('sessionSettings.imeDebug.title')}
         </h3>
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
@@ -545,11 +545,10 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             onChange={(e) => handleToggleImeDebug(e.target.checked)}
             className="rounded border-warm-300"
           />
-          <span className="text-sm text-warm-600">한글 입력(IME) 진단 로그 기록</span>
+          <span className="text-sm text-warm-600">{t('sessionSettings.imeDebug.toggle')}</span>
         </label>
         <p className="mt-1 text-2xs ml-6" style={{ color: 'var(--color-text-muted)' }}>
-          조합 창이 화면 좌상단에 뜨는 문제를 진단하기 위해 입력 시점 상태를 기록합니다.
-          데스크톱 앱에서만 동작하며, 로그는 앱 데이터 폴더의 ime-debug.log에 저장됩니다.
+          {t('sessionSettings.imeDebug.description')}
         </p>
       </section>
 

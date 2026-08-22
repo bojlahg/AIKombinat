@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '../types';
 import { PROJECT_COLOR_PALETTE, resolveProjectColor } from '../lib/projectColor';
+import { useI18n } from '../i18n';
 
 interface ProjectColorPickerProps {
   project: Project;
@@ -20,6 +21,7 @@ const POPOVER_HEIGHT = 88;
 const VIEWPORT_MARGIN = 8;
 
 export default function ProjectColorPicker({ project, anchorX, anchorY, onPick, onClose }: ProjectColorPickerProps) {
+  const { t } = useI18n();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState({ left: anchorX, top: anchorY });
   const current = resolveProjectColor(project);
@@ -100,7 +102,7 @@ export default function ProjectColorPicker({ project, anchorX, anchorY, onPick, 
           cursor: 'pointer',
         }}
       >
-        자동 색 (기본값)
+        {t('projectColorPicker.autoDefault')}
       </button>
     </div>,
     document.body,

@@ -58,7 +58,7 @@ export default function DiscussionForm({
   onSubmit,
   onCancel,
 }: DiscussionFormProps) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const buildInitial = (): DiscussionFormValues =>
     ({ ...DEFAULT_VALUES, use_worktree: projectUseWorktree, ...initialValues });
   const [values, setValues] = useState<DiscussionFormValues>(buildInitial);
@@ -139,24 +139,24 @@ export default function DiscussionForm({
   return (
     <div className="card p-5 space-y-5">
       <div>
-        <label className="block text-xs font-medium text-warm-500 mb-2">{lang === 'ko' ? '제목' : 'Title'}</label>
+        <label className="block text-xs font-medium text-warm-500 mb-2">{t('discussions.titleLabel')}</label>
         <input
           type="text"
           value={values.title}
           onChange={(e) => setField('title', e.target.value)}
           className="input-field"
-          placeholder={lang === 'ko' ? '토론 주제를 입력하세요' : 'Enter discussion topic'}
+          placeholder={t('discussions.titlePlaceholder')}
         />
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-warm-500 mb-2">{lang === 'ko' ? '설명' : 'Description'}</label>
+        <label className="block text-xs font-medium text-warm-500 mb-2">{t('discussions.descriptionLabel')}</label>
         <textarea
           value={values.description}
           onChange={(e) => setField('description', e.target.value)}
           rows={4}
           className="input-field resize-y min-h-[80px]"
-          placeholder={lang === 'ko' ? '토론할 기능이나 의사결정 배경을 자세히 설명하세요' : 'Describe the feature to discuss in detail'}
+          placeholder={t('discussions.descriptionPlaceholder')}
         />
       </div>
 
@@ -167,15 +167,11 @@ export default function DiscussionForm({
               <label className="block text-xs font-medium text-warm-500 mb-1.5">
                 {t('discussions.agents')}
                 <span className="ml-2 text-warm-400 font-normal">
-                  {lang === 'ko'
-                    ? `(${values.agent_ids.length}명 선택됨 · 최소 2명)`
-                    : `(${values.agent_ids.length} selected · min 2)`}
+                  {t('discussions.agentsSelectedCount').replace('{count}', String(values.agent_ids.length))}
                 </span>
               </label>
               <p className="text-[11px] text-warm-400">
-                {lang === 'ko'
-                  ? '참여 에이전트를 고른 뒤, 아래 발언 순서에서 실제 토론 진행 순서를 조정합니다.'
-                  : 'Select participants first, then adjust the actual speaking order below.'}
+                {t('discussions.selectParticipantsHint')}
               </p>
             </div>
 
@@ -183,26 +179,22 @@ export default function DiscussionForm({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-warm-700">
-                    {lang === 'ko' ? '발언 순서' : 'Speaking Order'}
+                    {t('discussions.speakingOrder')}
                   </div>
                   <p className="text-[11px] text-warm-500 mt-1">
-                    {lang === 'ko'
-                      ? '1라운드 기준이며, 이후 라운드에도 같은 순서로 반복됩니다.'
-                      : 'This order is used for round 1 and repeats in later rounds.'}
+                    {t('discussions.speakingOrderHint')}
                   </p>
                 </div>
                 {selectedAgents.length >= 2 && (
                   <div className="text-2xs font-semibold text-accent-dark bg-white/70 border border-accent/30 rounded-full px-2.5 py-1">
-                    {lang === 'ko' ? '순서 조정 가능' : 'Reorder enabled'}
+                    {t('discussions.reorderEnabled')}
                   </div>
                 )}
               </div>
 
               {selectedAgents.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-warm-200 bg-white/70 px-4 py-5 text-center text-xs text-warm-400">
-                  {lang === 'ko'
-                    ? '에이전트를 선택하면 여기서 발언 순서를 바로 조정할 수 있습니다.'
-                    : 'Select agents to adjust the speaking order here.'}
+                  {t('discussions.speakingOrderEmpty')}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -210,10 +202,10 @@ export default function DiscussionForm({
                     const isFirst = index === 0;
                     const isLast = index === selectedAgents.length - 1;
                     const turnLabel = isFirst
-                      ? (lang === 'ko' ? '첫 발언' : 'Opens the round')
+                      ? t('discussions.turnFirst')
                       : isLast
-                        ? (lang === 'ko' ? '마지막 발언' : 'Closes the round')
-                        : (lang === 'ko' ? `${index + 1}번째 발언` : `Turn ${index + 1}`);
+                        ? t('discussions.turnLast')
+                        : t('discussions.turnNth').replace('{n}', String(index + 1));
 
                     return (
                       <div
@@ -243,7 +235,7 @@ export default function DiscussionForm({
                             disabled={isFirst}
                             className="px-2.5 py-1.5 rounded-lg border border-warm-200 bg-warm-50 text-[11px] font-medium text-warm-600 hover:bg-warm-100 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            {lang === 'ko' ? '앞으로' : 'Earlier'}
+                            {t('discussions.earlier')}
                           </button>
                           <button
                             type="button"
@@ -251,7 +243,7 @@ export default function DiscussionForm({
                             disabled={isLast}
                             className="px-2.5 py-1.5 rounded-lg border border-warm-200 bg-warm-50 text-[11px] font-medium text-warm-600 hover:bg-warm-100 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            {lang === 'ko' ? '뒤로' : 'Later'}
+                            {t('discussions.later')}
                           </button>
                         </div>
                       </div>
@@ -303,8 +295,8 @@ export default function DiscussionForm({
 
                       <div className={`mt-3 text-[11px] ${selected ? 'text-accent-dark' : 'text-warm-400'}`}>
                         {selected
-                          ? (lang === 'ko' ? `${order}번째 발언으로 참여 중` : `Included as turn ${order}`)
-                          : (lang === 'ko' ? '클릭해서 참여 에이전트에 추가' : 'Click to add this participant')}
+                          ? t('discussions.includedAsTurn').replace('{n}', String(order))
+                          : t('discussions.clickToAdd')}
                       </div>
                     </button>
                   );
@@ -337,13 +329,11 @@ export default function DiscussionForm({
                 />
                 <GitBranch size={14} className="text-warm-500" />
                 <span className="text-xs font-medium text-warm-500">
-                  {lang === 'ko' ? '워크트리에서 격리 실행' : 'Run in isolated worktree'}
+                  {t('discussions.worktreeIsolated')}
                 </span>
               </label>
               <p className="text-2xs text-warm-400 mt-1 ml-6">
-                {lang === 'ko'
-                  ? '체크하면 전용 브랜치/워크트리를 만들어 격리 실행합니다. 해제하면 프로젝트 원본 경로에서 바로 실행합니다.'
-                  : 'Checked: create a dedicated branch/worktree for isolation. Unchecked: run directly in the project root.'}
+                {t('discussions.worktreeIsolatedHint')}
               </p>
             </div>
           )}
@@ -394,7 +384,7 @@ export default function DiscussionForm({
                   onChange={(e) => setField('implement_agent_id', e.target.value)}
                   className="input-field text-xs w-56"
                 >
-                  <option value="">{lang === 'ko' ? '-- 에이전트 선택 --' : '-- Select agent --'}</option>
+                  <option value="">{t('discussions.selectAgentPlaceholder')}</option>
                   {selectedAgents.map((agent) => (
                     <option key={agent.id} value={agent.id}>{agent.name} ({getRoleLabel(agent)})</option>
                   ))}

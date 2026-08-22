@@ -30,12 +30,10 @@ interface Props {
 }
 
 // Written by the onboarding "ignore everything" choice. The unhide flow
-// (right-click → "볼트에 다시 보이기") appends gitignore negations on top.
-const IGNORE_ALL_TEMPLATE = `# CLITrigger Vault — 전부 숨김으로 시작
-# 파일 탐색기에서 우클릭 → "문서에 다시 보이기"로 필요한 문서만 해제하세요.
-# gitignore 문법(*, **, ! 제외 패턴)을 그대로 사용합니다.
-*
-`;
+// (right-click → "Show in Docs") appends gitignore negations on top.
+function ignoreAllTemplate(t: (key: string) => string): string {
+  return `# ${t('vault.onboarding.templateHeader')}\n# ${t('vault.onboarding.templateLine2')}\n# ${t('vault.onboarding.templateLine3')}\n*\n`;
+}
 
 export default function VaultLayout({ projectId, onCreateTask, onEvent, sendMessage, connected }: Props) {
   const { t } = useI18n();
@@ -150,7 +148,7 @@ export default function VaultLayout({ projectId, onCreateTask, onEvent, sendMess
   const handleOnboardIgnoreAll = useCallback(async () => {
     setOnboardSaving(true);
     try {
-      await saveVaultIgnore(projectId, IGNORE_ALL_TEMPLATE);
+      await saveVaultIgnore(projectId, ignoreAllTemplate(t));
       // Pre-enable the explorer's hidden-files toggle so the freshly ignored
       // (dimmed) files are visible for right-click → unhide. Must happen
       // before the panels mount — the toggle is read in a useState initializer.
@@ -339,7 +337,7 @@ export default function VaultLayout({ projectId, onCreateTask, onEvent, sendMess
   if (!ready) {
     return (
       <div className="flex h-[calc(100vh-220px)] min-h-[500px] items-center justify-center border border-warm-200 rounded-lg bg-[var(--color-bg-card)]">
-        <span className="text-xs text-warm-400">{showOnboarding ? '' : '문서 준비 중…'}</span>
+        <span className="text-xs text-warm-400">{showOnboarding ? '' : t('vault.onboarding.preparing')}</span>
         {showOnboarding && (
           <VaultOnboardingModal
             saving={onboardSaving}

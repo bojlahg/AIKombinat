@@ -229,10 +229,7 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
         // surface a short notice and close the OS window so the user sees
         // what happened instead of an empty popout.
         setGroup(null);
-        setReclaimedNotice(
-          t('session.popout.reclaimed')
-          || '메인 윈도우가 이 터미널을 회수했습니다. 잠시 후 창이 닫힙니다.'
-        );
+        setReclaimedNotice(t('session.popout.reclaimed'));
         setTimeout(() => { try { window.close(); } catch { /* blocked */ } }, 1500);
       }
     });
