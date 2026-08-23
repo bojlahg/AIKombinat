@@ -1,4 +1,4 @@
-<div align="center">
+# AIKombinat
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bojlahg/AIKombinat/main/src/client/public/logo.svg">
@@ -15,30 +15,40 @@
   <a href="https://github.com/bojlahg/AIKombinat/blob/main/README_KR.md">한국어</a>
 </p>
 
+> **[CLITrigger](https://github.com/HyperAITeam/CLITrigger)의 실험적 포크(Fork)** — 멀티 에이전트 AI 워크플로우, 자율 개발 실험 및 AI 자동화를 탐색하기 위한 프로젝트입니다.
+
+[![CI](https://github.com/bojlahg/AIKombinat/actions/workflows/ci.yml/badge.svg)](https://github.com/bojlahg/AIKombinat/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![npm](https://img.shields.io/npm/v/aikombinat.svg)](https://www.npmjs.com/package/aikombinat)
-[![npm downloads](https://img.shields.io/npm/dm/aikombinat.svg)](https://www.npmjs.com/package/aikombinat)
-[![npm total downloads](https://img.shields.io/npm/dt/aikombinat.svg)](https://www.npmjs.com/package/aikombinat)
+[![Upstream](https://img.shields.io/badge/upstream-CLITrigger-blue.svg)](https://github.com/HyperAITeam/CLITrigger)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org)
 [![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://react.dev)
 [![GitHub stars](https://img.shields.io/github/stars/bojlahg/AIKombinat.svg?style=social)](https://github.com/bojlahg/AIKombinat/stargazers)
 
-<br>
+AIKombinat는 뛰어난 CLITrigger 코드베이스를 기반으로 보다 실험적인 방향을 탐색합니다.
+
+현재 주요 방향은 **AI 지원 및 점진적 자율 소프트웨어 개발**입니다: 복수 코딩 CLI, 모델 디스커버리, 실행 프로필, 태스크 라우팅, 격리된 워크트리, 리뷰/수정 루프, 그리고 제한된 인간 개입으로 작업을 이어가는 개발 파이프라인.
+
+또한 코드 작성에만 국한되지 않고, 장기적으로 **AI Kombinat**(AI 결합 공방)이라는 이름처럼 이미지 생성, 미디어 일괄 처리, 음성/전사, 로컬 모델 등 다양한 AI 자동화가 함께 확장될 수 있는 구조를 지향합니다.
 
 <img src="https://raw.githubusercontent.com/bojlahg/AIKombinat/main/docs/images/demo.gif" alt="AIKombinat 데모 — 격리된 worktree에서 병렬로 실행되는 AI 에이전트, 그리고 아침 diff 리뷰" width="800">
 
-<br><br>
+> **상태:** 실험적 프로젝트. 파괴적 변경, 미완성 아이디어, 프로바이더별 예외 상황이 발생할 수 있으며 테스트 후 기능이 재설계되거나 제거될 수 있습니다.
 
-```bash
-npm i -g aikombinat && aikombinat
-```
+---
 
-**또는 데스크톱 앱 다운로드** — Node.js 불필요: **[Windows `.exe` · macOS `.dmg` · Linux `.AppImage`](https://github.com/bojlahg/AIKombinat/releases/latest)**
+## 포크 관계
 
-**60초 안에 시작** — `http://localhost:3000` 접속 → 비밀번호 설정 → 프로젝트 추가 → TODO 작성 → Start 클릭.
+AIKombinat는 HyperAI Team의 **CLITrigger**를 기반으로 한 포크입니다.
 
-</div>
+- 원본 프로젝트: [HyperAITeam/CLITrigger](https://github.com/HyperAITeam/CLITrigger)
+- 라이선스: [MIT](LICENSE)
+- 업스트림 저작권 및 라이선스 고지가 유지됩니다.
+- AIKombinat는 독립된 실험적 포크이며, 공식 CLITrigger 릴리스나 공식 후속 프로젝트로 제공되는 것이 아닙니다.
+- 수정되지 않은 업스트림 기능의 버그는 업스트림에 해당될 수 있으며, 이 포크 고유의 기능이나 동작 문제는 여기에 해당합니다.
+- 업스트림 변경 사항은 이 포크의 방향성과 호환되는 경우 선별적으로 동기화(merge)될 수 있습니다.
+
+자세한 관계와 동기화 정책은 [UPSTREAM.md](UPSTREAM.md)를 참조하세요.
 
 ---
 
@@ -180,7 +190,7 @@ WebSocket 실시간 로그 스트리밍 — Chat(마크다운) 또는 Raw(터미
 Cloudflare Tunnel로 어디서든 접속 — 완료 알림과 커스텀 도메인 라우팅 지원. [↗](https://github.com/bojlahg/AIKombinat/wiki/Remote-Access-KR)
 
 #### MCP 서버
-AIKombinat를 HTTP 엔드포인트로 MCP 클라이언트(Claude Desktop, Claude Code)에 연결 — AI와 대화하며 프로젝트 조회, 할일 생성·실행, 상태 확인. 설정 → MCP 연결에서 config(URL + 토큰)를 복사해 붙여넣기만 하면 됩니다. npm·데스크톱·터널 사용자 모두 동일하게 동작. [↗](https://github.com/bojlahg/AIKombinat/wiki/MCP-Server-KR)
+AIKombinat를 HTTP 엔드포인트로 MCP 클라이언트(Claude Desktop, Claude Code)에 연결 — AI와 대화하며 프로젝트 조회, 할일 생성·실행, 상태 확인. 설정 → MCP 연결에서 config(URL + 토큰)를 복사해 붙여넣기만 하면 됩니다. 소스 실행·데스크톱·터널 사용자 모두 동일하게 동작. [↗](https://github.com/bojlahg/AIKombinat/wiki/MCP-Server-KR)
 
 ---
 
@@ -200,47 +210,47 @@ AIKombinat를 HTTP 엔드포인트로 MCP 클라이언트(Claude Desktop, Claude
 
 ## 빠른 시작
 
-### 옵션 A — 데스크톱 앱 (일반 사용자 권장)
+> **안내**: 현재 실험적 개발 단계에서는 npm 배포가 비활성화되어 있습니다. 소스에서 직접 실행하거나 GitHub Releases 빌드를 사용할 수 있습니다.
 
-[GitHub Releases 최신 페이지](https://github.com/bojlahg/AIKombinat/releases/latest)에서 플랫폼별 설치 파일을 다운로드:
+### 옵션 A — 소스에서 직접 실행 (권장)
+
+```bash
+# 1. 저장소 클론
+git clone https://github.com/bojlahg/AIKombinat.git
+cd AIKombinat
+
+# 2. 의존성 설치
+npm install
+cd src/client && npm install && cd ../..
+
+# 3. 환경 설정
+cp .env.example .env
+# AUTH_PASSWORD는 선택사항 — 비워두면 첫 브라우저 접속 시 셋업 화면에서 설정합니다.
+
+# 4. 개발 서버 실행
+npm run dev
+```
+
+브라우저에서 `http://localhost:5173` (개발 모드) 또는 `npm run build && npm start` 후 `http://localhost:3000` 접속 → 비밀번호 설정 → 프로젝트 등록 → TODO 작성 → Start.
+
+### 옵션 B — 데스크톱 앱 (GitHub Releases)
+
+[GitHub Releases 최신 페이지](https://github.com/bojlahg/AIKombinat/releases/latest)에서 플랫폼별 패키지를 다운로드:
 
 - **Windows** — `AIKombinat-Setup-<version>.exe` (NSIS 설치 마법사) 또는 portable `.exe`
 - **macOS** — `AIKombinat-<version>.dmg` (Apple Silicon · Intel)
 - **Linux** — `AIKombinat-<version>.AppImage`
 
-데스크톱 앱은 Node.js와 네이티브 모듈(`better-sqlite3`, `node-pty`, `cloudflared`)을 모두 번들하므로 별도 런타임 설치가 필요 없다. 첫 실행 시 내장 브라우저에 셋업 화면이 떠서 거기서 비밀번호를 정하면 끝. 외부 공유(Cloudflare 터널)는 셋업이 완료될 때까지 자동 시작이 잠겨 있어서 첫 사용자는 항상 본인.
-
-### 옵션 B — npm (개발자 권장)
-
-```bash
-# 설치
-npm i -g aikombinat
-aikombinat
-
-# 최신 버전으로 업그레이드
-npm i -g aikombinat@latest
-# 현재 버전 확인: aikombinat --version
-```
-
-첫 실행 시 서버가 바로 시작된다. 브라우저에서 `http://localhost:3000` 접속 → 셋업 화면에서 비밀번호 설정 → 프로젝트 등록 → TODO 작성 → Start. 비밀번호는 이후 웹 UI의 설정 → 계정 탭에서 변경 가능.
-
-AIKombinat는 부팅 시 npm에 새 버전이 올라와 있으면 `Update available: <new> -> npm i -g aikombinat@latest` 한 줄을 출력한다 — 자동 업데이트는 안 하니까 본인이 시점 잡아서 업그레이드하면 됨.
-
-```bash
-# 설정 변경
-aikombinat config port 8080    # 포트 변경
-aikombinat config tunnel on    # 외부 공유용 Cloudflare 터널 활성화
-```
+데스크톱 앱은 Node.js와 네이티브 모듈(`better-sqlite3`, `node-pty`, `cloudflared`)을 번들하므로 별도 런타임 설치가 필요 없습니다.
 
 > **사전 요구사항**: Node.js 22+ (**LTS** 버전 권장), Git, 사용할 AI CLI (Claude / Antigravity / Codex 중 하나 이상)
 >
-> **지원 플랫폼**: Windows · macOS · Linux — 모든 핵심 코드가 크로스 플랫폼 대응되어 있다.
-> Node.js는 **LTS(짝수 버전)** 를 권장한다. 갓 출시된 최신 메이저(홀수/방금 나온 버전)는 네이티브 모듈의 prebuilt 바이너리가 아직 없어, 소스 빌드를 강제하며 C++ 빌드 도구(Windows는 Visual Studio Build Tools, macOS는 `xcode-select --install`)가 필요할 수 있다.
+> **지원 플랫폼**: Windows · macOS · Linux — 모든 핵심 코드가 크로스 플랫폼 대응되어 있습니다.
 
-### 소스에서 직접 실행 (개발용)
+### 소스 실행 세부 가이드
 
 <details>
-<summary>클릭하여 펼치기</summary>
+<summary>플랫폼별 실행 스크립트 펼치기</summary>
 
 ```bash
 # 1. 클론 & 설치
@@ -351,7 +361,7 @@ AIKombinat에 기여해 주신 모든 분들께 감사드립니다!
 
 ## Star History
 
-<a href="https://www.star-history.com/?type=date&repos=HyperAITeam%2FAIKombinat">
+<a href="https://www.star-history.com/?type=date&repos=bojlahg%2FAIKombinat">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=bojlahg/AIKombinat&type=date&theme=dark&legend=top-left&sealed_token=R33OVQ1e-AI8ctoPaGe7ewkSmvN8Gu6hjU17eN9yHxckmgmY1pKvDR0YS3EfDfyFavnkF5BMNNUrMGZamuP7ietWibyDuGoDy_ybdNuzDCMmursd6di3qZwAfwxle8hIWF3a-uP51KiD_cqthhcgCkZk3kgiYz8DA6K-du4SYqSAD9Nhas8olSX2Ax1R" />
     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=bojlahg/AIKombinat&type=date&legend=top-left&sealed_token=R33OVQ1e-AI8ctoPaGe7ewkSmvN8Gu6hjU17eN9yHxckmgmY1pKvDR0YS3EfDfyFavnkF5BMNNUrMGZamuP7ietWibyDuGoDy_ybdNuzDCMmursd6di3qZwAfwxle8hIWF3a-uP51KiD_cqthhcgCkZk3kgiYz8DA6K-du4SYqSAD9Nhas8olSX2Ax1R" />

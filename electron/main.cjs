@@ -12,6 +12,7 @@ const {
   linuxAutostartFile,
   trayIconName,
 } = require('./desktop-lifecycle.cjs');
+const { migrateLegacyUserData } = require('./migration.cjs');
 
 // Windows: Chromium의 네이티브 윈도우 가림 계산이 창을 잘못 "가려짐"으로 판정하면
 // 입력/IME가 멎고 IME 조합 창이 화면 좌상단에 고착된다(다른 앱에 포커스를 줬다
@@ -36,42 +37,6 @@ let updateCheckInFlight = false;
 
 const userDataDir = app.getPath('userData');
 migrateLegacyUserData(userDataDir);
-
-function migrateLegacyUserData(targetDir) {
-  try {
-    const parentDir = path.dirname(targetDir);
-    const legacyCandidates = [
-      path.join(parentDir, 'CLITrigger'),
-      path.join(parentDir, 'clitrigger'),
-    ];
-    for (const legacyDir of legacyCandidates) {
-      if (fs.existsSync(legacyDir) && legacyDir !== targetDir) {
-        fs.mkdirSync(targetDir, { recursive: true });
-        const files = fs.readdirSync(legacyDir);
-        for (const file of files) {
-          const srcPath = path.join(legacyDir, file);
-          let destFile = file;
-          if (file === 'clitrigger.db') destFile = 'aikombinat.db';
-          else if (file === 'clitrigger.db-wal') destFile = 'aikombinat.db-wal';
-          else if (file === 'clitrigger.db-shm') destFile = 'aikombinat.db-shm';
-          const destPath = path.join(targetDir, destFile);
-          if (!fs.existsSync(destPath) && fs.statSync(srcPath).isFile()) {
-            fs.copyFileSync(srcPath, destPath);
-          }
-        }
-      }
-    }
-    const targetDb = path.join(targetDir, 'aikombinat.db');
-    const legacyDbInTarget = path.join(targetDir, 'clitrigger.db');
-    if (!fs.existsSync(targetDb) && fs.existsSync(legacyDbInTarget)) {
-      fs.copyFileSync(legacyDbInTarget, targetDb);
-      if (fs.existsSync(`${legacyDbInTarget}-wal`)) fs.copyFileSync(`${legacyDbInTarget}-wal`, `${targetDb}-wal`);
-      if (fs.existsSync(`${legacyDbInTarget}-shm`)) fs.copyFileSync(`${legacyDbInTarget}-shm`, `${targetDb}-shm`);
-    }
-  } catch {
-    // Non-fatal
-  }
-}
 
 const configFile = path.join(userDataDir, 'config.json');
 const dbPath = path.join(userDataDir, 'aikombinat.db');

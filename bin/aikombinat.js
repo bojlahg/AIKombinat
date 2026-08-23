@@ -4,54 +4,17 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { createInterface } from 'readline/promises';
+import { migrateLegacyCliDir, isNewerVersion } from '../electron/migration.cjs';
 
 const PRIMARY_CONFIG_DIR = path.join(os.homedir(), '.aikombinat');
 const LEGACY_CONFIG_DIR = path.join(os.homedir(), '.clitrigger');
 
-// Ensure migration from legacy ~/.clitrigger if ~/.aikombinat doesn't exist yet
-migrateLegacyConfigDir();
+// Ensure safe, retryable migration from legacy ~/.clitrigger on every launch
+migrateLegacyCliDir(PRIMARY_CONFIG_DIR, LEGACY_CONFIG_DIR);
 
 const CONFIG_DIR = PRIMARY_CONFIG_DIR;
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const MIGRATED_FLAG = path.join(CONFIG_DIR, '.password-migrated');
-
-function migrateLegacyConfigDir() {
-  try {
-    if (!fs.existsSync(PRIMARY_CONFIG_DIR) && fs.existsSync(LEGACY_CONFIG_DIR)) {
-      fs.mkdirSync(PRIMARY_CONFIG_DIR, { recursive: true });
-      const legacyFiles = fs.readdirSync(LEGACY_CONFIG_DIR);
-      for (const file of legacyFiles) {
-        const srcPath = path.join(LEGACY_CONFIG_DIR, file);
-        let destFile = file;
-        if (file === 'clitrigger.db') destFile = 'aikombinat.db';
-        else if (file === 'clitrigger.db-wal') destFile = 'aikombinat.db-wal';
-        else if (file === 'clitrigger.db-shm') destFile = 'aikombinat.db-shm';
-        const destPath = path.join(PRIMARY_CONFIG_DIR, destFile);
-        if (!fs.existsSync(destPath) && fs.statSync(srcPath).isFile()) {
-          fs.copyFileSync(srcPath, destPath);
-        }
-      }
-    } else if (fs.existsSync(PRIMARY_CONFIG_DIR)) {
-      // In case directory exists but db was not migrated
-      const destDb = path.join(PRIMARY_CONFIG_DIR, 'aikombinat.db');
-      const legacyDb = path.join(PRIMARY_CONFIG_DIR, 'clitrigger.db');
-      const oldHomeDb = path.join(LEGACY_CONFIG_DIR, 'clitrigger.db');
-      if (!fs.existsSync(destDb)) {
-        if (fs.existsSync(legacyDb)) {
-          fs.copyFileSync(legacyDb, destDb);
-          if (fs.existsSync(`${legacyDb}-wal`)) fs.copyFileSync(`${legacyDb}-wal`, `${destDb}-wal`);
-          if (fs.existsSync(`${legacyDb}-shm`)) fs.copyFileSync(`${legacyDb}-shm`, `${destDb}-shm`);
-        } else if (fs.existsSync(oldHomeDb)) {
-          fs.copyFileSync(oldHomeDb, destDb);
-          if (fs.existsSync(`${oldHomeDb}-wal`)) fs.copyFileSync(`${oldHomeDb}-wal`, `${destDb}-wal`);
-          if (fs.existsSync(`${oldHomeDb}-shm`)) fs.copyFileSync(`${oldHomeDb}-shm`, `${destDb}-shm`);
-        }
-      }
-    }
-  } catch (err) {
-    // Non-fatal fallback
-  }
-}
 
 const args = process.argv.slice(2);
 
@@ -248,16 +211,6 @@ async function handleConfig(args) {
   }
 }
 
-function isNewerVersion(latest, current) {
-  const a = latest.split('.').map(Number);
-  const b = current.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((a[i] || 0) > (b[i] || 0)) return true;
-    if ((a[i] || 0) < (b[i] || 0)) return false;
-  }
-  return false;
-}
-
 function checkForUpdateAsync() {
   (async () => {
     try {
@@ -267,25 +220,26 @@ function checkForUpdateAsync() {
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      let res = await fetch('https://registry.npmjs.org/aikombinat/latest', {
+      const res = await fetch('https://api.github.com/repos/bojlahg/AIKombinat/releases/latest', {
+        headers: {
+          'User-Agent': 'AIKombinat-CLI',
+          Accept: 'application/vnd.github.v3+json',
+        },
         signal: controller.signal,
       });
-      if (!res.ok && res.status === 404) {
-        res = await fetch('https://registry.npmjs.org/clitrigger/latest', {
-          signal: controller.signal,
-        });
-      }
       clearTimeout(timeout);
 
       if (!res.ok) return;
       const data = await res.json();
-      const latestVersion = data.version;
+      const rawTag = data.tag_name || data.name || '';
+      const latestVersion = rawTag.replace(/^v/i, '').trim();
 
-      if (!isNewerVersion(latestVersion, currentVersion)) return;
+      if (!latestVersion || !isNewerVersion(latestVersion, currentVersion)) return;
 
-      console.log(`    Update available: ${latestVersion}  →  npm i -g aikombinat@latest`);
+      const releaseUrl = data.html_url || 'https://github.com/bojlahg/AIKombinat/releases/latest';
+      console.log(`    Update available: ${latestVersion}  →  ${releaseUrl}`);
     } catch {
-      // 네트워크 오류·타임아웃 — 조용히 무시
+      // Network error or timeout — silently ignore
     }
   })();
 }

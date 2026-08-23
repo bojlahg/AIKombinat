@@ -68,10 +68,6 @@ jobs:
           fail_on_unmatched_files: false
           files: aikombinat-${{ github.ref_name }}.tar.gz
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   desktop:
     name: Desktop (${{ matrix.os }})

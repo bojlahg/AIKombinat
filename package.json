@@ -22,7 +22,8 @@
   "bugs": {
     "url": "https://github.com/bojlahg/AIKombinat/issues"
   },
-  "author": "HyperAI Team",
+  "author": "AIKombinat contributors",
+  "private": true,
   "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
