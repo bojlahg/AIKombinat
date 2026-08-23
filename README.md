@@ -228,6 +228,24 @@ Before testing a large migration or automation change against important projects
 
 ---
 
+## ⚡ Fuel the Kombinat
+
+Coffee works for humans. AIKombinat mostly burns tokens.
+
+If you want to support development, a **Claude gift subscription** or **ChatGPT/Codex gift credits** are considerably more useful here than a cup of coffee.
+
+Gift flows usually produce a redeem/share link rather than a permanent public recipient URL, so send the gift link via Telegram:
+
+<div align="center">
+
+[![Telegram](https://img.shields.io/badge/Send%20fuel%20via-Telegram-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/bojlahg)
+
+</div>
+
+Please do **not** send passwords, API keys, session tokens, or account credentials. Only gift/redeem links intended to be shared.
+
+---
+
 ## License
 
 AIKombinat is distributed under the [MIT License](LICENSE), inherited from CLITrigger.
