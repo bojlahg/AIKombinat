@@ -4,7 +4,8 @@ import * as queries from '../db/queries.js';
 import type { MemoryNode, MemoryEdge } from '../db/queries.js';
 import { parseWikilinks } from './memory-wikilinks.js';
 
-const RAW_DIR_REL = '.clitrigger/raw';
+const RAW_DIR_REL = '.aikombinat/raw';
+const LEGACY_RAW_DIR_REL = '.clitrigger/raw';
 const DEFAULT_PER_FILE_CHAR_CAP = 50_000;
 
 export type MemoryInjectMode = 'none' | 'all' | 'selected' | 'auto';
@@ -173,13 +174,16 @@ export function buildRawFileBlock(
   const cap = Math.max(500, opts.perFileCharCap ?? DEFAULT_PER_FILE_CHAR_CAP);
   const resolvedRoot = path.resolve(projectRoot);
   const rawRoot = path.resolve(resolvedRoot, RAW_DIR_REL);
+  const legacyRawRoot = path.resolve(resolvedRoot, LEGACY_RAW_DIR_REL);
 
   const skipped: RawFileBlockResult['skipped'] = [];
   const items: { path: string; content: string }[] = [];
 
   for (const rel of paths) {
     const absPath = path.resolve(resolvedRoot, rel);
-    if (!absPath.startsWith(rawRoot + path.sep) && absPath !== rawRoot) {
+    const inRaw = absPath.startsWith(rawRoot + path.sep) || absPath === rawRoot;
+    const inLegacyRaw = absPath.startsWith(legacyRawRoot + path.sep) || absPath === legacyRawRoot;
+    if (!inRaw && !inLegacyRaw) {
       skipped.push({ path: rel, reason: 'outside-raw-dir' });
       continue;
     }

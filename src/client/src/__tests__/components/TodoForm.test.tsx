@@ -5,7 +5,7 @@ import { I18nProvider } from '../../i18n';
 
 describe('TodoForm model selection', () => {
   beforeEach(() => {
-    localStorage.setItem('clitrigger-lang', 'en');
+    localStorage.setItem('aikombinat-lang', 'en');
     vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve({
       json: () => Promise.resolve(url === '/api/models' ? {
         codex: [

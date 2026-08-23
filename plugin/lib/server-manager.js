@@ -1,4 +1,4 @@
-// Server manager — auto-launches CLITrigger Node.js server as sidecar
+// Server manager — auto-launches AIKombinat Node.js server as sidecar
 // Tier 1: Deno.Command (stdin pipe for graceful shutdown)
 // Tier 2: PowerShell Start-Process fallback (PID tracking + taskkill)
 const path = require("path");

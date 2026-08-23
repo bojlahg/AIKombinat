@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * seed-demo.mjs — populate CLITrigger with believable demo data for recording the README GIF.
+ * seed-demo.mjs — populate AIKombinat with believable demo data for recording the README GIF.
  *
  * Creates a throwaway demo git repo (with real branches + worktrees + diffs) and a
- * "CLITrigger Demo ✨" project whose tasks are split across three CLIs in mixed states:
+ * "AIKombinat Demo ✨" project whose tasks are split across three CLIs in mixed states:
  *   - 3 running tasks  → the "parallel execution" shot (Tasks board)
  *   - 2 completed + 1 failed task → the "morning review" shot (Review queue, with real diffs)
  *
@@ -11,9 +11,9 @@
  * single demo project row, both removable with `--clean`.
  *
  * Usage:
- *   node scripts/seed-demo.mjs              # seed (default repo dir: ../clitrigger-demo)
+ *   node scripts/seed-demo.mjs              # seed (default repo dir: ../aikombinat-demo)
  *   node scripts/seed-demo.mjs --repo D:\demo
- *   node scripts/seed-demo.mjs --db <path>  # override DB (default: $DB_PATH or ./clitrigger.db)
+ *   node scripts/seed-demo.mjs --db <path>  # override DB (default: $DB_PATH or ./aikombinat.db)
  *   node scripts/seed-demo.mjs --clean      # remove the demo project + repo + worktrees
  *
  * IMPORTANT timing (verified against the orchestrator):
@@ -40,10 +40,10 @@ const getFlag = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const CLEAN = args.includes('--clean');
-const DB_PATH = getFlag('--db') || process.env.DB_PATH || path.join(PROJECT_ROOT, 'clitrigger.db');
-const REPO_DIR = path.resolve(getFlag('--repo') || path.join(PROJECT_ROOT, '..', 'clitrigger-demo'));
+const DB_PATH = getFlag('--db') || process.env.DB_PATH || path.join(PROJECT_ROOT, 'aikombinat.db');
+const REPO_DIR = path.resolve(getFlag('--repo') || path.join(PROJECT_ROOT, '..', 'aikombinat-demo'));
 const WT_ROOT = `${REPO_DIR}-wt`;
-const PROJECT_NAME = 'CLITrigger Demo ✨';
+const PROJECT_NAME = 'AIKombinat Demo ✨';
 
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
 const slug = (branch) => branch.replace(/[^a-z0-9]+/gi, '-');
@@ -52,7 +52,7 @@ const iso = (msAgo = 0) => new Date(Date.now() - msAgo).toISOString();
 // ---- base repo files -----------------------------------------------------
 const BASE_FILES = {
   'package.json': JSON.stringify({ name: 'demo-api', version: '1.0.0', type: 'module', main: 'src/server.js' }, null, 2) + '\n',
-  'README.md': '# demo-api\n\nA tiny Express API used for the CLITrigger demo.\n',
+  'README.md': '# demo-api\n\nA tiny Express API used for the AIKombinat demo.\n',
   'src/server.js': `import express from 'express';\nimport { router } from './routes.js';\n\nconst app = express();\napp.use(express.json());\napp.use('/api', router);\n\napp.listen(3000, () => console.log('listening on :3000'));\n`,
   'src/routes.js': `import { Router } from 'express';\n\nexport const router = Router();\n\nrouter.get('/health', (_req, res) => res.json({ ok: true }));\nrouter.get('/items', (_req, res) => res.json({ items: [] }));\n`,
   'src/auth.js': `// Auth helpers\nexport function getUser(req) {\n  return req.headers['x-user'] || null;\n}\n`,
@@ -139,8 +139,8 @@ function buildRepo() {
   rmrf(REPO_DIR); rmrf(WT_ROOT);
   fs.mkdirSync(REPO_DIR, { recursive: true });
   git(REPO_DIR, 'init', '-q');
-  git(REPO_DIR, 'config', 'user.email', 'demo@clitrigger.local');
-  git(REPO_DIR, 'config', 'user.name', 'CLITrigger Demo');
+  git(REPO_DIR, 'config', 'user.email', 'demo@aikombinat.local');
+  git(REPO_DIR, 'config', 'user.name', 'AIKombinat Demo');
   for (const [rel, content] of Object.entries(BASE_FILES)) {
     const abs = path.join(REPO_DIR, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -260,7 +260,7 @@ function seed(db) {
 
 // ==========================================================================
 if (!fs.existsSync(DB_PATH)) {
-  console.error(`DB not found at ${DB_PATH}.\nStart CLITrigger once (so the DB is created), or pass --db <path>.`);
+  console.error(`DB not found at ${DB_PATH}.\nStart AIKombinat once (so the DB is created), or pass --db <path>.`);
   process.exit(1);
 }
 const db = new Database(DB_PATH);

@@ -1,7 +1,7 @@
 # 자동 피쳐 진행 시스템 (Auto Feature Progression) 설계 보고서
 
 > 작성일: 2026-03-30
-> 대상 앱: CLITrigger
+> 대상 앱: AIKombinat
 
 ---
 

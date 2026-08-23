@@ -150,7 +150,7 @@ export class ClaudeManager {
       if (status && !status.installed) {
         throw new Error(
           `${adapter.displayName} ('${adapter.command}') was not found on PATH. `
-          + `Install it first — or if it was installed after CLITrigger started, restart CLITrigger to pick up the updated PATH.`
+          + `Install it first — or if it was installed after AIKombinat started, restart AIKombinat to pick up the updated PATH.`
         );
       }
     }

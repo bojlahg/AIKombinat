@@ -1,8 +1,8 @@
 @echo off
-title CLITrigger - Production
+title AIKombinat - Production
 cd /d "%~dp0.."
 echo ========================================
-echo   CLITrigger - Production Mode
+echo   AIKombinat - Production Mode
 echo   http://localhost:3000
 echo ========================================
 echo.

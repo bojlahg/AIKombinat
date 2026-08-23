@@ -67,8 +67,9 @@ router.get('/projects/:id/memory/graph', (req: Request<{ id: string }>, res: Res
     // (e.g. user upgraded), kick off a one-time export so the markdown mirror exists.
     if (project.path && nodes.length > 0) {
       try {
-        const wikiDir = path.join(project.path, '.clitrigger', 'wiki');
-        if (!fs.existsSync(wikiDir)) dispatchWikiExport(req.params.id);
+        const wikiDir = path.join(project.path, '.aikombinat', 'wiki');
+        const legacyWikiDir = path.join(project.path, '.clitrigger', 'wiki');
+        if (!fs.existsSync(wikiDir) && !fs.existsSync(legacyWikiDir)) dispatchWikiExport(req.params.id);
       } catch { /* ignore */ }
     }
     res.json({ nodes, edges });
@@ -573,7 +574,8 @@ router.post('/projects/:id/memory/ingest', async (req: Request<{ id: string }>, 
 // ── Raw source viewer ──
 
 const RAW_SOURCE_TYPES = ['todo', 'discussion', 'manual'] as const;
-const RAW_DIR = '.clitrigger/raw';
+const RAW_DIR = '.aikombinat/raw';
+const LEGACY_RAW_DIR = '.clitrigger/raw';
 
 router.get('/projects/:id/memory/raw-files', (req: Request<{ id: string }>, res: Response) => {
   try {
@@ -605,38 +607,43 @@ router.get('/projects/:id/memory/raw-files', (req: Request<{ id: string }>, res:
       mtime: string;
       derived_node_ids: string[];
     }> = [];
+    const seenPaths = new Set<string>();
 
-    for (const sourceType of RAW_SOURCE_TYPES) {
-      const dir = path.join(projectRoot, RAW_DIR, sourceType);
-      if (!fs.existsSync(dir)) continue;
-      let entries: string[];
-      try {
-        entries = fs.readdirSync(dir);
-      } catch {
-        continue;
-      }
-      for (const filename of entries) {
-        if (filename.startsWith('.')) continue;
-        const absPath = path.join(dir, filename);
-        const resolvedAbs = path.resolve(absPath);
-        const resolvedDir = path.resolve(dir);
-        if (!resolvedAbs.startsWith(resolvedDir + path.sep)) continue;
-        let stat: fs.Stats;
+    for (const rawBase of [RAW_DIR, LEGACY_RAW_DIR]) {
+      for (const sourceType of RAW_SOURCE_TYPES) {
+        const dir = path.join(projectRoot, rawBase, sourceType);
+        if (!fs.existsSync(dir)) continue;
+        let entries: string[];
         try {
-          stat = fs.statSync(absPath);
+          entries = fs.readdirSync(dir);
         } catch {
           continue;
         }
-        if (!stat.isFile()) continue;
-        const relativePath = `${RAW_DIR}/${sourceType}/${filename}`;
-        files.push({
-          source_type: sourceType,
-          filename,
-          relative_path: relativePath,
-          size: stat.size,
-          mtime: stat.mtime.toISOString(),
-          derived_node_ids: derivedByPath.get(relativePath) ?? [],
-        });
+        for (const filename of entries) {
+          if (filename.startsWith('.')) continue;
+          const absPath = path.join(dir, filename);
+          const resolvedAbs = path.resolve(absPath);
+          const resolvedDir = path.resolve(dir);
+          if (!resolvedAbs.startsWith(resolvedDir + path.sep)) continue;
+          let stat: fs.Stats;
+          try {
+            stat = fs.statSync(absPath);
+          } catch {
+            continue;
+          }
+          if (!stat.isFile()) continue;
+          const relativePath = `${rawBase}/${sourceType}/${filename}`;
+          if (seenPaths.has(relativePath)) continue;
+          seenPaths.add(relativePath);
+          files.push({
+            source_type: sourceType,
+            filename,
+            relative_path: relativePath,
+            size: stat.size,
+            mtime: stat.mtime.toISOString(),
+            derived_node_ids: derivedByPath.get(relativePath) ?? [],
+          });
+        }
       }
     }
 
@@ -661,8 +668,11 @@ router.get('/projects/:id/memory/raw-files/content', (req: Request<{ id: string 
     }
     const projectRoot = path.resolve(project.path);
     const rawRoot = path.resolve(projectRoot, RAW_DIR);
+    const legacyRawRoot = path.resolve(projectRoot, LEGACY_RAW_DIR);
     const absPath = path.resolve(projectRoot, relPathRaw);
-    if (!absPath.startsWith(rawRoot + path.sep)) {
+    const inRaw = absPath.startsWith(rawRoot + path.sep);
+    const inLegacy = absPath.startsWith(legacyRawRoot + path.sep);
+    if (!inRaw && !inLegacy) {
       res.status(400).json({ error: 'Path must be within the raw sources directory' });
       return;
     }
@@ -696,8 +706,11 @@ router.post('/projects/:id/memory/raw-files/open', (req: Request<{ id: string }>
     }
     const projectRoot = path.resolve(project.path);
     const rawRoot = path.resolve(projectRoot, RAW_DIR);
+    const legacyRawRoot = path.resolve(projectRoot, LEGACY_RAW_DIR);
     const absPath = path.resolve(projectRoot, relPathRaw);
-    if (!absPath.startsWith(rawRoot + path.sep)) {
+    const inRaw = absPath.startsWith(rawRoot + path.sep);
+    const inLegacy = absPath.startsWith(legacyRawRoot + path.sep);
+    if (!inRaw && !inLegacy) {
       res.status(400).json({ error: 'Path must be within the raw sources directory' });
       return;
     }
@@ -730,8 +743,11 @@ router.delete('/projects/:id/memory/raw-files', (req: Request<{ id: string }>, r
     }
     const projectRoot = path.resolve(project.path);
     const rawRoot = path.resolve(projectRoot, RAW_DIR);
+    const legacyRawRoot = path.resolve(projectRoot, LEGACY_RAW_DIR);
     const absPath = path.resolve(projectRoot, relPathRaw);
-    if (!absPath.startsWith(rawRoot + path.sep)) {
+    const inRaw = absPath.startsWith(rawRoot + path.sep);
+    const inLegacy = absPath.startsWith(legacyRawRoot + path.sep);
+    if (!inRaw && !inLegacy) {
       res.status(400).json({ error: 'Path must be within the raw sources directory' });
       return;
     }
@@ -816,7 +832,8 @@ router.post('/projects/:id/memory/lint', async (req: Request<{ id: string }>, re
 
 // ── Wiki assets (image uploads embedded in node bodies) ──
 
-const WIKI_ASSETS_DIR = '.clitrigger/wiki-assets';
+const WIKI_ASSETS_DIR = '.aikombinat/wiki-assets';
+const LEGACY_WIKI_ASSETS_DIR = '.clitrigger/wiki-assets';
 const ASSET_MAX_BYTES = 10 * 1024 * 1024;
 const IMAGE_DATA_URL_RE = /^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,(.+)$/;
 const IMAGE_MIME: Record<string, string> = {
@@ -891,15 +908,23 @@ router.get('/projects/:id/memory/assets/:filename', (req: Request<{ id: string; 
       return;
     }
     const dir = path.join(project.path, WIKI_ASSETS_DIR);
-    const absPath = path.resolve(dir, req.params.filename);
+    let absPath = path.resolve(dir, req.params.filename);
     const resolvedDir = path.resolve(dir);
     if (!absPath.startsWith(resolvedDir + path.sep)) {
       res.status(400).json({ error: 'Invalid path' });
       return;
     }
     if (!fs.existsSync(absPath)) {
-      res.status(404).json({ error: 'Asset not found' });
-      return;
+      // Legacy fallback
+      const legacyDir = path.join(project.path, LEGACY_WIKI_ASSETS_DIR);
+      const legacyAbsPath = path.resolve(legacyDir, req.params.filename);
+      const resolvedLegacyDir = path.resolve(legacyDir);
+      if (legacyAbsPath.startsWith(resolvedLegacyDir + path.sep) && fs.existsSync(legacyAbsPath)) {
+        absPath = legacyAbsPath;
+      } else {
+        res.status(404).json({ error: 'Asset not found' });
+        return;
+      }
     }
     const ext = path.extname(absPath).toLowerCase().slice(1);
     res.setHeader('Content-Type', IMAGE_MIME[ext] || 'application/octet-stream');
@@ -910,7 +935,7 @@ router.get('/projects/:id/memory/assets/:filename', (req: Request<{ id: string; 
   }
 });
 
-// ── Wiki Markdown export (DB → .clitrigger/wiki/ one-way mirror) ──
+// ── Wiki Markdown export (DB → .aikombinat/wiki/ one-way mirror) ──
 
 router.get('/projects/:id/memory/disk-diff', (req: Request<{ id: string }>, res: Response) => {
   try {

@@ -83,8 +83,8 @@ export default function MemoryList({ projectId }: MemoryListProps) {
   }, [subTab, reloadLogs]);
 
   const outerRef = useRef<HTMLDivElement>(null);
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readNumber('clitrigger:wiki:sidebar-w', 208, 160, 560));
-  useEffect(() => { localStorage.setItem('clitrigger:wiki:sidebar-w', String(sidebarWidth)); }, [sidebarWidth]);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readNumber('aikombinat:wiki:sidebar-w', 208, 160, 560, 'clitrigger:wiki:sidebar-w'));
+  useEffect(() => { localStorage.setItem('aikombinat:wiki:sidebar-w', String(sidebarWidth)); }, [sidebarWidth]);
   const handleSidebarResize = useCallback((clientX: number) => {
     if (!outerRef.current) return;
     const rect = outerRef.current.getBoundingClientRect();
@@ -1390,15 +1390,15 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function readNumber(key: string, fallback: number, lo: number, hi: number): number {
+function readNumber(key: string, fallback: number, lo: number, hi: number, legacyKey?: string): number {
   if (typeof window === 'undefined') return fallback;
-  const raw = window.localStorage.getItem(key);
+  const raw = window.localStorage.getItem(key) ?? (legacyKey ? window.localStorage.getItem(legacyKey) : null);
   if (!raw) return fallback;
   const v = parseFloat(raw);
   return isNaN(v) ? fallback : clamp(v, lo, hi);
 }
 
-// ── Disk diff modal (read-only comparison of .clitrigger/wiki/ vs DB) ──
+// ── Disk diff modal (read-only comparison of .aikombinat/wiki/ vs DB) ──
 
 const DIFF_COLORS: Record<WikiDiskDiffEntry['type'], string> = {
   modified: 'text-amber-700 bg-amber-50 border-amber-200',

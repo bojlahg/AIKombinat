@@ -22,7 +22,7 @@ export function pickFile(initialDir = '', title = 'Select a file'): string | nul
       const csharpSrc = `using System;
 using System.Runtime.InteropServices;
 
-namespace CLITriggerFilePicker {
+namespace AIKombinatFilePicker {
     [ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
     internal class FileOpenDialogClass { }
 
@@ -111,11 +111,11 @@ namespace CLITriggerFilePicker {
         "Add-Type -TypeDefinition @'",
         csharpSrc,
         "'@",
-        `$picked = [CLITriggerFilePicker.Picker]::Pick('${initialEscaped}', '${titleEscaped}')`,
+        `$picked = [AIKombinatFilePicker.Picker]::Pick('${initialEscaped}', '${titleEscaped}')`,
         'if ($picked) { Write-Output $picked }',
       ];
 
-      const tmpScript = nodePath.join(os.tmpdir(), `clitrigger-filepick-${Date.now()}.ps1`);
+      const tmpScript = nodePath.join(os.tmpdir(), `aikombinat-filepick-${Date.now()}.ps1`);
       // UTF-8 BOM so PowerShell 5.1 reads non-ASCII (e.g. Korean) chars correctly
       fs.writeFileSync(tmpScript, '﻿' + scriptLines.join('\r\n'), 'utf-8');
       try {

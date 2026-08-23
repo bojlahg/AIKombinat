@@ -1,8 +1,8 @@
-// CLITrigger Hecaton Plugin — main entry point
+// AIKombinat Hecaton Plugin — main entry point
 // Runs in Deno via Hecaton's deno_runner (CommonJS compatible)
 //
 // Architecture:
-//   1. Spawns CLITrigger Node.js server as a child process (sidecar)
+//   1. Spawns AIKombinat Node.js server as a child process (sidecar)
 //   2. Renders TUI dashboard in Hecaton terminal cell (ANSI/VT-100)
 //   3. Communicates with server via HTTP/WebSocket on localhost
 
@@ -15,7 +15,7 @@ const { TUI } = require("./lib/tui.js");
 const heca = globalThis.hecaton;
 
 // ===== Config =====
-const SERVER_PORT = 3000; // CLITrigger server port (default)
+const SERVER_PORT = 3000; // AIKombinat server port (default)
 
 // ===== State =====
 let api = null;
@@ -32,7 +32,7 @@ const serverManager = new ServerManager({
   pluginDir: __dirname,
   onReady: (port) => {
     api = new ApiClient(serverManager.getBaseUrl());
-    heca.set_title({ title: `CLITrigger :${port}` });
+    heca.set_title({ title: `AIKombinat :${port}` });
     tui.setStatus(`Server ready on port ${port}`, 3000);
 
     // Connect WebSocket for real-time updates
@@ -45,7 +45,7 @@ const serverManager = new ServerManager({
   },
   onError: (err) => {
     tui.setStatus(`Server error: ${err.message}`, 5000);
-    heca.notify({ title: "CLITrigger", body: `Server error: ${err.message}` });
+    heca.notify({ title: "AIKombinat", body: `Server error: ${err.message}` });
   },
   onExit: (code) => {
     tui.setStatus(`Server exited (code ${code}). Press [r] to restart.`, 0);
@@ -77,9 +77,9 @@ function handleWsMessage(msg) {
   // Notify on task completion/failure
   if (msg.type === "todo:status-changed") {
     if (msg.status === "done") {
-      heca.notify({ title: "CLITrigger", body: `Task completed: ${msg.title || ""}` });
+      heca.notify({ title: "AIKombinat", body: `Task completed: ${msg.title || ""}` });
     } else if (msg.status === "failed") {
-      heca.notify({ title: "CLITrigger", body: `Task failed: ${msg.title || ""}` });
+      heca.notify({ title: "AIKombinat", body: `Task failed: ${msg.title || ""}` });
     }
   }
 }
@@ -375,8 +375,8 @@ process.stdin.on("data", (data) => {
 
 // ===== Startup =====
 async function startup() {
-  heca.set_title({ title: "CLITrigger (starting...)" });
-  tui.setStatus("Starting CLITrigger server...", 0);
+  heca.set_title({ title: "AIKombinat (starting...)" });
+  tui.setStatus("Starting AIKombinat server...", 0);
   tui.render();
 
   try {
@@ -385,7 +385,7 @@ async function startup() {
     tui.setStatus(`Failed to start server: ${err.message}`, 0);
     tui.render();
     heca.notify({
-      title: "CLITrigger",
+      title: "AIKombinat",
       body: `Failed to start: ${err.message}. Is Node.js installed?`,
     });
   }

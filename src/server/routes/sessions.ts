@@ -16,7 +16,8 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.sv
 
 const router = Router();
 
-const RAW_DIR_PREFIX = '.clitrigger/raw/';
+const RAW_DIR_PREFIX = '.aikombinat/raw/';
+const LEGACY_RAW_DIR_PREFIX = '.clitrigger/raw/';
 
 function normalizeRawFilePaths(input: unknown): string | null | undefined {
   if (input === undefined) return undefined;
@@ -24,7 +25,7 @@ function normalizeRawFilePaths(input: unknown): string | null | undefined {
   if (Array.isArray(input)) {
     const cleaned = input
       .map(v => (typeof v === 'string' ? v.replace(/\\/g, '/').trim() : ''))
-      .filter(p => p && p.startsWith(RAW_DIR_PREFIX) && !p.includes('..'));
+      .filter(p => p && (p.startsWith(RAW_DIR_PREFIX) || p.startsWith(LEGACY_RAW_DIR_PREFIX)) && !p.includes('..'));
     return cleaned.length > 0 ? JSON.stringify(cleaned) : null;
   }
   if (typeof input === 'string') {

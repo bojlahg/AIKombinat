@@ -69,7 +69,7 @@ router.post('/todos/:id/start', async (req: Request<{ id: string }>, res: Respon
 
     const cliTool = ((todo.cli_tool || project.cli_tool || 'claude') as CliTool);
     if (mode === 'interactive' && !supportsInteractiveMode(cliTool)) {
-      res.status(400).json({ error: `${cliTool} does not support interactive mode in CLITrigger. Use headless or verbose mode.` });
+      res.status(400).json({ error: `${cliTool} does not support interactive mode in AIKombinat. Use headless or verbose mode.` });
       return;
     }
 
@@ -373,7 +373,7 @@ router.post('/todos/:id/retry', async (req: Request<{ id: string }>, res: Respon
     const mode = validModes.includes(req.body.mode) ? req.body.mode : 'headless';
     const cliTool = ((todo.cli_tool || project.cli_tool || 'claude') as CliTool);
     if (mode === 'interactive' && !supportsInteractiveMode(cliTool)) {
-      res.status(400).json({ error: `${cliTool} does not support interactive mode in CLITrigger. Use headless or verbose mode.` });
+      res.status(400).json({ error: `${cliTool} does not support interactive mode in AIKombinat. Use headless or verbose mode.` });
       return;
     }
 
@@ -445,7 +445,7 @@ router.post('/todos/:id/continue', async (req: Request<{ id: string }>, res: Res
     const mode = validModes.includes(req.body.mode) ? req.body.mode : 'headless';
     const cliTool = ((todo.cli_tool || project.cli_tool || 'claude') as CliTool);
     if (mode === 'interactive' && !supportsInteractiveMode(cliTool)) {
-      res.status(400).json({ error: `${cliTool} does not support interactive mode in CLITrigger. Use headless or verbose mode.` });
+      res.status(400).json({ error: `${cliTool} does not support interactive mode in AIKombinat. Use headless or verbose mode.` });
       return;
     }
 

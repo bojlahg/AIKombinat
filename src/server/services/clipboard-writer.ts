@@ -53,7 +53,7 @@ function writeWin32(buffer: Buffer): Promise<void> {
 function writeMac(buffer: Buffer): Promise<void> {
   // osascript wants a file path. Write a brief tmp file in os.tmpdir() (NOT
   // in the user's project tree), unlink it as soon as osascript returns.
-  const tmpFile = path.join(os.tmpdir(), `clitrigger-clip-${Date.now()}-${process.pid}.png`);
+  const tmpFile = path.join(os.tmpdir(), `aikombinat-clip-${Date.now()}-${process.pid}.png`);
   fs.writeFileSync(tmpFile, buffer);
   const script = `set the clipboard to (read (POSIX file "${tmpFile}") as «class PNGf»)`;
   return runChild('osascript', ['-e', script], null).finally(() => {

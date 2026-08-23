@@ -1,8 +1,8 @@
 @echo off
-title CLITrigger - Test
+title AIKombinat - Test
 cd /d "%~dp0.."
 echo ========================================
-echo   CLITrigger - Run All Tests
+echo   AIKombinat - Run All Tests
 echo ========================================
 echo.
 call npm test

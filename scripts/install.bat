@@ -1,8 +1,8 @@
 @echo off
-title CLITrigger - Install Dependencies
+title AIKombinat - Install Dependencies
 cd /d "%~dp0.."
 echo ========================================
-echo   CLITrigger - Install Dependencies
+echo   AIKombinat - Install Dependencies
 echo ========================================
 echo.
 echo [1/2] Installing server dependencies...

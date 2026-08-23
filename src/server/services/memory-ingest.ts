@@ -7,7 +7,7 @@ import { broadcaster } from '../websocket/broadcaster.js';
 import { debugLogger, type DebugSession } from './debug-logger.js';
 import { dispatchWikiExport } from './wiki-exporter.js';
 
-const RAW_DIR_NAME = '.clitrigger';
+const RAW_DIR_NAME = '.aikombinat';
 const RAW_SUBDIR = 'raw';
 const VALID_SOURCE_TYPES = new Set(['todo', 'discussion', 'manual']);
 
@@ -42,7 +42,7 @@ function timestampStr(d = new Date()): string {
 }
 
 /**
- * Write the raw source text to <projectPath>/.clitrigger/raw/<sourceType>/<file>.md
+ * Write the raw source text to <projectPath>/.aikombinat/raw/<sourceType>/<file>.md
  * and return the project-relative path. Returns null on failure (non-fatal).
  */
 function writeRawSnapshot(
@@ -669,7 +669,7 @@ export async function ingestSource(
     }
   }
 
-  // Mirror DB → `.clitrigger/wiki/` markdown files (best-effort, fire-and-forget).
+  // Mirror DB → `.aikombinat/wiki/` markdown files (best-effort, fire-and-forget).
   dispatchWikiExport(projectId);
 
   // Project-scoped activity log entry — feeds the Wiki Activity tab.

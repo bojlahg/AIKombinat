@@ -18,13 +18,19 @@ describe('detectDefaultLang', () => {
   });
 
   it('prefers a previously saved valid language over navigator.language', () => {
-    localStorage.setItem('clitrigger-lang', 'ko');
+    localStorage.setItem('aikombinat-lang', 'ko');
     setNavigatorLanguage('ru-RU');
     expect(detectDefaultLang()).toBe('ko');
   });
 
+  it('falls back to legacy clitrigger-lang when aikombinat-lang is not set', () => {
+    localStorage.setItem('clitrigger-lang', 'ru');
+    setNavigatorLanguage('ko-KR');
+    expect(detectDefaultLang()).toBe('ru');
+  });
+
   it('ignores an invalid/obsolete saved value and falls through to detection', () => {
-    localStorage.setItem('clitrigger-lang', 'fr');
+    localStorage.setItem('aikombinat-lang', 'fr');
     setNavigatorLanguage('en-US');
     expect(detectDefaultLang()).toBe('en');
   });

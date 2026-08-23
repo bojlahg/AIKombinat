@@ -1,8 +1,8 @@
 @echo off
-title CLITrigger - Build
+title AIKombinat - Build
 cd /d "%~dp0.."
 echo ========================================
-echo   CLITrigger - Build
+echo   AIKombinat - Build
 echo ========================================
 echo.
 call npm run build

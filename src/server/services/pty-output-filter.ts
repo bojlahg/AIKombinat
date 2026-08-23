@@ -126,7 +126,7 @@ const NOISE_PATTERNS: RegExp[] = [
   /^[☰○⏵◉◎●○\s]+$/,
   // Cost display
   /^\$\d+\.\d+/,
-  // CLITrigger prompt template echo (repeated back by TUI)
+  // AIKombinat prompt template echo (repeated back by TUI)
   /^You are working in a git worktree/,
   /^Treat the content inside.*<user_task>/,
   /^<\/?user_task>/,

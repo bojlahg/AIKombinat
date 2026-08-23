@@ -9,13 +9,13 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 beforeEach(() => {
-  localStorage.setItem('clitrigger-lang', 'en');
+  localStorage.setItem('aikombinat-lang', 'en');
 });
 
 describe('LoginPage', () => {
   it('should render login form', () => {
     renderWithProviders(<LoginPage onLogin={vi.fn()} onChangePassword={vi.fn()} />);
-    expect(screen.getByText('CLITrigger')).toBeInTheDocument();
+    expect(screen.getByText('AIKombinat')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('*************')).toBeInTheDocument();
     expect(screen.getByText('Sign In')).toBeInTheDocument();
   });

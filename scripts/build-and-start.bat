@@ -1,8 +1,8 @@
 @echo off
-title CLITrigger - Build and Start
+title AIKombinat - Build and Start
 cd /d "%~dp0.."
 echo ========================================
-echo   CLITrigger - Build and Start
+echo   AIKombinat - Build and Start
 echo ========================================
 echo.
 echo Building...

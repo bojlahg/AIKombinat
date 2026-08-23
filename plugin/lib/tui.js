@@ -99,7 +99,7 @@ class TUI {
   }
 
   renderProjects() {
-    this.renderHeader("CLITrigger", [
+    this.renderHeader("AIKombinat", [
       ["o", "Web"],
       ["n", "New"],
       ["q", "Quit"],

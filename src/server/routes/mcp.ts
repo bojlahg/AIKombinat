@@ -11,7 +11,7 @@ router.get('/mcp/connection', (req: Request, res: Response) => {
   const url = `${req.protocol}://${host}/mcp`;
   const config = {
     mcpServers: {
-      clitrigger: {
+      aikombinat: {
         type: 'http',
         url,
         headers: { Authorization: `Bearer ${token}` },
@@ -23,9 +23,9 @@ router.get('/mcp/connection', (req: Request, res: Response) => {
   // ponytail: only the Claude syntax is verified in this project; agy/codex flags
   // follow the same documented pattern — confirm with `<cli> mcp add --help`.
   const commands = [
-    { id: 'claude', label: 'Claude Code', command: `claude mcp add --transport http clitrigger ${url} ${header}` },
-    { id: 'antigravity', label: 'Antigravity (agy)', command: `agy mcp add --transport http clitrigger ${url} ${header}` },
-    { id: 'codex', label: 'Codex', command: `codex mcp add --transport http clitrigger ${url} ${header}` },
+    { id: 'claude', label: 'Claude Code', command: `claude mcp add --transport http aikombinat ${url} ${header}` },
+    { id: 'antigravity', label: 'Antigravity (agy)', command: `agy mcp add --transport http aikombinat ${url} ${header}` },
+    { id: 'codex', label: 'Codex', command: `codex mcp add --transport http aikombinat ${url} ${header}` },
   ];
   res.json({ url, token, config, commands });
 });

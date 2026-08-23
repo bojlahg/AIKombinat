@@ -10,7 +10,8 @@ import { extractActionItems, type ExtractedActionItem } from '../services/discus
 const router = Router();
 
 const FULL_EDITABLE_DISCUSSION_FIELDS = ['title', 'description', 'max_rounds', 'agent_ids', 'auto_implement', 'implement_agent_id', 'memory_inject_mode', 'memory_node_ids', 'memory_raw_file_paths', 'use_worktree'] as const;
-const RAW_DIR_PREFIX = '.clitrigger/raw/';
+const RAW_DIR_PREFIX = '.aikombinat/raw/';
+const LEGACY_RAW_DIR_PREFIX = '.clitrigger/raw/';
 
 function normalizeRawFilePathsList(input: unknown): string[] {
   if (!Array.isArray(input)) {
@@ -26,7 +27,7 @@ function normalizeRawFilePathsList(input: unknown): string[] {
   for (const v of input) {
     if (typeof v !== 'string') continue;
     const p = v.replace(/\\/g, '/').trim();
-    if (!p || !p.startsWith(RAW_DIR_PREFIX) || p.includes('..')) continue;
+    if (!p || (!p.startsWith(RAW_DIR_PREFIX) && !p.startsWith(LEGACY_RAW_DIR_PREFIX)) || p.includes('..')) continue;
     cleaned.push(p);
   }
   return cleaned;

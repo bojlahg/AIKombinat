@@ -59,7 +59,7 @@ router.post('/browse', (req: Request, res: Response) => {
       const csharpSrc = `using System;
 using System.Runtime.InteropServices;
 
-namespace CLITriggerPicker {
+namespace AIKombinatPicker {
     [ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
     internal class FileOpenDialogClass { }
 
@@ -148,11 +148,11 @@ namespace CLITriggerPicker {
         "Add-Type -TypeDefinition @'",
         csharpSrc,
         "'@",
-        `$picked = [CLITriggerPicker.Picker]::Pick('${initialEscaped}', '폴더 선택')`,
+        `$picked = [AIKombinatPicker.Picker]::Pick('${initialEscaped}', '폴더 선택')`,
         'if ($picked) { Write-Output $picked }',
       ];
 
-      const tmpScript = nodePath.join(os.tmpdir(), `clitrigger-browse-${Date.now()}.ps1`);
+      const tmpScript = nodePath.join(os.tmpdir(), `aikombinat-browse-${Date.now()}.ps1`);
       // UTF-8 BOM so PowerShell 5.1 reads non-ASCII (e.g. Korean) chars correctly
       fs.writeFileSync(tmpScript, '﻿' + scriptLines.join('\r\n'), 'utf-8');
 

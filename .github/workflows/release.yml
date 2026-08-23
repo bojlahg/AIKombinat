@@ -46,7 +46,7 @@ jobs:
 
       - name: Package release artifact
         run: |
-          tar -czf clitrigger-${{ github.ref_name }}.tar.gz \
+          tar -czf aikombinat-${{ github.ref_name }}.tar.gz \
             dist/ \
             package.json \
             package-lock.json \
@@ -66,7 +66,7 @@ jobs:
           body_path: /tmp/release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: false
-          files: clitrigger-${{ github.ref_name }}.tar.gz
+          files: aikombinat-${{ github.ref_name }}.tar.gz
 
       - name: Publish to npm
         run: npm publish --provenance --access public

@@ -36,7 +36,7 @@ describe('Agents settings model catalog and profiles UX', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    localStorage.setItem('clitrigger-lang', 'en');
+    localStorage.setItem('aikombinat-lang', 'en');
     fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/models') return response(catalog);
       if (input.startsWith('/api/models/refresh/')) return response({ source: 'test', authoritative: true, added: 0, updated: 1, restored: 0, markedMissing: 0 });

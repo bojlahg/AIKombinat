@@ -7,7 +7,7 @@ pushd "%~dp0.."
 
 set SKIP_INSTALL=0
 set BUILD_MSIX=0
-if not defined CSC_KEY_PASSWORD set CSC_KEY_PASSWORD=clitrigger
+if not defined CSC_KEY_PASSWORD set CSC_KEY_PASSWORD=aikombinat
 
 :parse_args
 if "%1"=="--skip-install" (set SKIP_INSTALL=1 & shift & goto :parse_args)
@@ -43,7 +43,7 @@ if %BUILD_MSIX%==1 (
   if not exist build-cert.pfx (
     echo   Generating self-signed certificate...
     powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-      "$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=CLITrigger Dev' -KeyUsage DigitalSignature -FriendlyName 'CLITrigger Dev' -CertStoreLocation 'Cert:\CurrentUser\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}'); $pwd = ConvertTo-SecureString -String '%CSC_KEY_PASSWORD%' -Force -AsPlainText; Export-PfxCertificate -Cert $cert -FilePath 'build-cert.pfx' -Password $pwd | Out-Null; Write-Host '  Certificate saved to build-cert.pfx'"
+      "$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=AIKombinat Dev' -KeyUsage DigitalSignature -FriendlyName 'AIKombinat Dev' -CertStoreLocation 'Cert:\CurrentUser\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}'); $pwd = ConvertTo-SecureString -String '%CSC_KEY_PASSWORD%' -Force -AsPlainText; Export-PfxCertificate -Cert $cert -FilePath 'build-cert.pfx' -Password $pwd | Out-Null; Write-Host '  Certificate saved to build-cert.pfx'"
     if errorlevel 1 goto :error
   ) else (
     echo   Using existing build-cert.pfx

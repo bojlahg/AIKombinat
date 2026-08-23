@@ -1,8 +1,8 @@
-# CLITrigger CI/CD 가이드
+# AIKombinat CI/CD 가이드
 
 ## 개요
 
-CLITrigger는 **GitHub Actions** 기반 CI/CD 파이프라인을 사용합니다.
+AIKombinat는 **GitHub Actions** 기반 CI/CD 파이프라인을 사용합니다.
 
 | 워크플로우 | 트리거 | 목적 |
 |-----------|--------|------|
@@ -85,7 +85,7 @@ v* 태그 push
 ### 릴리스 산출물
 
 - **GitHub Release**: 자동 생성 (release notes 자동 포함)
-- **아티팩트**: `clitrigger-v{version}.tar.gz`
+- **아티팩트**: `aikombinat-v{version}.tar.gz`
   - `dist/` — 컴파일된 서버 + 클라이언트 번들
   - `package.json`, `package-lock.json` — 의존성 정보
   - `.env.example` — 환경 변수 템플릿
@@ -96,7 +96,7 @@ v* 태그 push
 
 ```bash
 # 1. 릴리스 아티팩트 다운로드 & 압축 해제
-tar -xzf clitrigger-v1.0.0.tar.gz
+tar -xzf aikombinat-v1.0.0.tar.gz
 
 # 2. 프로덕션 의존성 설치
 npm ci --production
@@ -187,7 +187,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\runner.zip", "$PWD")
 
 # 등록
-.\config.cmd --url https://github.com/OSgoodYZ/CLITrigger --token <GitHub에서_복사한_토큰>
+.\config.cmd --url https://github.com/OSgoodYZ/AIKombinat --token <GitHub에서_복사한_토큰>
 
 # Windows 서비스로 설치 (PC 부팅 시 자동 시작)
 .\svc.cmd install
@@ -199,7 +199,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 ```bash
 mkdir ~/actions-runner && cd ~/actions-runner
 # GitHub 페이지에 표시되는 curl 명령어로 다운로드 & 압축 해제
-./config.sh --url https://github.com/OSgoodYZ/CLITrigger --token <토큰>
+./config.sh --url https://github.com/OSgoodYZ/AIKombinat --token <토큰>
 ./svc.sh install
 ./svc.sh start
 ```

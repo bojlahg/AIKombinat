@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { getSetting } from '../db/app-settings.js';
 import { matchesMcpToken } from '../middleware/auth.js';
 
-// CLITrigger's MCP server. Tools are thin wrappers over the app's own REST API,
+// AIKombinat's MCP server. Tools are thin wrappers over the app's own REST API,
 // called back over loopback — so they reuse the stable HTTP contract (and its
 // validation) rather than coupling to internal service signatures.
 
@@ -51,7 +51,7 @@ async function run(fn: () => Promise<ApiResult>) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
-      content: [{ type: 'text' as const, text: `CLITrigger 서버에 연결할 수 없습니다: ${message}` }],
+      content: [{ type: 'text' as const, text: `AIKombinat 서버에 연결할 수 없습니다: ${message}` }],
       isError: true,
     };
   }
@@ -60,11 +60,11 @@ async function run(fn: () => Promise<ApiResult>) {
 function buildServer(baseUrl: string): McpServer {
   const token = getSetting('mcp.token') || '';
   // Version of the MCP tool interface, independent of the app version.
-  const server = new McpServer({ name: 'clitrigger', version: '1.0.0' });
+  const server = new McpServer({ name: 'aikombinat', version: '1.0.0' });
 
   server.registerTool(
     'list_projects',
-    { description: 'CLITrigger에 등록된 모든 프로젝트 목록을 반환합니다.' },
+    { description: 'AIKombinat에 등록된 모든 프로젝트 목록을 반환합니다.' },
     () => run(() => callApi(baseUrl, token, 'GET', '/api/projects')),
   );
 

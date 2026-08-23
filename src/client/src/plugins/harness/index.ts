@@ -60,9 +60,9 @@ export const harnessClientPlugin: ClientPluginManifest = {
       'harness.mcp.errAliasExists': 'An MCP server with this alias already exists.',
       'harness.mcp.errCommand': 'Command is required for stdio transport.',
       'harness.mcp.errUrl': 'URL is required for HTTP/SSE transport.',
-      'harness.warning.worktreeIsolation.title': 'Edits apply outside CLITrigger worktrees',
+      'harness.warning.worktreeIsolation.title': 'Edits apply outside AIKombinat worktrees',
       'harness.warning.worktreeIsolation.body':
-        'Changes are saved to the project root. CLI tools launched directly from your terminal pick them up immediately. CLITrigger todos run inside .worktrees/<branch>/, so tracked files (CLAUDE.md, .claude/settings.json) are only included once you commit, and untracked files (.mcp.json, settings.local.json) are not copied automatically.',
+        'Changes are saved to the project root. CLI tools launched directly from your terminal pick them up immediately. AIKombinat todos run inside .worktrees/<branch>/, so tracked files (CLAUDE.md, .claude/settings.json) are only included once you commit, and untracked files (.mcp.json, settings.local.json) are not copied automatically.',
       'harness.warning.tomlComments': 'Note: saving Codex config.toml via this UI may strip existing comments. Edit the file in a text editor if you want to preserve them.',
       'harness.warning.codexTrustLevel.title': 'Codex trust level required',
       'harness.warning.codexTrustLevel.body':
@@ -116,9 +116,9 @@ export const harnessClientPlugin: ClientPluginManifest = {
       'harness.mcp.errAliasExists': '이미 같은 별칭의 MCP 서버가 있습니다.',
       'harness.mcp.errCommand': 'stdio 전송 방식에는 명령어가 필요합니다.',
       'harness.mcp.errUrl': 'HTTP/SSE 전송 방식에는 URL이 필요합니다.',
-      'harness.warning.worktreeIsolation.title': '편집 사항은 CLITrigger worktree 밖에 적용됩니다',
+      'harness.warning.worktreeIsolation.title': '편집 사항은 AIKombinat worktree 밖에 적용됩니다',
       'harness.warning.worktreeIsolation.body':
-        '변경 사항은 프로젝트 루트에 저장됩니다. 터미널에서 CLI를 직접 띄울 때는 바로 적용되지만, CLITrigger의 todo는 .worktrees/<branch>/ 안에서 실행되므로 추적 파일(CLAUDE.md, .claude/settings.json)은 커밋해야 다음 worktree 생성 시 반영되고, untracked 파일(.mcp.json, settings.local.json)은 자동으로 복사되지 않습니다.',
+        '변경 사항은 프로젝트 루트에 저장됩니다. 터미널에서 CLI를 직접 띄울 때는 바로 적용되지만, AIKombinat의 todo는 .worktrees/<branch>/ 안에서 실행되므로 추적 파일(CLAUDE.md, .claude/settings.json)은 커밋해야 다음 worktree 생성 시 반영되고, untracked 파일(.mcp.json, settings.local.json)은 자동으로 복사되지 않습니다.',
       'harness.warning.tomlComments': '참고: 이 UI로 Codex config.toml을 저장하면 기존 주석이 사라질 수 있습니다. 주석을 보존하려면 텍스트 에디터에서 직접 편집하세요.',
       'harness.warning.codexTrustLevel.title': 'Codex 신뢰 수준이 필요합니다',
       'harness.warning.codexTrustLevel.body':

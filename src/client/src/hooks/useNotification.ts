@@ -14,12 +14,16 @@ export const NotificationContext = createContext<NotificationContextValue>({
   sendNotification: () => {},
 });
 
+const NOTIF_KEY = 'aikombinat-notifications';
+const LEGACY_NOTIF_KEY = 'clitrigger-notifications';
+
 export function useNotificationProvider(): NotificationContextValue {
   const supported = 'Notification' in window;
 
   const [enabled, setEnabled] = useState<boolean>(() => {
     if (!supported) return false;
-    return localStorage.getItem('clitrigger-notifications') === 'on' && Notification.permission === 'granted';
+    const saved = localStorage.getItem(NOTIF_KEY) ?? localStorage.getItem(LEGACY_NOTIF_KEY);
+    return saved === 'on' && Notification.permission === 'granted';
   });
 
   const enabledRef = useRef(enabled);
@@ -31,7 +35,7 @@ export function useNotificationProvider(): NotificationContextValue {
     if (!supported) return;
 
     if (enabledRef.current) {
-      localStorage.setItem('clitrigger-notifications', 'off');
+      localStorage.setItem(NOTIF_KEY, 'off');
       setEnabled(false);
     } else {
       if (Notification.permission === 'denied') return;
@@ -41,7 +45,7 @@ export function useNotificationProvider(): NotificationContextValue {
         if (result !== 'granted') return;
       }
 
-      localStorage.setItem('clitrigger-notifications', 'on');
+      localStorage.setItem(NOTIF_KEY, 'on');
       setEnabled(true);
     }
   }, [supported]);

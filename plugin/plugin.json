@@ -1,6 +1,6 @@
 {
-  "id": "clitrigger",
-  "name": "CLITrigger",
+  "id": "aikombinat",
+  "name": "AIKombinat",
   "version": "0.1.0",
   "entry": "main.js",
   "description": "AI task automation with git worktrees",

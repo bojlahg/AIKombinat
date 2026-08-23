@@ -19,7 +19,7 @@ function run(cwd: string, cmd: string): string {
 let repo: string;
 
 beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'clitrigger-session-diff-'));
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-session-diff-'));
   run(repo, 'git init -b main');
   run(repo, 'git config user.name tester');
   run(repo, 'git config user.email tester@example.com');

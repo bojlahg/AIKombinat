@@ -33,7 +33,8 @@ const charColor = (ch: string) =>
     : ch === '?' ? 'text-warm-400'
     : 'text-amber-500';
 
-const SVN_COMMIT_MESSAGE_HEIGHT_KEY = 'clitrigger:svn:commit-message-h';
+const SVN_COMMIT_MESSAGE_HEIGHT_KEY = 'aikombinat:svn:commit-message-h';
+const LEGACY_SVN_COMMIT_MESSAGE_HEIGHT_KEY = 'clitrigger:svn:commit-message-h';
 const SVN_COMMIT_MESSAGE_MIN_HEIGHT = 60;
 const SVN_COMMIT_MESSAGE_MAX_HEIGHT = 280;
 const SVN_COMMIT_FILE_LIST_MIN_HEIGHT = 160;
@@ -42,9 +43,9 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function readStoredNumber(key: string, fallback: number, min: number, max: number): number {
+function readStoredNumber(key: string, fallback: number, min: number, max: number, legacyKey?: string): number {
   if (typeof window === 'undefined') return fallback;
-  const raw = window.localStorage.getItem(key);
+  const raw = window.localStorage.getItem(key) ?? (legacyKey ? window.localStorage.getItem(legacyKey) : null);
   if (!raw) return fallback;
   const value = Number.parseFloat(raw);
   return Number.isFinite(value) ? clampNumber(value, min, max) : fallback;
@@ -906,6 +907,7 @@ function ModificationsView(props: {
       72,
       SVN_COMMIT_MESSAGE_MIN_HEIGHT,
       SVN_COMMIT_MESSAGE_MAX_HEIGHT,
+      LEGACY_SVN_COMMIT_MESSAGE_HEIGHT_KEY,
     ),
   );
   const sections = useMemo(() => partitionSections(props.statusFiles, t), [props.statusFiles, t]);

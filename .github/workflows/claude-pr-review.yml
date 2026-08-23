@@ -67,7 +67,7 @@ jobs:
           DIFF=$(cat /tmp/pr-diff.txt)
 
           REVIEW=$(claude --print --dangerously-skip-permissions <<PROMPT
-          You are a code reviewer for CLITrigger — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
+          You are a code reviewer for AIKombinat — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
 
           ## Project structure
           - Server: src/server/ (Express + better-sqlite3 + WebSocket)

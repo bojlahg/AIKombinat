@@ -66,7 +66,7 @@ class DebugLogger {
     // Write header
     const header = [
       '========================================',
-      'CLITrigger Debug Log',
+      'AIKombinat Debug Log',
       '========================================',
       `Task ID:    ${opts.todoId}`,
       `Timestamp:  ${new Date().toISOString()}`,

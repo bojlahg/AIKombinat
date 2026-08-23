@@ -1,4 +1,4 @@
-// HTTP client for CLITrigger REST API — uses curl for all requests
+// HTTP client for AIKombinat REST API — uses curl for all requests
 // No WebSocket (Deno compat issues) — uses polling instead
 
 const heca = globalThis.hecaton;

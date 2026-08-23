@@ -23,7 +23,7 @@ export default function Layout({ children, onLogout, authRequired, connected, on
   // first paint matches the persisted width (no expand→collapse flash).
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
   const [homeParticles, setHomeParticles] = useState(() => {
-    const saved = localStorage.getItem('clitrigger-home-particles');
+    const saved = localStorage.getItem('aikombinat-home-particles') ?? localStorage.getItem('clitrigger-home-particles');
     if (saved !== null) return saved === 'on';
     return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   });
@@ -87,7 +87,7 @@ export default function Layout({ children, onLogout, authRequired, connected, on
           >
             <Menu size={20} />
           </IconButton>
-          <span className="ml-3 text-sm font-semibold text-theme-text">CLITrigger</span>
+          <span className="ml-3 text-sm font-semibold text-theme-text">AIKombinat</span>
         </div>
 
         {/* Scrollable content area. The --dock-inset-* variables are written

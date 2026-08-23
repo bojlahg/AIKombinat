@@ -1,5 +1,5 @@
 {
-  "name": "clitrigger",
+  "name": "aikombinat",
   "version": "0.2.49",
   "description": "Spawn isolated git worktrees and orchestrate Claude/Gemini/Codex CLI tasks in parallel from a web UI.",
   "keywords": [
@@ -14,19 +14,20 @@
     "electron",
     "tunnel"
   ],
-  "homepage": "https://github.com/HyperAITeam/CLITrigger#readme",
+  "homepage": "https://github.com/bojlahg/AIKombinat#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/HyperAITeam/CLITrigger.git"
+    "url": "git+https://github.com/bojlahg/AIKombinat.git"
   },
   "bugs": {
-    "url": "https://github.com/HyperAITeam/CLITrigger/issues"
+    "url": "https://github.com/bojlahg/AIKombinat/issues"
   },
   "author": "HyperAI Team",
   "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
   "bin": {
+    "aikombinat": "bin/aikombinat.js",
     "clitrigger": "bin/clitrigger.js"
   },
   "files": [
@@ -113,10 +114,10 @@
     "vitest": "^4.1.1"
   },
   "build": {
-    "appId": "com.clitrigger.app",
-    "productName": "CLITrigger",
+    "appId": "com.aikombinat.app",
+    "productName": "AIKombinat",
     "extraMetadata": {
-      "description": "CLITrigger"
+      "description": "AIKombinat"
     },
     "directories": {
       "output": "release"
@@ -124,8 +125,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "HyperAITeam",
-        "repo": "CLITrigger",
+        "owner": "bojlahg",
+        "repo": "AIKombinat",
         "releaseType": "release"
       }
     ],
@@ -197,10 +198,10 @@
       "perMachine": false
     },
     "appx": {
-      "applicationId": "CLITrigger",
-      "identityName": "com.clitrigger.app",
-      "publisher": "CN=CLITrigger Dev",
-      "publisherDisplayName": "CLITrigger"
+      "applicationId": "AIKombinat",
+      "identityName": "com.aikombinat.app",
+      "publisher": "CN=AIKombinat Dev",
+      "publisherDisplayName": "AIKombinat"
     }
   }
 }

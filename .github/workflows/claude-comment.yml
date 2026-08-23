@@ -60,7 +60,7 @@ jobs:
           echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
 
           claude --print --dangerously-skip-permissions <<'PROMPT'
-          You are working on CLITrigger — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
+          You are working on AIKombinat — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
 
           ## Project structure
           - Server: src/server/ (Express + better-sqlite3 + WebSocket)
@@ -193,7 +193,7 @@ jobs:
           PR_DIFF=$(gh pr diff "$PR_NUMBER" 2>/dev/null || echo "(no diff available)")
 
           claude --print --dangerously-skip-permissions <<'PROMPT'
-          You are working on CLITrigger — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
+          You are working on AIKombinat — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
 
           ## Project structure
           - Server: src/server/ (Express + better-sqlite3 + WebSocket)

@@ -29,13 +29,21 @@ function Probe({ keys }: { keys: string[] }) {
 
 describe('I18nProvider t() fallback chain', () => {
   beforeEach(() => {
-    localStorage.setItem('clitrigger-lang', 'ru');
+    localStorage.clear();
+    localStorage.setItem('aikombinat-lang', 'ru');
     registerClientPlugin(fakePlugin);
   });
 
   it('resolves core keys from the active locale', () => {
     render(<I18nProvider><Probe keys={['login.submit']} /></I18nProvider>);
     expect(screen.getByTestId('login.submit').textContent).toBe('Войти');
+  });
+
+  it('falls back to legacy clitrigger-lang when aikombinat-lang is not set', () => {
+    localStorage.removeItem('aikombinat-lang');
+    localStorage.setItem('clitrigger-lang', 'ko');
+    render(<I18nProvider><Probe keys={['login.submit']} /></I18nProvider>);
+    expect(screen.getByTestId('login.submit').textContent).toBe('로그인');
   });
 
   it('falls back a plugin key with no ru translation to plugin English, not Korean', () => {
@@ -64,6 +72,6 @@ describe('I18nProvider t() fallback chain', () => {
     expect(screen.getByTestId('lang').textContent).toBe('ru');
     act(() => { ctx!.setLang('en'); });
     expect(screen.getByTestId('lang').textContent).toBe('en');
-    expect(localStorage.getItem('clitrigger-lang')).toBe('en');
+    expect(localStorage.getItem('aikombinat-lang')).toBe('en');
   });
 });

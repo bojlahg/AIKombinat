@@ -9,14 +9,15 @@ export type { Lang, TranslationKey } from './types';
 
 const translations: Record<Lang, Record<string, string>> = { en, ko, ru };
 
-const LANG_STORAGE_KEY = 'clitrigger-lang';
+const PRIMARY_LANG_STORAGE_KEY = 'aikombinat-lang';
+const LEGACY_LANG_STORAGE_KEY = 'clitrigger-lang';
 
 function isLang(value: unknown): value is Lang {
   return value === 'en' || value === 'ko' || value === 'ru';
 }
 
 export function detectDefaultLang(): Lang {
-  const saved = localStorage.getItem(LANG_STORAGE_KEY);
+  const saved = localStorage.getItem(PRIMARY_LANG_STORAGE_KEY) ?? localStorage.getItem(LEGACY_LANG_STORAGE_KEY);
   if (isLang(saved)) return saved;
 
   const nav = (typeof navigator !== 'undefined' ? navigator.language : '') || '';
@@ -42,7 +43,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [lang]);
 
   const setLang = useCallback((next: Lang) => {
-    localStorage.setItem(LANG_STORAGE_KEY, next);
+    localStorage.setItem(PRIMARY_LANG_STORAGE_KEY, next);
     setLangState(next);
   }, []);
 

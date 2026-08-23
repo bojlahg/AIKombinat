@@ -43,18 +43,18 @@ copy /Y "plugin\main.js" "plugin-build\" >nul
 copy /Y "plugin\lib\*.js" "plugin-build\lib\" >nul
 
 echo [5/5] Creating ZIP...
-if exist "clitrigger-plugin.zip" del "clitrigger-plugin.zip"
+if exist "aikombinat-plugin.zip" del "aikombinat-plugin.zip"
 cd plugin-build
-tar -cf "..\clitrigger-plugin.zip" -a *
+tar -cf "..\aikombinat-plugin.zip" -a *
 cd ..
 
 echo.
 echo ========================================
-echo Plugin built: clitrigger-plugin.zip
+echo Plugin built: aikombinat-plugin.zip
 echo ========================================
 echo.
 echo To install:
-echo   1. Extract to %%LOCALAPPDATA%%\.hecaton\plugins\clitrigger\
+echo   1. Extract to %%LOCALAPPDATA%%\.hecaton\plugins\aikombinat\
 echo   2. Restart Hecaton
 echo   3. Open plugin from tab menu
 echo.

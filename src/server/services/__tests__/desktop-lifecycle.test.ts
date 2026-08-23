@@ -31,9 +31,9 @@ describe('desktop lifecycle helpers', () => {
   });
 
   it('uses XDG_CONFIG_HOME with the standard fallback', () => {
-    expect(linuxAutostartFile('/xdg', '/home/user')).toBe('/xdg/autostart/clitrigger.desktop');
-    expect(linuxAutostartFile(undefined, '/home/user')).toBe('/home/user/.config/autostart/clitrigger.desktop');
-    expect(linuxAutostartFile('relative', '/home/user')).toBe('/home/user/.config/autostart/clitrigger.desktop');
+    expect(linuxAutostartFile('/xdg', '/home/user')).toBe('/xdg/autostart/aikombinat.desktop');
+    expect(linuxAutostartFile(undefined, '/home/user')).toBe('/home/user/.config/autostart/aikombinat.desktop');
+    expect(linuxAutostartFile('relative', '/home/user')).toBe('/home/user/.config/autostart/aikombinat.desktop');
   });
 
   it('quotes Linux executable paths and detects stale entries', () => {

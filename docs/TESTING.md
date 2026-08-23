@@ -1,8 +1,8 @@
-# CLITrigger 테스트 가이드
+# AIKombinat 테스트 가이드
 
 ## 개요
 
-CLITrigger 프로젝트는 **Vitest**를 테스트 프레임워크로 사용합니다.
+AIKombinat 프로젝트는 **Vitest**를 테스트 프레임워크로 사용합니다.
 백엔드(Node.js/Express)와 프론트엔드(React)를 각각 독립적으로 테스트할 수 있도록 구성되어 있습니다.
 
 - **백엔드 테스트**: 73개 중 52개 (DB 쿼리, 서비스 로직, 미들웨어, WebSocket)

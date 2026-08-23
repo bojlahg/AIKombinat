@@ -214,7 +214,7 @@ async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
         } catch { /* ignore diagnostics */ }
       }
     });
-    child.stdin.write(`${JSON.stringify({ method: 'initialize', id: 1, params: { clientInfo: { name: 'clitrigger', title: 'CLITrigger', version: '1' } } })}\n`);
+    child.stdin.write(`${JSON.stringify({ method: 'initialize', id: 1, params: { clientInfo: { name: 'aikombinat', title: 'AIKombinat', version: '1' } } })}\n`);
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     child.stdin.write(`${JSON.stringify({ method: 'model/list', id: 2, params: { cursor: null } })}\n`);
   });

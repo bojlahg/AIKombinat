@@ -1,4 +1,4 @@
-# CLITrigger 설치 및 실행 가이드
+# AIKombinat 설치 및 실행 가이드
 
 ## 지원 플랫폼
 
@@ -65,21 +65,21 @@ sudo mv cloudflared /usr/local/bin/
 가장 간단한 방법입니다. git clone이나 환경 설정 없이 바로 사용할 수 있습니다.
 
 ```bash
-npm i -g clitrigger
+npm i -g aikombinat
 ```
 
 #### 첫 실행
 
 ```bash
-clitrigger
+aikombinat
 ```
 
 서버가 바로 시작됩니다:
 ```
-Welcome to CLITrigger!
-Config created at C:\Users\<user>\.clitrigger\config.json
+Welcome to AIKombinat!
+Config created at C:\Users\<user>\.aikombinat\config.json
 Open the web UI to set your password on first launch.
-🚀 CLITrigger running at http://localhost:3000
+🚀 AIKombinat running at http://localhost:3000
 ```
 
 브라우저에서 `http://localhost:3000` 접속 → 셋업 화면에서 비밀번호를 설정합니다. 외부 공유(Cloudflare 터널)는 셋업이 끝날 때까지 자동 시작되지 않아 첫 사용자가 본인임이 보장됩니다. 이후 비밀번호 변경은 웹 UI의 **설정 → 계정** 탭에서 합니다.
@@ -87,19 +87,19 @@ Open the web UI to set your password on first launch.
 #### 이후 실행
 
 ```bash
-clitrigger
+aikombinat
 ```
 
 #### 설정 변경
 
 ```bash
-clitrigger config                  # 현재 설정 보기
-clitrigger config port 8080        # 포트 변경
-clitrigger config tunnel on        # Cloudflare 터널 활성화
-clitrigger config tunnel hostname app.example.com  # 커스텀 도메인 라우팅
-clitrigger config path             # 설정 디렉토리 경로 확인
-clitrigger config clear            # 설정/DB 전체 삭제 (~/.clitrigger/)
-clitrigger --help                  # 도움말
+aikombinat config                  # 현재 설정 보기
+aikombinat config port 8080        # 포트 변경
+aikombinat config tunnel on        # Cloudflare 터널 활성화
+aikombinat config tunnel hostname app.example.com  # 커스텀 도메인 라우팅
+aikombinat config path             # 설정 디렉토리 경로 확인
+aikombinat config clear            # 설정/DB 전체 삭제 (~/.aikombinat/)
+aikombinat --help                  # 도움말
 
 # 비밀번호는 이제 웹 UI에서만 관리합니다 (설정 → 계정 탭).
 ```
@@ -108,8 +108,8 @@ clitrigger --help                  # 도움말
 
 | 파일 | 경로 |
 |------|------|
-| 설정 | `~/.clitrigger/config.json` |
-| DB | `~/.clitrigger/clitrigger.db` |
+| 설정 | `~/.aikombinat/config.json` |
+| DB | `~/.aikombinat/aikombinat.db` |
 | 워크트리 | 각 프로젝트 폴더 안 `.worktrees/` |
 | 디버그 로그 | 각 프로젝트 폴더 안 `.debug-logs/` |
 
@@ -120,8 +120,8 @@ clitrigger --help                  # 도움말
 #### 1단계: 프로젝트 설치
 
 ```bash
-git clone https://github.com/OSgoodYZ/CLITrigger.git
-cd CLITrigger
+git clone https://github.com/OSgoodYZ/AIKombinat.git
+cd AIKombinat
 
 # 서버 의존성 설치
 npm install
@@ -210,7 +210,7 @@ npm run start:tunnel
 
 서버 시작 시 콘솔에 외부 접속 URL이 출력됨:
 ```
-CLITrigger server running on http://localhost:3000
+AIKombinat server running on http://localhost:3000
 Cloudflare Tunnel URL: https://xxxx-xxxx.trycloudflare.com
 ```
 
@@ -297,7 +297,7 @@ Cloudflare Tunnel URL: https://xxxx-xxxx.trycloudflare.com
 
 #### 워크트리 생성 시 `npm install` 자동 실행 (opt-in)
 
-워크트리 격리 하위 옵션으로 **npm install 자동 실행** 체크박스가 있습니다. 기본값은 **OFF** — CLITrigger는 언어 불문 오케스트레이터이므로 `package.json`이 있다는 이유만으로 설치를 돌리지 않습니다.
+워크트리 격리 하위 옵션으로 **npm install 자동 실행** 체크박스가 있습니다. 기본값은 **OFF** — AIKombinat는 언어 불문 오케스트레이터이므로 `package.json`이 있다는 이유만으로 설치를 돌리지 않습니다.
 
 | 설정 | 동작 |
 |------|------|
@@ -357,7 +357,7 @@ git 저장소 프로젝트에서는 TODO 추가/수정 시 **워크트리 설정
 
 ### 10. 통합 플러그인 시스템
 
-CLITrigger의 외부 서비스 연동(Notion, GitHub, Jira)과 실행 훅(gstack 스킬)은 **플러그인 아키텍처**로 구현되어 있습니다.
+AIKombinat의 외부 서비스 연동(Notion, GitHub, Jira)과 실행 훅(gstack 스킬)은 **플러그인 아키텍처**로 구현되어 있습니다.
 
 #### 플러그인 구조
 
@@ -386,7 +386,7 @@ CLITrigger의 외부 서비스 연동(Notion, GitHub, Jira)과 실행 훅(gstack
 
 ### 11. Notion 연동 (선택)
 
-Notion 데이터베이스를 CLITrigger 프로젝트에 연결하면, Notion에 작성한 피쳐 기획서나 버그 리포트를 바로 AI 태스크로 Import할 수 있습니다.
+Notion 데이터베이스를 AIKombinat 프로젝트에 연결하면, Notion에 작성한 피쳐 기획서나 버그 리포트를 바로 AI 태스크로 Import할 수 있습니다.
 
 #### 사전 준비
 
@@ -411,14 +411,14 @@ Notion 데이터베이스를 CLITrigger 프로젝트에 연결하면, Notion에 
 2. Notion 데이터베이스의 페이지 목록이 표시됨
 3. **검색**: 페이지 제목으로 검색
 4. **상세 보기**: 페이지 클릭 → 블록 콘텐츠 확인
-5. **Import**: 페이지의 **Import** 버튼 클릭 → 제목과 본문이 자동 추출되어 CLITrigger 태스크로 생성
+5. **Import**: 페이지의 **Import** 버튼 클릭 → 제목과 본문이 자동 추출되어 AIKombinat 태스크로 생성
 6. **생성**: Notion 데이터베이스에 새 페이지 추가도 가능
 
 #### 워크플로우 예시
 
 ```
 Notion에 피쳐 기획서 작성
-  → CLITrigger Notion 탭에서 Import
+  → AIKombinat Notion 탭에서 Import
     → AI(Claude/Antigravity)가 기획서 기반으로 자동 구현
       → 결과 확인 후 Merge
 ```
@@ -429,7 +429,7 @@ Notion에 피쳐 기획서 작성
 
 ### 12. GitHub Issues 연동 (선택)
 
-GitHub 레포지토리의 이슈를 CLITrigger에서 직접 조회하고, AI 태스크로 Import할 수 있습니다.
+GitHub 레포지토리의 이슈를 AIKombinat에서 직접 조회하고, AI 태스크로 Import할 수 있습니다.
 
 #### 사전 준비
 
@@ -443,7 +443,7 @@ GitHub 레포지토리의 이슈를 CLITrigger에서 직접 조회하고, AI 태
 2. **GitHub** 섹션에서 토글 ON
 3. **Token** 입력 (Personal Access Token)
 4. **Owner** 입력 (예: `OSgoodYZ`)
-5. **Repo** 입력 (예: `CLITrigger`)
+5. **Repo** 입력 (예: `AIKombinat`)
 6. **Test Connection** 클릭하여 연결 확인
 7. 저장
 
@@ -452,7 +452,7 @@ GitHub 레포지토리의 이슈를 CLITrigger에서 직접 조회하고, AI 태
 1. 프로젝트 상세 페이지에서 **GitHub** 탭 진입
 2. 이슈 목록 표시 (open/closed 필터, 라벨 필터, 검색)
 3. **상세 보기**: 이슈 클릭 → 본문 + 코멘트 확인
-4. **Import**: 이슈의 **Import** 버튼 클릭 → 제목과 본문이 CLITrigger 태스크로 생성
+4. **Import**: 이슈의 **Import** 버튼 클릭 → 제목과 본문이 AIKombinat 태스크로 생성
 5. **이슈 생성**: GitHub 레포에 새 이슈 추가도 가능
 6. **코멘트**: 이슈에 코멘트 작성 가능
 
@@ -528,7 +528,7 @@ GitHub 레포지토리의 이슈를 CLITrigger에서 직접 조회하고, AI 태
 
 ### 14. Favorites (즐겨찾기 런처)
 
-자주 사용하는 외부 도구(실행파일, 셸 명령, URL/폴더)를 등록하여 프로젝트 상관없이 사이드바에서 한 번의 클릭으로 실행합니다. OS 셸로 매번 전환할 필요 없이 CLITrigger UI 내에서 환경 설정이나 외부 도구를 바로 띄울 수 있습니다.
+자주 사용하는 외부 도구(실행파일, 셸 명령, URL/폴더)를 등록하여 프로젝트 상관없이 사이드바에서 한 번의 클릭으로 실행합니다. OS 셸로 매번 전환할 필요 없이 AIKombinat UI 내에서 환경 설정이나 외부 도구를 바로 띄울 수 있습니다.
 
 #### 등록
 
@@ -752,12 +752,12 @@ TODO 실행 시 **Verbose** 옵션을 활성화하면 Claude CLI의 모든 로�
 
 ### 27. Hecaton 플러그인 (선택)
 
-[Hecaton](https://github.com/nickthecook/hecaton) 터미널 멀티플렉서에서 CLITrigger를 TUI 대시보드로 사용할 수 있습니다. 웹 브라우저 없이 터미널 안에서 프로젝트/태스크 관리와 실시간 로그 확인이 가능합니다.
+[Hecaton](https://github.com/nickthecook/hecaton) 터미널 멀티플렉서에서 AIKombinat를 TUI 대시보드로 사용할 수 있습니다. 웹 브라우저 없이 터미널 안에서 프로젝트/태스크 관리와 실시간 로그 확인이 가능합니다.
 
 #### 아키텍처
 
 플러그인은 **사이드카 모드**로 동작합니다:
-1. 별도로 실행 중인 CLITrigger 서버(`npm run start`)에 HTTP로 연결
+1. 별도로 실행 중인 AIKombinat 서버(`npm run start`)에 HTTP로 연결
 2. Hecaton 터미널 셀에 ANSI TUI를 렌더링
 3. WebSocket 대신 5초 폴링으로 상태 동기화 (Deno 호환)
 
@@ -768,21 +768,21 @@ TODO 실행 시 **Verbose** 옵션을 활성화하면 Claude CLI의 모든 로�
 scripts\build-plugin.bat
 ```
 
-빌드 결과물: `clitrigger-plugin.zip`
+빌드 결과물: `aikombinat-plugin.zip`
 
 #### 설치
 
-1. `clitrigger-plugin.zip` 압축 해제
+1. `aikombinat-plugin.zip` 압축 해제
 2. 플러그인 디렉토리에 복사:
-   - **Windows**: `%LOCALAPPDATA%\.hecaton\plugins\clitrigger\`
-   - **macOS**: `~/Library/Application Support/.hecaton/plugins/clitrigger/`
-   - **Linux**: `~/.local/share/.hecaton/plugins/clitrigger/`
+   - **Windows**: `%LOCALAPPDATA%\.hecaton\plugins\aikombinat\`
+   - **macOS**: `~/Library/Application Support/.hecaton/plugins/aikombinat/`
+   - **Linux**: `~/.local/share/.hecaton/plugins/aikombinat/`
 3. Hecaton 재시작
-4. 탭 메뉴에서 CLITrigger 플러그인 열기
+4. 탭 메뉴에서 AIKombinat 플러그인 열기
 
 #### 사전 조건
 
-- CLITrigger 서버가 **먼저 실행** 중이어야 합니다 (`npm run start`)
+- AIKombinat 서버가 **먼저 실행** 중이어야 합니다 (`npm run start`)
 - 플러그인은 `http://127.0.0.1:3000`에 연결을 시도합니다
 
 #### 키 바인딩
@@ -935,7 +935,7 @@ todo / discussion 폼의 **위키 주입 (Wiki Injection)** 섹션에서 선택:
 
 #### 원본 md 파일 동시 주입 (Raw markdown injection)
 
-위와 별개로, 인제스트 시 보존된 원본 md 파일(`.clitrigger/raw/*.md`)을 **큐레이트 노드와 병렬로** 함께 주입할 수 있습니다 (todo/discussion/session 폼의 "원본 md 파일" 섹션). 노드 큐레이션이 압축/요약 과정에서 떨어뜨린 디테일이 필요할 때 원본을 그대로 모델에 전달하는 용도. mode가 `None`이어도 raw 파일이 선택되어 있으면 주입이 발동합니다 (모드와 직교). 파일당 50KB cap, `<raw_source_files>` 블록으로 wrap, `.clitrigger/raw/` 외부 경로는 차단.
+위와 별개로, 인제스트 시 보존된 원본 md 파일(`.aikombinat/raw/*.md`)을 **큐레이트 노드와 병렬로** 함께 주입할 수 있습니다 (todo/discussion/session 폼의 "원본 md 파일" 섹션). 노드 큐레이션이 압축/요약 과정에서 떨어뜨린 디테일이 필요할 때 원본을 그대로 모델에 전달하는 용도. mode가 `None`이어도 raw 파일이 선택되어 있으면 주입이 발동합니다 (모드와 직교). 파일당 50KB cap, `<raw_source_files>` 블록으로 wrap, `.aikombinat/raw/` 외부 경로는 차단.
 
 #### 동작 방식
 
@@ -947,7 +947,7 @@ todo / discussion 폼의 **위키 주입 (Wiki Injection)** 섹션에서 선택:
 
 #### 디스크 익스포트 (Markdown)
 
-위키를 git/Obsidian에 커밋 가능한 형태로 살릴 수 있습니다. **Export** 버튼을 누르면 DB → `.clitrigger/wiki/<entity>/<slug>.md`로 일방향 익스포트 (YAML frontmatter — id, tags, edges, source_path 포함). 외부에서 디스크 변경 시 **Disk diff**로 변경 파일을 surface, **Rebuild**로 DB→디스크 덮어쓰기. (양방향 sync 아님 — truth source는 DB)
+위키를 git/Obsidian에 커밋 가능한 형태로 살릴 수 있습니다. **Export** 버튼을 누르면 DB → `.aikombinat/wiki/<entity>/<slug>.md`로 일방향 익스포트 (YAML frontmatter — id, tags, edges, source_path 포함). 외부에서 디스크 변경 시 **Disk diff**로 변경 파일을 surface, **Rebuild**로 DB→디스크 덮어쓰기. (양방향 sync 아님 — truth source는 DB)
 
 #### System 노드
 
@@ -1232,7 +1232,7 @@ npm install -g @anthropic-ai/claude-code
 공유 도메인에 대한 도메인 평판 경고입니다 (Safe Browsing/SmartScreen). Named Tunnel을 사용자 본인 도메인으로 라우팅하면 해당 도메인의 평판으로 표시됩니다.
 
 1. 사이드바 ⚙ 아이콘 → Tunnel 설정 모달 열기
-2. Tunnel Name + Custom Hostname 입력 후 저장 (또는 `clitrigger config tunnel hostname app.your-domain.com`)
+2. Tunnel Name + Custom Hostname 입력 후 저장 (또는 `aikombinat config tunnel hostname app.your-domain.com`)
 3. 별도 터미널에서 한 번만 실행: `cloudflared tunnel route dns <tunnel-name> <hostname>`
 4. 터널 재시작 — 표시 URL이 `https://<hostname>`로 바뀜
 
@@ -1340,10 +1340,10 @@ git worktree prune   # 깨진 worktree 정리
 | POST | /api/projects/:id/memory/raw-files/open | 원본 파일 열기/reveal |
 | DELETE | /api/projects/:id/memory/raw-files | 원본 파일 삭제 (derived 노드 source_path만 unlink, 노드 본문 보존) |
 | POST | /api/memory/nodes/:keepId/merge | 두 항목 병합 (edge redirect + wikilink rewrite + tag union) |
-| POST | /api/projects/:id/memory/assets | 위키 본문 이미지 업로드 (`.clitrigger/wiki-assets/`) |
+| POST | /api/projects/:id/memory/assets | 위키 본문 이미지 업로드 (`.aikombinat/wiki-assets/`) |
 | GET | /api/projects/:id/memory/assets/:filename | 위키 자산(이미지) serve |
-| GET | /api/projects/:id/memory/disk-diff | DB ↔ `.clitrigger/wiki/` 디스크 변경 비교 |
-| POST | /api/projects/:id/memory/export | DB → `.clitrigger/wiki/<entity>/<slug>.md` 일방향 익스포트 |
+| GET | /api/projects/:id/memory/disk-diff | DB ↔ `.aikombinat/wiki/` 디스크 변경 비교 |
+| POST | /api/projects/:id/memory/export | DB → `.aikombinat/wiki/<entity>/<slug>.md` 일방향 익스포트 |
 | GET | /api/projects/:id/memory/logs | Activity 로그 조회 (ingest/lint/retrieve/merge 이벤트, 필터 + severity) |
 | GET | /api/projects/:id/vault/files | Vault `.md` 파일 스캔 (재귀, frontmatter + wikilink 파싱) |
 | GET | /api/projects/:id/vault/graph | Vault wikilink 그래프 (노드 + 엣지) |

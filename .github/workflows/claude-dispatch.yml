@@ -56,7 +56,7 @@ jobs:
       - name: Run Claude Code
         run: |
           claude --print --dangerously-skip-permissions <<'PROMPT'
-          You are working on CLITrigger — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
+          You are working on AIKombinat — a Node.js monorepo (server + React client) that orchestrates CLI AI tools (Claude, Gemini, Codex).
 
           ## Project structure
           - Server: src/server/ (Express + better-sqlite3 + WebSocket)

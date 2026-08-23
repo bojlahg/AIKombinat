@@ -4,7 +4,7 @@ import * as queries from '../db/queries.js';
 import type { MemoryNode, MemoryEdge } from '../db/queries.js';
 import { regenerateIndexNode, WIKI_INDEX_TAG } from './wiki-index.js';
 
-const WIKI_DIR_NAME = '.clitrigger';
+const WIKI_DIR_NAME = '.aikombinat';
 const WIKI_SUBDIR = 'wiki';
 const WIKI_SCHEMA_TAG = '__wiki_schema__';
 const UNTAGGED_BUCKET = '_untagged';
@@ -198,13 +198,13 @@ function writeReadme(baseDir: string): void {
   const content = `# Project Wiki (auto-generated)
 
 This directory is a one-way Markdown mirror of the wiki nodes stored in
-CLITrigger's database. The application regenerates these files whenever
+AIKombinat's database. The application regenerates these files whenever
 wiki content changes — **edits made directly to files here are
 overwritten on the next sync.**
 
 To track this directory in git, ensure your \`.gitignore\` ignores only
-\`.clitrigger/raw/\` (the raw source snapshots) rather than the entire
-\`.clitrigger/\` directory.
+\`.aikombinat/raw/\` (the raw source snapshots) rather than the entire
+\`.aikombinat/\` directory.
 
 Layout:
 - \`<entity-type>/<slug>.md\` — one file per wiki node, grouped by first tag
@@ -318,7 +318,7 @@ export interface DiskDiffEntry {
 }
 
 /**
- * Read-only comparison of `<project>/.clitrigger/wiki/` files against what
+ * Read-only comparison of `<project>/.aikombinat/wiki/` (or legacy `.clitrigger/wiki/`) files against what
  * `exportProjectWikiSync` would currently emit. Used by the "Check for disk
  * changes" UI so users can spot edits made in Obsidian (or anything else)
  * without committing to a bidirectional sync that risks losing in-flight
@@ -327,8 +327,15 @@ export interface DiskDiffEntry {
 export function diffProjectWikiSync(projectId: string): DiskDiffEntry[] | null {
   const project = queries.getProjectById(projectId);
   if (!project || !project.path) return null;
-  const baseDir = path.join(project.path, WIKI_DIR_NAME, WIKI_SUBDIR);
-  if (!fs.existsSync(baseDir)) return [];
+  let baseDir = path.join(project.path, WIKI_DIR_NAME, WIKI_SUBDIR);
+  if (!fs.existsSync(baseDir)) {
+    const legacyDir = path.join(project.path, '.clitrigger', WIKI_SUBDIR);
+    if (fs.existsSync(legacyDir)) {
+      baseDir = legacyDir;
+    } else {
+      return [];
+    }
+  }
 
   // Refresh the index so it doesn't show as "modified" just because we haven't
   // exported recently. This is read-only as far as the disk is concerned.

@@ -7,7 +7,7 @@ export interface MemoryInjectionContext {
   projectId: string;
   mode: MemoryInjectMode;
   nodeIds: string[];
-  /** Raw markdown source files (relative paths under .clitrigger/raw) to inject verbatim. */
+  /** Raw markdown source files (relative paths under .aikombinat/raw or .clitrigger/raw) to inject verbatim. */
   rawFilePaths?: string[];
   /** Vault file paths (project-relative .md files) for file-based injection. */
   vaultFilePaths?: string[];

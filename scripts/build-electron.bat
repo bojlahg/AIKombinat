@@ -1,10 +1,10 @@
 @echo off
 setlocal
 chcp 65001 >nul
-title CLITrigger - Build Windows Installer
+title AIKombinat - Build Windows Installer
 cd /d "%~dp0.."
 echo ========================================
-echo   CLITrigger - Build Windows Installer
+echo   AIKombinat - Build Windows Installer
 echo ========================================
 echo.
 

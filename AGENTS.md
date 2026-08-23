@@ -4,7 +4,7 @@ This file is the primary repository contract and guidance for coding agents work
 
 ## Project Overview
 
-CLITrigger is a full-stack app that automates AI-powered task execution. Users write TODO items in a web UI, and the system spawns isolated git worktrees for each task, running Claude/Antigravity/Codex CLI tools in parallel. Built with Express + React + SQLite + WebSocket.
+AIKombinat is a full-stack app that automates AI-powered task execution. Users write TODO items in a web UI, and the system spawns isolated git worktrees for each task, running Claude/Antigravity/Codex CLI tools in parallel. Built with Express + React + SQLite + WebSocket.
 
 ## Commands
 
@@ -41,7 +41,7 @@ scripts/build-win.bat          # Windows helper; --skip-install/-s skips npm ci;
 
 - **`src/server/`** — Express backend (TypeScript, ESM). Entry: `src/server/index.ts`. DB: SQLite (`better-sqlite3`, WAL) in `src/server/db/`. Services in `src/server/services/`, routes in `src/server/routes/`, plugins in `src/server/plugins/`.
 - **`src/client/`** — React frontend (Vite + TailwindCSS). Separate `package.json`. Entry: `src/client/src/main.tsx` → `App.tsx`.
-- **`bin/clitrigger.js`** — npm CLI entry.
+- **`bin/aikombinat.js`** — npm CLI entry (`bin/clitrigger.js` compatibility wrapper).
 - **`plugin/`** — Hecaton TUI plugin (CommonJS, Deno-compatible).
 
 ## Key Patterns & Gotchas
@@ -71,7 +71,7 @@ Checklist:
 
 ## Environment
 
-Config via `.env` (see `.env.example`), `~/.clitrigger/config.json`, or Electron `userData/config.json`.
+Config via `.env` (see `.env.example`), `~/.aikombinat/config.json` (or legacy `~/.clitrigger/config.json`), or Electron `userData/config.json`.
 Key vars: `PORT` (default 3000), `DB_PATH`, `TUNNEL_ENABLED`, `HEADLESS`, `DISABLE_AUTH`.
 
 ## Language

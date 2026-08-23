@@ -73,7 +73,7 @@ export interface PopoutBus {
   close: () => void;
 }
 
-const CHANNEL_NAME = 'clitrigger:session-windows:global';
+const CHANNEL_NAME = 'aikombinat:session-windows:global';
 
 export function openBus(): PopoutBus {
   // BroadcastChannel is supported in all modern browsers and Electron 5+;
@@ -201,7 +201,7 @@ export function isClientPointInWindow(p: { x: number; y: number }): boolean {
 // timed-out popout: if the lock is still held, the popout is alive (just
 // throttled) and we skip the reclaim. Same-origin windows share the lock
 // namespace, so main and its popouts see each other's locks.
-const LOCK_PREFIX = 'clitrigger:popout-alive:';
+const LOCK_PREFIX = 'aikombinat:popout-alive:';
 
 export function popoutLockName(popoutId: string): string {
   return `${LOCK_PREFIX}${popoutId}`;

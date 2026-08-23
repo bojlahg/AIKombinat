@@ -9,7 +9,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 // blurWebView()→focus() cycle — a blur-less focus() can't rebind a TSF context
 // stranded on an already-focused window (see main's ime:reset handler).
 // `imeLog` forwards renderer-side IME diagnostics to the main process, which
-// appends them to userData/ime-debug.log — but only when CLITRIGGER_IME_DEBUG
+// appends them to userData/ime-debug.log — but only when AIKOMBINAT_IME_DEBUG (or CLITRIGGER_IME_DEBUG)
 // is set. The packaged exe has no visible console, and opening DevTools masks
 // the occlusion bug (an un-occluded window never reproduces it), so a file log
 // is the only way to observe compositionstart state during a real repro.

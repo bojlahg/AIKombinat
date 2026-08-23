@@ -31,7 +31,7 @@ export class TunnelManager extends EventEmitter {
     const installed = await this.isCloudflaredInstalled();
     if (!installed) {
       throw new Error(
-        'cloudflared binary not found. Try reinstalling clitrigger: npm i -g clitrigger'
+        'cloudflared binary not found. Try reinstalling aikombinat: npm i -g aikombinat'
       );
     }
 
@@ -133,7 +133,7 @@ export class TunnelManager extends EventEmitter {
     const installed = await this.isCloudflaredInstalled();
     if (!installed) {
       throw new Error(
-        'cloudflared binary not found. Try reinstalling clitrigger: npm i -g clitrigger'
+        'cloudflared binary not found. Try reinstalling aikombinat: npm i -g aikombinat'
       );
     }
 
@@ -310,7 +310,7 @@ export class TunnelManager extends EventEmitter {
    * Priority: 1) npm cloudflared package binary, 2) system PATH, 3) known Windows paths.
    */
   async isCloudflaredInstalled(): Promise<boolean> {
-    // 1) Try npm cloudflared package binary (bundled with clitrigger)
+    // 1) Try npm cloudflared package binary (bundled with aikombinat)
     if (existsSync(cloudflaredBin)) {
       const works = await new Promise<boolean>((resolve) => {
         execFile(cloudflaredBin, ['--version'], (error) => {

@@ -3,7 +3,7 @@ import { useI18n } from '../../i18n';
 import { useToast } from '../../hooks/useToast';
 
 function initialParticlesEnabled() {
-  const saved = localStorage.getItem('clitrigger-home-particles');
+  const saved = localStorage.getItem('aikombinat-home-particles') ?? localStorage.getItem('clitrigger-home-particles');
   if (saved !== null) return saved === 'on';
   return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
@@ -28,7 +28,7 @@ export default function GeneralSettingsPanel() {
 
   const toggleParticles = (enabled: boolean) => {
     setParticles(enabled);
-    localStorage.setItem('clitrigger-home-particles', enabled ? 'on' : 'off');
+    localStorage.setItem('aikombinat-home-particles', enabled ? 'on' : 'off');
     window.dispatchEvent(new CustomEvent('home-particles:changed', { detail: enabled }));
   };
 

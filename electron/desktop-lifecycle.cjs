@@ -17,6 +17,13 @@ function linuxAutostartFile(configHome, homeDir) {
   const configDir = configHome && path.posix.isAbsolute(configHome)
     ? configHome
     : path.posix.join(homeDir, '.config');
+  return path.posix.join(configDir, 'autostart', 'aikombinat.desktop');
+}
+
+function legacyLinuxAutostartFile(configHome, homeDir) {
+  const configDir = configHome && path.posix.isAbsolute(configHome)
+    ? configHome
+    : path.posix.join(homeDir, '.config');
   return path.posix.join(configDir, 'autostart', 'clitrigger.desktop');
 }
 
@@ -33,7 +40,7 @@ function buildLinuxAutostartEntry(executablePath) {
   return [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=CLITrigger',
+    'Name=AIKombinat',
     `Exec=${quoteDesktopExecPath(executablePath)}`,
     'Terminal=false',
     'X-GNOME-Autostart-enabled=true',
@@ -48,6 +55,7 @@ function linuxAutostartEntryMatches(contents, executablePath) {
 module.exports = {
   buildLinuxAutostartEntry,
   isDesktopPlatform,
+  legacyLinuxAutostartFile,
   linuxAutostartEntryMatches,
   linuxAutostartFile,
   quoteDesktopExecPath,

@@ -22,6 +22,8 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 }
 
+app.setName('AIKombinat');
+
 let mainWindow = null;
 let tray = null;
 let traySupported = false;
@@ -33,22 +35,60 @@ let cleanupStarted = false;
 let updateCheckInFlight = false;
 
 const userDataDir = app.getPath('userData');
+migrateLegacyUserData(userDataDir);
+
+function migrateLegacyUserData(targetDir) {
+  try {
+    const parentDir = path.dirname(targetDir);
+    const legacyCandidates = [
+      path.join(parentDir, 'CLITrigger'),
+      path.join(parentDir, 'clitrigger'),
+    ];
+    for (const legacyDir of legacyCandidates) {
+      if (fs.existsSync(legacyDir) && legacyDir !== targetDir) {
+        fs.mkdirSync(targetDir, { recursive: true });
+        const files = fs.readdirSync(legacyDir);
+        for (const file of files) {
+          const srcPath = path.join(legacyDir, file);
+          let destFile = file;
+          if (file === 'clitrigger.db') destFile = 'aikombinat.db';
+          else if (file === 'clitrigger.db-wal') destFile = 'aikombinat.db-wal';
+          else if (file === 'clitrigger.db-shm') destFile = 'aikombinat.db-shm';
+          const destPath = path.join(targetDir, destFile);
+          if (!fs.existsSync(destPath) && fs.statSync(srcPath).isFile()) {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        }
+      }
+    }
+    const targetDb = path.join(targetDir, 'aikombinat.db');
+    const legacyDbInTarget = path.join(targetDir, 'clitrigger.db');
+    if (!fs.existsSync(targetDb) && fs.existsSync(legacyDbInTarget)) {
+      fs.copyFileSync(legacyDbInTarget, targetDb);
+      if (fs.existsSync(`${legacyDbInTarget}-wal`)) fs.copyFileSync(`${legacyDbInTarget}-wal`, `${targetDb}-wal`);
+      if (fs.existsSync(`${legacyDbInTarget}-shm`)) fs.copyFileSync(`${legacyDbInTarget}-shm`, `${targetDb}-shm`);
+    }
+  } catch {
+    // Non-fatal
+  }
+}
+
 const configFile = path.join(userDataDir, 'config.json');
-const dbPath = path.join(userDataDir, 'clitrigger.db');
+const dbPath = path.join(userDataDir, 'aikombinat.db');
 const migratedFlag = path.join(userDataDir, '.password-migrated');
 
 const trayLabels = {
-  en: { open: 'Open CLITrigger', exit: 'Exit CLITrigger' },
-  ru: { open: 'Открыть CLITrigger', exit: 'Выйти из CLITrigger' },
-  ko: { open: 'CLITrigger 열기', exit: 'CLITrigger 종료' },
+  en: { open: 'Open AIKombinat', exit: 'Exit AIKombinat' },
+  ru: { open: 'Открыть AIKombinat', exit: 'Выйти из AIKombinat' },
+  ko: { open: 'AIKombinat 열기', exit: 'AIKombinat 종료' },
 };
 
 // IME diagnostics — toggleable from Settings ▸ Terminal (the renderer sends
-// ime:set-debug), or seeded from the CLITRIGGER_IME_DEBUG env var. When
+// ime:set-debug), or seeded from the AIKOMBINAT_IME_DEBUG or CLITRIGGER_IME_DEBUG env var. When
 // enabled, JSON lines are appended to userData/ime-debug.log so the packaged
 // exe can be observed without DevTools — opening DevTools un-occludes the
 // window and masks the very occlusion bug this log exists to diagnose.
-let imeDebugEnabled = !!process.env.CLITRIGGER_IME_DEBUG;
+let imeDebugEnabled = !!(process.env.AIKOMBINAT_IME_DEBUG || process.env.CLITRIGGER_IME_DEBUG);
 const imeDebugLogFile = path.join(userDataDir, 'ime-debug.log');
 function imeDebugLog(source, data) {
   if (!imeDebugEnabled) return;
@@ -202,7 +242,7 @@ function createTray() {
   try {
     tray = new Tray(path.join(app.getAppPath(), 'build', trayIconName(process.platform)));
     traySupported = true;
-    tray.setToolTip('CLITrigger');
+    tray.setToolTip('AIKombinat');
     if (process.platform !== 'darwin') tray.on('click', showMainWindow);
     rebuildTrayMenu();
   } catch (err) {
@@ -669,7 +709,7 @@ function setupAutoUpdater() {
         buttons: ['지금 재시작', '나중에'],
         defaultId: 0,
         cancelId: 1,
-        title: 'CLITrigger 업데이트 준비 완료',
+        title: 'AIKombinat 업데이트 준비 완료',
         message: `새 버전 ${info && info.version}이(가) 다운로드되었습니다.`,
         detail: '지금 재시작하면 업데이트가 적용됩니다. 나중에 선택 시 다음 종료 시점에 자동 설치됩니다.',
       })
@@ -794,7 +834,7 @@ if (!gotLock) {
       setupAutoUpdater();
     } catch (err) {
       dialog.showErrorBox(
-        'CLITrigger failed to start',
+        'AIKombinat failed to start',
         String((err && err.stack) || err)
       );
       app.exit(1);

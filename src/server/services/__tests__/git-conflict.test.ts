@@ -33,7 +33,7 @@ function setupConflictingBranches(dir: string, file = 'f.txt'): void {
 let repo: string;
 
 beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'clitrigger-git-conflict-'));
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-git-conflict-'));
   run(repo, 'git init -b main');
   run(repo, 'git config user.name tester');
   run(repo, 'git config user.email tester@example.com');

@@ -738,11 +738,11 @@ function WorkingChangesView({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [fileListPct, setFileListPct] = useState<number>(() => {
     if (typeof window === 'undefined') return 0.55;
-    const raw = window.localStorage.getItem('clitrigger:git:working-pct');
+    const raw = window.localStorage.getItem('aikombinat:git:working-pct') ?? window.localStorage.getItem('clitrigger:git:working-pct');
     const v = raw ? parseFloat(raw) : NaN;
     return isNaN(v) ? 0.55 : Math.max(0.3, Math.min(0.8, v));
   });
-  useEffect(() => { localStorage.setItem('clitrigger:git:working-pct', String(fileListPct)); }, [fileListPct]);
+  useEffect(() => { localStorage.setItem('aikombinat:git:working-pct', String(fileListPct)); }, [fileListPct]);
   const handleHResize = useCallback((clientX: number) => {
     if (!wrapperRef.current) return;
     const rect = wrapperRef.current.getBoundingClientRect();
@@ -1597,9 +1597,9 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function readNumber(key: string, fallback: number, lo: number, hi: number): number {
+function readNumber(key: string, fallback: number, lo: number, hi: number, legacyKey?: string): number {
   if (typeof window === 'undefined') return fallback;
-  const raw = window.localStorage.getItem(key);
+  const raw = window.localStorage.getItem(key) ?? (legacyKey ? window.localStorage.getItem(legacyKey) : null);
   if (!raw) return fallback;
   const v = parseFloat(raw);
   return isNaN(v) ? fallback : clamp(v, lo, hi);
@@ -1664,13 +1664,13 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
   const historyAreaRef = useRef<HTMLDivElement>(null);
   const detailAreaRef = useRef<HTMLDivElement>(null);
 
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readNumber('clitrigger:git:sidebar-w', 224, 180, 480));
-  const [detailHeightPct, setDetailHeightPct] = useState<number>(() => readNumber('clitrigger:git:detail-h-pct', 0.5, 0.2, 0.8));
-  const [detailFileListWidth, setDetailFileListWidth] = useState<number>(() => readNumber('clitrigger:git:detail-fl-w', 240, 160, 500));
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readNumber('aikombinat:git:sidebar-w', 224, 180, 480, 'clitrigger:git:sidebar-w'));
+  const [detailHeightPct, setDetailHeightPct] = useState<number>(() => readNumber('aikombinat:git:detail-h-pct', 0.5, 0.2, 0.8, 'clitrigger:git:detail-h-pct'));
+  const [detailFileListWidth, setDetailFileListWidth] = useState<number>(() => readNumber('aikombinat:git:detail-fl-w', 240, 160, 500, 'clitrigger:git:detail-fl-w'));
 
-  useEffect(() => { localStorage.setItem('clitrigger:git:sidebar-w', String(sidebarWidth)); }, [sidebarWidth]);
-  useEffect(() => { localStorage.setItem('clitrigger:git:detail-h-pct', String(detailHeightPct)); }, [detailHeightPct]);
-  useEffect(() => { localStorage.setItem('clitrigger:git:detail-fl-w', String(detailFileListWidth)); }, [detailFileListWidth]);
+  useEffect(() => { localStorage.setItem('aikombinat:git:sidebar-w', String(sidebarWidth)); }, [sidebarWidth]);
+  useEffect(() => { localStorage.setItem('aikombinat:git:detail-h-pct', String(detailHeightPct)); }, [detailHeightPct]);
+  useEffect(() => { localStorage.setItem('aikombinat:git:detail-fl-w', String(detailFileListWidth)); }, [detailFileListWidth]);
 
   const handleSidebarResize = useCallback((clientX: number) => {
     if (!outerRef.current) return;

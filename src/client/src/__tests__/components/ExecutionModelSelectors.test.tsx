@@ -13,7 +13,7 @@ const catalog = {
 
 describe('shared execution model selectors', () => {
   beforeEach(() => {
-    localStorage.setItem('clitrigger-lang', 'en');
+    localStorage.setItem('aikombinat-lang', 'en');
     vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve({ json: () => Promise.resolve(url === '/api/models' ? catalog : []) })));
   });
 

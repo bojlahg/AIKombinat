@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 echo ========================================
-echo   CLITrigger - Development Mode
+echo   AIKombinat - Development Mode
 echo   Server: http://localhost:3001
 echo   Client: http://localhost:5173
 echo ========================================

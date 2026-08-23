@@ -1440,7 +1440,7 @@ function setupDesktopInput({ container, term, sessionId, sendMessage, isPasteAlr
   // Cell width/height are derived from .xterm-screen's bounding rect to
   // avoid touching xterm's private renderService.
   // Temporary IME diagnostics — forwarded to the Electron main process, which
-  // only persists them when CLITRIGGER_IME_DEBUG is set. Lets us observe the
+  // only persists them when AIKOMBINAT_IME_DEBUG is set. Lets us observe the
   // packaged-exe compositionstart state (which layer fails) without DevTools.
   const imeLog = (reason: string, extra: Record<string, unknown> = {}) => {
     try {

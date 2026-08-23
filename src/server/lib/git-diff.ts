@@ -89,13 +89,13 @@ export async function listDiffFiles(git: ReturnType<typeof createGit>, range: st
 // changed (git-status speed). The final tree is identical either way — `add -A`
 // syncs the index to the full working-tree state regardless of its seed.
 export async function snapshotWorkingTree(gitDir: string): Promise<string | null> {
-  const tmpIndex = nodePath.join(os.tmpdir(), `clitrigger-snap-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}.idx`);
+  const tmpIndex = nodePath.join(os.tmpdir(), `aikombinat-snap-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}.idx`);
   const env = {
     ...process.env,
     GIT_INDEX_FILE: tmpIndex,
     // Ensure commit-tree never fails on a repo lacking a configured identity.
-    GIT_AUTHOR_NAME: 'clitrigger', GIT_AUTHOR_EMAIL: 'clitrigger@local',
-    GIT_COMMITTER_NAME: 'clitrigger', GIT_COMMITTER_EMAIL: 'clitrigger@local',
+    GIT_AUTHOR_NAME: 'aikombinat', GIT_AUTHOR_EMAIL: 'aikombinat@local',
+    GIT_COMMITTER_NAME: 'aikombinat', GIT_COMMITTER_EMAIL: 'aikombinat@local',
   };
   const opts = { cwd: gitDir, env, encoding: 'utf8' as const, maxBuffer: 64 * 1024 * 1024 };
   const git = async (args: string[]) => (await execFileAsync('git', args, opts)).stdout.trim();
@@ -120,7 +120,7 @@ export async function snapshotWorkingTree(gitDir: string): Promise<string | null
     // The per-entry stat cache still applies, so unchanged files aren't re-hashed.
     await git(['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', 'add', '-A']);
     const tree = await git(['write-tree']);
-    const commit = await git(['commit-tree', tree, '-p', 'HEAD', '-m', 'clitrigger session snapshot']);
+    const commit = await git(['commit-tree', tree, '-p', 'HEAD', '-m', 'aikombinat session snapshot']);
     return commit || null;
   } catch {
     return null;
