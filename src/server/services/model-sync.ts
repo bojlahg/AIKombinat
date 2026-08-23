@@ -30,6 +30,14 @@ export interface ModelDiscoveryResult {
   markedMissing?: number;
 }
 
+const CLAUDE_NATIVE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+export const DOCUMENTED_CLAUDE_MODELS: DiscoveredModel[] = [
+  { value: 'claude-fable-5', label: 'Claude Fable 5', supportedEfforts: CLAUDE_NATIVE_EFFORTS },
+  { value: 'claude-opus-5', label: 'Claude Opus 5', supportedEfforts: CLAUDE_NATIVE_EFFORTS },
+  { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', supportedEfforts: CLAUDE_NATIVE_EFFORTS },
+];
+
 function execText(command: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(command, args, {
@@ -80,7 +88,7 @@ function parseModelObjects(raw: unknown): DiscoveredModel[] {
 export function parseAntigravityModels(output: string): DiscoveredModel[] {
   try {
     const parsed = parseModelObjects(JSON.parse(output));
-    if (parsed.length > 0) return parsed.map((model) => ({ ...model, supportedEfforts: model.supportedEfforts ?? ['low', 'medium', 'high'] }));
+    if (parsed.length > 0) return parsed;
   } catch { /* parse text table below */ }
   const ignored = /^(available|models?|name|slug|default|[-=]+)$/i;
   const values = new Map<string, DiscoveredModel>();
@@ -89,20 +97,52 @@ export function parseAntigravityModels(output: string): DiscoveredModel[] {
     if (!line) continue;
     const value = line.split(/\s{2,}|\t/)[0].trim();
     if (!value || ignored.test(value) || !/^[a-z0-9][a-z0-9._:/-]+$/i.test(value)) continue;
-    values.set(value, { value, label: value, supportedEfforts: ['low', 'medium', 'high'] });
+    values.set(value, { value, label: value, supportedEfforts: null });
   }
   return [...values.values()];
+}
+
+export function parseAntigravityStructuredModels(output: string): DiscoveredModel[] | null {
+  try {
+    const payload = JSON.parse(output);
+    const models = parseModelObjects(payload);
+    return models.length > 0 ? models : null;
+  } catch {
+    return null;
+  }
+}
+
+function mergeAntigravityEfforts(models: DiscoveredModel[], output: string | null): DiscoveredModel[] {
+  if (output === null) return models;
+  const capabilities = parseAntigravityStructuredModels(output);
+  if (!capabilities) return models;
+  const byValue = new Map(capabilities.filter((model) => model.supportedEfforts).map((model) => [model.value, model.supportedEfforts]));
+  return models.map((model) => ({ ...model, supportedEfforts: model.supportedEfforts ?? byValue.get(model.value) ?? null }));
 }
 
 export function parseCodexModelList(payload: unknown): DiscoveredModel[] {
   return parseModelObjects(payload);
 }
 
-async function discoverAntigravity(): Promise<ModelDiscoveryResult | null> {
-  const output = await execText('agy', ['models']);
-  if (output === null) return null;
-  const models = parseAntigravityModels(output);
-  return { models, source: 'antigravity-models', authoritative: models.length > 0, primarySucceeded: models.length > 0 };
+export async function discoverAntigravity(run = execText): Promise<ModelDiscoveryResult | null> {
+  const jsonModelsOutput = await run('agy', ['models', '--output-format', 'json']);
+  const jsonModels = jsonModelsOutput === null ? null : parseAntigravityStructuredModels(jsonModelsOutput);
+  if (jsonModels) {
+    const effortsOutput = await run('agy', ['-p', '/effort', '--output-format', 'json']);
+    return { models: mergeAntigravityEfforts(jsonModels, effortsOutput), source: 'antigravity-models-json', authoritative: true, primarySucceeded: true };
+  }
+
+  const modelCommandOutput = await run('agy', ['-p', '/model', '--output-format', 'json']);
+  const modelCommandModels = modelCommandOutput === null ? null : parseAntigravityStructuredModels(modelCommandOutput);
+  if (modelCommandModels) {
+    const effortsOutput = await run('agy', ['-p', '/effort', '--output-format', 'json']);
+    return { models: mergeAntigravityEfforts(modelCommandModels, effortsOutput), source: 'antigravity-model-command', authoritative: true, primarySucceeded: true };
+  }
+
+  const textOutput = await run('agy', ['models']);
+  if (textOutput === null) return null;
+  const models = parseAntigravityModels(textOutput);
+  return { models, source: 'antigravity-models', authoritative: false, primarySucceeded: models.length > 0 };
 }
 
 async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
@@ -155,11 +195,10 @@ function readCodexCache(): DiscoveredModel[] {
 }
 
 async function discoverClaude(version: string): Promise<ModelDiscoveryResult> {
-  const aliases: DiscoveredModel[] = ['default', 'sonnet', 'opus', 'haiku'].map((value) => ({ value, label: value === 'default' ? 'Default' : `Claude ${value[0].toUpperCase()}${value.slice(1)}` }));
   const weak = await getAdapter('claude').probeModels?.() ?? [];
   const merged = new Map<string, DiscoveredModel>();
-  [...aliases, ...weak].forEach((model) => merged.set(model.value, model));
-  return { models: [...merged.values()], source: weak.length > 0 ? 'claude-help' : 'claude-alias', authoritative: false, primarySucceeded: true };
+  [...DOCUMENTED_CLAUDE_MODELS, ...weak].forEach((model) => merged.set(model.value, model));
+  return { models: [...merged.values()], source: 'claude-documented', authoritative: false, primarySucceeded: true };
 }
 
 export async function discoverModelCatalog(tool: CliTool, version = ''): Promise<ModelDiscoveryResult> {

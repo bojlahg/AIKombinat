@@ -494,7 +494,7 @@ export interface CliModel {
   updated_at: string;
 }
 
-export type ModelSource = 'registry' | 'claude-alias' | 'claude-help' | 'antigravity-models' | 'codex-app-server' | 'codex-cache';
+export type ModelSource = 'registry' | 'claude-alias' | 'claude-help' | 'claude-documented' | 'antigravity-models' | 'antigravity-models-json' | 'antigravity-model-command' | 'codex-app-server' | 'codex-cache';
 
 export function getModelsByTool(tool: string): CliModel[] {
   const db = getDatabase();
@@ -539,6 +539,7 @@ export function updateModel(id: string, updates: { model_label?: string; support
   if (updates.model_label !== undefined) { fields.push('model_label = ?'); values.push(updates.model_label); }
   if (updates.supported_efforts !== undefined) { fields.push('supported_efforts = ?'); values.push(updates.supported_efforts ? JSON.stringify(updates.supported_efforts) : null); }
   if (!fields.length) return getModelById(id);
+  fields.push("source = 'manual'");
   fields.push('updated_at = ?'); values.push(new Date().toISOString(), id);
   db.prepare(`UPDATE cli_models SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   return getModelById(id);
