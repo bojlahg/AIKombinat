@@ -48,9 +48,11 @@ async function main() {
     console.log(`  build/icon.ico exists — skipping (delete to regenerate)`);
   } else {
     const { default: pngToIco } = await import('png-to-ico');
+    const sourceBuf = fs.existsSync(OUT_PNG) ? fs.readFileSync(OUT_PNG) : svgBuf;
+    const isPngSource = fs.existsSync(OUT_PNG);
     const buffers = await Promise.all(
       ICO_SIZES.map((size) =>
-        sharp(svgBuf, { density: Math.max(96, size * 4) })
+        sharp(sourceBuf, isPngSource ? {} : { density: Math.max(96, size * 4) })
           .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .png()
           .toBuffer()
