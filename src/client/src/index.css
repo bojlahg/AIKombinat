@@ -322,6 +322,9 @@
     --tw-ring-color: transparent;
     transform: translateY(-1px);
   }
+  select.input-field:focus {
+    transform: none;
+  }
   [data-theme="dark"] .input-field:focus {
     box-shadow: 0 0 0 3px var(--color-selection-bg), 0 0 12px -2px rgba(75, 141, 255, 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.1);
   }

@@ -77,6 +77,7 @@ export function initDatabase(db: Database.Database): void {
       model_value TEXT NOT NULL,
       model_label TEXT NOT NULL,
       supported_efforts TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing')),
       source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('cli', 'manual')),
       last_seen_at DATETIME,
@@ -460,6 +461,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'sessions', column: 'execution_snapshot', definition: 'TEXT' },
     { table: 'sessions', column: 'cli_effort', definition: 'TEXT' },
     { table: 'cli_models', column: 'supported_efforts', definition: 'TEXT' },
+    { table: 'cli_models', column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'cli_models', column: 'status', definition: "TEXT NOT NULL DEFAULT 'available'" },
     { table: 'cli_models', column: 'source', definition: "TEXT NOT NULL DEFAULT 'cli'" },
     { table: 'cli_models', column: 'last_seen_at', definition: 'DATETIME' },
@@ -544,7 +546,7 @@ export function initDatabase(db: Database.Database): void {
     ['schedules', 'effort_level'], ['schedules', 'agent_profile_id'],
     ['sessions', 'effort_level'], ['sessions', 'agent_profile_id'],
     ['discussion_agents', 'effort_level'], ['discussion_agents', 'agent_profile_id'],
-    ['cli_models', 'sort_order'], ['cli_models', 'is_default'], ['cli_models', 'deprecated'],
+    ['cli_models', 'is_default'], ['cli_models', 'deprecated'],
     ['cli_models', 'last_verified_at'], ['cli_models', 'availability_status'],
   ] as const) dropColumnIfPresent(db, table, column);
   db.exec(`DELETE FROM execution_profile_executors

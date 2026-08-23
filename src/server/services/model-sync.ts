@@ -28,6 +28,22 @@ export interface ModelDiscoveryResult {
   updated?: number;
   restored?: number;
   markedMissing?: number;
+  diagnostics?: DiscoveryDiagnostic[];
+}
+
+export interface DiscoveryDiagnostic {
+  command: string;
+  exitCode: number | null;
+  stdoutLength: number;
+  stderr: string;
+  parsedModelCount: number;
+  source: ModelSource;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
 }
 
 const CLAUDE_BASE_EFFORTS = ['low', 'medium', 'high'];
@@ -47,17 +63,35 @@ export const DOCUMENTED_CLAUDE_MODELS: DiscoveredModel[] = [
   { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', supportedEfforts: null },
 ];
 
-function execText(command: string, args: string[]): Promise<string | null> {
+function execCommand(command: string, args: string[]): Promise<CommandResult> {
   return new Promise((resolve) => {
     execFile(command, args, {
       timeout: DISCOVERY_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
       ...(process.platform === 'win32' ? { shell: true } : {}),
     }, (error, stdout, stderr) => {
-      if (error && !stdout) resolve(null);
-      else resolve(`${stdout ?? ''}\n${stderr ?? ''}`.trim());
+      const code = error && 'code' in error && typeof error.code === 'number' ? error.code : error ? null : 0;
+      resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode: code });
     });
   });
+}
+
+function stripTerminalSequences(value: string): string {
+  return value
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, '')
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F]/g, '');
+}
+
+function safeDiagnosticStderr(value: string): string {
+  return stripTerminalSequences(value)
+    .replace(/(api[_-]?key|authorization|token|password)\s*[:=]\s*\S+/gi, '$1=[redacted]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .trim().slice(0, 1000);
+}
+
+function diagnostic(command: string, result: CommandResult, parsedModelCount: number, source: ModelSource): DiscoveryDiagnostic {
+  return { command, exitCode: result.exitCode, stdoutLength: result.stdout.length, stderr: safeDiagnosticStderr(result.stderr), parsedModelCount, source };
 }
 
 function effortValues(raw: unknown): string[] | null {
@@ -95,26 +129,26 @@ function parseModelObjects(raw: unknown): DiscoveredModel[] {
 }
 
 export function parseAntigravityModels(output: string): DiscoveredModel[] {
-  try {
-    const parsed = parseModelObjects(JSON.parse(output));
-    if (parsed.length > 0) return parsed;
-  } catch { /* parse text table below */ }
   const ignored = /^(available|models?|name|slug|default|[-=]+)$/i;
   const values = new Map<string, DiscoveredModel>();
-  for (const rawLine of output.split(/\r?\n/)) {
+  for (const rawLine of stripTerminalSequences(output).split(/\r?\n/)) {
     const line = rawLine.replace(/^[*✓>\s]+/, '').trim();
     if (!line) continue;
-    const value = line.split(/\s{2,}|\t/)[0].trim();
-    if (!value || ignored.test(value) || !/^[a-z0-9][a-z0-9._:/-]+$/i.test(value)) continue;
-    values.set(value, { value, label: value, supportedEfforts: null });
+    const match = line.match(/^([a-z0-9][a-z0-9._:/-]+)\s+(.+)$/i);
+    if (!match || ignored.test(match[1])) continue;
+    const value = match[1].trim();
+    const label = match[2].trim();
+    if (!label) continue;
+    values.set(value, { value, label, supportedEfforts: null });
   }
   return [...values.values()];
 }
 
-export function parseAntigravityStructuredModels(output: string): DiscoveredModel[] | null {
+export function parseAntigravityModelEnvelope(output: string): DiscoveredModel[] | null {
   try {
-    const payload = JSON.parse(output);
-    const models = parseModelObjects(payload);
+    const payload = JSON.parse(output) as { status?: unknown; response?: unknown };
+    if (payload.status !== 'SUCCESS' || typeof payload.response !== 'string') return null;
+    const models = parseAntigravityModels(payload.response);
     return models.length > 0 ? models : null;
   } catch {
     return null;
@@ -125,23 +159,24 @@ export function parseCodexModelList(payload: unknown): DiscoveredModel[] {
   return parseModelObjects(payload);
 }
 
-export async function discoverAntigravity(run = execText): Promise<ModelDiscoveryResult | null> {
-  const jsonModelsOutput = await run('agy', ['models', '--output-format', 'json']);
-  const jsonModels = jsonModelsOutput === null ? null : parseAntigravityStructuredModels(jsonModelsOutput);
-  if (jsonModels) {
-    return { models: jsonModels, source: 'antigravity-models-json', authoritative: true, primarySucceeded: true };
+export async function discoverAntigravity(run = execCommand): Promise<ModelDiscoveryResult> {
+  const diagnostics: DiscoveryDiagnostic[] = [];
+  const primary = await run('agy', ['models']);
+  const primaryModels = primary.exitCode === 0 ? parseAntigravityModels(primary.stdout) : [];
+  diagnostics.push(diagnostic('agy models', primary, primaryModels.length, 'antigravity-models'));
+  if (primaryModels.length > 0) {
+    console.info('[model-sync] Antigravity discovery', diagnostics[0]);
+    return { models: primaryModels, source: 'antigravity-models', authoritative: true, primarySucceeded: true, diagnostics };
   }
 
-  const modelCommandOutput = await run('agy', ['-p', '/model', '--output-format', 'json']);
-  const modelCommandModels = modelCommandOutput === null ? null : parseAntigravityStructuredModels(modelCommandOutput);
-  if (modelCommandModels) {
-    return { models: modelCommandModels, source: 'antigravity-model-command', authoritative: true, primarySucceeded: true };
+  const fallback = await run('agy', ['-p', '/model', '--output-format', 'json']);
+  const fallbackModels = fallback.exitCode === 0 ? parseAntigravityModelEnvelope(fallback.stdout) : null;
+  diagnostics.push(diagnostic('agy -p "/model" --output-format json', fallback, fallbackModels?.length ?? 0, 'antigravity-model-command'));
+  console.info('[model-sync] Antigravity discovery', diagnostics);
+  if (fallbackModels) {
+    return { models: fallbackModels, source: 'antigravity-model-command', authoritative: true, primarySucceeded: true, diagnostics };
   }
-
-  const textOutput = await run('agy', ['models']);
-  if (textOutput === null) return null;
-  const models = parseAntigravityModels(textOutput);
-  return { models, source: 'antigravity-models', authoritative: false, primarySucceeded: models.length > 0 };
+  return { models: [], source: 'antigravity-model-command', authoritative: false, primarySucceeded: false, diagnostics };
 }
 
 async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {

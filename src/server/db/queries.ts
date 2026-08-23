@@ -486,6 +486,7 @@ export interface CliModel {
   model_value: string;
   model_label: string;
   supported_efforts: string | null;
+  sort_order: number;
   status: 'available' | 'missing';
   source: 'cli' | 'manual';
   last_seen_at: string | null;
@@ -498,7 +499,7 @@ export type ModelSource = 'registry' | 'claude-alias' | 'claude-help' | 'claude-
 
 export function getModelsByTool(tool: string): CliModel[] {
   const db = getDatabase();
-  return db.prepare('SELECT * FROM cli_models WHERE cli_tool = ? ORDER BY model_label COLLATE NOCASE').all(tool) as CliModel[];
+  return db.prepare('SELECT * FROM cli_models WHERE cli_tool = ? ORDER BY sort_order ASC, model_label COLLATE NOCASE').all(tool) as CliModel[];
 }
 
 export function getModelById(id: string): CliModel | undefined {
@@ -512,7 +513,7 @@ export function getModelByValue(cliTool: string, modelValue: string): CliModel |
 
 export function getAllModels(): Record<string, CliModel[]> {
   const db = getDatabase();
-  const rows = db.prepare('SELECT * FROM cli_models ORDER BY cli_tool ASC, model_label COLLATE NOCASE').all() as CliModel[];
+  const rows = db.prepare('SELECT * FROM cli_models ORDER BY cli_tool ASC, sort_order ASC, model_label COLLATE NOCASE').all() as CliModel[];
   const grouped: Record<string, CliModel[]> = {};
   for (const row of rows) {
     if (!grouped[row.cli_tool]) grouped[row.cli_tool] = [];
@@ -526,20 +527,21 @@ export function addModel(cliTool: AgentCliTool, modelValue: string, modelLabel: 
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, status, source, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'available', 'manual', ?, ?)`
-  ).run(id, cliTool, modelValue, modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, now, now);
+    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, sort_order, status, source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM cli_models WHERE cli_tool = ?), 0), 'available', 'manual', ?, ?)`
+  ).run(id, cliTool, modelValue, modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, cliTool, now, now);
   return getModelById(id)!;
 }
 
-export function updateModel(id: string, updates: { model_label?: string; supported_efforts?: string[] | null }): CliModel | undefined {
+export function updateModel(id: string, updates: { model_label?: string; supported_efforts?: string[] | null; sort_order?: number }): CliModel | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
   if (updates.model_label !== undefined) { fields.push('model_label = ?'); values.push(updates.model_label); }
   if (updates.supported_efforts !== undefined) { fields.push('supported_efforts = ?'); values.push(updates.supported_efforts ? JSON.stringify(updates.supported_efforts) : null); }
+  if (updates.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(updates.sort_order); }
   if (!fields.length) return getModelById(id);
-  fields.push("source = 'manual'");
+  if (updates.model_label !== undefined || updates.supported_efforts !== undefined) fields.push("source = 'manual'");
   fields.push('updated_at = ?'); values.push(new Date().toISOString(), id);
   db.prepare(`UPDATE cli_models SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   return getModelById(id);
@@ -602,9 +604,9 @@ export function upsertDiscoveredModel(
 
   const id = uuidv4();
   db.prepare(
-    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, status, source, last_seen_at, last_checked_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'available', 'cli', ?, ?, ?, ?)`
-  ).run(id, cliTool, modelValue, modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, now, now, now, now);
+    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, sort_order, status, source, last_seen_at, last_checked_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM cli_models WHERE cli_tool = ?), 0), 'available', 'cli', ?, ?, ?, ?)`
+  ).run(id, cliTool, modelValue, modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, cliTool, now, now, now, now);
   return 'added';
 }
 

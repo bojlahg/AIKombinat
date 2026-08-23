@@ -6,7 +6,7 @@ import * as profilesApi from '../../api/executionProfiles';
 type Tool = profilesApi.AgentCliTool;
 type Model = {
   id: string; value: string; label: string; status: 'available' | 'missing'; source: 'cli' | 'manual';
-  supportedEfforts: string[] | null; lastSeenAt: string | null; lastCheckedAt: string | null;
+  supportedEfforts: string[] | null; sortOrder: number; lastSeenAt: string | null; lastCheckedAt: string | null;
 };
 type RefreshResult = { source: string; authoritative: boolean; added: number; updated: number; restored: number; markedMissing: number };
 
@@ -28,7 +28,8 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 
 const sameModelDraft = (left: Model, right?: Model) => !!right
   && left.label === right.label
-  && JSON.stringify(left.supportedEfforts) === JSON.stringify(right.supportedEfforts);
+  && JSON.stringify(left.supportedEfforts) === JSON.stringify(right.supportedEfforts)
+  && left.sortOrder === right.sortOrder;
 
 export default function AgentsSettingsPanel() {
   const { t } = useI18n();
@@ -92,9 +93,15 @@ export default function AgentsSettingsPanel() {
     if (!dirty.length) return;
     setSaving(tool); setError('');
     const results = await Promise.allSettled(dirty.map((model) => json<Model>(`/api/models/${model.id}`, {
-      method: 'PATCH', body: JSON.stringify({ modelLabel: model.label, supportedEfforts: model.supportedEfforts }),
+      method: 'PATCH', body: JSON.stringify({ modelLabel: model.label, supportedEfforts: model.supportedEfforts, sortOrder: model.sortOrder }),
     })));
-    const saved = results.flatMap((result, index) => result.status === 'fulfilled' ? [{ ...dirty[index], source: 'manual' as const }] : []);
+    const saved = results.flatMap((result, index) => {
+      if (result.status !== 'fulfilled') return [];
+      const draft = dirty[index];
+      const baseline = (savedModels[tool] ?? []).find((model) => model.id === draft.id);
+      const contentChanged = !baseline || draft.label !== baseline.label || JSON.stringify(draft.supportedEfforts) !== JSON.stringify(baseline.supportedEfforts);
+      return [{ ...draft, source: contentChanged ? 'manual' as const : draft.source }];
+    });
     const failed = results.flatMap((result, index) => result.status === 'rejected' ? [dirty[index].label] : []);
     setModels((current) => ({ ...current, [tool]: (current[tool] ?? []).map((model) => saved.find((item) => item.id === model.id) ?? model) }));
     setSavedModels((current) => ({ ...current, [tool]: (current[tool] ?? []).map((model) => saved.find((item) => item.id === model.id) ?? model) }));
@@ -114,18 +121,24 @@ export default function AgentsSettingsPanel() {
   const updateModelDraft = (tool: Tool, id: string, change: Partial<Model>) => setModels((current) => ({
     ...current, [tool]: (current[tool] ?? []).map((model) => model.id === id ? { ...model, ...change } : model),
   }));
+  const moveModel = (tool: Tool, index: number, direction: -1 | 1) => setModels((current) => {
+    const next = index + direction;
+    const ordered = [...(current[tool] ?? [])];
+    if (next < 0 || next >= ordered.length) return current;
+    [ordered[index], ordered[next]] = [ordered[next], ordered[index]];
+    return { ...current, [tool]: ordered.map((model, sortOrder) => ({ ...model, sortOrder })) };
+  });
   const replaceProfile = (profile: profilesApi.ExecutionProfile) => setProfiles((current) => current.map((item) => item.id === profile.id ? profile : item));
   const createProfile = async () => {
     try {
-      const suffix = Date.now().toString(36);
-      const created = await profilesApi.createProfile({ slug: `profile-${suffix}`, name: t('profiles.newProfile'), description: '', isEnabled: true, sortOrder: profiles.length, executors: [] });
+      const created = await profilesApi.createProfile({ name: t('profiles.newProfile'), description: '', isEnabled: true, sortOrder: profiles.length, executors: [] });
       setProfiles((current) => [...current, created]); setExpandedProfileId(created.id);
     } catch (e) { setError(String(e)); }
   };
   const saveProfile = async (profile: profilesApi.ExecutionProfile) => {
     try {
       const saved = await profilesApi.updateProfile(profile.id, {
-        slug: profile.slug, name: profile.name, description: profile.description, isEnabled: profile.isEnabled, sortOrder: profile.sortOrder,
+        name: profile.name, description: profile.description, isEnabled: profile.isEnabled, sortOrder: profile.sortOrder,
         executors: (profile.executors ?? []).map((executor, index) => ({ id: executor.id, cliModelId: executor.cliModelId, effortValue: executor.effortValue, priority: index, isEnabled: executor.isEnabled })),
       });
       replaceProfile(saved);
@@ -180,7 +193,7 @@ export default function AgentsSettingsPanel() {
           {!collapsed && <div className="mt-3 space-y-2">{agentModels.map((model) => <div key={model.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[1.2fr_1.5fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
             <div><input aria-label={`${agent.label} ${model.value} ${t('catalog.label')}`} className="input-field text-sm" value={model.label} onChange={(e) => updateModelDraft(agent.value, model.id, { label: e.target.value })} /><p className="mt-1 text-2xs text-warm-500">{model.value} · {model.source === 'manual' ? t('catalog.manual') : t('catalog.cli')}</p><p className="text-2xs text-warm-500">{t('catalog.lastSeen')}: {model.lastSeenAt ? new Date(model.lastSeenAt).toLocaleString() : t('catalog.never')}</p>{model.status === 'missing' && <p className="text-2xs text-status-warning">{t('catalog.missing')}</p>}</div>
             <input aria-label={`${agent.label} ${model.value} ${t('catalog.effortsPrompt')}`} className="input-field text-sm" value={model.supportedEfforts?.join(', ') ?? ''} placeholder={t('catalog.unknownEfforts')} onChange={(e) => updateModelDraft(agent.value, model.id, { supportedEfforts: e.target.value ? e.target.value.split(',').map((item) => item.trim()).filter(Boolean) : null })} />
-            <button title={`${t('common.delete')} ${model.label}`} onClick={() => deleteModel(agent.value, model)}><Trash2 size={15} /></button>
+            <div className="flex items-center gap-1"><button title={t('catalog.moveUp')} disabled={agentModels.indexOf(model) === 0} onClick={() => moveModel(agent.value, agentModels.indexOf(model), -1)}><ArrowUp size={14} /></button><button title={t('catalog.moveDown')} disabled={agentModels.indexOf(model) === agentModels.length - 1} onClick={() => moveModel(agent.value, agentModels.indexOf(model), 1)}><ArrowDown size={14} /></button><button title={`${t('common.delete')} ${model.label}`} onClick={() => deleteModel(agent.value, model)}><Trash2 size={15} /></button></div>
           </div>)}</div>}
         </div>;
       })}
@@ -193,7 +206,7 @@ export default function AgentsSettingsPanel() {
         return <div key={profile.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
           <button className="flex w-full items-center gap-2 text-left" aria-expanded={expanded} onClick={() => setExpandedProfileId(expanded ? null : profile.id)}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<span className="font-semibold">{profile.name}</span><span className="text-xs text-warm-500">· {(profile.executors ?? []).length} {t('profiles.executors')}</span></button>
           {expanded && <div className="mt-3 space-y-3">
-            <div className="grid gap-2 sm:grid-cols-2"><input className="input-field text-sm" aria-label={t('profiles.name')} value={profile.name} onChange={(e) => replaceProfile({ ...profile, name: e.target.value })} /><input className="input-field text-sm" aria-label={t('profiles.slug')} value={profile.slug} onChange={(e) => replaceProfile({ ...profile, slug: e.target.value.toLowerCase() })} /></div>
+            <input className="input-field text-sm" aria-label={t('profiles.name')} value={profile.name} onChange={(e) => replaceProfile({ ...profile, name: e.target.value })} />
             <textarea className="input-field min-h-20 text-sm" aria-label={t('profiles.profileDescription')} value={profile.description} onChange={(e) => replaceProfile({ ...profile, description: e.target.value })} />
             {!(profile.executors ?? []).some((executor) => executor.isEnabled && executor.modelStatus === 'available') && <p className="text-xs text-status-warning">{t('profiles.noEligible')}</p>}
             <div className="space-y-2">{(profile.executors ?? []).map((executor, index) => {

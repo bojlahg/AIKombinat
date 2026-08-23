@@ -6,7 +6,9 @@ let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
 
 const queries = await import('../../db/queries.js');
-const { DOCUMENTED_CLAUDE_MODELS, discoverAntigravity, refreshModelCatalog, maybeTriggerSync, parseAntigravityModels, parseAntigravityStructuredModels, parseCodexModelList } = await import('../model-sync.js');
+const { DOCUMENTED_CLAUDE_MODELS, discoverAntigravity, refreshModelCatalog, maybeTriggerSync, parseAntigravityModels, parseAntigravityModelEnvelope, parseCodexModelList } = await import('../model-sync.js');
+
+const command = (stdout: string, stderr = '', exitCode: number | null = 0) => ({ stdout, stderr, exitCode });
 
 describe('model catalog refresh', () => {
   beforeEach(() => {
@@ -100,20 +102,29 @@ describe('model catalog refresh', () => {
     expect(after.last_synced_at).toBe(before.last_synced_at);
   });
 
-  it('parses Antigravity and Codex capability output', () => {
-    expect(parseAntigravityModels('gemini-3-pro\tPro model\ngemini-3-flash\tFlash model')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ value: 'gemini-3-pro', supportedEfforts: null }),
-      expect.objectContaining({ value: 'gemini-3-flash', supportedEfforts: null }),
-    ]));
-    expect(parseAntigravityStructuredModels(JSON.stringify({ models: [
-      { id: 'gemini-3-pro-high' },
-      { id: 'gemini-3-pro', supportedReasoningEfforts: ['medium', 'high'] },
-    ] }))).toEqual([
-      { value: 'gemini-3-pro-high', label: 'gemini-3-pro-high', supportedEfforts: null },
-      { value: 'gemini-3-pro', label: 'gemini-3-pro', supportedEfforts: ['medium', 'high'] },
+  it('parses the official Antigravity table with spaces, tabs, and ANSI sequences', () => {
+    const output = '\u001b[32mgemini-3.7-flash-high\u001b[0m     Gemini 3.7 Flash (High)\n'
+      + 'gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\n'
+      + 'gemini-3.1-pro-high       Gemini 3.1 Pro (High)\n'
+      + 'claude-sonnet-4-6        Claude Sonnet 4.6 (Thinking)';
+    expect(parseAntigravityModels(output)).toEqual([
+      { value: 'gemini-3.7-flash-high', label: 'Gemini 3.7 Flash (High)', supportedEfforts: null },
+      { value: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash (Medium)', supportedEfforts: null },
+      { value: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', supportedEfforts: null },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', supportedEfforts: null },
     ]);
-    expect(parseAntigravityStructuredModels('{malformed')).toBeNull();
-    expect(parseAntigravityStructuredModels(JSON.stringify({ unexpected: [] }))).toBeNull();
+  });
+
+  it('parses the Antigravity /model JSON envelope response as a text model list', () => {
+    expect(parseAntigravityModelEnvelope(JSON.stringify({ status: 'SUCCESS', response: 'gemini-pro-high  Gemini Pro (High)' }))).toEqual([
+      { value: 'gemini-pro-high', label: 'Gemini Pro (High)', supportedEfforts: null },
+    ]);
+    expect(parseAntigravityModelEnvelope('{malformed')).toBeNull();
+    expect(parseAntigravityModelEnvelope(JSON.stringify({ status: 'SUCCESS', response: '' }))).toBeNull();
+    expect(parseAntigravityModelEnvelope(JSON.stringify({ status: 'ERROR', response: 'gemini-pro  Gemini Pro' }))).toBeNull();
+  });
+
+  it('parses Codex capability output', () => {
     expect(parseCodexModelList({ data: [{ id: 'gpt-5', displayName: 'GPT-5', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }, { reasoningEffort: 'high' }] }] })).toEqual([
       { value: 'gpt-5', label: 'GPT-5', supportedEfforts: ['medium', 'high'] },
     ]);
@@ -166,29 +177,44 @@ describe('model catalog refresh', () => {
     expect(queries.getModelByValue('antigravity', 'gemini-public')?.supported_efforts).toBeNull();
   });
 
-  it('uses only per-model capabilities from Antigravity structured model output', async () => {
-    const run = vi.fn().mockResolvedValueOnce(JSON.stringify({ models: [
-      { id: 'gemini-pro', efforts: ['medium', 'high'] },
-      { id: 'gemini-flash-high' },
-    ] }));
-    const result = await discoverAntigravity(run);
-    expect(run.mock.calls.map((call) => call[1])).toEqual([['models', '--output-format', 'json']]);
-    expect(result).toMatchObject({ source: 'antigravity-models-json', authoritative: true });
-    expect(result?.models).toEqual([
-      { value: 'gemini-pro', label: 'gemini-pro', supportedEfforts: ['medium', 'high'] },
-      { value: 'gemini-flash-high', label: 'gemini-flash-high', supportedEfforts: null },
+  it('preserves user model order across missing, restore, discovery, and manual append', async () => {
+    const discover = async (values: string[]) => refreshModelCatalog('codex', { discover: async () => ({
+      models: values.map((value) => ({ value, label: value.toUpperCase() })), source: 'codex-app-server', authoritative: true, primarySucceeded: true,
+    }) });
+    await discover(['a', 'b']);
+    queries.updateModel(queries.getModelByValue('codex', 'a')!.id, { sort_order: 1 });
+    queries.updateModel(queries.getModelByValue('codex', 'b')!.id, { sort_order: 0 });
+
+    await discover(['b', 'c']);
+    expect(queries.getModelsByTool('codex').map((model) => [model.model_value, model.sort_order, model.status])).toEqual([
+      ['b', 0, 'available'], ['a', 1, 'missing'], ['c', 2, 'available'],
     ]);
+
+    await discover(['a', 'b', 'c']);
+    const manual = queries.addModel('codex', 'manual', 'Manual');
+    expect(queries.getModelByValue('codex', 'a')).toMatchObject({ sort_order: 1, status: 'available' });
+    expect(manual.sort_order).toBe(3);
   });
 
-  it('falls back from unsupported JSON to /model JSON and then weak text', async () => {
-    const modelCommand = vi.fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(JSON.stringify({ models: [{ id: 'gemini-command' }] }));
-    expect(await discoverAntigravity(modelCommand)).toMatchObject({ source: 'antigravity-model-command', authoritative: true });
+  it('uses agy models as the primary Antigravity discovery command with diagnostics', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const stdout = 'gemini-pro-high  Gemini Pro (High)';
+    const run = vi.fn().mockResolvedValueOnce(command(stdout, 'token=secret diagnostic'));
+    const result = await discoverAntigravity(run);
+    expect(run.mock.calls.map((call) => call[1])).toEqual([['models']]);
+    expect(result).toMatchObject({ source: 'antigravity-models', authoritative: true, primarySucceeded: true });
+    expect(result.models).toEqual([{ value: 'gemini-pro-high', label: 'Gemini Pro (High)', supportedEfforts: null }]);
+    expect(result.diagnostics?.[0]).toMatchObject({ command: 'agy models', exitCode: 0, stdoutLength: stdout.length, stderr: 'token=[redacted] diagnostic', parsedModelCount: 1, source: 'antigravity-models' });
+  });
 
-    const textFallback = vi.fn().mockResolvedValueOnce('{bad').mockResolvedValueOnce('{bad').mockResolvedValueOnce('gemini-text');
-    const result = await discoverAntigravity(textFallback);
-    expect(result).toMatchObject({ source: 'antigravity-models', authoritative: false, primarySucceeded: true });
-    expect(result?.models[0].supportedEfforts).toBeNull();
+  it('falls back to the /model JSON envelope and rejects malformed empty results', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const fallback = vi.fn()
+      .mockResolvedValueOnce(command('', 'unsupported', 1))
+      .mockResolvedValueOnce(command(JSON.stringify({ status: 'SUCCESS', response: 'gemini-command  Gemini Command' })));
+    expect(await discoverAntigravity(fallback)).toMatchObject({ source: 'antigravity-model-command', authoritative: true, models: [{ value: 'gemini-command', label: 'Gemini Command', supportedEfforts: null }] });
+
+    const malformed = vi.fn().mockResolvedValueOnce(command('')).mockResolvedValueOnce(command('{bad'));
+    expect(await discoverAntigravity(malformed)).toMatchObject({ models: [], authoritative: false, primarySucceeded: false });
   });
 });

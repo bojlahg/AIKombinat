@@ -4,6 +4,14 @@ import * as queries from '../db/queries.js';
 const router = Router();
 const SLUG = /^[a-z0-9_-]+$/;
 
+function uniqueProfileSlug(name: string): string {
+  const base = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'profile';
+  let slug = base;
+  let suffix = 2;
+  while (queries.getExecutionProfileBySlug(slug)) slug = `${base}-${suffix++}`;
+  return slug;
+}
+
 export function executorInput(value: unknown): queries.ExecutionProfileInput['executors'] {
   if (!Array.isArray(value)) throw new Error('executors must be an array');
   return value.map((raw, index) => {
@@ -27,13 +35,16 @@ export function executorInput(value: unknown): queries.ExecutionProfileInput['ex
 
 function profileInput(body: Record<string, unknown>, partial = false): Partial<queries.ExecutionProfileInput> {
   const result: Partial<queries.ExecutionProfileInput> = {};
-  if (!partial || body.slug !== undefined) {
-    if (typeof body.slug !== 'string' || !SLUG.test(body.slug)) throw new Error('slug must contain only lowercase a-z, 0-9, - and _');
-    result.slug = body.slug;
-  }
   if (!partial || body.name !== undefined) {
     if (typeof body.name !== 'string' || !body.name.trim()) throw new Error('name is required');
     result.name = body.name.trim();
+  }
+  if (!partial) {
+    if (body.slug !== undefined && (typeof body.slug !== 'string' || !SLUG.test(body.slug))) throw new Error('slug must contain only lowercase a-z, 0-9, - and _');
+    result.slug = typeof body.slug === 'string' ? body.slug : uniqueProfileSlug(result.name!);
+  } else if (body.slug !== undefined) {
+    if (typeof body.slug !== 'string' || !SLUG.test(body.slug)) throw new Error('slug must contain only lowercase a-z, 0-9, - and _');
+    result.slug = body.slug;
   }
   if (!partial || body.description !== undefined) {
     if (typeof body.description !== 'string') throw new Error('description is required');

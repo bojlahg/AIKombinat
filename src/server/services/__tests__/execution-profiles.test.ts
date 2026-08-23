@@ -48,6 +48,21 @@ describe('execution profiles', () => {
     expect(queries.getExecutionProfileById(profile.id)).toMatchObject({ slug: 'complex', name: 'Complex task', executors: [{ cli_tool: 'claude' }, { cli_tool: 'codex' }] });
   });
 
+  it('generates collision-safe slugs from the profile name and keeps them stable', async () => {
+    const create = () => apiRequest(executionProfilesModule.default, '/execution-profiles', {
+      method: 'POST', body: JSON.stringify({ name: 'Complex Work', description: 'Planning guidance', executors: [] }),
+    });
+    const first = await create();
+    const second = await create();
+    expect(first.body).toMatchObject({ name: 'Complex Work', slug: 'complex-work' });
+    expect(second.body).toMatchObject({ name: 'Complex Work', slug: 'complex-work-2' });
+    const id = first.body.id as string;
+    const renamed = await apiRequest(executionProfilesModule.default, `/execution-profiles/${id}`, {
+      method: 'PATCH', body: JSON.stringify({ name: 'Renamed Work' }),
+    });
+    expect(renamed.body).toMatchObject({ name: 'Renamed Work', slug: 'complex-work' });
+  });
+
   it('selects the first eligible candidate and records a snapshot', () => {
     const missing = queries.addModel('claude', 'missing-opus', 'Missing Opus', ['high']);
     const codex = queries.addModel('codex', 'sol', 'Sol', ['medium']);
@@ -75,6 +90,24 @@ describe('execution profiles', () => {
     const model = queries.addModel('codex', 'sol', 'Sol');
     queries.createExecutionProfile({ slug: 'review', name: 'Review', description: '', executors: [{ cli_model_id: model.id, effort_value: null, priority: 0 }] });
     expect(queries.getModelUsage(model.id)).toMatchObject({ execution_profiles: 1 });
+  });
+
+  it('persists model order through the models API without changing discovery ownership', async () => {
+    const first = queries.addModel('codex', 'first', 'First');
+    const second = queries.addModel('codex', 'second', 'Second');
+    testDb.prepare("UPDATE cli_models SET source = 'cli' WHERE id IN (?, ?)").run(first.id, second.id);
+
+    expect((await apiRequest(modelsRoute, `/models/${first.id}`, {
+      method: 'PATCH', body: JSON.stringify({ sortOrder: 1 }),
+    })).status).toBe(200);
+    expect((await apiRequest(modelsRoute, `/models/${second.id}`, {
+      method: 'PATCH', body: JSON.stringify({ sortOrder: 0 }),
+    })).status).toBe(200);
+
+    const response = await apiRequest(modelsRoute, '/models');
+    const models = response.body.codex as Array<{ value: string }>;
+    expect(models.map((model) => model.value)).toEqual(['second', 'first']);
+    expect(queries.getModelById(first.id)).toMatchObject({ sort_order: 1, source: 'cli' });
   });
 
   it('fails clearly when no candidate is eligible', () => {

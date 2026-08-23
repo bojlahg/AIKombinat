@@ -9,7 +9,7 @@ const router = Router();
 router.get('/models', (_req: Request, res: Response) => {
   try {
     const allModels = queries.getAllModels();
-    const result: Record<string, { value: string; label: string; id: string; status: string; supportedEfforts: string[] | null; lastSeenAt: string | null; lastCheckedAt: string | null; source: string }[]> = {};
+    const result: Record<string, { value: string; label: string; id: string; status: string; supportedEfforts: string[] | null; sortOrder: number; lastSeenAt: string | null; lastCheckedAt: string | null; source: string }[]> = {};
     for (const [tool, models] of Object.entries(allModels)) {
       result[tool] = models.map((m) => ({
         value: m.model_value,
@@ -17,6 +17,7 @@ router.get('/models', (_req: Request, res: Response) => {
         id: m.id,
         status: m.status,
         supportedEfforts: m.supported_efforts ? JSON.parse(m.supported_efforts) : null,
+        sortOrder: m.sort_order,
         lastSeenAt: m.last_seen_at,
         lastCheckedAt: m.last_checked_at,
         source: m.source,
@@ -33,7 +34,7 @@ router.post('/models/refresh', async (_req: Request, res: Response) => {
   try {
     const results = await Promise.all((['claude', 'codex', 'antigravity'] as const).map(async (tool) => {
       const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '' });
-      return { tool, success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, added: result.added ?? 0, updated: result.updated ?? 0, restored: result.restored ?? 0, markedMissing: result.markedMissing ?? 0 };
+      return { tool, success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, added: result.added ?? 0, updated: result.updated ?? 0, restored: result.restored ?? 0, markedMissing: result.markedMissing ?? 0, diagnostics: result.diagnostics ?? [] };
     }));
     const success = results.every((result) => result.success);
     res.status(success ? 200 : 503).json({ success, results, ...(!success ? { error: 'One or more live model discovery requests failed; cached catalogs were retained.' } : {}) });
@@ -50,7 +51,7 @@ router.post('/models/refresh/:cliTool', async (req: Request<{ cliTool: string }>
   try {
     const tool = req.params.cliTool;
     const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '' });
-    const body = { success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, added: result.added ?? 0, updated: result.updated ?? 0, restored: result.restored ?? 0, markedMissing: result.markedMissing ?? 0 };
+    const body = { success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, added: result.added ?? 0, updated: result.updated ?? 0, restored: result.restored ?? 0, markedMissing: result.markedMissing ?? 0, diagnostics: result.diagnostics ?? [] };
     if (!result.primarySucceeded) {
       res.status(503).json({ ...body, error: `Live ${tool} model discovery failed; the cached catalog was retained.` });
       return;
@@ -93,15 +94,20 @@ router.patch('/models/:id', (req: Request<{ id: string }>, res: Response) => {
   if (!existing) { res.status(404).json({ error: 'Model not found' }); return; }
   const modelLabel = req.body?.modelLabel ?? req.body?.model_label;
   const supportedEfforts = req.body?.supportedEfforts ?? req.body?.supported_efforts;
+  const sortOrder = req.body?.sortOrder ?? req.body?.sort_order;
   if (modelLabel !== undefined && (typeof modelLabel !== 'string' || !modelLabel.trim())) {
     res.status(400).json({ error: 'modelLabel must be a non-empty string' }); return;
   }
   if (supportedEfforts !== undefined && supportedEfforts !== null && (!Array.isArray(supportedEfforts) || supportedEfforts.some((value) => typeof value !== 'string' || !value.trim()))) {
     res.status(400).json({ error: 'supportedEfforts must be an array of native effort strings or null' }); return;
   }
+  if (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0)) { res.status(400).json({ error: 'sortOrder must be a non-negative integer' }); return; }
+  const labelChanged = modelLabel !== undefined && modelLabel.trim() !== existing.model_label;
+  const effortsChanged = supportedEfforts !== undefined && JSON.stringify(supportedEfforts) !== JSON.stringify(existing.supported_efforts ? JSON.parse(existing.supported_efforts) : null);
   const updated = queries.updateModel(existing.id, {
-    ...(modelLabel !== undefined ? { model_label: modelLabel.trim() } : {}),
-    ...(supportedEfforts !== undefined ? { supported_efforts: supportedEfforts } : {}),
+    ...(labelChanged ? { model_label: modelLabel.trim() } : {}),
+    ...(effortsChanged ? { supported_efforts: supportedEfforts } : {}),
+    ...(sortOrder !== undefined ? { sort_order: sortOrder } : {}),
   });
   res.json(toApiModel(updated!));
 });
@@ -135,6 +141,7 @@ function toApiModel(model: queries.CliModel) {
     value: model.model_value,
     label: model.model_label,
     supportedEfforts: model.supported_efforts ? JSON.parse(model.supported_efforts) : null,
+    sortOrder: model.sort_order,
     status: model.status,
     source: model.source,
     lastSeenAt: model.last_seen_at,

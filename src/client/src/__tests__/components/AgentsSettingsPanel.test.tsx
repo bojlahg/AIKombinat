@@ -5,16 +5,17 @@ import { I18nProvider } from '../../i18n';
 
 const catalog = {
   claude: [
-    { id: 'c1', value: 'claude-opus-5', label: 'Opus 5', status: 'available', source: 'cli', supportedEfforts: ['high'], lastSeenAt: null, lastCheckedAt: null },
-    { id: 'c2', value: 'claude-sonnet-5', label: 'Sonnet 5', status: 'available', source: 'cli', supportedEfforts: ['medium'], lastSeenAt: null, lastCheckedAt: null },
+    { id: 'c1', value: 'claude-opus-5', label: 'Opus 5', status: 'available', source: 'cli', supportedEfforts: ['high'], sortOrder: 0, lastSeenAt: null, lastCheckedAt: null },
+    { id: 'c2', value: 'claude-sonnet-5', label: 'Sonnet 5', status: 'available', source: 'cli', supportedEfforts: ['medium'], sortOrder: 1, lastSeenAt: null, lastCheckedAt: null },
   ],
   codex: [
-    { id: 'x1', value: 'gpt-current', label: 'GPT Current', status: 'available', source: 'cli', supportedEfforts: ['medium'], lastSeenAt: null, lastCheckedAt: null },
+    { id: 'x1', value: 'gpt-current', label: 'GPT Current', status: 'available', source: 'cli', supportedEfforts: ['medium'], sortOrder: 0, lastSeenAt: null, lastCheckedAt: null },
+    { id: 'x2', value: 'gpt-next', label: 'GPT Next', status: 'available', source: 'cli', supportedEfforts: ['high'], sortOrder: 1, lastSeenAt: null, lastCheckedAt: null },
   ],
   antigravity: [
-    { id: 'a1', value: 'gemini-missing', label: 'Gemini Missing', status: 'missing', source: 'cli', supportedEfforts: null, lastSeenAt: null, lastCheckedAt: null },
-    { id: 'a2', value: 'gemini-3.7-flash-high', label: 'Gemini High Slug', status: 'available', source: 'cli', supportedEfforts: null, lastSeenAt: null, lastCheckedAt: null },
-    { id: 'a3', value: 'gemini-known', label: 'Gemini Known', status: 'available', source: 'cli', supportedEfforts: ['high'], lastSeenAt: null, lastCheckedAt: null },
+    { id: 'a1', value: 'gemini-missing', label: 'Gemini Missing', status: 'missing', source: 'cli', supportedEfforts: null, sortOrder: 0, lastSeenAt: null, lastCheckedAt: null },
+    { id: 'a2', value: 'gemini-3.7-flash-high', label: 'Gemini High Slug', status: 'available', source: 'cli', supportedEfforts: null, sortOrder: 1, lastSeenAt: null, lastCheckedAt: null },
+    { id: 'a3', value: 'gemini-known', label: 'Gemini Known', status: 'available', source: 'cli', supportedEfforts: ['high'], sortOrder: 2, lastSeenAt: null, lastCheckedAt: null },
   ],
 };
 
@@ -82,6 +83,52 @@ describe('Agents settings model catalog and profiles UX', () => {
     expect(claudeToggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('persists model reorder as part of only that agent dirty state', async () => {
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Models' }));
+    const opusRow = screen.getByLabelText('Claude Code claude-opus-5 Label').closest('.grid') as HTMLElement;
+    fireEvent.click(within(opusRow).getByTitle('Move model down'));
+    expect(screen.getAllByLabelText(/Claude Code .* Label/).map((input) => (input as HTMLInputElement).value)).toEqual(['Sonnet 5', 'Opus 5']);
+
+    const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+    const save = within(claudeSection).getByRole('button', { name: 'Save' });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url, init]) => String(url).startsWith('/api/models/c') && init?.method === 'PATCH')).toHaveLength(2));
+    const payloads = Object.fromEntries(fetchMock.mock.calls
+      .filter(([url, init]) => String(url).startsWith('/api/models/c') && init?.method === 'PATCH')
+      .map(([url, init]) => [String(url).split('/').pop(), JSON.parse(String(init?.body))]));
+    expect(payloads).toMatchObject({ c1: { sortOrder: 1 }, c2: { sortOrder: 0 } });
+  });
+
+  it('shows only Name and Description and keeps selects working across collapse cycles', async () => {
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    await screen.findByDisplayValue('Complex');
+    expect(screen.queryByLabelText('Slug')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Description for planning agents')).toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: /Complex/ });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+
+    fireEvent.change(screen.getByLabelText('Agent 1'), { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText('Model Catalog 1'), { target: { value: 'x2' } });
+    fireEvent.change(screen.getByLabelText('Effort 1'), { target: { value: 'high' } });
+    expect(screen.getByLabelText('Agent 1')).toHaveValue('codex');
+    expect(screen.getByLabelText('Model Catalog 1')).toHaveValue('x2');
+    expect(screen.getByLabelText('Effort 1')).toHaveValue('high');
+
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText('Agent 1')).toHaveValue('codex');
+    expect(screen.getByLabelText('Model Catalog 1')).toHaveValue('x2');
+    fireEvent.change(screen.getByLabelText('Model Catalog 1'), { target: { value: 'x1' } });
+    fireEvent.change(screen.getByLabelText('Effort 1'), { target: { value: 'medium' } });
+    expect(screen.getByLabelText('Effort 1')).toHaveValue('medium');
+  });
+
   it('does not invent Antigravity efforts and preserves saved custom values', async () => {
     render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
     await screen.findByDisplayValue('Complex');
@@ -92,10 +139,10 @@ describe('Agents settings model catalog and profiles UX', () => {
     expect(within(savedUnknown).queryByRole('option', { name: 'low' })).not.toBeInTheDocument();
 
     const qualifiedSlug = screen.getByLabelText('Effort 2');
-    expect(within(qualifiedSlug).getAllByRole('option').map((option) => option.textContent)).toEqual(['Provider default']);
+    expect(within(qualifiedSlug).getAllByRole('option').map((option) => option.textContent)).toEqual(['Default']);
 
     const knownCapabilities = screen.getByLabelText('Effort 3');
-    expect(within(knownCapabilities).getAllByRole('option').map((option) => option.textContent)).toEqual(['Provider default', 'high']);
+    expect(within(knownCapabilities).getAllByRole('option').map((option) => option.textContent)).toEqual(['Default', 'high']);
     expect(within(knownCapabilities).queryByRole('option', { name: 'medium' })).not.toBeInTheDocument();
   });
 
