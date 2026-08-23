@@ -210,15 +210,15 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const { t } = useI18n();
 
-  const canStart = todo.status === 'pending' || todo.status === 'failed' || todo.status === 'stopped';
-  const canSchedule = (todo.status === 'pending' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
-  const canScheduleOnReset = (todo.status === 'pending' || todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped') && !!onScheduleOnReset && !!resetsAt && resetsAt > Math.floor(Date.now() / 1000);
-  const canStop = todo.status === 'running';
+  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'failed' || todo.status === 'stopped';
+  const canSchedule = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
+  const canScheduleOnReset = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped') && !!onScheduleOnReset && !!resetsAt && resetsAt > Math.floor(Date.now() / 1000);
+  const canStop = todo.status === 'running' || todo.status === 'waiting_executor';
   const canViewDiff = todo.status === 'completed' || todo.status === 'stopped' || todo.status === 'merged';
   const canMerge = todo.status === 'completed' && !isChainMember && !!todo.branch_name;
   const canRetry = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped';
   const canContinue = !!onContinue && todo.status === 'completed' && !!todo.worktree_path;
-  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && !!todo.worktree_path && !isChainMember;
+  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && !!todo.worktree_path && !isChainMember;
 
   const hasResult = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped' || todo.status === 'merged';
 

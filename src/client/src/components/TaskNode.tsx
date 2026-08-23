@@ -28,6 +28,7 @@ const borderColorMap: Record<Todo['status'], string> = {
   failed: '#E53935',
   stopped: '#FF9800',
   merged: '#9C27B0',
+  waiting_executor: '#F59E0B',
 };
 
 const ringClassMap: Record<Todo['status'], string> = {
@@ -37,6 +38,7 @@ const ringClassMap: Record<Todo['status'], string> = {
   failed: 'ring-1 ring-status-error/30',
   stopped: '',
   merged: '',
+  waiting_executor: 'ring-1 ring-amber-400/50',
 };
 
 function TaskNodeComponent({ data }: NodeProps) {
@@ -44,10 +46,10 @@ function TaskNodeComponent({ data }: NodeProps) {
   const { todo, allTodos, selected, onStart, onStop, onDelete, onMerge, onCleanup, onRetry, onSelect } = nodeData;
   const { t } = useI18n();
 
-  const canStart = todo.status === 'pending' || todo.status === 'failed' || todo.status === 'stopped';
-  const canStop = todo.status === 'running';
+  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'failed' || todo.status === 'stopped';
+  const canStop = todo.status === 'running' || todo.status === 'waiting_executor';
   const canMerge = todo.status === 'completed';
-  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && (todo.worktree_path || todo.branch_name);
+  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && (todo.worktree_path || todo.branch_name);
   const canRetry = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped';
 
   const parentTodo = todo.depends_on ? allTodos.find(t => t.id === todo.depends_on) : null;

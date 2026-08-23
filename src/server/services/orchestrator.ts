@@ -15,6 +15,8 @@ import { debugLogger, type DebugSession } from './debug-logger.js';
 import { captureReviewMetadata } from './review-capture.js';
 import { broadcastProjectStatus as broadcastProjectStatusShared } from './project-status.js';
 import { maybeCreateReviewTodo } from './auto-delegate.js';
+import { executorPool } from './executor-pool.js';
+import type { ResolvedExecutionConfig } from './execution-config.js';
 import * as queries from '../db/queries.js';
 
 const MAX_CONTEXT_SWITCHES = 3;
@@ -138,7 +140,7 @@ export class Orchestrator {
     }
 
     const todos = queries.getTodosByProjectId(projectId);
-    const pending = todos.filter((t) => t.status === 'pending');
+    const pending = todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor');
     const running = todos.filter((t) => t.status === 'running');
     const maxConcurrent = this.getMaxConcurrent(projectId);
 
@@ -278,6 +280,7 @@ export class Orchestrator {
 
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'stopped' });
     this.broadcastProjectStatus(todo.project_id);
+    this.resumeWaitingTasks(todo.project_id).catch(() => { /* ignore */ });
   }
 
   /**
@@ -327,6 +330,88 @@ export class Orchestrator {
     if (!gate.ok) {
       queries.createTaskLog(todoId, 'output', `Deferred: ${gate.reason}`, roundNumber);
       return;
+    }
+
+    // Resolve execution configuration / executor candidate BEFORE creating worktree
+    let executionConfig: ResolvedExecutionConfig | null = null;
+    let resolvedCliTool: CliTool;
+
+    if (todo.execution_profile_id) {
+      try {
+        const selection = await executorPool.selectExecutor({
+          executionProfileId: todo.execution_profile_id,
+          interactive: mode === 'interactive',
+          excludeTodoId: todoId,
+        });
+
+        if (selection.status === 'waiting_executor') {
+          queries.updateTodoStatus(todoId, 'waiting_executor');
+          queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          queries.createTaskLog(
+            todoId,
+            'output',
+            `[executor-pool] Waiting for executor capacity (profile "${selection.profileName}"):\n\n${selection.rejectionSummary}`,
+            roundNumber,
+          );
+          broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'waiting_executor' });
+          this.broadcastProjectStatus(projectId);
+          return;
+        }
+
+        if (selection.status === 'no_candidates') {
+          queries.updateTodoStatus(todoId, 'failed');
+          queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          queries.createTaskLog(
+            todoId,
+            'error',
+            `Execution profile "${selection.profileName}" has no eligible executors:\n\n${selection.rejectionSummary}`,
+            roundNumber,
+          );
+          broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+          this.broadcastProjectStatus(projectId);
+          return;
+        }
+
+        executionConfig = selection.selectedConfig!;
+        resolvedCliTool = executionConfig.cliTool;
+        queries.createTaskLog(
+          todoId,
+          'output',
+          `[executor-pool] Selected executor ${getAdapter(resolvedCliTool).displayName} (model: ${executionConfig.model ?? 'default'}${executionConfig.effort.nativeEffort ? `, effort: ${executionConfig.effort.nativeEffort}` : ''}) from profile "${selection.profileName}"`,
+          roundNumber,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        queries.updateTodoStatus(todoId, 'failed');
+        queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+        queries.createTaskLog(todoId, 'error', `Execution selection error: ${message}`, roundNumber);
+        broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+        this.broadcastProjectStatus(projectId);
+        return;
+      }
+    } else {
+      const cliTool = (todo.cli_tool as CliTool) || (project.cli_tool as CliTool) || 'claude';
+      const claudeModel = todo.cli_model ?? undefined;
+      try {
+        executionConfig = isAgentCliTool(cliTool) || todo.cli_model_id || todo.cli_effort
+          ? resolveExecutionConfig({
+              cliTool,
+              model: claudeModel,
+              cliModelId: todo.cli_model_id,
+              cliEffort: todo.cli_effort,
+              interactive: mode === 'interactive',
+            })
+          : null;
+        resolvedCliTool = executionConfig?.cliTool ?? cliTool;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        queries.updateTodoStatus(todoId, 'failed');
+        queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+        queries.createTaskLog(todoId, 'error', `Configuration error: ${message}`, roundNumber);
+        broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+        this.broadcastProjectStatus(projectId);
+        return;
+      }
     }
 
     // Mark as running BEFORE any async work to prevent deletion during setup
@@ -509,13 +594,6 @@ Complete the task in the current directory.`;
       }
     }
 
-    // Determine CLI tool: task-level overrides project-level
-    const cliTool = (todo.cli_tool as CliTool) || (project.cli_tool as CliTool) || 'claude';
-    const claudeModel = todo.cli_model ?? undefined;
-    const executionConfig = todo.execution_profile_id || isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: claudeModel, cliModelId: todo.cli_model_id, cliEffort: todo.cli_effort, executionProfileId: todo.execution_profile_id })
-      : null;
-    const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
     const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
 
     // Sandbox: generate Claude CLI permission settings (worktree or project root)
@@ -630,7 +708,7 @@ Complete the task in the current directory.`;
 
       // Start streaming logs to DB (Claude uses structured JSON, others use plain text)
       // Interactive mode outputs TUI text (not JSON), so always use plain text streaming
-      if (cliTool === 'claude' && mode !== 'interactive') {
+      if (resolvedCliTool === 'claude' && mode !== 'interactive') {
         logStreamer.streamJsonToDb(todoId, stdout, stderr, mode === 'verbose');
       } else {
         logStreamer.streamToDb(todoId, stdout, stderr);
@@ -679,12 +757,12 @@ Complete the task in the current directory.`;
           const tokenUsage = logStreamer.getTokenUsage(todoId);
 
           // Heuristic: also flag if input_tokens > 85% of context_window (Claude only)
-          const heuristicExhausted = cliTool === 'claude'
+          const heuristicExhausted = resolvedCliTool === 'claude'
             && tokenUsage?.context_window
             && tokenUsage?.input_tokens
             && (tokenUsage.input_tokens / tokenUsage.context_window) > 0.85;
 
-          const fallback = queries.getNextFallbackCli(projectId, cliTool);
+          const fallback = queries.getNextFallbackCli(projectId, resolvedCliTool);
           const shouldAutoSwitch = (isContextExhausted || heuristicExhausted) && fallback;
 
           if (shouldAutoSwitch) {
@@ -693,7 +771,7 @@ Complete the task in the current directory.`;
               process_pid: 0,
               ...(tokenUsage ? { token_usage: JSON.stringify(tokenUsage) } : {}),
             });
-            this.restartWithNextCli(todoId, projectId, cliTool, fallback, autoChain).catch(() => {
+            this.restartWithNextCli(todoId, projectId, resolvedCliTool, fallback, autoChain).catch(() => {
               try {
                 queries.updateTodoStatus(todoId, 'failed');
                 queries.createTaskLog(todoId, 'error', 'Context switch restart failed.', roundNumber);
@@ -761,10 +839,14 @@ Complete the task in the current directory.`;
       }
 
       // Start dependent children that were waiting for this task to complete
-      // (or a review todo this completion just auto-delegated)
+      // (or a review todo this completion just auto-delegated), or resume waiting tasks
       if (autoChain || delegated) {
         this.startDependentChildren(projectId, todoId).catch(() => {
           // Ignore errors when starting dependent children
+        });
+      } else {
+        this.resumeWaitingTasks(projectId).catch(() => {
+          // Ignore errors
         });
       }
     }).catch(() => {
@@ -888,7 +970,7 @@ Complete the task in the current directory.`;
 
     // Only start children that depend on the just-completed parent
     const dependentChildren = todos.filter(
-      (t) => t.status === 'pending' && t.depends_on === parentTodoId
+      (t) => (t.status === 'pending' || t.status === 'waiting_executor') && t.depends_on === parentTodoId
     );
 
     const slotsAvailable = Math.max(0, maxConcurrent - running.length);
@@ -901,17 +983,39 @@ Complete the task in the current directory.`;
       await this.startSingleTodo(child.id, project.path, projectId, 'headless', true);
     }
 
-    // Retry deferred siblings: pending top-level tasks whose dependency is
-    // satisfied but which were previously gated by main-branch exclusivity.
+    // Retry deferred and waiting tasks: pending/waiting_executor tasks whose dependency is
+    // satisfied but which were previously waiting for executor capacity or gated by main-branch exclusivity.
     const refreshed = queries.getTodosByProjectId(projectId);
     const stillRunning = refreshed.filter((t) => t.status === 'running');
     const remainingSlots = Math.max(0, maxConcurrent - stillRunning.length);
     if (remainingSlots === 0) return;
     const deferred = refreshed.filter(
-      (t) => t.status === 'pending' && t.id !== parentTodoId && !toStart.some((s) => s.id === t.id) && this.isDependencySatisfied(t, refreshed)
+      (t) => (t.status === 'pending' || t.status === 'waiting_executor') && t.id !== parentTodoId && !toStart.some((s) => s.id === t.id) && this.isDependencySatisfied(t, refreshed)
     );
     for (const sibling of deferred.slice(0, remainingSlots)) {
       await this.startSingleTodo(sibling.id, project.path, projectId, 'headless', true);
+    }
+  }
+
+  /**
+   * Resume pending or waiting_executor tasks when executor capacity becomes available.
+   */
+  async resumeWaitingTasks(projectId: string): Promise<void> {
+    const project = queries.getProjectById(projectId);
+    if (!project) return;
+
+    const todos = queries.getTodosByProjectId(projectId);
+    const running = todos.filter((t) => t.status === 'running');
+    const maxConcurrent = this.getMaxConcurrent(projectId);
+    const remainingSlots = Math.max(0, maxConcurrent - running.length);
+    if (remainingSlots === 0) return;
+
+    const waiting = todos.filter(
+      (t) => (t.status === 'waiting_executor' || t.status === 'pending') && this.isDependencySatisfied(t, todos),
+    );
+
+    for (const item of waiting.slice(0, remainingSlots)) {
+      await this.startSingleTodo(item.id, project.path, projectId, 'headless', true);
     }
   }
 }

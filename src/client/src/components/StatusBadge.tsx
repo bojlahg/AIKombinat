@@ -34,6 +34,10 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
       labelKey: 'status.merged',
       dotClass: 'bg-warm-400',
     },
+    waiting_executor: {
+      labelKey: 'status.waiting_executor',
+      dotClass: 'bg-amber-400',
+    },
   };
 
   const { labelKey, dotClass } = config[status];

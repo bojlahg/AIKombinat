@@ -640,6 +640,7 @@ export const en = {
     'status.failed': 'Failed',
     'status.stopped': 'Stopped',
     'status.merged': 'Merged',
+    'status.waiting_executor': 'Waiting for Executor',
 
     // Progress
     'progress.complete': 'complete',

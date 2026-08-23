@@ -642,6 +642,7 @@ export const ko = {
     'status.failed': '\uC2E4\uD328',
     'status.stopped': '\uC911\uC9C0',
     'status.merged': '\uBCD1\uD569\uB428',
+    'status.waiting_executor': '\uC2E4\uD589\uAE30 \uB300\uAE30 \uC911',
 
     // Progress
     'progress.complete': '\uC644\uB8CC',

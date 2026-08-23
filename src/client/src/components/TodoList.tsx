@@ -16,7 +16,7 @@ type StatusFilter = 'all' | 'active' | 'completed' | 'cancelled';
 
 const FILTER_STATUSES: Record<StatusFilter, Todo['status'][] | null> = {
   all: null,
-  active: ['pending', 'running'],
+  active: ['pending', 'running', 'waiting_executor'],
   completed: ['completed', 'merged'],
   cancelled: ['stopped', 'failed'],
 };
@@ -348,7 +348,7 @@ export default function TodoList({
   }, [dragSourceId, onReorderTodos]);
 
   const hasStartable = todos.some(
-    (t) => t.status === 'pending' || t.status === 'failed' || t.status === 'stopped'
+    (t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'failed' || t.status === 'stopped'
   );
   const hasRunning = todos.some((t) => t.status === 'running');
   const runStopButtons = (

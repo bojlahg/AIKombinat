@@ -642,6 +642,7 @@ export const ru = {
     'status.failed': 'Ошибка',
     'status.stopped': 'Остановлено',
     'status.merged': 'Слито',
+    'status.waiting_executor': 'Ожидание исполнителя',
 
     // Progress
     'progress.complete': 'готово',

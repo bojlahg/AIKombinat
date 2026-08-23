@@ -65,13 +65,13 @@ export default function TaskNodeDetail({
   const [continueError, setContinueError] = useState<string | null>(null);
   const { t } = useI18n();
 
-  const canStart = todo.status === 'pending' || todo.status === 'failed' || todo.status === 'stopped';
-  const canStop = todo.status === 'running';
+  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'failed' || todo.status === 'stopped';
+  const canStop = todo.status === 'running' || todo.status === 'waiting_executor';
   const canViewDiff = todo.status === 'completed' || todo.status === 'stopped' || todo.status === 'merged';
   const canMerge = todo.status === 'completed';
   const canRetry = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped';
   const canContinue = !!onContinue && todo.status === 'completed' && !!todo.worktree_path;
-  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && (todo.worktree_path || todo.branch_name);
+  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && (todo.worktree_path || todo.branch_name);
   const hasResult = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped' || todo.status === 'merged';
 
   const existingImages: ImageMeta[] = todo.images ? JSON.parse(todo.images) : [];

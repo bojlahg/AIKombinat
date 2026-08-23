@@ -78,6 +78,9 @@ function svnRequested(): boolean {
  * an installation probe (e.g. raw-shell).
  */
 export async function getToolStatus(tool: string): Promise<CliToolStatus | null> {
+  if (tool === 'raw-shell') {
+    return { tool: 'raw-shell', installed: true, version: getRawShellInfo().name };
+  }
   const entry = TOOLS.find((t) => t.tool === tool);
   if (!entry) return null;
   const cached = cache.get(tool);
