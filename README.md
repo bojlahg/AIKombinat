@@ -1,354 +1,235 @@
-<div align="center">
+# AIKombinat
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/src/client/public/logo.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/src/client/public/logo.svg">
-  <img alt="CLITrigger" src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/src/client/public/logo.svg" width="360">
-</picture>
+> **Experimental fork of [CLITrigger](https://github.com/HyperAITeam/CLITrigger)** for multi-agent AI workflows, autonomous development experiments, and other AI automation ideas.
 
-**An IDE for AI CLI Agents**
-
-*Docs, plans, terminals, autonomous agents, and git — one workspace instead of five scattered tools.*
-
-<p align="center">
-  <a href="https://github.com/HyperAITeam/CLITrigger/blob/main/README.md">English</a> ·
-  <a href="https://github.com/HyperAITeam/CLITrigger/blob/main/README_KR.md">한국어</a>
-</p>
-
+[![CI](https://github.com/bojlahg/AIKombinat/actions/workflows/ci.yml/badge.svg)](https://github.com/bojlahg/AIKombinat/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![npm](https://img.shields.io/npm/v/clitrigger.svg)](https://www.npmjs.com/package/clitrigger)
-[![npm downloads](https://img.shields.io/npm/dm/clitrigger.svg)](https://www.npmjs.com/package/clitrigger)
-[![npm total downloads](https://img.shields.io/npm/dt/clitrigger.svg)](https://www.npmjs.com/package/clitrigger)
-[![Node.js](https://img.shields.io/badge/Node.js-22%2B-green.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org)
-[![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://react.dev)
-[![GitHub stars](https://img.shields.io/github/stars/HyperAITeam/CLITrigger.svg?style=social)](https://github.com/HyperAITeam/CLITrigger/stargazers)
+[![Upstream](https://img.shields.io/badge/upstream-CLITrigger-blue.svg)](https://github.com/HyperAITeam/CLITrigger)
 
-<br>
+AIKombinat starts from the excellent CLITrigger codebase and intentionally explores a more experimental direction.
 
-<img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/demo.gif" alt="CLITrigger demo — parallel AI agents executing in isolated worktrees, then morning diff review" width="800">
+The current main track is **AI-assisted and increasingly autonomous software development**: multiple coding CLIs, model discovery, execution profiles, task routing, isolated worktrees, review/rework loops, and eventually a resumable development pipeline that can keep working with limited human supervision.
 
-<br><br>
+The repository is also intentionally broader than coding alone. The long-term idea behind the name **AI Kombinat** is a collection of connected AI "workshops": coding is the first major one, but image generation, batch media workflows, transcription/audio, local models, and other useful AI automation may live here later.
 
-```bash
-npm i -g clitrigger && clitrigger
-```
-
-**Or download the desktop app** — no Node.js needed: **[Windows `.exe` · macOS `.dmg` · Linux `.AppImage`](https://github.com/HyperAITeam/CLITrigger/releases/latest)**
-
-**Up and running in 60 seconds** — open `http://localhost:3000`, set a password, add a project, write TODOs, hit Start.
-
-</div>
+> **Status:** experimental. Expect breaking changes, unfinished ideas, provider-specific edge cases, and features that may be redesigned or removed after testing.
 
 ---
 
-> ### Docs → Plan → Terminal → Autonomous Tasks → Version Control. One pipeline.
->
-> Developing with AI CLI agents (Claude Code, Codex, …) scatters the workflow across disconnected tools: requirements in a note app, plans in another tool, agents across a pile of terminal windows, results in a git client. Editor-centric development has the IDE; CLI-agent-centric development doesn't — so the one ferrying context between tools ends up being you.
->
-> CLITrigger is that missing IDE. It connects the whole workflow into a single five-stage pipeline — build project knowledge in **Docs**, shape it into a plan with the **planner & calendar**, refine it live in **terminal sessions**, hand it to multiple AI CLIs (**Claude Code · Antigravity · Codex**) for **parallel autonomous execution** in isolated git worktrees, and land the results through the **review queue and built-in Git client**.
->
-> **Each stage inherits the context of the one before it — the intent you captured in docs flows all the way to the merge.**
+## Fork relationship
+
+AIKombinat is a fork of **CLITrigger** by HyperAI Team.
+
+- Original project: [HyperAITeam/CLITrigger](https://github.com/HyperAITeam/CLITrigger)
+- License: [MIT](LICENSE)
+- Upstream copyright and license notices are preserved.
+- AIKombinat is an independent experimental fork and is not presented as an official CLITrigger release or endorsed continuation.
+- Bugs in unmodified upstream behavior may belong upstream; bugs or behavior specific to this fork belong here.
+- Upstream changes may be selectively merged when they remain compatible with the direction of this fork.
+
+See [UPSTREAM.md](UPSTREAM.md) for the relationship and sync policy.
+
+---
+
+## Why this fork exists
+
+CLITrigger already provides a strong practical base: a web/desktop workspace around AI CLI agents, isolated git worktrees, tasks, schedules, sessions, discussions, review, and Git tooling.
+
+AIKombinat keeps that foundation but experiments more aggressively with the layer above individual CLI calls:
+
+- a persistent **Model Catalog** instead of assuming a small hardcoded model list;
+- **Execution Profiles** that describe task classes and allowed executor/model/effort candidates;
+- provider-native effort/reasoning settings;
+- model discovery for Claude Code, Codex, and Antigravity;
+- explicit handling of missing models and uncertain provider capabilities;
+- user-controlled ordering of commonly used models;
+- stronger execution snapshots and preflight validation;
+- experiments toward executor availability, quota-aware routing, shared resources, review/rework, and autonomous pipelines.
+
+Some of these features are already implemented; others are roadmap items. The distinction matters because software has suffered enough from READMEs describing alternate universes.
+
+---
+
+## The "DarkFactory" direction
+
+**DarkFactory** is an internal direction/codename for the autonomous-development track, not the public name of this repository.
+
+The intended shape is roughly:
 
 ```mermaid
 flowchart LR
-    docs["📚 Docs<br>Project knowledge"] --> plan["🗓 Plan<br>Planner · Calendar"]
-    plan --> term["⌨️ Terminal<br>Interactive Sessions"]
-    term --> auto["🤖 Autonomous Tasks<br>Parallel Worktrees"]
-    auto --> vcs["🔀 Version Control<br>Review Queue · Git"]
-    vcs -. lessons feed back into docs .-> docs
+    goal[Goal / Spec] --> plan[Planning & Decomposition]
+    plan --> profile[Execution Profile]
+    profile --> route[Executor Selection]
+    route --> run[Implementation]
+    run --> review[Review / QA]
+    review -->|needs changes| rework[Rework]
+    rework --> run
+    review -->|approved| done[Done / Merge]
 ```
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-tasks.png" alt="Tasks — Parallel worktree execution" width="800">
-  <p><em>AI CLIs working simultaneously across isolated git worktrees</em></p>
-</div>
+The important part is not "more agents" by itself. The goal is a system that can:
+
+1. understand a goal or specification;
+2. split it into traceable work;
+3. choose an eligible executor at runtime;
+4. respect model availability, quotas, and shared resources;
+5. execute in isolated worktrees;
+6. review the result;
+7. request rework when needed;
+8. resume safely after failures or resource waits;
+9. leave a complete audit trail for the human operator.
+
+The planned stages are documented in [ROADMAP.md](ROADMAP.md).
 
 ---
 
-## Why CLITrigger?
+## Beyond autonomous coding
 
-**The tools don't talk to each other.** As AI writes more of the code, the developer's real job becomes capturing intent and reviewing output — yet that intent lives in a note app, the plan in another tool, the agents in a stack of terminal windows, and the results in a git client. Editor-centric development solved this decades ago with the IDE. CLI-agent-centric development never got one.
+AIKombinat is deliberately not named around one workflow such as "vibe coding" or even one model family.
 
-CLITrigger is built as that IDE. Its backbone is a single pipeline — **Docs → Plan → Terminal → Autonomous Tasks → Version Control** — where each stage is not a separate tool but a consumer of the previous stage's context: docs become plans, plans become the agent's prompt, execution results arrive in a review queue. Intent is never lost between stages.
+Possible future experimental areas include:
 
-Inside the pipeline sits the execution machinery:
+- batch image generation and image-processing jobs;
+- multimodal asset pipelines;
+- transcription, summarization, and audio workflows;
+- local model execution;
+- generic scheduled AI jobs;
+- reusable resource pools such as GPU, emulator, editor, or local inference capacity;
+- pipelines that combine coding and non-coding AI tools.
 
-- **Parallel execution** — every task runs in its own isolated git worktree, with Claude / Antigravity / Codex working simultaneously
-- **Scheduling around rate limits** — cron-based runs and auto-retry at quota reset make full use of your tokens, even while you're away
-- **Multi-agent quality** — architect / developer / reviewer agents debate before implementation, beating a single agent working alone
-- **One place to land it** — triage every diff in the review queue, then commit, push, and merge in the built-in Git client
-
----
-
-## Features
-
-The features follow the five pipeline stages — **📚 Docs → 🗓 Plan → ⌨️ Terminal → 🤖 Autonomous Tasks → 🔀 Version Control** — plus the supporting features underneath. Each feature below has a full guide in the **[Wiki](https://github.com/HyperAITeam/CLITrigger/wiki)** (↗).
-
-### 📚 1. Docs — build the knowledge
-
-#### Docs (File-based Knowledge)
-A per-project Obsidian-style knowledge base with a `[[wikilink]]` graph — inject any file into a prompt, CLI-agnostically. What accumulates here is the input to the whole pipeline. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Plan-&-Organize#vault)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-vault.png" alt="Docs — Obsidian-style file-based knowledge with a link graph" width="800">
-  <p><em>The Docs tab — browse project markdown with inline preview and a force-directed wikilink graph, then selectively inject files into prompts</em></p>
-</div>
-
-### 🗓 2. Plan — capture the intent
-
-#### My Schedule
-One personal calendar overlaying your memos, every project's schedules, planner due dates, and assigned Jira issues. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Plan-&-Organize#my-schedule)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-agenda.png" alt="My Schedule — personal calendar overlaying memos, schedules, planner & Jira" width="800">
-  <p><em>One calendar overlaying personal memos, cross-project schedules, planner due dates, and assigned Jira issues</em></p>
-</div>
-
-#### Planner
-A lightweight task planner — capture ideas, then convert any item into a TODO, schedule, or session; Markdown import/export. What you plan here becomes the execution unit of the next stage. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Plan-&-Organize#planner)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-planer.png" alt="Planner — Lightweight task management" width="800">
-  <p><em>Inline editing, color-coded tags, image attachments, and one-click conversion to TODOs or schedules</em></p>
-</div>
-
-### ⌨️ 3. Terminal — refine it with AI
-
-#### Interactive Sessions
-Long-lived CLI sessions in floating windows with VS Code-style docking, pop-out, and real xterm.js terminals — the human-in-the-loop stage before handing work off to automation. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Delegate-to-AI#interactive-sessions)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-sessions.png" alt="Sessions — Multi-CLI floating windows with VS Code-style docking" width="800">
-  <p><em>Claude, Antigravity, and Codex sessions docked side-by-side via VS Code-style window grouping — each running in its own worktree branch</em></p>
-</div>
-
-### 🤖 4. Autonomous Tasks — AI executes in parallel
-
-#### Parallel Worktree Execution (Tasks)
-Every TODO runs in its own git worktree with Claude / Antigravity / Codex in parallel, plus dependency chains and merge control. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Delegate-to-AI#parallel-worktree-execution)
-
-#### Multi-Agent Discussion
-Architect / developer / reviewer agents debate before implementing, then commit code or send action items to the planner. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Delegate-to-AI#multi-agent-discussion)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-discussions.png" alt="Discussions — Multi-agent debate" width="800">
-  <p><em>Multiple AI agents with different roles debating in the Discussion view</em></p>
-</div>
-
-#### Scheduled Execution
-Run tasks on cron or one-off schedules, with auto-retry at the exact rate-limit reset time. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Delegate-to-AI#scheduled-execution)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-schedules.png" alt="Schedules — Scheduled execution" width="800">
-  <p><em>Cron-based recurring and one-time scheduled task execution</em></p>
-</div>
-
-#### Multi-CLI & Sandbox Mode
-Pick Claude / Antigravity / Codex per project, TODO, or agent; strict sandbox confines file access to the worktree. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Delegate-to-AI#multi-cli--sandbox-mode)
-
-### 🔀 5. Version Control — review and land it
-
-#### Morning Review Queue
-Triage every overnight TODO across projects in one keyboard-driven card stack — navigate, merge, or discard in a keypress. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Review-&-Ship#morning-review-queue)
-
-#### Built-in Git Client
-A Fork / SourceTree-style Git client in the browser — stage, commit, push, and manage branches and diffs. This is where AI output lands in your history, closing the pipeline. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Review-&-Ship#built-in-git-client)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-git.png" alt="Git — Built-in client" width="800">
-  <p><em>Commit graph, branch actions, file diffs — all in the browser</em></p>
-</div>
-
-### 🧰 Supporting the pipeline
-
-#### Analytics
-Per-project cost and execution stats — by CLI, by status, and over time. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Review-&-Ship#analytics)
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/HyperAITeam/CLITrigger/main/docs/images/screenshot-analytics.png" alt="Analytics — Execution stats" width="800">
-  <p><em>Cost and token usage broken down by CLI, status, and over time</em></p>
-</div>
-
-#### Live Logs (Chat & Raw)
-Real-time WebSocket log streaming in Chat (markdown) or Raw (terminal) mode. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Review-&-Ship#live-logs)
-
-#### Favorites Launcher
-One-click launcher for your frequent external tools (executables, commands, URLs) from the sidebar. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Plan-&-Organize#favorites-launcher)
-
-#### Remote Access
-Reach CLITrigger from anywhere via Cloudflare Tunnel, with completion notifications and custom-domain routing. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/Remote-Access)
-
-#### MCP Server
-Expose CLITrigger to any MCP client (Claude Desktop, Claude Code) over an HTTP endpoint — list projects, create and run tasks, and check status just by chatting with your AI. Copy the ready-made config (URL + token) from Settings → MCP; works for npm, desktop, and tunnel users alike. [↗](https://github.com/HyperAITeam/CLITrigger/wiki/MCP-Server)
+These are directions, not promises. Coding-agent orchestration remains the main working track today.
 
 ---
 
-## Tech Stack
+## Current foundation
 
-| Layer | Tech |
-|-------|------|
-| Backend | Node.js · Express · TypeScript · SQLite · WebSocket |
-| Frontend | React 18 · Vite · Tailwind CSS · Recharts |
-| AI CLIs | Claude · Antigravity · Codex (Adapter Pattern) |
-| Git | simple-git (worktree management) |
-| Scheduling | node-cron |
-| Terminal | node-pty (TTY support) · xterm.js (pixel-perfect rendering) |
-| Remote Access | Cloudflare Tunnel (optional) |
+AIKombinat inherits a large amount of functionality from CLITrigger, including:
+
+- project-based workspaces;
+- TODO/task execution in isolated git worktrees;
+- Claude Code, Codex, and Antigravity adapters;
+- interactive terminal sessions;
+- schedules and automated task starts;
+- multi-agent discussions;
+- review queue and Git integration;
+- project knowledge/docs and planning tools;
+- MCP integration;
+- local web UI and Electron desktop packaging;
+- SQLite-backed persisted state.
+
+For the original CLITrigger feature set and upstream documentation, see the [CLITrigger repository](https://github.com/HyperAITeam/CLITrigger) and its [Wiki](https://github.com/HyperAITeam/CLITrigger/wiki).
+
+The inherited `README_KR.md` is an upstream-oriented snapshot and may not describe AIKombinat-specific experiments.
 
 ---
 
-## Quick Start
+## Experimental fork features
 
-### Option A — Desktop App (recommended for end users)
+Recent AIKombinat-specific work includes:
 
-Download the installer for your platform from the [latest GitHub release](https://github.com/HyperAITeam/CLITrigger/releases/latest):
+### Model Catalog
 
-- **Windows** — `CLITrigger-Setup-<version>.exe` (NSIS installer) or the portable `.exe`
-- **macOS** — `CLITrigger-<version>.dmg` (Apple Silicon & Intel)
-- **Linux** — `CLITrigger-<version>.AppImage`
+A mutable SQLite catalog for provider models with:
 
-The desktop app bundles Node.js and the native modules (`better-sqlite3`, `node-pty`, `cloudflared`), so no separate runtime install is needed. On first launch a setup screen appears in the embedded browser — pick a password there and you're in. External sharing (Cloudflare tunnel) stays paused until setup completes, so the first user is guaranteed to be you.
+- provider/model identity;
+- discovered vs manual entries;
+- availability / missing state;
+- provider-native supported efforts when known;
+- manual capability overrides;
+- stable user-defined ordering;
+- safe refresh semantics that avoid mass-marking models missing after weak or malformed discovery.
 
-### Option B — npm (recommended for developers)
+### Execution Profiles
 
-```bash
-# Install
-npm i -g clitrigger
-clitrigger
+Execution profiles describe **what kind of executor is acceptable for a class of task**, rather than binding a task to one model at creation time.
 
-# Upgrade to the latest version
-npm i -g clitrigger@latest
-# Check current version: clitrigger --version
+A profile contains ordered executor candidates:
+
+```text
+Execution Profile
+  -> Claude / model / effort
+  -> Codex / model / effort
+  -> Antigravity / model / effort
 ```
 
-On first run the server starts immediately. Open `http://localhost:3000` → set a password on the welcome screen → register a project → write TODOs → click Start. Change the password later via Settings → Account in the web UI.
+The concrete executor is resolved at execution time, leaving room for future availability-, quota-, and resource-aware selection.
 
-CLITrigger also prints a one-line `Update available: <new> -> npm i -g clitrigger@latest` hint at startup whenever a newer version is on npm — no auto-update, you decide when to upgrade.
+### Provider discovery experiments
 
-```bash
-# Change settings
-clitrigger config port 8080    # Change port
-clitrigger config tunnel on    # Enable Cloudflare tunnel for external sharing
-```
+The fork is actively testing model/capability discovery against changing provider CLIs. These integrations are intentionally defensive because CLI output formats and account-level availability change more often than anyone would reasonably enjoy.
 
-> **Prerequisites**: Node.js 22+ (use an **LTS** release), Git, at least one AI CLI (Claude / Antigravity / Codex)
->
-> **Supported Platforms**: Windows · macOS · Linux — all core code is cross-platform compatible.
-> Prefer an LTS (even-numbered) Node.js. A brand-new major (e.g. an odd/just-released version) may not have prebuilt native binaries yet, which forces a source build requiring a C++ toolchain (Visual Studio Build Tools on Windows, `xcode-select --install` on macOS).
+---
 
-### Run from Source (for development)
+## Running AIKombinat
 
-<details>
-<summary>Click to expand</summary>
+### From source
 
 ```bash
-# 1. Clone & install
-git clone https://github.com/HyperAITeam/CLITrigger.git
-cd CLITrigger
-npm install
-cd src/client && npm install && cd ../..
+git clone https://github.com/bojlahg/AIKombinat.git
+cd AIKombinat
 
-# 2. Configure environment
-cp .env.example .env
-# AUTH_PASSWORD is optional — leave it blank and the dev server will show the
-# setup screen on first browser load. Set it only if you want to skip setup.
+npm ci
+cd src/client && npm ci && cd ../..
 
-# 3. Run
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Then open the local URL printed by the server (normally `http://localhost:3000`).
 
-#### Windows One-Click Scripts
-
-Double-click any bat file in `scripts/` — no terminal needed.
-
-| File | Action |
-|------|--------|
-| `install.bat` | Install dependencies (first time) |
-| `dev.bat` | Start development mode |
-| `build.bat` | Build project |
-| `start.bat` | Start production server |
-| `start-tunnel.bat` | Start with Cloudflare Tunnel |
-| `test.bat` | Run all tests |
-
-#### macOS / Linux
-
-`npm run` commands work identically on all platforms. Use the terminal instead of `.bat` scripts.
+### Validation
 
 ```bash
-npm run dev        # Development mode
-npm run build      # Build
-npm run start      # Production server
-npm test           # Run tests
+npm run typecheck
+npm test
+npm run build
 ```
 
-</details>
+CI runs Type Check, Server Tests, Client Tests, Build, and a final CI Gate on `main` and pull requests.
 
-### Remote Access (Cloudflare Tunnel)
+### Important package note
 
-```bash
-# Install cloudflared
-winget install cloudflare.cloudflared    # Windows
-brew install cloudflared                  # macOS
+The npm package **`clitrigger` belongs to the upstream CLITrigger project**. Installing `clitrigger` from npm does **not** mean you are installing the AIKombinat fork.
 
-# Set TUNNEL_ENABLED=true in .env, then:
-npm run start:tunnel
-# → Outputs https://xxxx.trycloudflare.com in the console
-```
+Until this fork gets its own release/package identity, treat AIKombinat as a **source-first experimental repository**.
 
-#### Route a named tunnel through your own domain (optional)
+---
 
-To avoid the "dangerous site" browser warnings on `*.trycloudflare.com` / `*.cfargotunnel.com`, point a named tunnel at your own domain. Either use the sidebar ⚙ → Tunnel settings modal (Tunnel Name + Custom Hostname), or the CLI:
+## Development philosophy
 
-```bash
-clitrigger config tunnel hostname app.your-domain.com
-cloudflared tunnel route dns <tunnel-name> app.your-domain.com   # one-time
-```
+A few rules guide the fork:
 
-The displayed URL becomes `https://app.your-domain.com` and reputation tracks your domain.
+- prefer explicit, inspectable state over hidden provider magic;
+- do not silently change requested model/effort semantics;
+- failed discovery must preserve the last known-good catalog;
+- keep experimental features replaceable until they prove useful;
+- make autonomous behavior observable and recoverable;
+- separate provider-specific adapters from generic orchestration;
+- preserve a path for selectively taking useful upstream fixes.
+
+See [AGENTS.md](AGENTS.md) for repository-specific development instructions.
+
+---
+
+## Stability and data
+
+This repository is under active experimentation. Database migrations and configuration semantics may change between commits.
+
+Before testing a large migration or automation change against important projects, back up the application data and repository state. Autonomous software is much more charming when it has an undo button.
 
 ---
 
 ## Documentation
 
-📖 **The full manual lives in the [Wiki](https://github.com/HyperAITeam/CLITrigger/wiki)** — installation, every feature guide, and remote access.
-
-| Doc | Content |
-|-----|---------|
-| [Wiki](https://github.com/HyperAITeam/CLITrigger/wiki) | Detailed feature guides and usage |
-| [SETUP.md](docs/SETUP.md) | Detailed installation and usage guide (한국어) |
-| [changelog/](docs/changelog/README.md) | Version history (per-date entries by month) |
-| [CICD.md](docs/CICD.md) | GitHub Actions CI/CD setup |
-| [TESTING.md](docs/TESTING.md) | Testing guide |
-
----
-
-## Star & Join Us
-
-If CLITrigger saves you time, please [**give us a star**](https://github.com/HyperAITeam/CLITrigger) — it genuinely helps the project reach more developers.
-
-Want to help shape what comes next? We're actively looking for contributors:
-
-- **File an issue** — bug reports, feature requests, and rough ideas all welcome at [Issues](https://github.com/HyperAITeam/CLITrigger/issues)
-- **Open a PR** — start with [`good first issue`](https://github.com/HyperAITeam/CLITrigger/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels, or pick anything that itches you
-- **Share what you built** — drop your worktree workflows, custom plugins, or productivity tips in [Discussions](https://github.com/HyperAITeam/CLITrigger/discussions)
-
-Every star, issue, and PR moves this faster. Thank you 🙏
-
----
-
-## Contributors
-
-Thanks to everyone who has contributed to CLITrigger!
-
-<a href="https://github.com/HyperAITeam/CLITrigger/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HyperAITeam/CLITrigger" alt="Contributors" />
-</a>
+- [ROADMAP.md](ROADMAP.md) - experimental directions and the DarkFactory-style development track
+- [UPSTREAM.md](UPSTREAM.md) - fork attribution and upstream relationship
+- [AGENTS.md](AGENTS.md) - development/agent instructions
+- [CLITrigger upstream](https://github.com/HyperAITeam/CLITrigger) - original project and baseline documentation
 
 ---
 
 ## License
 
-[MIT](LICENSE) — Free to use, modify, and distribute.
+AIKombinat is distributed under the [MIT License](LICENSE), inherited from CLITrigger.
+
+The original copyright notice is preserved in `LICENSE`. AIKombinat contains modifications and experimental features built on top of the upstream project.
