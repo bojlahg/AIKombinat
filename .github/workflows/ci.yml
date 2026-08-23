@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install server dependencies
@@ -42,7 +46,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -59,7 +63,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install server dependencies
@@ -80,7 +84,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install server dependencies
@@ -93,8 +97,28 @@ jobs:
         run: npm run build
 
       - name: Upload build artifacts
+        if: success()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
           retention-days: 7
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [typecheck, test-server, test-client, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        env:
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          SERVER_TESTS_RESULT: ${{ needs.test-server.result }}
+          CLIENT_TESTS_RESULT: ${{ needs.test-client.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          test "$TYPECHECK_RESULT" = "success"
+          test "$SERVER_TESTS_RESULT" = "success"
+          test "$CLIENT_TESTS_RESULT" = "success"
+          test "$BUILD_RESULT" = "success"
