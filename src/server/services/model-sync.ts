@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execFile, spawn } from 'child_process';
+import { execFile, spawn, spawnSync } from 'child_process';
 import {
   getCliVersion,
   markUnavailableExcept,
@@ -34,6 +34,7 @@ export interface ModelDiscoveryResult {
 export interface DiscoveryDiagnostic {
   command: string;
   exitCode: number | null;
+  timeout: boolean;
   stdoutLength: number;
   stderr: string;
   parsedModelCount: number;
@@ -44,6 +45,7 @@ export interface CommandResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+  timeout: boolean;
 }
 
 const CLAUDE_BASE_EFFORTS = ['low', 'medium', 'high'];
@@ -63,15 +65,141 @@ export const DOCUMENTED_CLAUDE_MODELS: DiscoveredModel[] = [
   { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', supportedEfforts: null },
 ];
 
-function execCommand(command: string, args: string[]): Promise<CommandResult> {
+export function execCommand(
+  command: string,
+  args: string[],
+  options: { timeoutMs?: number } = {},
+): Promise<CommandResult> {
+  const timeoutMs = options.timeoutMs ?? DISCOVERY_TIMEOUT_MS;
+
+  if (process.platform === 'win32') {
+    return new Promise((resolve) => {
+      let tmpDir: string | null = null;
+      let stdoutFd: number | null = null;
+      let stderrFd: number | null = null;
+      let stdoutFile: string | null = null;
+      let stderrFile: string | null = null;
+      let timedOut = false;
+      let timer: NodeJS.Timeout | null = null;
+      let settled = false;
+
+      try {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-cmd-'));
+        stdoutFile = path.join(tmpDir, 'stdout.tmp');
+        stderrFile = path.join(tmpDir, 'stderr.tmp');
+        stdoutFd = fs.openSync(stdoutFile, 'w');
+        stderrFd = fs.openSync(stderrFile, 'w');
+      } catch (err) {
+        if (stdoutFd !== null) { try { fs.closeSync(stdoutFd); } catch { /* ignore */ } }
+        if (stderrFd !== null) { try { fs.closeSync(stderrFd); } catch { /* ignore */ } }
+        if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } }
+        resolve({
+          stdout: '',
+          stderr: err instanceof Error ? err.message : String(err),
+          exitCode: null,
+          timeout: false,
+        });
+        return;
+      }
+
+      const formatCmdArg = (arg: string): string => {
+        if (!arg) return '""';
+        if (!/[ \t\n\v"]/.test(arg)) return arg;
+        let escaped = arg.replace(/(\\*)"/g, '$1$1\\"');
+        escaped = escaped.replace(/(\\+)$/, '$1$1');
+        return `"${escaped}"`;
+      };
+
+      const fullCommandLine = [formatCmdArg(command), ...args.map(formatCmdArg)].join(' ');
+
+      const finish = (exitCode: number | null, isTimeout: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+
+        if (stdoutFd !== null) {
+          try { fs.closeSync(stdoutFd); } catch { /* ignore */ }
+          stdoutFd = null;
+        }
+        if (stderrFd !== null) {
+          try { fs.closeSync(stderrFd); } catch { /* ignore */ }
+          stderrFd = null;
+        }
+
+        let stdout = '';
+        let stderr = '';
+        try {
+          if (stdoutFile && fs.existsSync(stdoutFile)) {
+            stdout = fs.readFileSync(stdoutFile, 'utf-8');
+          }
+          if (stderrFile && fs.existsSync(stderrFile)) {
+            stderr = fs.readFileSync(stderrFile, 'utf-8');
+          }
+        } catch { /* ignore */ }
+
+        if (tmpDir) {
+          try {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+          } catch { /* ignore */ }
+        }
+
+        resolve({
+          stdout,
+          stderr,
+          exitCode: isTimeout ? null : exitCode,
+          timeout: isTimeout,
+        });
+      };
+
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn('cmd.exe', ['/d', '/s', '/c', `"${fullCommandLine}"`], {
+          stdio: ['ignore', stdoutFd, stderrFd],
+          windowsHide: true,
+          windowsVerbatimArguments: true,
+        });
+      } catch {
+        finish(null, false);
+        return;
+      }
+
+      timer = setTimeout(() => {
+        timedOut = true;
+        if (child.pid) {
+          try {
+            spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });
+          } catch {
+            child.kill();
+          }
+        } else {
+          child.kill();
+        }
+        setTimeout(() => finish(null, true), 100);
+      }, timeoutMs);
+
+      child.on('error', () => {
+        finish(null, timedOut);
+      });
+
+      child.on('close', (code) => {
+        finish(code, timedOut);
+      });
+    });
+  }
+
   return new Promise((resolve) => {
     execFile(command, args, {
-      timeout: DISCOVERY_TIMEOUT_MS,
+      timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
-      ...(process.platform === 'win32' ? { shell: true } : {}),
     }, (error, stdout, stderr) => {
-      const code = error && 'code' in error && typeof error.code === 'number' ? error.code : error ? null : 0;
-      resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode: code });
+      const timedOut = Boolean(error && (error.killed || error.signal === 'SIGTERM' || (error as { code?: unknown })?.code === 'ETIMEDOUT'));
+      const code = timedOut ? null : (error && 'code' in error && typeof error.code === 'number' ? error.code : error ? null : 0);
+      resolve({
+        stdout: stdout ?? '',
+        stderr: stderr ?? '',
+        exitCode: code,
+        timeout: timedOut,
+      });
     });
   });
 }
@@ -91,7 +219,15 @@ function safeDiagnosticStderr(value: string): string {
 }
 
 function diagnostic(command: string, result: CommandResult, parsedModelCount: number, source: ModelSource): DiscoveryDiagnostic {
-  return { command, exitCode: result.exitCode, stdoutLength: result.stdout.length, stderr: safeDiagnosticStderr(result.stderr), parsedModelCount, source };
+  return {
+    command,
+    exitCode: result.exitCode,
+    timeout: Boolean(result.timeout),
+    stdoutLength: result.stdout.length,
+    stderr: safeDiagnosticStderr(result.stderr),
+    parsedModelCount,
+    source,
+  };
 }
 
 function effortValues(raw: unknown): string[] | null {
@@ -173,8 +309,8 @@ export async function discoverAntigravity(run = execCommand): Promise<ModelDisco
   const fallbackModels = fallback.exitCode === 0 ? parseAntigravityModelEnvelope(fallback.stdout) : null;
   diagnostics.push(diagnostic('agy -p "/model" --output-format json', fallback, fallbackModels?.length ?? 0, 'antigravity-model-command'));
   console.info('[model-sync] Antigravity discovery', diagnostics);
-  if (fallbackModels) {
-    return { models: fallbackModels, source: 'antigravity-model-command', authoritative: true, primarySucceeded: true, diagnostics };
+  if (fallbackModels && fallbackModels.length > 0) {
+    return { models: fallbackModels, source: 'antigravity-model-command', authoritative: false, primarySucceeded: false, diagnostics };
   }
   return { models: [], source: 'antigravity-model-command', authoritative: false, primarySucceeded: false, diagnostics };
 }
