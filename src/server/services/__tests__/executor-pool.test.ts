@@ -1343,19 +1343,23 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
+    let resolveExit: (code: number) => void = () => {};
+    const startSpy = vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => ({
+      pid: 2401,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    }));
+
     const project = queries.createProject('Coalesce Project', 'C:/coalesce-proj');
     const waitingTodo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
     // Start with Claude limit = 0 (so first pass sees it busy)
     executorPool.setLimit('claude', 0);
-
-    let wakeCount = 0;
-    const origStartSingle = (orchestrator as any).startSingleTodo.bind(orchestrator);
-    vi.spyOn(orchestrator as any, 'startSingleTodo').mockImplementation(async (...args: any[]) => {
-      wakeCount++;
-      return origStartSingle(...args);
-    });
 
     // Start a wake pass while limit is 0 -> finishes with todo still waiting_executor
     const wakePromise = orchestrator.wakeWaitingExecutors();
@@ -1369,6 +1373,10 @@ describe('Executor Pool V1', () => {
 
     // Waiter was reevaluated and launched in the coalesced pass!
     expect(queries.getTodoById(waitingTodo.id)?.status).toBe('running');
+    expect(startSpy).toHaveBeenCalledTimes(1);
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
   });
 
   it('25. failed reservation after candidate evaluation does not return selected', async () => {

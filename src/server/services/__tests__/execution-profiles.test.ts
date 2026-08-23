@@ -15,6 +15,7 @@ const { executorInput } = executionProfilesModule;
 const modelsRoute = (await import('../../routes/models.js')).default;
 const { DiscussionOrchestrator } = await import('../discussion-orchestrator.js');
 const { claudeManager } = await import('../claude-manager.js');
+const cliStatusModule = await import('../cli-status.js');
 
 async function apiRequest(router: Router, path: string, init: RequestInit = {}) {
   const app = express();
@@ -34,8 +35,16 @@ async function apiRequest(router: Router, path: string, init: RequestInit = {}) 
 }
 
 describe('execution profiles', () => {
-  beforeEach(() => { testDb = new Database(':memory:'); initDatabase(testDb); });
-  afterEach(() => { vi.restoreAllMocks(); testDb.close(); });
+  beforeEach(() => {
+    testDb = new Database(':memory:');
+    initDatabase(testDb);
+    cliStatusModule.clearCache();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cliStatusModule.clearCache();
+    testDb.close();
+  });
 
   it('creates a stable-slug profile with Claude and Codex candidates', () => {
     const claude = queries.addModel('claude', 'opus', 'Opus', ['high']);
@@ -175,6 +184,11 @@ describe('execution profiles', () => {
     const message = queries.createDiscussionMessage(discussion.id, agent.id, 1, 0, agent.role, agent.name);
     const orchestrator = new DiscussionOrchestrator();
     const outputSpy = vi.spyOn(orchestrator as never, 'streamToDiscussionDb').mockReturnValue([]);
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
     vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
       pid: 123, stdout: new PassThrough(), stderr: new PassThrough(), stdin: null,
       exitPromise: new Promise<number>(() => undefined), command: 'codex', args: [],
