@@ -149,225 +149,214 @@ export class SessionManager {
     const project = queries.getProjectById(session.project_id);
     if (!project) throw new Error('Project not found');
 
-    const cliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
-    const cliModel = session.cli_model ?? undefined;
+    let hasReservation = false;
     let executionConfig: ResolvedExecutionConfig | null = null;
-    let resolvedCliTool = cliTool;
-
-    if (session.execution_profile_id) {
-      const selection = await executorPool.selectExecutor({
-        executionProfileId: session.execution_profile_id,
-        interactive: true,
-        excludeSessionId: sessionId,
-        reserveOwnerId: sessionId,
-      });
-      if (selection.status === 'waiting_executor') {
-        throw new Error(
-          `Provider concurrency limit reached for profile "${selection.profileName}":\n\n${selection.rejectionSummary}`
-        );
-      }
-      if (selection.status === 'no_candidates') {
-        throw new Error(
-          `Execution profile "${selection.profileName}" has no eligible interactive executors:\n\n${selection.rejectionSummary}`
-        );
-      }
-      executionConfig = selection.selectedConfig!;
-      resolvedCliTool = executionConfig.cliTool;
-    } else {
-      if (isAgentCliTool(cliTool) || session.cli_model_id || session.cli_effort) {
-        executionConfig = resolveExecutionConfig({
-          cliTool,
-          model: cliModel,
-          cliModelId: session.cli_model_id,
-          cliEffort: session.cli_effort,
-          interactive: true,
-        });
-        resolvedCliTool = executionConfig.cliTool;
-      }
-      if (!executorPool.hasAvailableSlot(resolvedCliTool, { excludeSessionId: sessionId })) {
-        const adapter = getAdapter(resolvedCliTool);
-        const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeSessionId: sessionId });
-        const limit = executorPool.getLimit(resolvedCliTool);
-        throw new Error(
-          `Provider concurrency limit reached for ${adapter.displayName} (${usage}/${limit} active). Please try again later.`
-        );
-      }
-    }
-
-    if (!supportsInteractiveMode(resolvedCliTool)) {
-      throw new Error(`${resolvedCliTool} does not support interactive mode`);
-    }
-    const isRawShell = resolvedCliTool === 'raw-shell';
-
-    const useWorktree = !!session.use_worktree && !!project.is_git_repo;
-    const resume = !!opts?.continueSession;
-    if (resume) {
-      if (isRawShell) {
-        throw new Error('Resume is not supported for raw shell sessions');
-      }
-      // --continue is currently only wired for Claude in interactive mode.
-      // Antigravity/Codex have the adapter flag but their interactive resume is
-      // not yet validated, so reject early with a clear message.
-      if (resolvedCliTool !== 'claude') {
-        throw new Error('Resume is only supported for Claude sessions');
-      }
-      // claude --continue picks the latest conversation in the cwd. If the
-      // session runs at the project root, that latest can easily be a todo
-      // executor's conversation — refuse and force a worktree session.
-      if (!useWorktree || !session.worktree_path) {
-        throw new Error('Resume requires a worktree session');
-      }
-    }
-
-    const adapter = getAdapter(resolvedCliTool);
-    let prompt = session.description || '';
-
-    // Inject long-term memory if configured for this session. Mirrors the
-    // todo/discussion flow: prepend a <long_term_memory> block to the initial
-    // PTY prompt so the CLI sees both the wiki context and the user's request
-    // as one combined first turn. Skipped on resume — the prior conversation
-    // already contains the same block, and we don't want to fire a fresh
-    // initial prompt on top of restored history.
-    // Raw-shell never consumes a prompt at all — it's a regular OS shell —
-    // so memory injection is unconditionally skipped.
-    const memMode = ((session.memory_inject_mode as MemoryInjectMode | null) || 'none') as MemoryInjectMode;
-    const rawFilePaths = parseRawFilePaths(session.memory_raw_file_paths);
-    if (!isRawShell && !resume && (memMode !== 'none' || rawFilePaths.length > 0)) {
-      const memBlock = await applyMemoryInjection({
-        projectId: project.id,
-        mode: memMode,
-        nodeIds: parseMemoryNodeIds(session.memory_node_ids),
-        rawFilePaths,
-        vaultFilePaths: rawFilePaths,
-        projectRoot: project.path,
-        query: `${session.title}\n${session.description ?? ''}`.trim(),
-        log: (type, message) => queries.createSessionLog(sessionId, type, message),
-      });
-      if (memBlock) {
-        prompt = prompt ? `${memBlock}\n\n${prompt}` : memBlock;
-      }
-    }
-
-    // Decide whether to hold the initial prompt for Send/Skip BEFORE flipping
-    // status='running' so the WS handler's gate-1 (`hasPendingPrompt`) covers
-    // the entire spawn window. Otherwise type-ahead arriving in the
-    // [status=running, pendingPrompt-not-yet-set] window would slip past the
-    // gate, land in startupInputBuffer, then get drained into the PTY
-    // before the held description is dispatched.
-    // Raw-shell never auto-submits an initial prompt — running an arbitrary
-    // string in a shell would execute it as a command, which is unsafe and
-    // not what "session description" means for raw shells.
-    if (!isRawShell && !resume && prompt.trim()) {
-      this.pendingInitialPrompts.set(sessionId, prompt);
-    } else {
-      this.pendingInitialPrompts.delete(sessionId);
-    }
-
-    // Mark as running and open the type-ahead buffer in lockstep.
-    // Release reservation synchronously with no await in between.
-    if (executionConfig) {
-      queries.updateSession(sessionId, { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) });
-      queries.createSessionLog(sessionId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`);
-    }
-    queries.updateSessionStatus(sessionId, 'running');
-    executorPool.releaseReservation(sessionId);
-    this.startupInputBuffer.set(sessionId, []);
-
-    let workDir = project.path;
-    let worktreePath: string | null = null;
-    let branchName: string | null = null;
-
-    // Worktree setup
-    if (useWorktree) {
-      // Reuse existing worktree if available
-      if (session.worktree_path && session.branch_name && await worktreeManager.isValidWorktree(session.worktree_path)) {
-        worktreePath = session.worktree_path;
-        branchName = session.branch_name;
-        workDir = worktreePath;
-        queries.createSessionLog(sessionId, 'output', `Reusing existing worktree on branch ${branchName}`);
-      } else {
-        const requestedBranch = worktreeManager.sanitizeBranchName(`session-${session.title}`);
-        try {
-          const created = await worktreeManager.createWorktree(project.path, requestedBranch, !!project.npm_auto_install);
-          worktreePath = created.worktreePath;
-          branchName = created.branchName;
-          workDir = worktreePath;
-          queries.createSessionLog(sessionId, 'output', `Created worktree on branch ${branchName}`);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          this.startupInputBuffer.delete(sessionId);
-          this.pendingInitialPrompts.delete(sessionId);
-          queries.updateSessionStatus(sessionId, 'failed');
-          queries.createSessionLog(sessionId, 'error', `Failed to create worktree: ${message}`);
-          broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
-          broadcastProjectStatus(session.project_id);
-          return;
-        }
-      }
-    }
-
-    // Snapshot the working tree once at first start (kept across resume) as the
-    // baseline for the Diff view. A full snapshot — not just HEAD — so that on a
-    // shared/main checkout, changes already present before the session started
-    // (e.g. a stray untracked file) are excluded; only what the session itself
-    // changes shows up. See snapshotWorkingTree().
-    //
-    // Kicked off BEFORE the PTY spawns (not awaited — start stays instant):
-    // started after spawn, the scan raced the CLI's boot-time edits and could
-    // bake them into the base, hiding them from the Diff forever. Started
-    // here, the CLI process doesn't even exist yet; only a scan still running
-    // when the CLI's first write lands could miss it (huge repos).
-    // resolveSessionDiff (routes/sessions.ts) awaits the pending promise via
-    // waitForBaseSnapshot, so an early-opened Diff sees the real base instead
-    // of falling back to a HEAD-only diff that hides untracked files.
-    if (!session.base_commit && project.is_git_repo) {
-      const snapshot = snapshotWorkingTree(workDir)
-        .then((base) => { if (base) queries.updateSession(sessionId, { base_commit: base }); })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          queries.createSessionLog(sessionId, 'error', `Diff base snapshot failed: ${message}`);
-        })
-        .finally(() => { this.pendingBaseSnapshots.delete(sessionId); });
-      this.pendingBaseSnapshots.set(sessionId, snapshot);
-    }
-
-    let pid: number;
-    let exitPromise: Promise<number>;
+    let resolvedCliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
+    const cliModel = session.cli_model ?? undefined;
 
     try {
-      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
-      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
-        ? undefined
-        : executionConfig?.effort.nativeEffort;
-      const result = await claudeManager.startClaude(
-        workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
-        undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
-        opts?.cols ?? 100, opts?.rows ?? 30,
-        launchEffort,
-      );
-      pid = result.pid;
-      exitPromise = result.exitPromise;
-
-      // Subscribe to raw PTY bytes for the xterm.js terminal channel.
-      // The legacy stripped-text streamToSessionLogs path is intentionally
-      // skipped — Sessions now show the real terminal, and storing classified
-      // session_logs on every spinner frame is wasted DB churn.
-      this.subscribeRawForSession(sessionId, pid);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.startupInputBuffer.delete(sessionId);
-      this.pendingInitialPrompts.delete(sessionId);
-      queries.updateSessionStatus(sessionId, 'failed');
-      queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter.displayName}: ${message}`);
-      // Clean up worktree on failure
-      if (useWorktree && worktreePath && !session.worktree_path) {
-        try { await worktreeManager.removeWorktree(project.path, worktreePath); } catch { /* ignore */ }
+      if (session.execution_profile_id) {
+        const selection = await executorPool.selectExecutor({
+          executionProfileId: session.execution_profile_id,
+          interactive: true,
+          excludeSessionId: sessionId,
+          reserveOwnerId: sessionId,
+        });
+        if (selection.status === 'waiting_executor') {
+          throw new Error(
+            `Provider concurrency limit reached for profile "${selection.profileName}":\n\n${selection.rejectionSummary}`
+          );
+        }
+        if (selection.status === 'no_candidates') {
+          throw new Error(
+            `Execution profile "${selection.profileName}" has no eligible interactive executors:\n\n${selection.rejectionSummary}`
+          );
+        }
+        hasReservation = true;
+        executionConfig = selection.selectedConfig!;
+        resolvedCliTool = executionConfig.cliTool;
+      } else {
+        if (isAgentCliTool(resolvedCliTool) || session.cli_model_id || session.cli_effort) {
+          executionConfig = resolveExecutionConfig({
+            cliTool: resolvedCliTool,
+            model: cliModel,
+            cliModelId: session.cli_model_id,
+            cliEffort: session.cli_effort,
+            interactive: true,
+          });
+          resolvedCliTool = executionConfig.cliTool;
+        }
+        const reserved = executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId });
+        if (!reserved) {
+          const adapter = getAdapter(resolvedCliTool);
+          const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeSessionId: sessionId });
+          const limit = executorPool.getLimit(resolvedCliTool);
+          throw new Error(
+            `Provider concurrency limit reached for ${adapter.displayName} (${usage}/${limit} active). Please try again later.`
+          );
+        }
+        hasReservation = true;
       }
-      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
-      broadcastProjectStatus(session.project_id);
-      orchestrator.wakeWaitingExecutors().catch(() => {});
-      return;
-    }
+
+      if (!supportsInteractiveMode(resolvedCliTool)) {
+        throw new Error(`${resolvedCliTool} does not support interactive mode`);
+      }
+      const isRawShell = resolvedCliTool === 'raw-shell';
+
+      const useWorktree = !!session.use_worktree && !!project.is_git_repo;
+      const resume = !!opts?.continueSession;
+      if (resume) {
+        if (isRawShell) {
+          throw new Error('Resume is not supported for raw shell sessions');
+        }
+        // --continue is currently only wired for Claude in interactive mode.
+        // Antigravity/Codex have the adapter flag but their interactive resume is
+        // not yet validated, so reject early with a clear message.
+        if (resolvedCliTool !== 'claude') {
+          throw new Error('Resume is only supported for Claude sessions');
+        }
+        // claude --continue picks the latest conversation in the cwd. If the
+        // session runs at the project root, that latest can easily be a todo
+        // executor's conversation — refuse and force a worktree session.
+        if (!useWorktree || !session.worktree_path) {
+          throw new Error('Resume requires a worktree session');
+        }
+      }
+
+      const adapter = getAdapter(resolvedCliTool);
+
+      // Persist execution identity and mark status='running' synchronously, then immediately release reservation
+      const snapshotStr = executionConfig
+        ? JSON.stringify(executionSnapshot(executionConfig))
+        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool });
+      queries.updateSession(sessionId, { execution_snapshot: snapshotStr });
+      if (executionConfig) {
+        queries.createSessionLog(sessionId, 'info', `[execution] ${snapshotStr}`);
+      }
+      queries.updateSessionStatus(sessionId, 'running');
+      executorPool.releaseReservation(sessionId);
+      hasReservation = false;
+
+      this.startupInputBuffer.set(sessionId, []);
+
+      let prompt = session.description || '';
+
+      // Inject long-term memory if configured for this session. Mirrors the
+      // todo/discussion flow: prepend a <long_term_memory> block to the initial
+      // PTY prompt so the CLI sees both the wiki context and the user's request
+      // as one combined first turn. Skipped on resume — the prior conversation
+      // already contains the same block, and we don't want to fire a fresh
+      // initial prompt on top of restored history.
+      // Raw-shell never consumes a prompt at all — it's a regular OS shell —
+      // so memory injection is unconditionally skipped.
+      const memMode = ((session.memory_inject_mode as MemoryInjectMode | null) || 'none') as MemoryInjectMode;
+      const rawFilePaths = parseRawFilePaths(session.memory_raw_file_paths);
+      if (!isRawShell && !resume && (memMode !== 'none' || rawFilePaths.length > 0)) {
+        const memBlock = await applyMemoryInjection({
+          projectId: project.id,
+          mode: memMode,
+          nodeIds: parseMemoryNodeIds(session.memory_node_ids),
+          rawFilePaths,
+          vaultFilePaths: rawFilePaths,
+          projectRoot: project.path,
+          query: `${session.title}\n${session.description ?? ''}`.trim(),
+          log: (type, message) => queries.createSessionLog(sessionId, type, message),
+        });
+        if (memBlock) {
+          prompt = prompt ? `${memBlock}\n\n${prompt}` : memBlock;
+        }
+      }
+
+      // Decide whether to hold the initial prompt for Send/Skip BEFORE flipping
+      // status='running' so the WS handler's gate-1 (`hasPendingPrompt`) covers
+      // the entire spawn window.
+      if (!isRawShell && !resume && prompt.trim()) {
+        this.pendingInitialPrompts.set(sessionId, prompt);
+      } else {
+        this.pendingInitialPrompts.delete(sessionId);
+      }
+
+      let workDir = project.path;
+      let worktreePath: string | null = null;
+      let branchName: string | null = null;
+
+      // Worktree setup
+      if (useWorktree) {
+        // Reuse existing worktree if available
+        if (session.worktree_path && session.branch_name && await worktreeManager.isValidWorktree(session.worktree_path)) {
+          worktreePath = session.worktree_path;
+          branchName = session.branch_name;
+          workDir = worktreePath;
+          queries.createSessionLog(sessionId, 'output', `Reusing existing worktree on branch ${branchName}`);
+        } else {
+          const requestedBranch = worktreeManager.sanitizeBranchName(`session-${session.title}`);
+          try {
+            const created = await worktreeManager.createWorktree(project.path, requestedBranch, !!project.npm_auto_install);
+            worktreePath = created.worktreePath;
+            branchName = created.branchName;
+            workDir = worktreePath;
+            queries.createSessionLog(sessionId, 'output', `Created worktree on branch ${branchName}`);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.startupInputBuffer.delete(sessionId);
+            this.pendingInitialPrompts.delete(sessionId);
+            queries.updateSessionStatus(sessionId, 'failed');
+            queries.updateSession(sessionId, { execution_snapshot: null });
+            queries.createSessionLog(sessionId, 'error', `Failed to create worktree: ${message}`);
+            broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
+            broadcastProjectStatus(session.project_id);
+            orchestrator.wakeWaitingExecutors().catch(() => {});
+            return;
+          }
+        }
+      }
+
+      // Snapshot the working tree once at first start (kept across resume) as the
+      // baseline for the Diff view.
+      if (!session.base_commit && project.is_git_repo) {
+        const snapshot = snapshotWorkingTree(workDir)
+          .then((base) => { if (base) queries.updateSession(sessionId, { base_commit: base }); })
+          .catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            queries.createSessionLog(sessionId, 'error', `Diff base snapshot failed: ${message}`);
+          })
+          .finally(() => { this.pendingBaseSnapshots.delete(sessionId); });
+        this.pendingBaseSnapshots.set(sessionId, snapshot);
+      }
+
+      let pid: number;
+      let exitPromise: Promise<number>;
+
+      try {
+        const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
+        const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
+          ? undefined
+          : executionConfig?.effort.nativeEffort;
+        const result = await claudeManager.startClaude(
+          workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
+          undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
+          opts?.cols ?? 100, opts?.rows ?? 30,
+          launchEffort,
+        );
+        pid = result.pid;
+        exitPromise = result.exitPromise;
+        this.subscribeRawForSession(sessionId, pid);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.startupInputBuffer.delete(sessionId);
+        this.pendingInitialPrompts.delete(sessionId);
+        queries.updateSessionStatus(sessionId, 'failed');
+        queries.updateSession(sessionId, { execution_snapshot: null });
+        queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter.displayName}: ${message}`);
+        // Clean up worktree on failure
+        if (useWorktree && worktreePath && !session.worktree_path) {
+          try { await worktreeManager.removeWorktree(project.path, worktreePath); } catch { /* ignore */ }
+        }
+        broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
+        broadcastProjectStatus(session.project_id);
+        orchestrator.wakeWaitingExecutors().catch(() => {});
+        return;
+      }
 
     // Atomic drain: persist process_pid, remove the buffer, replay queued
     // bytes — all in a single synchronous block. JS being single-threaded
@@ -444,6 +433,11 @@ export class SessionManager {
       broadcastProjectStatus(session.project_id);
       orchestrator.wakeWaitingExecutors().catch(() => {});
     });
+    } finally {
+      if (hasReservation) {
+        executorPool.releaseReservation(sessionId);
+      }
+    }
   }
 
   /**

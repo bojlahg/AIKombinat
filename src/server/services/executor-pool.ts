@@ -60,19 +60,22 @@ function getSessionActiveCliTool(session: queries.Session): CliTool {
   return (project?.cli_tool as CliTool) || 'claude';
 }
 
-function getDiscussionActiveCliTool(discussion: queries.Discussion): CliTool {
+function getDiscussionActiveCliTool(discussion: queries.Discussion): CliTool | null {
   if (discussion.execution_snapshot) {
     try {
       const snap = JSON.parse(discussion.execution_snapshot);
       if (snap?.agent) return snap.agent as CliTool;
     } catch { /* ignore */ }
   }
-  if (discussion.current_agent_id) {
-    const agent = queries.getDiscussionAgentById(discussion.current_agent_id);
-    if (agent?.cli_tool) return agent.cli_tool as CliTool;
+  if (discussion.process_pid && discussion.process_pid > 0) {
+    if (discussion.current_agent_id) {
+      const agent = queries.getDiscussionAgentById(discussion.current_agent_id);
+      if (agent?.cli_tool) return agent.cli_tool as CliTool;
+    }
+    const project = queries.getProjectById(discussion.project_id);
+    return (project?.cli_tool as CliTool) || 'claude';
   }
-  const project = queries.getProjectById(discussion.project_id);
-  return (project?.cli_tool as CliTool) || 'claude';
+  return null;
 }
 
 export function formatCandidateDiagnostics(evaluations: CandidateEvaluation[]): string {
@@ -89,28 +92,26 @@ export interface SlotReservation {
 }
 
 export class ExecutorPool {
-  private limitOverrides: Map<CliTool, number> = new Map();
+  private limits: Map<CliTool, number> = new Map();
   private reservations: Map<string, SlotReservation> = new Map();
 
+  constructor() {
+    this.resetLimits();
+  }
+
   getLimit(tool: CliTool): number {
-    const override = this.limitOverrides.get(tool);
-    if (override !== undefined) return override;
-
-    const envKey = `EXECUTOR_LIMIT_${tool.toUpperCase().replace(/-/g, '_')}`;
-    if (process.env[envKey]) {
-      const parsed = parseInt(process.env[envKey]!, 10);
-      if (!isNaN(parsed) && parsed >= 0) return parsed;
-    }
-
-    return DEFAULT_CONCURRENCY[tool] ?? 2;
+    return this.limits.get(tool) ?? DEFAULT_CONCURRENCY[tool] ?? 2;
   }
 
   setLimit(tool: CliTool, limit: number): void {
-    this.limitOverrides.set(tool, limit);
+    this.limits.set(tool, Math.max(0, limit));
   }
 
   resetLimits(): void {
-    this.limitOverrides.clear();
+    this.limits.clear();
+    for (const [tool, limit] of Object.entries(DEFAULT_CONCURRENCY)) {
+      this.limits.set(tool as CliTool, limit);
+    }
     this.reservations.clear();
   }
 
@@ -168,7 +169,8 @@ export class ExecutorPool {
     const runningDiscussions = queries.getDiscussionsByStatus('running');
     for (const discussion of runningDiscussions) {
       if (options.excludeDiscussionId && discussion.id === options.excludeDiscussionId) continue;
-      if (getDiscussionActiveCliTool(discussion) === tool) count++;
+      const activeTool = getDiscussionActiveCliTool(discussion);
+      if (activeTool && activeTool === tool) count++;
     }
 
     for (const res of this.reservations.values()) {

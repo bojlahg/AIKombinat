@@ -431,7 +431,26 @@ export class Orchestrator {
             })
           : null;
         resolvedCliTool = executionConfig?.cliTool ?? cliTool;
+
+        const reserved = executorPool.reserveSlot(todoId, resolvedCliTool, { excludeTodoId: todoId });
+        if (!reserved) {
+          queries.updateTodoStatus(todoId, 'waiting_executor');
+          queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          const adapter = getAdapter(resolvedCliTool);
+          const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeTodoId: todoId });
+          const limit = executorPool.getLimit(resolvedCliTool);
+          const message = `[executor-pool] Waiting for executor capacity (manual ${adapter.displayName}): provider concurrency limit reached (${usage}/${limit} active)`;
+          const recentLogs = queries.getTaskLogsByTodoId(todoId);
+          const lastOutput = [...recentLogs].reverse().find((l) => l.log_type === 'output');
+          if (!lastOutput || lastOutput.message !== message) {
+            queries.createTaskLog(todoId, 'output', message, roundNumber);
+          }
+          broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'waiting_executor' });
+          this.broadcastProjectStatus(projectId);
+          return;
+        }
       } catch (err) {
+        executorPool.releaseReservation(todoId);
         const message = err instanceof Error ? err.message : String(err);
         queries.updateTodoStatus(todoId, 'failed');
         queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
@@ -451,7 +470,9 @@ export class Orchestrator {
     queries.updateTodoStatus(todoId, 'running');
     queries.updateTodo(todoId, {
       execution_mode: mode,
-      ...(executionConfig ? { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) } : {}),
+      ...(executionConfig
+        ? { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) }
+        : { execution_snapshot: JSON.stringify({ configuration: 'manual', agent: resolvedCliTool }) }),
     });
     executorPool.releaseReservation(todoId);
     logStreamer.setRound(todoId, roundNumber);

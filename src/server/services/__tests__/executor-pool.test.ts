@@ -1404,5 +1404,381 @@ describe('Executor Pool V1', () => {
     expect(selection.selectedCandidate?.cli_tool).toBe('codex');
     expect(selection.selectedConfig?.cliTool).toBe('codex');
   });
+
+  it('26. manual Todo respects provider limit, becomes WAITING_EXECUTOR when full, and starts after capacity released', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Limit Claude = 1
+    executorPool.setLimit('claude', 1);
+
+    const { worktreeManager } = await import('../worktree-manager.js');
+    vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
+      worktreePath: 'C:/mock-worktree',
+      branchName: 'mock-branch',
+    });
+    vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
+
+    const project = queries.createProject('Manual Todo Project', 'C:/manual-proj', 'main', 1);
+    queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
+
+    const t1 = queries.createTodo(project.id, 'Task 1', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
+    const t2 = queries.createTodo(project.id, 'Task 2', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
+
+    let resolveExit1: (code: number) => void = () => {};
+    let resolveExit2: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude')
+      .mockImplementationOnce(async () => ({
+        pid: 1301,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit1 = resolve; }),
+        command: 'claude',
+        args: [],
+      }))
+      .mockImplementationOnce(async () => ({
+        pid: 1302,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit2 = resolve; }),
+        command: 'claude',
+        args: [],
+      }));
+
+    // Start Task 1 -> starts normally
+    await orchestrator.startTodo(t1.id);
+    expect(queries.getTodoById(t1.id)?.status).toBe('running');
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+
+    // Start Task 2 (manual) -> provider capacity is full (1/1), so enters WAITING_EXECUTOR
+    await orchestrator.startTodo(t2.id);
+    expect(queries.getTodoById(t2.id)?.status).toBe('waiting_executor');
+    const logs = queries.getTaskLogsByTodoId(t2.id);
+    expect(logs.some((l) => l.message.includes('[executor-pool] Waiting for executor capacity (manual Claude CLI)'))).toBe(true);
+
+    // Task 1 completes -> releases capacity and wakes Task 2
+    resolveExit1(0);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(queries.getTodoById(t1.id)?.status).toBe('completed');
+    expect(queries.getTodoById(t2.id)?.status).toBe('running');
+    expect(queries.getTodoById(t2.id)?.process_pid).toBe(1302);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+
+    resolveExit2(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('27. concurrent manual Todo starts cannot oversubscribe provider limit', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Limit Claude = 1
+    executorPool.setLimit('claude', 1);
+
+    const { worktreeManager } = await import('../worktree-manager.js');
+    vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
+      worktreePath: 'C:/mock-worktree',
+      branchName: 'mock-branch',
+    });
+    vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
+
+    const project = queries.createProject('Race Manual Project', 'C:/race-manual-proj', 'main', 1);
+    queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
+
+    const t1 = queries.createTodo(project.id, 'Task A', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
+    const t2 = queries.createTodo(project.id, 'Task B', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
+
+    let resolveExit: (code: number) => void = () => {};
+    let launchCount = 0;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      launchCount++;
+      return {
+        pid: 1400 + launchCount,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    // Concurrently start both manual todos
+    await Promise.all([
+      orchestrator.startTodo(t1.id),
+      orchestrator.startTodo(t2.id),
+    ]);
+
+    const s1 = queries.getTodoById(t1.id)?.status;
+    const s2 = queries.getTodoById(t2.id)?.status;
+
+    // Exactly one is running and one is waiting_executor
+    expect((s1 === 'running' ? 1 : 0) + (s2 === 'running' ? 1 : 0)).toBe(1);
+    expect((s1 === 'waiting_executor' ? 1 : 0) + (s2 === 'waiting_executor' ? 1 : 0)).toBe(1);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+    expect(launchCount).toBe(1);
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('28. concurrent manual Session starts: exactly one starts and other fails cleanly with provider busy', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Limit Claude = 1
+    executorPool.setLimit('claude', 1);
+
+    const project = queries.createProject('Session Race Project', 'C:/session-race-proj');
+    const s1 = queries.createSession(project.id, 'Session 1', 'Desc', 'claude');
+    const s2 = queries.createSession(project.id, 'Session 2', 'Desc', 'claude');
+
+    let resolveExit: (code: number) => void = () => {};
+    let spawnCount = 0;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      spawnCount++;
+      return {
+        pid: 1500 + spawnCount,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    const results = await Promise.allSettled([
+      sessionManager.startSession(s1.id),
+      sessionManager.startSession(s2.id),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/Provider concurrency limit reached for Claude/);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+    expect(executorPool.getReservations().length).toBe(0);
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('29. profile Session reservation is cleanly released on validation failure before running', async () => {
+    const codex = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
+    const profile = queries.createExecutionProfile({
+      slug: 'codex-only-profile',
+      name: 'Codex Only Profile',
+      description: '',
+      executors: [{ cli_model_id: codex.id, effort_value: 'medium', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Codex limit = 1
+    executorPool.setLimit('codex', 1);
+
+    const project = queries.createProject('Validation Project', 'C:/val-proj', 'main', 1);
+    const session1 = queries.createSession(project.id, 'Session 1', 'Desc', undefined, undefined, true, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateSession(session1.id, { worktree_path: 'C:/mock-worktree' });
+
+    // Attempting to continue/resume with non-Claude profile fails validation
+    await expect(
+      sessionManager.startSession(session1.id, { continueSession: true })
+    ).rejects.toThrow(/Resume is only supported for Claude sessions/);
+
+    // Verify reservation was NOT leaked
+    expect(executorPool.getReservations().length).toBe(0);
+    expect(executorPool.getActiveToolUsage('codex')).toBe(0);
+
+    // A subsequent session can now acquire the 1/1 slot without being blocked
+    const session2 = queries.createSession(project.id, 'Session 2', 'Desc', undefined, undefined, false, undefined, undefined, undefined, undefined, profile.id);
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 1601,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'codex',
+      args: [],
+    });
+
+    await sessionManager.startSession(session2.id);
+    expect(queries.getSessionById(session2.id)?.status).toBe('running');
+    expect(executorPool.getActiveToolUsage('codex')).toBe(1);
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('30. Discussion completed turn immediately clears provider identity and wakes WAITING_EXECUTOR todo before next turn', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'claude-profile',
+      name: 'Claude Profile',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Claude limit = 1
+    executorPool.setLimit('claude', 1);
+
+    const project = queries.createProject('Disc Release Project', 'C:/disc-rel-proj', 'main', 0, 'claude');
+    const waitingTodo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
+
+    const agent1 = queries.createDiscussionAgent(project.id, 'Agent 1', 'Role', 'Prompt', undefined, undefined, undefined, false, profile.id);
+    const agent2 = queries.createDiscussionAgent(project.id, 'Agent 2', 'Role', 'Prompt', undefined, undefined, undefined, false, profile.id);
+
+    const discussion = queries.createDiscussion(project.id, 'Disc Rel', 'Desc', [agent1.id, agent2.id], 1, false, undefined, 'none', null, null, 0);
+
+    let resolveTurn1: (code: number) => void = () => {};
+    let resolveTodoExit: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude')
+      .mockImplementationOnce(async () => ({
+        pid: 1701,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveTurn1 = resolve; }),
+        command: 'claude',
+        args: [],
+      }))
+      .mockImplementationOnce(async () => ({
+        pid: 1702,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveTodoExit = resolve; }),
+        command: 'claude',
+        args: [],
+      }));
+
+    // Start discussion turn 1
+    await discussionOrchestrator.startDiscussion(discussion.id);
+    expect(queries.getDiscussionById(discussion.id)?.status).toBe('running');
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+
+    // Turn 1 finishes: immediately releases Claude capacity and wakes waitingTodo
+    resolveTurn1(0);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Waiting todo is now running on Claude (1/1 slot occupied by todo)
+    expect(queries.getTodoById(waitingTodo.id)?.status).toBe('running');
+    expect(queries.getTodoById(waitingTodo.id)?.process_pid).toBe(1702);
+
+    // Discussion turn 2 paused cleanly because Claude is busy with the todo
+    expect(queries.getDiscussionById(discussion.id)?.status).toBe('paused');
+
+    resolveTodoExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('31. Discussion next turn independently selects next provider and does not leak old provider identity', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const codex = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
+    const profileClaude = queries.createExecutionProfile({
+      slug: 'prof-claude',
+      name: 'Prof Claude',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+    const profileCodex = queries.createExecutionProfile({
+      slug: 'prof-codex',
+      name: 'Prof Codex',
+      description: '',
+      executors: [{ cli_model_id: codex.id, effort_value: 'medium', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    const project = queries.createProject('Multi Turn Project', 'C:/multi-turn', 'main', 0, 'claude');
+    const agent1 = queries.createDiscussionAgent(project.id, 'Agent 1', 'Role', 'Prompt', undefined, undefined, undefined, false, profileClaude.id);
+    const agent2 = queries.createDiscussionAgent(project.id, 'Agent 2', 'Role', 'Prompt', undefined, undefined, undefined, false, profileCodex.id);
+
+    const discussion = queries.createDiscussion(project.id, 'Disc Multi Turn', 'Desc', [agent1.id, agent2.id], 1, false, undefined, 'none', null, null, 0);
+
+    let resolveTurn1: (code: number) => void = () => {};
+    let resolveTurn2: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude')
+      .mockImplementationOnce(async () => ({
+        pid: 1801,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveTurn1 = resolve; }),
+        command: 'claude',
+        args: [],
+      }))
+      .mockImplementationOnce(async () => ({
+        pid: 1802,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveTurn2 = resolve; }),
+        command: 'codex',
+        args: [],
+      }));
+
+    // Start turn 1 (Claude)
+    await discussionOrchestrator.startDiscussion(discussion.id);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+    expect(executorPool.getActiveToolUsage('codex')).toBe(0);
+
+    // Finish turn 1 -> automatically advances to turn 2 (Codex)
+    resolveTurn1(0);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Turn 2 is running with Codex: Claude capacity is 0, Codex capacity is 1
+    expect(executorPool.getActiveToolUsage('claude')).toBe(0);
+    expect(executorPool.getActiveToolUsage('codex')).toBe(1);
+
+    const runningDisc = queries.getDiscussionById(discussion.id);
+    expect(runningDisc?.execution_snapshot).toBeDefined();
+    const snap = JSON.parse(runningDisc!.execution_snapshot!);
+    expect(snap.agent).toBe('codex');
+
+    resolveTurn2(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
 });
 
