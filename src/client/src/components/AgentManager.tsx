@@ -98,16 +98,20 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
       if (editingId) {
         const updated = await discussionsApi.updateAgent(editingId, {
           name, role, system_prompt: systemPrompt, avatar_color: avatarColor,
-          cli_tool: cliTool || null,
-          cli_model: executionProfileId ? null : cliModel || null, cli_effort: executionProfileId ? null : cliEffort || null, execution_profile_id: executionProfileId || null,
+          cli_tool: executionProfileId ? null : (cliTool || null),
+          cli_model: executionProfileId ? null : (cliTool ? (cliModel || null) : null),
+          cli_effort: executionProfileId ? null : (cliTool ? (cliEffort || null) : null),
+          execution_profile_id: executionProfileId || null,
           can_implement: canImplement,
         });
         onAgentsChange(agents.map((a) => (a.id === editingId ? updated : a)));
       } else {
         const created = await discussionsApi.createAgent(projectId, {
           name, role, system_prompt: systemPrompt, avatar_color: avatarColor,
-          ...(cliTool ? { cli_tool: cliTool } : {}),
-          cli_model: executionProfileId ? undefined : cliModel || undefined, cli_effort: executionProfileId ? null : cliEffort || null, execution_profile_id: executionProfileId || null,
+          ...(!executionProfileId && cliTool ? { cli_tool: cliTool } : {}),
+          cli_model: executionProfileId ? undefined : (cliTool ? (cliModel || undefined) : undefined),
+          cli_effort: executionProfileId ? null : (cliTool ? (cliEffort || null) : null),
+          execution_profile_id: executionProfileId || null,
           can_implement: canImplement,
         });
         onAgentsChange([...agents, created]);

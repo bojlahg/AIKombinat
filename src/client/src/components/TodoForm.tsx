@@ -288,7 +288,7 @@ export default function TodoForm({
       />
 
       {/* Max Turns */}
-      {cliTool === 'claude' && (
+      {!executionProfileId && cliTool === 'claude' && (
         <div className="mb-4">
           <label className="block text-xs font-medium text-warm-500 mb-1.5">
             {t('todoForm.maxTurns')}

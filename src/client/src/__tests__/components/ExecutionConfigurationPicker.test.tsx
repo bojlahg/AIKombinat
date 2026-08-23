@@ -55,12 +55,43 @@ const mockProfiles: ExecutionProfile[] = [
     ],
   },
   {
+    id: 'prof-only-missing',
+    slug: 'only-missing',
+    name: 'Only Missing Profile',
+    description: 'Has only missing executors',
+    isEnabled: true,
+    sortOrder: 1,
+    executors: [
+      {
+        id: 'exec-missing-1',
+        cliModelId: 'retired-1',
+        cliTool: 'claude',
+        modelValue: 'retired-1',
+        modelLabel: 'Retired Model',
+        modelStatus: 'missing',
+        supportedEfforts: ['low'],
+        effortValue: 'low',
+        priority: 1,
+        isEnabled: true,
+      },
+    ],
+  },
+  {
     id: 'prof-empty',
     slug: 'empty-profile',
     name: 'Empty Profile',
     description: 'Has no executors',
     isEnabled: true,
-    sortOrder: 1,
+    sortOrder: 2,
+    executors: [],
+  },
+  {
+    id: 'prof-disabled',
+    slug: 'disabled-profile',
+    name: 'Disabled Profile',
+    description: 'Disabled profile',
+    isEnabled: false,
+    sortOrder: 3,
     executors: [],
   },
 ];
@@ -157,8 +188,108 @@ describe('ExecutionConfigurationPicker', () => {
     expect(preview).not.toHaveTextContent('Disabled Model');
   });
 
-  it('shows visible warning when selected profile has no eligible executors', () => {
+  it('handles Project Default in Manual mode by hiding Model and Effort and clearing active model/effort', () => {
+    let currentValue: ExecutionConfigurationValue = {
+      mode: 'manual',
+      executionProfileId: null,
+      cliTool: 'claude',
+      cliModel: 'claude-sonnet-4-6',
+      cliEffort: 'high',
+    };
+
+    const handleChange = (next: ExecutionConfigurationValue) => {
+      currentValue = next;
+    };
+
+    const { rerender } = render(
+      <I18nProvider>
+        <ExecutionConfigurationPicker
+          mode={currentValue.mode}
+          executionProfileId={currentValue.executionProfileId}
+          cliTool={currentValue.cliTool}
+          cliModel={currentValue.cliModel}
+          cliEffort={currentValue.cliEffort}
+          allowEmptyTool={true}
+          emptyToolLabel="Project Default"
+          profiles={mockProfiles}
+          models={mockModels}
+          onChange={handleChange}
+        />
+      </I18nProvider>
+    );
+
+    // Initial state has Model and Effort selectors
+    expect(screen.getByLabelText('Model')).toBeInTheDocument();
+    expect(screen.getByLabelText('Effort')).toBeInTheDocument();
+
+    // Switch to Project Default ("")
+    fireEvent.change(screen.getByLabelText('CLI Tool'), { target: { value: '' } });
+    expect(currentValue.cliTool).toBe('');
+    expect(currentValue.cliModel).toBe('');
+    expect(currentValue.cliEffort).toBeNull();
+
+    rerender(
+      <I18nProvider>
+        <ExecutionConfigurationPicker
+          mode={currentValue.mode}
+          executionProfileId={currentValue.executionProfileId}
+          cliTool={currentValue.cliTool}
+          cliModel={currentValue.cliModel}
+          cliEffort={currentValue.cliEffort}
+          allowEmptyTool={true}
+          emptyToolLabel="Project Default"
+          profiles={mockProfiles}
+          models={mockModels}
+          onChange={handleChange}
+        />
+      </I18nProvider>
+    );
+
+    // Model and Effort are now hidden
+    expect(screen.queryByLabelText('Model')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Effort')).not.toBeInTheDocument();
+
+    // Switch back to Claude -> restored previous concrete manual values
+    fireEvent.change(screen.getByLabelText('CLI Tool'), { target: { value: 'claude' } });
+    expect(currentValue.cliTool).toBe('claude');
+    expect(currentValue.cliModel).toBe('claude-sonnet-4-6');
+    expect(currentValue.cliEffort).toBe('high');
+  });
+
+  it('profile eligibility warning differentiates between 1 available + 1 missing, only missing, and 0 executors', () => {
     const onChange = vi.fn();
+
+    // 1. One available + one missing -> preview shown, NO global warning
+    const { unmount } = render(
+      <I18nProvider>
+        <ExecutionConfigurationPicker
+          executionProfileId="prof-heavy"
+          profiles={mockProfiles}
+          models={mockModels}
+          onChange={onChange}
+        />
+      </I18nProvider>
+    );
+    expect(screen.getByTestId('profile-executor-preview')).toBeInTheDocument();
+    expect(screen.queryByTestId('no-eligible-warning')).not.toBeInTheDocument();
+    unmount();
+
+    // 2. Only missing executors -> global warning shown, candidates still previewed
+    const { unmount: unmount2 } = render(
+      <I18nProvider>
+        <ExecutionConfigurationPicker
+          executionProfileId="prof-only-missing"
+          profiles={mockProfiles}
+          models={mockModels}
+          onChange={onChange}
+        />
+      </I18nProvider>
+    );
+    expect(screen.getByTestId('no-eligible-warning')).toHaveTextContent('Profile has no eligible executors.');
+    expect(screen.getByTestId('profile-executor-preview')).toHaveTextContent('Retired Model');
+    unmount2();
+
+    // 3. No executors -> global warning shown
     render(
       <I18nProvider>
         <ExecutionConfigurationPicker
@@ -169,9 +300,42 @@ describe('ExecutionConfigurationPicker', () => {
         />
       </I18nProvider>
     );
+    expect(screen.getByTestId('no-eligible-warning')).toHaveTextContent('Profile has no eligible executors.');
+  });
 
-    const preview = screen.getByTestId('profile-executor-preview');
-    expect(preview).toHaveTextContent('Profile has no eligible executors.');
+  it('disables Profile toggle when profiles have no enabled entries and never auto-selects disabled profiles', () => {
+    const onChange = vi.fn();
+    const disabledProfiles: ExecutionProfile[] = [
+      {
+        id: 'prof-disabled-only',
+        slug: 'disabled-only',
+        name: 'Disabled Only',
+        description: 'Disabled',
+        isEnabled: false,
+        sortOrder: 0,
+        executors: [],
+      },
+    ];
+
+    render(
+      <I18nProvider>
+        <ExecutionConfigurationPicker
+          executionProfileId={null}
+          cliTool="claude"
+          cliModel=""
+          cliEffort={null}
+          profiles={disabledProfiles}
+          models={mockModels}
+          onChange={onChange}
+        />
+      </I18nProvider>
+    );
+
+    const profileButton = screen.getByRole('button', { name: 'Profile' });
+    expect(profileButton).toBeDisabled();
+
+    fireEvent.click(profileButton);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('preserves previous manual and profile selections when toggling between modes', () => {
@@ -322,7 +486,7 @@ describe('TodoForm & SessionForm integration with ExecutionConfigurationPicker',
     expect(lastCall[12]).toBe('prof-heavy'); // execution_profile_id
   });
 
-  it('SessionForm submits execution_profile_id in Profile mode', async () => {
+  it('SessionForm submits execution_profile_id in Profile mode and ignores preserved Raw Shell state', async () => {
     const onSave = vi.fn();
     render(
       <I18nProvider>
@@ -331,9 +495,19 @@ describe('TodoForm & SessionForm integration with ExecutionConfigurationPicker',
     );
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Profile' })).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText('Terminal Title'), { target: { value: 'My Session' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Profile' }));
 
+    // In Manual mode, pick Raw Shell
+    fireEvent.change(screen.getByLabelText('CLI Tool'), { target: { value: 'raw-shell' } });
+
+    // In Raw shell mode, Initial Prompt textarea is hidden
+    expect(screen.queryByPlaceholderText('Initial Prompt (Optional)')).not.toBeInTheDocument();
+
+    // Switch to Profile mode -> Initial Prompt textarea becomes visible because execution is controlled by Profile
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }));
+    expect(screen.getByPlaceholderText('Initial Prompt (Optional)')).toBeInTheDocument();
+
+    // Fill title and submit
+    fireEvent.change(screen.getByPlaceholderText('Terminal Title'), { target: { value: 'My Session' } });
     fireEvent.click(screen.getByRole('button', { name: /Create Terminal|Save/i }));
     expect(onSave).toHaveBeenCalled();
     const lastCall = onSave.mock.calls[0];

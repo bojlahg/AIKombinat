@@ -64,30 +64,75 @@ export default function ExecutionConfigurationPicker({
   const [internalProfiles, setInternalProfiles] = useState<ExecutionProfile[]>([]);
   const [internalModels, setInternalModels] = useState<Record<string, CatalogModel[]>>({});
   const [internalStatuses, setInternalStatuses] = useState<CliToolStatus[]>([]);
+  const [profilesLoaded, setProfilesLoaded] = useState(externalProfiles !== undefined);
+
+  useEffect(() => {
+    if (externalProfiles !== undefined) {
+      setProfilesLoaded(true);
+    }
+  }, [externalProfiles]);
 
   useEffect(() => {
     if (!externalProfiles) {
+      let cancelled = false;
       fetch('/api/execution-profiles?detail=full&includeDisabled=true', { credentials: 'include' })
         .then((res) => res.json())
-        .then(setInternalProfiles)
-        .catch(() => setInternalProfiles([]));
+        .then((data) => {
+          if (!cancelled) {
+            setInternalProfiles(Array.isArray(data) ? data : []);
+            setProfilesLoaded(true);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setInternalProfiles([]);
+            setProfilesLoaded(true);
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [externalProfiles]);
 
   useEffect(() => {
     if (!externalModels) {
+      let cancelled = false;
       fetch('/api/models', { credentials: 'include' })
         .then((res) => res.json())
-        .then(setInternalModels)
-        .catch(() => setInternalModels({}));
+        .then((data) => {
+          if (!cancelled) {
+            setInternalModels(data || {});
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setInternalModels({});
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [externalModels]);
 
   useEffect(() => {
     if (!externalCliStatuses) {
+      let cancelled = false;
       getCliStatus()
-        .then(setInternalStatuses)
-        .catch(() => setInternalStatuses([]));
+        .then((data) => {
+          if (!cancelled) {
+            setInternalStatuses(data || []);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setInternalStatuses([]);
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [externalCliStatuses]);
 
@@ -95,22 +140,38 @@ export default function ExecutionConfigurationPicker({
   const models = externalModels ?? internalModels;
   const cliStatuses = externalCliStatuses ?? internalStatuses;
 
+  const enabledProfiles = useMemo(() => {
+    return profiles.filter((p) => p.isEnabled);
+  }, [profiles]);
+
+  const selectableProfiles = useMemo(() => {
+    return profiles.filter((p) => p.isEnabled || p.id === executionProfileId);
+  }, [profiles, executionProfileId]);
+
+  const hasSelectableProfiles = enabledProfiles.length > 0 || (!!executionProfileId && selectableProfiles.length > 0);
+
   const currentMode: ExecutionMode = controlledMode ?? (executionProfileId ? 'profile' : 'manual');
 
   // Preserve previous selections when switching modes
-  const lastManualToolRef = useRef<string>(cliTool || 'claude');
-  const lastManualModelRef = useRef<string>(cliModel || '');
-  const lastManualEffortRef = useRef<string | null>(cliEffort ?? null);
+  const lastManualToolRef = useRef<string>(cliTool || (allowEmptyTool ? '' : 'claude'));
+  const lastConcreteToolRef = useRef<string>(cliTool || 'claude');
+  const lastConcreteModelRef = useRef<string>(cliModel || '');
+  const lastConcreteEffortRef = useRef<string | null>(cliEffort ?? null);
   const lastProfileIdRef = useRef<string>(executionProfileId || '');
 
   // Keep refs updated when controlled props change in their respective modes
   useEffect(() => {
     if (currentMode === 'manual') {
-      if (cliTool) lastManualToolRef.current = cliTool;
-      lastManualModelRef.current = cliModel || '';
-      lastManualEffortRef.current = cliEffort ?? null;
+      lastManualToolRef.current = cliTool ?? '';
+      if (cliTool) {
+        lastConcreteToolRef.current = cliTool;
+        lastConcreteModelRef.current = cliModel || '';
+        lastConcreteEffortRef.current = cliEffort ?? null;
+      }
     } else if (currentMode === 'profile') {
-      if (executionProfileId) lastProfileIdRef.current = executionProfileId;
+      if (executionProfileId) {
+        lastProfileIdRef.current = executionProfileId;
+      }
     }
   }, [currentMode, cliTool, cliModel, cliEffort, executionProfileId]);
 
@@ -133,11 +194,12 @@ export default function ExecutionConfigurationPicker({
     return tool.label;
   };
 
+  const isEmptyTool = allowEmptyTool && !cliTool;
   const selectedTool = (cliTool || 'claude') as CliTool;
-  const isRawShell = selectedTool === 'raw-shell';
-  const toolModels = models[selectedTool] ?? [];
+  const isRawShell = !isEmptyTool && selectedTool === 'raw-shell';
+  const toolModels = isEmptyTool ? [] : (models[selectedTool] ?? []);
   const visibleModels = visibleModelOptions(toolModels, cliModel);
-  const effort = isRawShell ? null : effortOptions(selectedTool as AgentCliTool, toolModels, cliModel, cliEffort);
+  const effort = isRawShell || isEmptyTool ? null : effortOptions(selectedTool as AgentCliTool, toolModels, cliModel, cliEffort);
   const modelLabel = (model: CatalogModel) =>
     modelOptionLabel(model, {
       unavailable: t('effort.modelUnavailable'),
@@ -150,7 +212,7 @@ export default function ExecutionConfigurationPicker({
     return profiles.find((p) => p.id === executionProfileId) ?? null;
   }, [profiles, executionProfileId]);
 
-  const eligibleExecutors = useMemo(() => {
+  const previewExecutors = useMemo(() => {
     if (!selectedProfile?.executors) return [];
     return selectedProfile.executors
       .filter((e) => e.isEnabled !== false)
@@ -158,36 +220,56 @@ export default function ExecutionConfigurationPicker({
       .sort((a, b) => a.priority - b.priority);
   }, [selectedProfile]);
 
+  const actuallyEligibleExecutors = useMemo(() => {
+    return previewExecutors.filter((e) => e.modelStatus !== 'missing');
+  }, [previewExecutors]);
+
+  const isProfileToggleDisabled = disabled || !profilesLoaded || !hasSelectableProfiles;
+
   const handleModeToggle = (nextMode: ExecutionMode) => {
     if (nextMode === currentMode || disabled) return;
 
     if (nextMode === 'profile') {
+      if (!profilesLoaded || enabledProfiles.length === 0) return;
+
       const fallbackProfileId =
-        lastProfileIdRef.current && profiles.some((p) => p.id === lastProfileIdRef.current)
+        lastProfileIdRef.current && enabledProfiles.some((p) => p.id === lastProfileIdRef.current)
           ? lastProfileIdRef.current
-          : profiles.find((p) => p.isEnabled)?.id || profiles[0]?.id || '';
+          : enabledProfiles[0]?.id || '';
+
+      if (!fallbackProfileId) return;
 
       lastProfileIdRef.current = fallbackProfileId;
 
       onChange({
         mode: 'profile',
-        executionProfileId: fallbackProfileId || null,
-        cliTool: lastManualToolRef.current || cliTool,
+        executionProfileId: fallbackProfileId,
+        cliTool: lastManualToolRef.current ?? cliTool,
         cliModel: '',
         cliEffort: null,
       });
     } else {
-      const restoredTool = lastManualToolRef.current || cliTool || 'claude';
-      const restoredModel = lastManualModelRef.current || '';
-      const restoredEffort = lastManualEffortRef.current;
+      const restoredTool = lastManualToolRef.current ?? (allowEmptyTool ? '' : 'claude');
+      if (!restoredTool) {
+        onChange({
+          mode: 'manual',
+          executionProfileId: null,
+          cliTool: '',
+          cliModel: '',
+          cliEffort: null,
+        });
+      } else {
+        const restoredModel = lastConcreteModelRef.current || '';
+        const restoredEffort = lastConcreteEffortRef.current;
 
-      onChange({
-        mode: 'manual',
-        executionProfileId: null,
-        cliTool: restoredTool,
-        cliModel: restoredModel,
-        cliEffort: restoredEffort,
-      });
+        onChange({
+          mode: 'manual',
+          executionProfileId: null,
+          cliTool: restoredTool,
+          cliModel: restoredModel,
+          cliEffort: restoredEffort,
+        });
+      }
     }
   };
 
@@ -204,19 +286,38 @@ export default function ExecutionConfigurationPicker({
 
   const handleToolChange = (tool: string) => {
     lastManualToolRef.current = tool;
-    lastManualModelRef.current = '';
-    lastManualEffortRef.current = null;
-    onChange({
-      mode: 'manual',
-      executionProfileId: null,
-      cliTool: tool,
-      cliModel: '',
-      cliEffort: null,
-    });
+    if (!tool) {
+      onChange({
+        mode: 'manual',
+        executionProfileId: null,
+        cliTool: '',
+        cliModel: '',
+        cliEffort: null,
+      });
+    } else if (tool === lastConcreteToolRef.current) {
+      onChange({
+        mode: 'manual',
+        executionProfileId: null,
+        cliTool: tool,
+        cliModel: lastConcreteModelRef.current || '',
+        cliEffort: lastConcreteEffortRef.current ?? null,
+      });
+    } else {
+      lastConcreteToolRef.current = tool;
+      lastConcreteModelRef.current = '';
+      lastConcreteEffortRef.current = null;
+      onChange({
+        mode: 'manual',
+        executionProfileId: null,
+        cliTool: tool,
+        cliModel: '',
+        cliEffort: null,
+      });
+    }
   };
 
   const handleModelChange = (modelValue: string) => {
-    lastManualModelRef.current = modelValue;
+    lastConcreteModelRef.current = modelValue;
     const targetModel = toolModels.find((m) => m.value === modelValue);
     let nextEffort = cliEffort;
 
@@ -226,7 +327,7 @@ export default function ExecutionConfigurationPicker({
       }
     }
 
-    lastManualEffortRef.current = nextEffort;
+    lastConcreteEffortRef.current = nextEffort;
     onChange({
       mode: 'manual',
       executionProfileId: null,
@@ -238,7 +339,7 @@ export default function ExecutionConfigurationPicker({
 
   const handleEffortChange = (effortValue: string) => {
     const nextEffort = effortValue || null;
-    lastManualEffortRef.current = nextEffort;
+    lastConcreteEffortRef.current = nextEffort;
     onChange({
       mode: 'manual',
       executionProfileId: null,
@@ -259,10 +360,13 @@ export default function ExecutionConfigurationPicker({
           <button
             type="button"
             onClick={() => handleModeToggle('profile')}
-            disabled={disabled}
+            disabled={isProfileToggleDisabled}
+            title={!hasSelectableProfiles && profilesLoaded ? t('profiles.noModels') : undefined}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
               currentMode === 'profile'
                 ? 'bg-theme-card text-warm-700 shadow-sm'
+                : isProfileToggleDisabled
+                ? 'text-warm-300 cursor-not-allowed'
                 : 'text-warm-500 hover:text-warm-700'
             }`}
           >
@@ -297,15 +401,13 @@ export default function ExecutionConfigurationPicker({
               className="input-field text-sm w-full"
               aria-label={t('executionMode.selectProfile')}
             >
-              {profiles.length === 0 && <option value="">{t('profiles.noModels')}</option>}
-              {profiles
-                .filter((p) => p.isEnabled || p.id === executionProfileId)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                    {p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}
-                  </option>
-                ))}
+              {selectableProfiles.length === 0 && <option value="">{t('profiles.noModels')}</option>}
+              {selectableProfiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -315,38 +417,46 @@ export default function ExecutionConfigurationPicker({
               <div className="text-2xs font-medium uppercase tracking-wider text-warm-400 mb-1.5">
                 {t('executionMode.previewTitle')}
               </div>
-              {eligibleExecutors.length === 0 ? (
-                <p className="text-status-warning font-medium flex items-center gap-1.5 text-xs py-0.5">
+              {previewExecutors.length === 0 ? (
+                <p className="text-status-warning font-medium flex items-center gap-1.5 text-xs py-0.5" data-testid="no-eligible-warning">
                   <AlertTriangle size={14} className="shrink-0" />
                   <span>{t('profiles.noEligible')}</span>
                 </p>
               ) : (
-                <div className="flex flex-wrap items-center gap-1.5 text-warm-600">
-                  {eligibleExecutors.map((executor, idx) => {
-                    const isUnavailable = executor.modelStatus === 'missing';
-                    const toolLabel = CLI_TOOLS.find((t) => t.value === executor.cliTool)?.label || executor.cliTool;
-                    const effortText = executor.effortValue ? ` / ${executor.effortValue}` : '';
-                    return (
-                      <div key={executor.id || idx} className="inline-flex items-center gap-1.5">
-                        {idx > 0 && <span className="text-warm-300 select-none">→</span>}
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border font-medium text-xs ${
-                            isUnavailable
-                              ? 'bg-status-error/10 border-status-error/30 text-status-error'
-                              : 'bg-theme-card border-warm-200 text-warm-700 shadow-2xs'
-                          }`}
-                        >
-                          <span>{toolLabel} / {executor.modelLabel || executor.modelValue}{effortText}</span>
-                          {isUnavailable && (
-                            <span className="text-2xs font-semibold uppercase px-1 py-0.2 rounded bg-status-error/20 text-status-error">
-                              {t('effort.modelUnavailable')}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <>
+                  {actuallyEligibleExecutors.length === 0 && (
+                    <p className="text-status-warning font-medium flex items-center gap-1.5 text-xs mb-2 py-0.5" data-testid="no-eligible-warning">
+                      <AlertTriangle size={14} className="shrink-0" />
+                      <span>{t('profiles.noEligible')}</span>
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-1.5 text-warm-600">
+                    {previewExecutors.map((executor, idx) => {
+                      const isUnavailable = executor.modelStatus === 'missing';
+                      const toolLabel = CLI_TOOLS.find((t) => t.value === executor.cliTool)?.label || executor.cliTool;
+                      const effortText = executor.effortValue ? ` / ${executor.effortValue}` : '';
+                      return (
+                        <div key={executor.id || idx} className="inline-flex items-center gap-1.5">
+                          {idx > 0 && <span className="text-warm-300 select-none">→</span>}
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border font-medium text-xs ${
+                              isUnavailable
+                                ? 'bg-status-error/10 border-status-error/30 text-status-error'
+                                : 'bg-theme-card border-warm-200 text-warm-700 shadow-2xs'
+                            }`}
+                          >
+                            <span>{toolLabel} / {executor.modelLabel || executor.modelValue}{effortText}</span>
+                            {isUnavailable && (
+                              <span className="text-2xs font-semibold uppercase px-1 py-0.2 rounded bg-status-error/20 text-status-error">
+                                {t('effort.modelUnavailable')}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
               {selectedProfile.description && (
                 <p className="mt-2 text-2xs text-warm-500 border-t border-warm-200/60 pt-1.5">
@@ -382,8 +492,8 @@ export default function ExecutionConfigurationPicker({
             </select>
           </div>
 
-          {/* Model Selection (hidden for raw shell) */}
-          {!isRawShell && (
+          {/* Model Selection (hidden for raw shell and empty tool) */}
+          {!isRawShell && !isEmptyTool && (
             <div>
               <label className="block text-xs font-medium text-warm-500 mb-1.5">
                 {t('effort.model')}
@@ -405,8 +515,8 @@ export default function ExecutionConfigurationPicker({
             </div>
           )}
 
-          {/* Effort Selection (hidden for raw shell) */}
-          {!isRawShell && effort && (
+          {/* Effort Selection (hidden for raw shell and empty tool) */}
+          {!isRawShell && !isEmptyTool && effort && (
             <div>
               <label className="block text-xs font-medium text-warm-500 mb-1.5">
                 {t('effort.label')}

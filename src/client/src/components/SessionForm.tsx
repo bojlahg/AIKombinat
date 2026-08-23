@@ -136,7 +136,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
     return tool.label;
   };
   const selectedTool = (cliTool || projectCliTool || 'claude') as CliTool;
-  const isRawShell = selectedTool === 'raw-shell';
+  const isRawShell = !executionProfileId && selectedTool === 'raw-shell';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
