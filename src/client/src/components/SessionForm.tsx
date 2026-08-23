@@ -10,7 +10,7 @@ import * as tagsApi from '../api/sessionTags';
 import * as settingsApi from '../api/sessionSettings';
 import { forceImeHandoff } from '../ime-handoff';
 import type { ExecutionProfile } from '../api/executionProfiles';
-import { effortOptions, modelOptionLabel, visibleModelOptions, type CatalogModel, type AgentCliTool } from '../execution-options';
+import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
 
 export interface SessionFormInitial {
   title: string;
@@ -59,8 +59,6 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [cliModel, setCliModel] = useState(initial?.cliModel ?? '');
   const [cliEffort, setCliEffort] = useState(initial?.cliEffort ?? '');
   const [executionProfileId, setExecutionProfileId] = useState(initial?.executionProfileId ?? '');
-  const [profiles, setProfiles] = useState<ExecutionProfile[]>([]);
-  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [useWorktree, setUseWorktree] = useState(initial?.useWorktree ?? !!projectUseWorktree);
   const [vaultMode, setVaultMode] = useState<VaultInjectMode>((initial?.memoryInjectMode as VaultInjectMode | undefined) ?? 'none');
   const [vaultPaths, setVaultPaths] = useState<string[]>(initial?.memoryRawFilePaths ?? []);
@@ -69,18 +67,6 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [tags, setTags] = useState<SessionTag[]>([]);
   const [cliStatuses, setCliStatuses] = useState<CliToolStatus[]>([]);
   const titleRef = useRef<HTMLInputElement>(null);
-
-  // Windows EXE + Korean IME: xterm's helper textarea retains the native HWND
-  // keyboard focus after a session has been interacted with, so React's
-  // autoFocus on the title input only moves DOM focus — clicks land but the
-  // caret never activates. Run the shared forced handoff (OS window blur→focus
-  // cycle in main, then focus the title input) — falling back to a plain
-  // focus() outside Electron. Also park every xterm helper textarea out of
-  // the focus traversal for the form's lifetime.
-  useEffect(() => {
-    fetch('/api/models', { credentials: 'include' }).then((res) => res.json()).then(setModels).catch(() => setModels({}));
-    fetch('/api/execution-profiles?includeDisabled=true', { credentials: 'include' }).then((res) => res.json()).then(setProfiles).catch(() => setProfiles([]));
-  }, []);
 
   const selectedForDefaults = cliTool || projectCliTool || 'claude';
 
@@ -150,14 +136,6 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
     return tool.label;
   };
   const selectedTool = (cliTool || projectCliTool || 'claude') as CliTool;
-  const toolModels = models[selectedTool] ?? [];
-  const visibleModels = visibleModelOptions(toolModels, cliModel);
-  const effort = selectedTool === 'raw-shell' ? null : effortOptions(selectedTool as AgentCliTool, toolModels, cliModel, cliEffort);
-  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
-  // Raw shell: no auto-submitted prompt, no wiki/memory injection.
-  // Description/memory state is left untouched in the form so toggling
-  // back to an AI CLI doesn't lose what the user already typed; the inputs
-  // are just hidden while raw-shell is selected and the server ignores them.
   const isRawShell = selectedTool === 'raw-shell';
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -201,37 +179,23 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
           rows={2}
         />
       )}
-      <div className="flex gap-2">
-        <select
-          value={cliTool}
-          onChange={(e) => { setCliTool(e.target.value); setCliModel(''); setCliEffort(''); setExecutionProfileId(''); }}
-          className="input-field text-xs flex-1"
-        >
-          <option value="">{t('session.cliTool')} (Default)</option>
-          {interactiveTools.map((tool) => (
-            <option key={tool.value} value={tool.value}>{optionLabel(tool)}</option>
-          ))}
-        </select>
-        {!isRawShell && <select value={executionProfileId} onChange={(e) => setExecutionProfileId(e.target.value)} className="input-field text-xs flex-1" aria-label={t('profiles.configuration')}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.isEnabled || p.id === executionProfileId).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}</select>}
-        {!isRawShell && !executionProfileId && <select
-          value={cliModel}
-          onChange={(e) => {
-            const nextModel = e.target.value;
-            setCliModel(nextModel);
-            const targetModel = toolModels.find((m) => m.value === nextModel);
-            if (selectedTool === 'antigravity' && targetModel?.providerVariants && (!cliEffort || !targetModel.supportedEfforts?.includes(cliEffort))) {
-              setCliEffort(targetModel.supportedEfforts?.[0] || 'medium');
-            }
-          }}
-          className="input-field text-xs flex-1"
-          aria-label={t('effort.model')}
-        >
-          <option value="">{t('effort.providerModelDefault')}</option>
-          {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
-        </select>}
-      </div>
-      {!isRawShell && !executionProfileId && effort && <div><label className="mb-1 block text-xs font-medium text-warm-500">{t('effort.label')}</label><select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-xs">{effort.allowProviderDefault && <option value="">{t('profiles.providerDefault')}</option>}{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
-      {executionProfileId && <p className="text-xs text-warm-500">{profiles.find((item) => item.id === executionProfileId)?.description || t('profiles.profileUnavailable')}</p>}
+      <ExecutionConfigurationPicker
+        executionProfileId={executionProfileId || null}
+        cliTool={cliTool}
+        cliModel={cliModel}
+        cliEffort={cliEffort}
+        allowRawShell={true}
+        interactiveOnly={true}
+        allowEmptyTool={true}
+        emptyToolLabel={`${t('session.cliTool')} (Default)`}
+        cliStatuses={cliStatuses}
+        onChange={(val) => {
+          setCliTool(val.cliTool);
+          setCliModel(val.cliModel);
+          setCliEffort(val.cliEffort ?? '');
+          setExecutionProfileId(val.executionProfileId ?? '');
+        }}
+      />
       {tags.length > 0 && (
         <div className="flex items-center gap-2">
           {selectedTag && (

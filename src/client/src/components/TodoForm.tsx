@@ -1,12 +1,11 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Image as ImageIcon, X } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { CLI_TOOLS, type CliTool } from '../cli-tools';
+import type { CliTool } from '../cli-tools';
 import type { ImageMeta, MemoryInjectMode, Todo } from '../types';
 import type { VaultInjectMode } from '../api/vault';
 import { getTodoImageUrl } from '../api/todos';
-import type { ExecutionProfile } from '../api/executionProfiles';
-import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
+import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
 
 function parseRawFilePaths(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -81,8 +80,6 @@ export default function TodoForm({
   const [cliModel, setCliModel] = useState(initialCliModel ?? '');
   const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
   const [executionProfileId, setExecutionProfileId] = useState(initialExecutionProfileId ?? '');
-  const [profiles, setProfiles] = useState<ExecutionProfile[]>([]);
-  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [dependsOn, setDependsOn] = useState(initialDependsOn ?? '');
   const [maxTurns, setMaxTurns] = useState(initialMaxTurns?.toString() ?? '');
   const [useWorktreeMode, setUseWorktreeMode] = useState<'inherit' | 'force-on' | 'force-off'>(
@@ -96,16 +93,6 @@ export default function TodoForm({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
-
-  useEffect(() => {
-    fetch('/api/models', { credentials: 'include' }).then((res) => res.json()).then(setModels).catch(() => setModels({}));
-    fetch('/api/execution-profiles?includeDisabled=true', { credentials: 'include' }).then((res) => res.json()).then(setProfiles).catch(() => setProfiles([]));
-  }, []);
-
-  const toolModels = models[cliTool] ?? [];
-  const visibleModels = visibleModelOptions(toolModels, cliModel);
-  const effort = cliTool === 'raw-shell' ? null : effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort);
-  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
 
   const addImagesFromFiles = useCallback((files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -285,57 +272,20 @@ export default function TodoForm({
         </div>
       )}
 
-      {/* CLI Tool Selection */}
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
-          <label className="block text-xs font-medium text-warm-500 mb-1.5">
-            {t('todoForm.cliTool')}
-          </label>
-          <select
-            value={cliTool}
-            onChange={(e) => { setCliTool(e.target.value as CliTool); setCliModel(''); setCliEffort(''); setExecutionProfileId(''); }}
-            className="input-field text-sm"
-          >
-            {CLI_TOOLS.map((tool) => (
-              <option key={tool.value} value={tool.value}>{tool.label}</option>
-            ))}
-          </select>
-        </div>
-        {cliTool !== 'raw-shell' && <div>
-          <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('profiles.configuration')}</label>
-          <select value={executionProfileId} onChange={(e) => setExecutionProfileId(e.target.value)} className="input-field text-sm">
-            <option value="">{t('profiles.manual')}</option>
-            {profiles.filter((p) => p.isEnabled || p.id === executionProfileId).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}
-          </select>
-        </div>}
-        {cliTool !== 'raw-shell' && !executionProfileId && <div>
-          <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label>
-          <select
-            value={cliModel}
-            onChange={(e) => {
-              const nextModel = e.target.value;
-              setCliModel(nextModel);
-              const targetModel = toolModels.find((m) => m.value === nextModel);
-              if (cliTool === 'antigravity' && targetModel?.providerVariants && (!cliEffort || !targetModel.supportedEfforts?.includes(cliEffort))) {
-                setCliEffort(targetModel.supportedEfforts?.[0] || 'medium');
-              }
-            }}
-            className="input-field text-sm"
-          >
-            <option value="">{t('effort.providerModelDefault')}</option>
-            {visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}
-          </select>
-        </div>}
-        {cliTool !== 'raw-shell' && !executionProfileId && effort && <div>
-          <label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label>
-          <select value={cliEffort} onChange={(e) => setCliEffort(e.target.value)} className="input-field text-sm">
-            {effort.allowProviderDefault && <option value="">{t('profiles.providerDefault')}</option>}
-            {effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}
-          </select>
-          {effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}
-        </div>}
-        {executionProfileId && <div className="self-end text-xs text-warm-500">{profiles.find((item) => item.id === executionProfileId)?.description || t('profiles.profileUnavailable')}</div>}
-      </div>
+      {/* Execution Configuration */}
+      <ExecutionConfigurationPicker
+        executionProfileId={executionProfileId || null}
+        cliTool={cliTool}
+        cliModel={cliModel}
+        cliEffort={cliEffort}
+        onChange={(val) => {
+          setCliTool(val.cliTool as CliTool);
+          setCliModel(val.cliModel);
+          setCliEffort(val.cliEffort ?? '');
+          setExecutionProfileId(val.executionProfileId ?? '');
+        }}
+        className="mb-4"
+      />
 
       {/* Max Turns */}
       {cliTool === 'claude' && (

@@ -5,8 +5,7 @@ import { useI18n, type Lang } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import * as discussionsApi from '../api/discussions';
 import EmptyState from './EmptyState';
-import type { ExecutionProfile } from '../api/executionProfiles';
-import { effortOptions, modelOptionLabel, visibleModelOptions, type AgentCliTool, type CatalogModel } from '../execution-options';
+import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
 
 const ROLE_OPTIONS = ['architect', 'developer', 'reviewer', 'pm', 'tester', 'custom'] as const;
 
@@ -76,16 +75,9 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
   const [cliModel, setCliModel] = useState('');
   const [cliEffort, setCliEffort] = useState('');
   const [executionProfileId, setExecutionProfileId] = useState('');
-  const [profiles, setProfiles] = useState<ExecutionProfile[]>([]);
-  const [models, setModels] = useState<Record<string, CatalogModel[]>>({});
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
   const [canImplement, setCanImplement] = useState(false);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { fetch('/api/execution-profiles?includeDisabled=true', { credentials: 'include' }).then((r) => r.json()).then(setProfiles).catch(() => setProfiles([])); fetch('/api/models', { credentials: 'include' }).then((r) => r.json()).then(setModels).catch(() => setModels({})); }, []);
-  const toolModels = cliTool ? models[cliTool] ?? [] : [];
-  const visibleModels = visibleModelOptions(toolModels, cliModel);
-  const effort = cliTool && cliTool !== 'raw-shell' ? effortOptions(cliTool as AgentCliTool, toolModels, cliModel, cliEffort) : null;
-  const modelLabel = (model: CatalogModel) => modelOptionLabel(model, { unavailable: t('effort.modelUnavailable'), deprecated: t('effort.modelDeprecated'), unknown: t('effort.modelUnknown') });
 
   const resetForm = () => {
     setName('');
@@ -275,69 +267,21 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
             </p>
           </div>
 
-          {/* CLI Tool */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-warm-500 mb-2">{t('agents.cliTool')}</label>
-              <select
-                value={cliTool}
-                onChange={(e) => { setCliTool(e.target.value as CliTool | ''); setCliModel(''); setCliEffort(''); setExecutionProfileId(''); }}
-                className="input-field text-sm"
-              >
-                <option value="">{t('agents.cliToolProjectDefault')}</option>
-                {CLI_TOOLS.map((tool) => (
-                  <option key={tool.value} value={tool.value}>{tool.label}</option>
-                ))}
-              </select>
-            </div>
-            {cliTool && cliTool !== 'raw-shell' && (
-              <div>
-                <label className="block text-xs font-medium text-warm-500 mb-2">{t('profiles.configuration')}</label>
-                <select className="input-field text-sm" value={executionProfileId} onChange={(e) => setExecutionProfileId(e.target.value)}>
-                  <option value="">{t('profiles.manual')}</option>
-                  {profiles.filter((p) => p.isEnabled || p.id === executionProfileId).map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {cliTool && cliTool !== 'raw-shell' && !executionProfileId && (
-              <div>
-                <label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.model')}</label>
-                <select
-                  className="input-field text-sm"
-                  value={cliModel}
-                  onChange={(e) => {
-                    const nextModel = e.target.value;
-                    setCliModel(nextModel);
-                    const targetModel = toolModels.find((m) => m.value === nextModel);
-                    if (cliTool === 'antigravity' && targetModel?.providerVariants && (!cliEffort || !targetModel.supportedEfforts?.includes(cliEffort))) {
-                      setCliEffort(targetModel.supportedEfforts?.[0] || 'medium');
-                    }
-                  }}
-                >
-                  <option value="">{t('profiles.providerDefault')}</option>
-                  {visibleModels.map((model) => (
-                    <option key={model.value} value={model.value}>{modelLabel(model)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {cliTool && cliTool !== 'raw-shell' && !executionProfileId && effort && (
-              <div>
-                <label className="block text-xs font-medium text-warm-500 mb-2">{t('effort.label')}</label>
-                <select className="input-field text-sm" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}>
-                  {effort.allowProviderDefault && <option value="">{t('profiles.providerDefault')}</option>}
-                  {effort.values.map((value) => (
-                    <option key={value} value={value}>
-                      {value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}
-                    </option>
-                  ))}
-                </select>
-                {effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}
-              </div>
-            )}
-          </div>
+          {/* Execution Configuration */}
+          <ExecutionConfigurationPicker
+            executionProfileId={executionProfileId || null}
+            cliTool={cliTool}
+            cliModel={cliModel}
+            cliEffort={cliEffort}
+            allowEmptyTool={true}
+            emptyToolLabel={t('agents.cliToolProjectDefault')}
+            onChange={(val) => {
+              setCliTool(val.cliTool as CliTool | '');
+              setCliModel(val.cliModel);
+              setCliEffort(val.cliEffort ?? '');
+              setExecutionProfileId(val.executionProfileId ?? '');
+            }}
+          />
 
           {/* Can Implement toggle */}
           <div>
