@@ -606,7 +606,11 @@ Complete the task in the current directory.`;
     let debugSession: DebugSession | null = null;
 
     try {
-      const result = await claudeManager.startClaude(workDir, prompt, executionConfig?.model, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, executionConfig?.effort.nativeEffort);
+      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
+      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
+        ? undefined
+        : executionConfig?.effort.nativeEffort;
+      const result = await claudeManager.startClaude(workDir, prompt, launchModel, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launchEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 
@@ -617,7 +621,7 @@ Complete the task in the current directory.`;
         debugSession = debugLogger.startSession({
           todoId, projectPath, cliTool: resolvedCliTool,
           command: result.command, args: result.args,
-          workDir, model: executionConfig?.model, sandboxMode,
+          workDir, model: launchModel, sandboxMode,
         });
         debugSession.writeStdin(prompt);
         stdout = debugSession.teeStdout(result.stdout);

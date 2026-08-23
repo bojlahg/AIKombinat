@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import * as queries from '../db/queries.js';
+import { validateAntigravityExecutionEffort } from '../services/execution-selection.js';
 
 const router = Router();
 const SLUG = /^[a-z0-9_-]+$/;
@@ -22,18 +23,11 @@ export function executorInput(value: unknown): queries.ExecutionProfileInput['ex
     const model = queries.getModelById(cliModelId);
     if (!model) throw new Error(`executor ${index + 1} references an unknown model`);
     const rawEffort = item.effortValue ?? item.effort_value;
-    const effort = typeof rawEffort === 'string' && rawEffort.trim() ? rawEffort.trim() : null;
-    if (model.cli_tool === 'antigravity' && model.provider_variants) {
-      let variants: Record<string, string> = {};
-      try { variants = JSON.parse(model.provider_variants); } catch { variants = {}; }
-      if (Object.keys(variants).length > 0) {
-        if (!effort) {
-          throw new Error(`Executor ${index + 1} for Antigravity model "${model.model_label}" requires an explicit effort selection`);
-        }
-        if (!variants[effort]) {
-          throw new Error(`Executor ${index + 1} specifies unsupported effort "${effort}" for Antigravity model "${model.model_label}"`);
-        }
-      }
+    let effort: string | null = null;
+    try {
+      effort = validateAntigravityExecutionEffort(model, rawEffort);
+    } catch (err: unknown) {
+      throw new Error(`Executor ${index + 1}: ${err instanceof Error ? err.message : 'Invalid effort selection'}`);
     }
     return {
       ...(typeof item.id === 'string' ? { id: item.id } : {}),

@@ -127,10 +127,14 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
     } else if (cron_expression !== undefined) {
       updates.cron_expression = cron_expression;
     }
-    if (cli_tool !== undefined) updates.cli_tool = cli_tool;
-    if (cli_model !== undefined) updates.cli_model = cli_model;
     if (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined) {
-      const execution = normalizeExecutionSelection({ cliTool: cli_tool ?? existing.cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
+      const execution = normalizeExecutionSelection({
+        cliTool: cli_tool !== undefined ? cli_tool : existing.cli_tool,
+        cliModel: cli_model !== undefined ? cli_model : (cli_model_id !== undefined || execution_profile_id !== undefined ? undefined : existing.cli_model),
+        cliModelId: cli_model_id !== undefined ? cli_model_id : (cli_model !== undefined || execution_profile_id !== undefined ? undefined : existing.cli_model_id),
+        cliEffort: cli_effort !== undefined ? cli_effort : existing.cli_effort,
+        executionProfileId: execution_profile_id !== undefined ? execution_profile_id : (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined ? undefined : existing.execution_profile_id),
+      });
       updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_model_id = execution.cliModelId; updates.cli_effort = execution.cliEffort; updates.execution_profile_id = execution.executionProfileId;
     }
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
@@ -149,7 +153,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
     res.json(schedule);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 

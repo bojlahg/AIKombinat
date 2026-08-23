@@ -101,8 +101,17 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     }
 
     const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths } = req.body;
-    const execution = (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined)
-      ? normalizeExecutionSelection({ cliTool: cli_tool ?? existing.cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile }) : null;
+    const hasExecutionField = cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined;
+    const execution = hasExecutionField
+      ? normalizeExecutionSelection({
+          cliTool: cli_tool !== undefined ? cli_tool : existing.cli_tool,
+          cliModel: cli_model !== undefined ? cli_model : (cli_model_id !== undefined || execution_profile_id !== undefined || execution_profile !== undefined ? undefined : existing.cli_model),
+          cliModelId: cli_model_id !== undefined ? cli_model_id : (cli_model !== undefined || execution_profile_id !== undefined || execution_profile !== undefined ? undefined : existing.cli_model_id),
+          cliEffort: cli_effort !== undefined ? cli_effort : existing.cli_effort,
+          executionProfileId: execution_profile_id !== undefined ? execution_profile_id : (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined ? undefined : existing.execution_profile_id),
+          executionProfile: execution_profile,
+        })
+      : null;
     const parsedMaxTurns = max_turns !== undefined ? (max_turns != null ? parseInt(max_turns, 10) || null : null) : undefined;
     const normalizedUseWorktree = use_worktree === undefined
       ? undefined
@@ -130,7 +139,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     res.json(todo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 

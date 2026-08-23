@@ -310,7 +310,8 @@ const antigravityAdapter: CliAdapter = {
       let entry: ReturnType<typeof getModelByValue>;
       try { entry = model ? getModelByValue('antigravity', model) : undefined; } catch { entry = undefined; }
       const hasVariants = !!entry?.provider_variants && Object.keys(JSON.parse(entry.provider_variants || '{}')).length > 0;
-      if (!hasVariants) {
+      const isConcreteVariantSlug = !!model && /-(low|medium|high)$/i.test(model);
+      if (!hasVariants && !isConcreteVariantSlug) {
         args.push('--effort', effort);
       }
     }

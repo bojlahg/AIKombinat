@@ -13,6 +13,9 @@ const { parseAntigravityModels, discoverAntigravity, refreshModelCatalog } = awa
 const { getAdapter, resolveExecutionModel } = await import('../cli-adapters.js');
 const executionProfilesRoute = (await import('../../routes/execution-profiles.js')).default;
 const modelsRoute = (await import('../../routes/models.js')).default;
+const todosRoute = (await import('../../routes/todos.js')).default;
+const schedulesRoute = (await import('../../routes/schedules.js')).default;
+const { normalizeExecutionSelection, validateAntigravityExecutionEffort, ExecutionSelectionError } = await import('../execution-selection.js');
 
 async function apiRequest(router: Router, path: string, init: RequestInit = {}) {
   const app = express();
@@ -291,10 +294,13 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       high: 'gemini-3.7-flash-high',
     }));
 
-    // Superseded models are marked superseded and excluded from getAllModels
-    expect(queries.getModelById(idMed)?.status).toBe('superseded');
-    expect(queries.getModelById(idHigh)?.status).toBe('superseded');
-    expect(queries.getModelById(idLow)?.status).toBe('superseded');
+    // Superseded models have superseded_by_model_id set and are excluded from getAllModels
+    expect(queries.getModelById(idMed)?.status).toBe('missing');
+    expect(queries.getModelById(idMed)?.superseded_by_model_id).toBe(canonical!.id);
+    expect(queries.getModelById(idHigh)?.status).toBe('missing');
+    expect(queries.getModelById(idHigh)?.superseded_by_model_id).toBe(canonical!.id);
+    expect(queries.getModelById(idLow)?.status).toBe('missing');
+    expect(queries.getModelById(idLow)?.superseded_by_model_id).toBe(canonical!.id);
 
     const allModels = queries.getAllModels();
     expect(allModels.antigravity?.map((m) => m.model_value)).toEqual(['gemini-3.7-flash']);
@@ -463,5 +469,249 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       medium: 'gemini-3.5-flash-medium',
       high: 'gemini-3.5-flash-high',
     }));
+  });
+
+  it('12. safely migrates an OLD database schema with CHECK (status IN (available, missing)) without column superseded_by_model_id', () => {
+    // Construct a raw DB that has the exact old schema constraint
+    const oldDb = new Database(':memory:');
+    oldDb.exec(`
+      CREATE TABLE cli_models (
+        id TEXT PRIMARY KEY,
+        cli_tool TEXT NOT NULL CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
+        model_value TEXT NOT NULL,
+        model_label TEXT NOT NULL,
+        supported_efforts TEXT,
+        provider_variants TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing')),
+        source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('cli', 'manual')),
+        last_seen_at DATETIME,
+        last_checked_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(cli_tool, model_value)
+      );
+
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE todos (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        cli_tool TEXT,
+        cli_model TEXT,
+        cli_model_id TEXT,
+        cli_effort TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    const idHigh = uuidv4();
+    const idMed = uuidv4();
+    const idLow = uuidv4();
+    oldDb.prepare(`
+      INSERT INTO cli_models (id, cli_tool, model_value, model_label, status, source)
+      VALUES
+        (?, 'antigravity', 'gemini-3.7-flash-high', 'Gemini 3.7 Flash (High)', 'available', 'cli'),
+        (?, 'antigravity', 'gemini-3.7-flash-medium', 'Gemini 3.7 Flash (Medium)', 'available', 'cli'),
+        (?, 'antigravity', 'gemini-3.7-flash-low', 'Gemini 3.7 Flash (Low)', 'available', 'cli')
+    `).run(idHigh, idMed, idLow);
+
+    const projId = uuidv4();
+    oldDb.prepare(`INSERT INTO projects (id, name, path) VALUES (?, 'Old Proj', 'C:/old')`).run(projId);
+    const todoId = uuidv4();
+    oldDb.prepare(`INSERT INTO todos (id, project_id, title, cli_tool, cli_model, cli_model_id) VALUES (?, ?, 'Task', 'antigravity', 'gemini-3.7-flash-high', ?)`).run(todoId, projId, idHigh);
+
+    // Run current system migration on this old DB
+    expect(() => {
+      initDatabase(oldDb);
+      normalizeAntigravityCatalogAndExecutors(oldDb);
+    }).not.toThrow();
+
+    // Verify canonical model was added with status='available'
+    const canonical = oldDb.prepare(`SELECT * FROM cli_models WHERE cli_tool = 'antigravity' AND model_value = 'gemini-3.7-flash'`).get() as Record<string, unknown>;
+    expect(canonical).toBeDefined();
+    expect(canonical.status).toBe('available');
+    expect(canonical.model_label).toBe('Gemini 3.7 Flash');
+
+    // Verify legacy rows still exist, have status='missing', and point superseded_by_model_id to canonical ID
+    const highRow = oldDb.prepare(`SELECT * FROM cli_models WHERE id = ?`).get(idHigh) as Record<string, unknown>;
+    expect(highRow.status).toBe('missing');
+    expect(highRow.superseded_by_model_id).toBe(canonical.id);
+
+    // Verify todo FK was updated to canonical model and effort set to high
+    const updatedTodo = oldDb.prepare(`SELECT * FROM todos WHERE id = ?`).get(todoId) as Record<string, unknown>;
+    expect(updatedTodo.cli_model_id).toBe(canonical.id);
+    expect(updatedTodo.cli_model).toBe('gemini-3.7-flash');
+    expect(updatedTodo.cli_effort).toBe('high');
+
+    oldDb.close();
+  });
+
+  it('13. centralizes model/effort validation in normalizeExecutionSelection and HTTP routes', async () => {
+    const model = queries.addModel(
+      'antigravity',
+      'gemini-3.7-flash',
+      'Gemini 3.7 Flash',
+      ['low', 'medium', 'high'],
+      { low: 'gemini-3.7-flash-low', medium: 'gemini-3.7-flash-medium', high: 'gemini-3.7-flash-high' },
+    );
+
+    // Invariant checks in normalizeExecutionSelection
+    expect(() => normalizeExecutionSelection({ cliTool: 'antigravity', cliModelId: model.id, cliEffort: null }))
+      .toThrow(ExecutionSelectionError);
+    expect(() => normalizeExecutionSelection({ cliTool: 'antigravity', cliModel: 'gemini-3.7-flash', cliEffort: 'provider-default' }))
+      .toThrow(ExecutionSelectionError);
+    expect(() => normalizeExecutionSelection({ cliTool: 'antigravity', cliModelId: model.id, cliEffort: 'xhigh' }))
+      .toThrow(ExecutionSelectionError);
+
+    // Consistency check: supportedEfforts = ['low'], providerVariants = { low: '...', medium: '...', high: '...' }
+    const modelRestricted = queries.addModel(
+      'antigravity',
+      'gemini-restricted',
+      'Gemini Restricted',
+      ['low'],
+      { low: 'gemini-restricted-low', medium: 'gemini-restricted-medium' },
+    );
+    expect(() => normalizeExecutionSelection({ cliTool: 'antigravity', cliModelId: modelRestricted.id, cliEffort: 'medium' }))
+      .toThrow(/Effort "medium" is not supported for Antigravity model/);
+
+    const project = queries.createProject('Test Validation Project', 'C:/test-val');
+
+    // HTTP POST /api/projects/:id/todos rejects missing or invalid effort on grouped Antigravity models with 400
+    const badTodoCreate = await apiRequest(todosRoute, `/projects/${project.id}/todos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Bad Todo',
+        cli_tool: 'antigravity',
+        cli_model_id: model.id,
+        cli_effort: null,
+      }),
+    });
+    expect(badTodoCreate.status).toBe(400);
+
+    const badTodoCreateEffort = await apiRequest(todosRoute, `/projects/${project.id}/todos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Bad Todo 2',
+        cli_tool: 'antigravity',
+        cli_model: 'gemini-3.7-flash',
+        cli_effort: 'xhigh',
+      }),
+    });
+    expect(badTodoCreateEffort.status).toBe(400);
+
+    // Create valid todo
+    const goodTodoCreate = await apiRequest(todosRoute, `/projects/${project.id}/todos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Good Todo',
+        cli_tool: 'antigravity',
+        cli_model_id: model.id,
+        cli_effort: 'high',
+      }),
+    });
+    expect(goodTodoCreate.status).toBe(201);
+    const todoId = (goodTodoCreate.body as { id: string }).id;
+
+    // HTTP PUT /api/todos/:id rejects invalid effort with 400
+    const badTodoUpdate = await apiRequest(todosRoute, `/todos/${todoId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        cli_tool: 'antigravity',
+        cli_model_id: model.id,
+        cli_effort: null,
+      }),
+    });
+    expect(badTodoUpdate.status).toBe(400);
+
+    // HTTP POST /api/projects/:id/schedules rejects invalid effort with 400
+    const badScheduleCreate = await apiRequest(schedulesRoute, `/projects/${project.id}/schedules`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Bad Schedule',
+        cron_expression: '* * * * *',
+        cli_tool: 'antigravity',
+        cli_model_id: model.id,
+        cli_effort: null,
+      }),
+    });
+    expect(badScheduleCreate.status).toBe(400);
+
+    const goodScheduleCreate = await apiRequest(schedulesRoute, `/projects/${project.id}/schedules`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Good Schedule',
+        cron_expression: '* * * * *',
+        cli_tool: 'antigravity',
+        cli_model_id: model.id,
+        cli_effort: 'medium',
+      }),
+    });
+    expect(goodScheduleCreate.status).toBe(201);
+    const schedId = (goodScheduleCreate.body as { id: string }).id;
+
+    // HTTP PUT /api/schedules/:id rejects invalid effort with 400
+    const badScheduleUpdate = await apiRequest(schedulesRoute, `/schedules/${schedId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        cli_effort: 'xhigh',
+      }),
+    });
+    expect(badScheduleUpdate.status).toBe(400);
+  });
+
+  it('14. guarantees execution snapshot and actual spawn use the exact same frozen effective model resolution even if catalog mutates', () => {
+    const model = queries.addModel(
+      'antigravity',
+      'gemini-3.7-flash',
+      'Gemini 3.7 Flash',
+      ['low', 'high'],
+      { low: 'gemini-3.7-flash-low', high: 'gemini-3.7-flash-high' },
+    );
+
+    // Resolve execution config
+    const config = resolveExecutionConfig({
+      cliTool: 'antigravity',
+      cliModelId: model.id,
+      cliEffort: 'high',
+    });
+
+    const snapshot = executionSnapshot(config);
+    expect(snapshot.model).toBe('gemini-3.7-flash');
+    expect(snapshot.effectiveModel).toBe('gemini-3.7-flash-high');
+    expect(snapshot.effort).toBe('high');
+
+    // Simulate catalog mutating in DB after resolveExecutionConfig but before spawn
+    queries.updateModel(model.id, {
+      provider_variants: { low: 'gemini-3.7-flash-low', high: 'gemini-3.7-flash-mutated-afterwards' },
+    });
+
+    // Spawn uses the frozen resolution (effectiveModel) from executionConfig
+    const launchModel = config.effectiveModel ?? config.model;
+    const launchEffort = (config.effectiveModel && config.effectiveModel !== config.model)
+      ? undefined
+      : config.effort.nativeEffort;
+
+    const adapter = getAdapter('antigravity');
+    const args = adapter.buildArgs({
+      mode: 'headless',
+      prompt: 'Task prompt',
+      model: launchModel,
+      effort: launchEffort,
+      sandboxMode: 'strict',
+    });
+
+    // Actual CLI args match snapshot.effectiveModel and do not produce conflicting --effort
+    expect(args).toEqual(['--headless', '--model', 'gemini-3.7-flash-high']);
+    expect(args).not.toContain('gemini-3.7-flash-mutated-afterwards');
+    expect(args).not.toContain('--effort');
   });
 });

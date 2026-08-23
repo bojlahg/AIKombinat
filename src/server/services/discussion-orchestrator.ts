@@ -324,7 +324,11 @@ export class DiscussionOrchestrator {
         }
       }
 
-      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, executionConfig?.model, cliOptions, 'headless', resolvedCliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, executionConfig?.effort.nativeEffort);
+      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
+      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
+        ? undefined
+        : executionConfig?.effort.nativeEffort;
+      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, launchModel, cliOptions, 'headless', resolvedCliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, launchEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 

@@ -294,11 +294,15 @@ export class SessionManager {
     let exitPromise: Promise<number>;
 
     try {
+      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
+      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
+        ? undefined
+        : executionConfig?.effort.nativeEffort;
       const result = await claudeManager.startClaude(
-        workDir, '', executionConfig?.model, undefined, 'interactive', resolvedCliTool,
+        workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
-        executionConfig?.effort.nativeEffort,
+        launchEffort,
       );
       pid = result.pid;
       exitPromise = result.exitPromise;

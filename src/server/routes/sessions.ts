@@ -276,7 +276,13 @@ router.put('/sessions/:id', (req: Request<{ id: string }>, res: Response) => {
       }
     }
     if (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined) {
-      const execution = normalizeExecutionSelection({ cliTool: req.body.cli_tool ?? session.cli_tool, cliModel: req.body.cli_model, cliModelId: req.body.cli_model_id, cliEffort: req.body.cli_effort, executionProfileId: req.body.execution_profile_id });
+      const execution = normalizeExecutionSelection({
+        cliTool: req.body.cli_tool !== undefined ? req.body.cli_tool : session.cli_tool,
+        cliModel: req.body.cli_model !== undefined ? req.body.cli_model : (req.body.cli_model_id !== undefined || req.body.execution_profile_id !== undefined ? undefined : session.cli_model),
+        cliModelId: req.body.cli_model_id !== undefined ? req.body.cli_model_id : (req.body.cli_model !== undefined || req.body.execution_profile_id !== undefined ? undefined : session.cli_model_id),
+        cliEffort: req.body.cli_effort !== undefined ? req.body.cli_effort : session.cli_effort,
+        executionProfileId: req.body.execution_profile_id !== undefined ? req.body.execution_profile_id : (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined ? undefined : session.execution_profile_id),
+      });
       Object.assign(updates, { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, cli_effort: execution.cliEffort, execution_profile_id: execution.executionProfileId });
     }
 
@@ -312,7 +318,7 @@ router.put('/sessions/:id', (req: Request<{ id: string }>, res: Response) => {
     res.json(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 

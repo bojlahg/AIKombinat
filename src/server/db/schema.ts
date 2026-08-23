@@ -80,8 +80,9 @@ export function initDatabase(db: Database.Database): void {
       supported_efforts TEXT,
       provider_variants TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing', 'superseded')),
+      status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing')),
       source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('cli', 'manual')),
+      superseded_by_model_id TEXT REFERENCES cli_models(id),
       last_seen_at DATETIME,
       last_checked_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -467,6 +468,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'cli_models', column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'cli_models', column: 'status', definition: "TEXT NOT NULL DEFAULT 'available'" },
     { table: 'cli_models', column: 'source', definition: "TEXT NOT NULL DEFAULT 'cli'" },
+    { table: 'cli_models', column: 'superseded_by_model_id', definition: 'TEXT REFERENCES cli_models(id)' },
     { table: 'cli_models', column: 'last_seen_at', definition: 'DATETIME' },
     { table: 'cli_models', column: 'last_checked_at', definition: 'DATETIME' },
     { table: 'cli_models', column: 'updated_at', definition: 'DATETIME' },
@@ -804,8 +806,8 @@ export function normalizeAntigravityCatalogAndExecutors(db: Database.Database): 
         ).run(canonicalId, effort, base, now, siblingRow.id, siblingRow.model_value);
 
         db.prepare(
-          `UPDATE cli_models SET status = 'superseded', updated_at = ? WHERE id = ?`
-        ).run(now, siblingRow.id);
+          `UPDATE cli_models SET superseded_by_model_id = ?, status = 'missing', updated_at = ? WHERE id = ?`
+        ).run(canonicalId, now, siblingRow.id);
       }
     }
   });

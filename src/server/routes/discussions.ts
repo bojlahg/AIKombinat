@@ -210,14 +210,20 @@ router.put('/agents/:id', (req: Request<{ id: string }>, res: Response) => {
     }
 
     const execution = req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined
-      ? normalizeExecutionSelection({ cliTool: req.body.cli_tool ?? agent.cli_tool, cliModel: req.body.cli_model, cliModelId: req.body.cli_model_id, cliEffort: req.body.cli_effort, executionProfileId: req.body.execution_profile_id }) : null;
+      ? normalizeExecutionSelection({
+          cliTool: req.body.cli_tool !== undefined ? req.body.cli_tool : agent.cli_tool,
+          cliModel: req.body.cli_model !== undefined ? req.body.cli_model : (req.body.cli_model_id !== undefined || req.body.execution_profile_id !== undefined ? undefined : agent.cli_model),
+          cliModelId: req.body.cli_model_id !== undefined ? req.body.cli_model_id : (req.body.cli_model !== undefined || req.body.execution_profile_id !== undefined ? undefined : agent.cli_model_id),
+          cliEffort: req.body.cli_effort !== undefined ? req.body.cli_effort : agent.cli_effort,
+          executionProfileId: req.body.execution_profile_id !== undefined ? req.body.execution_profile_id : (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined ? undefined : agent.execution_profile_id),
+        }) : null;
     const updated = queries.updateDiscussionAgent(req.params.id, execution
       ? { ...req.body, cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, cli_effort: execution.cliEffort, execution_profile_id: execution.executionProfileId }
       : req.body);
     res.json(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
   }
 });
 
