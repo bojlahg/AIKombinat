@@ -108,16 +108,23 @@ describe('model catalog refresh', () => {
       + 'gemini-3.1-pro-high       Gemini 3.1 Pro (High)\n'
       + 'claude-sonnet-4-6        Claude Sonnet 4.6 (Thinking)';
     expect(parseAntigravityModels(output)).toEqual([
-      { value: 'gemini-3.7-flash-high', label: 'Gemini 3.7 Flash (High)', supportedEfforts: null },
-      { value: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash (Medium)', supportedEfforts: null },
-      { value: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', supportedEfforts: null },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', supportedEfforts: null },
+      {
+        value: 'gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash',
+        supportedEfforts: ['medium', 'high'],
+        providerVariants: {
+          high: 'gemini-3.7-flash-high',
+          medium: 'gemini-3.7-flash-medium',
+        },
+      },
+      { value: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', supportedEfforts: null, providerVariants: null },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', supportedEfforts: null, providerVariants: null },
     ]);
   });
 
   it('parses the Antigravity /model JSON envelope response as a text model list', () => {
     expect(parseAntigravityModelEnvelope(JSON.stringify({ status: 'SUCCESS', response: 'gemini-pro-high  Gemini Pro (High)' }))).toEqual([
-      { value: 'gemini-pro-high', label: 'Gemini Pro (High)', supportedEfforts: null },
+      { value: 'gemini-pro-high', label: 'Gemini Pro (High)', supportedEfforts: null, providerVariants: null },
     ]);
     expect(parseAntigravityModelEnvelope('{malformed')).toBeNull();
     expect(parseAntigravityModelEnvelope(JSON.stringify({ status: 'SUCCESS', response: '' }))).toBeNull();
@@ -196,7 +203,7 @@ describe('model catalog refresh', () => {
     expect(manual.sort_order).toBe(3);
   });
 
-  it('parses the real 14-row Antigravity stdout and returns 14 models with null supportedEfforts', () => {
+  it('parses the real 14-row Antigravity stdout and returns 7 canonical models with mapped effort variants', () => {
     const realOutput = `gemini-3.7-flash-high     Gemini 3.7 Flash (High)
 gemini-3.7-flash-medium   Gemini 3.7 Flash (Medium)
 gemini-3.7-flash-low      Gemini 3.7 Flash (Low)
@@ -213,22 +220,50 @@ claude-opus-4-6-thinking  Claude Opus 4.6 (Thinking)
 gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
 
     const models = parseAntigravityModels(realOutput);
-    expect(models).toHaveLength(14);
+    expect(models).toHaveLength(7);
     expect(models).toEqual([
-      { value: 'gemini-3.7-flash-high', label: 'Gemini 3.7 Flash (High)', supportedEfforts: null },
-      { value: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash (Medium)', supportedEfforts: null },
-      { value: 'gemini-3.7-flash-low', label: 'Gemini 3.7 Flash (Low)', supportedEfforts: null },
-      { value: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', supportedEfforts: null },
-      { value: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', supportedEfforts: null },
-      { value: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', supportedEfforts: null },
-      { value: 'gemini-3.5-flash-high', label: 'Gemini 3.5 Flash (High)', supportedEfforts: null },
-      { value: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', supportedEfforts: null },
-      { value: 'gemini-3.5-flash-low', label: 'Gemini 3.5 Flash (Low)', supportedEfforts: null },
-      { value: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', supportedEfforts: null },
-      { value: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', supportedEfforts: null },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', supportedEfforts: null },
-      { value: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', supportedEfforts: null },
-      { value: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', supportedEfforts: null },
+      {
+        value: 'gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash',
+        supportedEfforts: ['low', 'medium', 'high'],
+        providerVariants: {
+          low: 'gemini-3.7-flash-low',
+          medium: 'gemini-3.7-flash-medium',
+          high: 'gemini-3.7-flash-high',
+        },
+      },
+      {
+        value: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
+        supportedEfforts: ['low', 'medium', 'high'],
+        providerVariants: {
+          low: 'gemini-3.6-flash-low',
+          medium: 'gemini-3.6-flash-medium',
+          high: 'gemini-3.6-flash-high',
+        },
+      },
+      {
+        value: 'gemini-3.5-flash',
+        label: 'Gemini 3.5 Flash',
+        supportedEfforts: ['low', 'medium', 'high'],
+        providerVariants: {
+          low: 'gemini-3.5-flash-low',
+          medium: 'gemini-3.5-flash-medium',
+          high: 'gemini-3.5-flash-high',
+        },
+      },
+      {
+        value: 'gemini-3.1-pro',
+        label: 'Gemini 3.1 Pro',
+        supportedEfforts: ['low', 'high'],
+        providerVariants: {
+          low: 'gemini-3.1-pro-low',
+          high: 'gemini-3.1-pro-high',
+        },
+      },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', supportedEfforts: null, providerVariants: null },
+      { value: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', supportedEfforts: null, providerVariants: null },
+      { value: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', supportedEfforts: null, providerVariants: null },
     ]);
   });
 
@@ -239,7 +274,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     const result = await discoverAntigravity(run);
     expect(run.mock.calls.map((call) => call[1])).toEqual([['models']]);
     expect(result).toMatchObject({ source: 'antigravity-models', authoritative: true, primarySucceeded: true });
-    expect(result.models).toEqual([{ value: 'gemini-pro-high', label: 'Gemini Pro (High)', supportedEfforts: null }]);
+    expect(result.models).toEqual([{ value: 'gemini-pro-high', label: 'Gemini Pro (High)', supportedEfforts: null, providerVariants: null }]);
     expect(result.diagnostics?.[0]).toMatchObject({
       command: 'agy models',
       exitCode: 0,
@@ -260,7 +295,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       source: 'antigravity-model-command',
       authoritative: false,
       primarySucceeded: false,
-      models: [{ value: 'gemini-command', label: 'Gemini Command', supportedEfforts: null }],
+      models: [{ value: 'gemini-command', label: 'Gemini Command', supportedEfforts: null, providerVariants: null }],
     });
 
     const malformed = vi.fn().mockResolvedValueOnce(command('', '', 0, false)).mockResolvedValueOnce(command('{bad', '', 0, false));

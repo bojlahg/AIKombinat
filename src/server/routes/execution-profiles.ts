@@ -69,6 +69,7 @@ function toApi(profile: queries.ExecutionProfile, compact = false) {
     modelLabel: executor.model_label,
     modelStatus: executor.model_status,
     supportedEfforts: executor.supported_efforts ? JSON.parse(executor.supported_efforts) : null,
+    providerVariants: executor.provider_variants ? JSON.parse(executor.provider_variants) : null,
     effortValue: executor.effort_value,
     priority: executor.priority,
     isEnabled: executor.is_enabled === 1,

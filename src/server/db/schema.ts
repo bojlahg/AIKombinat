@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { v4 as uuidv4 } from 'uuid';
 
 export function initDatabase(db: Database.Database): void {
   db.exec(`
@@ -77,6 +78,7 @@ export function initDatabase(db: Database.Database): void {
       model_value TEXT NOT NULL,
       model_label TEXT NOT NULL,
       supported_efforts TEXT,
+      provider_variants TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing')),
       source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('cli', 'manual')),
@@ -461,6 +463,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'sessions', column: 'execution_snapshot', definition: 'TEXT' },
     { table: 'sessions', column: 'cli_effort', definition: 'TEXT' },
     { table: 'cli_models', column: 'supported_efforts', definition: 'TEXT' },
+    { table: 'cli_models', column: 'provider_variants', definition: 'TEXT' },
     { table: 'cli_models', column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'cli_models', column: 'status', definition: "TEXT NOT NULL DEFAULT 'available'" },
     { table: 'cli_models', column: 'source', definition: "TEXT NOT NULL DEFAULT 'cli'" },
@@ -573,6 +576,9 @@ export function initDatabase(db: Database.Database): void {
   // once no 'gemini' rows remain these UPDATEs are no-ops.
   migrateGeminiToAntigravity(db);
 
+  // Normalize legacy Antigravity effort variant rows to canonical logical models
+  // with provider_variants JSON and migrate existing execution profile executors.
+  normalizeAntigravityCatalogAndExecutors(db);
 }
 function dropColumnIfPresent(db: Database.Database, table: string, column: string): void {
   const columns = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
@@ -658,3 +664,152 @@ function dedupeMemoryNodeTitles(db: Database.Database): void {
   });
   tx();
 }
+
+/**
+ * Reconciles legacy individual Antigravity effort variant rows (e.g. gemini-3.7-flash-high,
+ * gemini-3.7-flash-medium, gemini-3.7-flash-low) into canonical logical models with
+ * provider_variants JSON, and migrates execution_profile_executors, schedules, discussion_agents,
+ * todos, and sessions to point to the canonical model + matching effort.
+ * Idempotent.
+ */
+export function normalizeAntigravityCatalogAndExecutors(db: Database.Database): void {
+  const rows = db.prepare(`SELECT * FROM cli_models WHERE cli_tool = 'antigravity'`).all() as Array<{
+    id: string;
+    model_value: string;
+    model_label: string;
+    supported_efforts: string | null;
+    provider_variants: string | null;
+    sort_order: number;
+    status: string;
+    source: string;
+    last_seen_at: string | null;
+    last_checked_at: string | null;
+  }>;
+
+  if (rows.length === 0) return;
+
+  const EFFORT_SUFFIX_RE = /-(low|medium|high)$/i;
+  const LABEL_SUFFIX_RE = /\s*\((?:low|medium|high)\)$/i;
+  const STANDARD_EFFORTS = ['low', 'medium', 'high'];
+
+  const variantGroups = new Map<string, Array<{ row: typeof rows[0]; effort: string }>>();
+  for (const row of rows) {
+    const match = row.model_value.match(EFFORT_SUFFIX_RE);
+    if (match) {
+      const base = row.model_value.slice(0, match.index);
+      const effort = match[1].toLowerCase();
+      const group = variantGroups.get(base) ?? [];
+      group.push({ row, effort });
+      variantGroups.set(base, group);
+    }
+  }
+
+  const tx = db.transaction(() => {
+    const now = new Date().toISOString();
+
+    for (const [base, variants] of variantGroups.entries()) {
+      if (variants.length < 2) continue;
+
+      const availableEfforts = STANDARD_EFFORTS.filter((e) => variants.some((v) => v.effort === e));
+      const providerVariantsMap: Record<string, string> = {};
+      for (const effort of availableEfforts) {
+        const variant = variants.find((v) => v.effort === effort);
+        if (variant) providerVariantsMap[effort] = variant.row.model_value;
+      }
+
+      const firstVariant = variants[0];
+      const baseLabel = firstVariant.row.model_label.replace(LABEL_SUFFIX_RE, '').trim() || base;
+      const minSortOrder = Math.min(...variants.map((v) => v.row.sort_order));
+
+      let canonicalRow = rows.find((r) => r.model_value === base);
+      let canonicalId: string;
+      if (!canonicalRow) {
+        canonicalId = uuidv4();
+        db.prepare(
+          `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, provider_variants, sort_order, status, source, last_seen_at, last_checked_at, created_at, updated_at)
+           VALUES (?, 'antigravity', ?, ?, ?, ?, ?, 'available', 'cli', ?, ?, ?, ?)`
+        ).run(
+          canonicalId,
+          base,
+          baseLabel,
+          JSON.stringify(availableEfforts),
+          JSON.stringify(providerVariantsMap),
+          minSortOrder,
+          now,
+          now,
+          now,
+          now
+        );
+      } else {
+        canonicalId = canonicalRow.id;
+        db.prepare(
+          `UPDATE cli_models
+              SET supported_efforts = COALESCE(supported_efforts, ?),
+                  provider_variants = COALESCE(provider_variants, ?),
+                  status = 'available',
+                  updated_at = ?
+            WHERE id = ?`
+        ).run(
+          JSON.stringify(availableEfforts),
+          JSON.stringify(providerVariantsMap),
+          now,
+          canonicalId
+        );
+      }
+
+      for (const { row: siblingRow, effort } of variants) {
+        const executors = db.prepare(
+          `SELECT * FROM execution_profile_executors WHERE cli_model_id = ?`
+        ).all(siblingRow.id) as Array<{ id: string; profile_id: string; effort_value: string | null; priority: number; is_enabled: number }>;
+
+        for (const executor of executors) {
+          const duplicate = db.prepare(
+            `SELECT id FROM execution_profile_executors
+              WHERE profile_id = ? AND cli_model_id = ? AND COALESCE(effort_value, '') = ? AND id != ?`
+          ).get(executor.profile_id, canonicalId, effort, executor.id) as { id: string } | undefined;
+
+          if (duplicate) {
+            db.prepare(`DELETE FROM execution_profile_executors WHERE id = ?`).run(executor.id);
+          } else {
+            db.prepare(
+              `UPDATE execution_profile_executors
+                  SET cli_model_id = ?, effort_value = ?, updated_at = ?
+                WHERE id = ?`
+            ).run(canonicalId, effort, now, executor.id);
+          }
+        }
+
+        db.prepare(
+          `UPDATE schedules
+              SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
+            WHERE cli_model_id = ?`
+        ).run(canonicalId, effort, base, now, siblingRow.id);
+
+        db.prepare(
+          `UPDATE discussion_agents
+              SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
+            WHERE cli_model_id = ?`
+        ).run(canonicalId, effort, base, now, siblingRow.id);
+
+        db.prepare(
+          `UPDATE todos
+              SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
+            WHERE cli_model_id = ?`
+        ).run(canonicalId, effort, base, now, siblingRow.id);
+
+        db.prepare(
+          `UPDATE sessions
+              SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
+            WHERE cli_model_id = ?`
+        ).run(canonicalId, effort, base, now, siblingRow.id);
+
+        db.prepare(
+          `UPDATE cli_models SET status = 'missing', updated_at = ? WHERE id = ?`
+        ).run(now, siblingRow.id);
+      }
+    }
+  });
+
+  tx();
+}
+

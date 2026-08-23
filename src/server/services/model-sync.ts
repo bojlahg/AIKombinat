@@ -17,6 +17,7 @@ const DISCOVERY_TIMEOUT_MS = 10_000;
 
 export interface DiscoveredModel extends ProbedModel {
   supportedEfforts?: string[] | null;
+  providerVariants?: Record<string, string> | null;
 }
 
 export interface ModelDiscoveryResult {
@@ -266,7 +267,8 @@ function parseModelObjects(raw: unknown): DiscoveredModel[] {
 
 export function parseAntigravityModels(output: string): DiscoveredModel[] {
   const ignored = /^(available|models?|name|slug|default|[-=]+)$/i;
-  const values = new Map<string, DiscoveredModel>();
+  const rawItems: Array<{ value: string; label: string }> = [];
+
   for (const rawLine of stripTerminalSequences(output).split(/\r?\n/)) {
     const line = rawLine.replace(/^[*✓>\s]+/, '').trim();
     if (!line) continue;
@@ -275,9 +277,65 @@ export function parseAntigravityModels(output: string): DiscoveredModel[] {
     const value = match[1].trim();
     const label = match[2].trim();
     if (!label) continue;
-    values.set(value, { value, label, supportedEfforts: null });
+    rawItems.push({ value, label });
   }
-  return [...values.values()];
+
+  if (rawItems.length === 0) return [];
+
+  const EFFORT_SUFFIX_RE = /-(low|medium|high)$/i;
+  const LABEL_SUFFIX_RE = /\s*\((?:low|medium|high)\)$/i;
+  const STANDARD_EFFORTS = ['low', 'medium', 'high'];
+
+  const variantGroups = new Map<string, Array<{ value: string; label: string; effort: string }>>();
+  for (const item of rawItems) {
+    const match = item.value.match(EFFORT_SUFFIX_RE);
+    if (match) {
+      const base = item.value.slice(0, match.index);
+      const effort = match[1].toLowerCase();
+      const group = variantGroups.get(base) ?? [];
+      group.push({ value: item.value, label: item.label, effort });
+      variantGroups.set(base, group);
+    }
+  }
+
+  const result: DiscoveredModel[] = [];
+  const processedBases = new Set<string>();
+
+  for (const item of rawItems) {
+    const match = item.value.match(EFFORT_SUFFIX_RE);
+    if (match) {
+      const base = item.value.slice(0, match.index);
+      const group = variantGroups.get(base);
+      if (group && group.length >= 2) {
+        if (!processedBases.has(base)) {
+          processedBases.add(base);
+          const availableEfforts = STANDARD_EFFORTS.filter((e) => group.some((v) => v.effort === e));
+          const providerVariants: Record<string, string> = {};
+          for (const effort of availableEfforts) {
+            const variant = group.find((v) => v.effort === effort);
+            if (variant) providerVariants[effort] = variant.value;
+          }
+          const cleanLabel = group[0].label.replace(LABEL_SUFFIX_RE, '').trim() || base;
+          result.push({
+            value: base,
+            label: cleanLabel,
+            supportedEfforts: availableEfforts,
+            providerVariants,
+          });
+        }
+        continue;
+      }
+    }
+
+    result.push({
+      value: item.value,
+      label: item.label,
+      supportedEfforts: null,
+      providerVariants: null,
+    });
+  }
+
+  return result;
 }
 
 export function parseAntigravityModelEnvelope(output: string): DiscoveredModel[] | null {
@@ -398,7 +456,7 @@ export async function refreshModelCatalog(
 
   const counts = { added: 0, updated: 0, restored: 0, markedMissing: 0 };
   for (const model of result.models) {
-    counts[upsertDiscoveredModel(tool, model.value, model.label, result.source, now, model.supportedEfforts ?? null)] += 1;
+    counts[upsertDiscoveredModel(tool, model.value, model.label, result.source, now, model.supportedEfforts ?? null, model.providerVariants ?? null)] += 1;
   }
   if (result.authoritative && result.primarySucceeded) {
     counts.markedMissing = markUnavailableExcept(tool, result.models.map((model) => model.value), now);

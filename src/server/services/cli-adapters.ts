@@ -104,7 +104,12 @@ export function sanitizeExtraOptions(extraOptions: string): string[] {
   return sanitized;
 }
 
-export function resolveExecutionModel(model: string | undefined, cliTool: CliTool, failUnavailable = true): { requestedModel: string | null; effectiveModel: string | undefined; availability: 'available' | 'unavailable' | 'unknown' } {
+export function resolveExecutionModel(
+  model: string | undefined,
+  cliTool: CliTool,
+  failUnavailable = true,
+  effort?: string,
+): { requestedModel: string | null; effectiveModel: string | undefined; availability: 'available' | 'unavailable' | 'unknown' } {
   if (!model) return { requestedModel: null, effectiveModel: undefined, availability: 'unknown' };
   let entry: ReturnType<typeof getModelByValue>;
   try { entry = getModelByValue(cliTool, model); } catch { entry = undefined; }
@@ -112,12 +117,25 @@ export function resolveExecutionModel(model: string | undefined, cliTool: CliToo
   if (availability === 'unavailable' && failUnavailable) {
     throw new Error(`Selected ${cliTool} model "${model}" is unavailable. Choose another model or refresh the model catalog.`);
   }
-  return { requestedModel: model, effectiveModel: model, availability };
+
+  let effectiveModel = model;
+  if (cliTool === 'antigravity' && entry?.provider_variants) {
+    try {
+      const variants = JSON.parse(entry.provider_variants) as Record<string, string>;
+      if (effort && variants[effort]) {
+        effectiveModel = variants[effort];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return { requestedModel: model, effectiveModel, availability };
 }
 
-function normalizeModel(model: string | undefined, cliTool: CliTool): string | undefined {
+function normalizeModel(model: string | undefined, cliTool: CliTool, effort?: string): string | undefined {
   if (!model) return undefined;
-  return resolveExecutionModel(model, cliTool).effectiveModel;
+  return resolveExecutionModel(model, cliTool, false, effort).effectiveModel;
 }
 
 /**
@@ -276,7 +294,7 @@ const antigravityAdapter: CliAdapter = {
     // PROVISIONAL: verify with `agy --help` that --headless reads the prompt from
     // stdin. If it instead requires `-p <prompt>` inline, move the prompt into
     // args here and make needsStdin(mode) return only mode === 'interactive'.
-    const normalizedModel = normalizeModel(model, 'antigravity');
+    const normalizedModel = normalizeModel(model, 'antigravity', effort);
     const args: string[] = [];
     // Preserve the legacy default when no mode is supplied, while respecting
     // the project's explicit strict mode.
@@ -284,7 +302,6 @@ const antigravityAdapter: CliAdapter = {
     if (mode !== 'interactive') args.push('--headless');
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
-    if (effort) args.push('--effort', effort);
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
     }

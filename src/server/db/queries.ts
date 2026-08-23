@@ -486,6 +486,7 @@ export interface CliModel {
   model_value: string;
   model_label: string;
   supported_efforts: string | null;
+  provider_variants: string | null;
   sort_order: number;
   status: 'available' | 'missing';
   source: 'cli' | 'manual';
@@ -522,26 +523,51 @@ export function getAllModels(): Record<string, CliModel[]> {
   return grouped;
 }
 
-export function addModel(cliTool: AgentCliTool, modelValue: string, modelLabel: string, supportedEfforts: string[] | null = null): CliModel {
+export function addModel(
+  cliTool: AgentCliTool,
+  modelValue: string,
+  modelLabel: string,
+  supportedEfforts: string[] | null = null,
+  providerVariants: Record<string, string> | null = null,
+): CliModel {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, sort_order, status, source, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM cli_models WHERE cli_tool = ?), 0), 'available', 'manual', ?, ?)`
-  ).run(id, cliTool, modelValue, modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, cliTool, now, now);
+    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, provider_variants, sort_order, status, source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM cli_models WHERE cli_tool = ?), 0), 'available', 'manual', ?, ?)`
+  ).run(
+    id,
+    cliTool,
+    modelValue,
+    modelLabel,
+    supportedEfforts ? JSON.stringify(supportedEfforts) : null,
+    providerVariants ? JSON.stringify(providerVariants) : null,
+    cliTool,
+    now,
+    now,
+  );
   return getModelById(id)!;
 }
 
-export function updateModel(id: string, updates: { model_label?: string; supported_efforts?: string[] | null; sort_order?: number }): CliModel | undefined {
+export function updateModel(
+  id: string,
+  updates: {
+    model_label?: string;
+    supported_efforts?: string[] | null;
+    provider_variants?: Record<string, string> | null;
+    sort_order?: number;
+  },
+): CliModel | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
   if (updates.model_label !== undefined) { fields.push('model_label = ?'); values.push(updates.model_label); }
   if (updates.supported_efforts !== undefined) { fields.push('supported_efforts = ?'); values.push(updates.supported_efforts ? JSON.stringify(updates.supported_efforts) : null); }
+  if (updates.provider_variants !== undefined) { fields.push('provider_variants = ?'); values.push(updates.provider_variants ? JSON.stringify(updates.provider_variants) : null); }
   if (updates.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(updates.sort_order); }
   if (!fields.length) return getModelById(id);
-  if (updates.model_label !== undefined || updates.supported_efforts !== undefined) fields.push("source = 'manual'");
+  if (updates.model_label !== undefined || updates.supported_efforts !== undefined || updates.provider_variants !== undefined) fields.push("source = 'manual'");
   fields.push('updated_at = ?'); values.push(new Date().toISOString(), id);
   db.prepare(`UPDATE cli_models SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   return getModelById(id);
@@ -584,29 +610,34 @@ export function upsertDiscoveredModel(
   source: ModelSource,
   now: string,
   supportedEfforts: string[] | null,
+  providerVariants: Record<string, string> | null = null,
 ): 'added' | 'updated' | 'restored' {
   const db = getDatabase();
   const existing = db.prepare(
     'SELECT * FROM cli_models WHERE cli_tool = ? AND model_value = ?'
   ).get(cliTool, modelValue) as CliModel | undefined;
 
+  const effortsJson = supportedEfforts ? JSON.stringify(supportedEfforts) : null;
+  const variantsJson = providerVariants ? JSON.stringify(providerVariants) : null;
+
   if (existing) {
     const restored = existing.status === 'missing';
     db.prepare(
       `UPDATE cli_models
           SET model_label = CASE WHEN source = 'manual' THEN model_label ELSE ? END,
-              supported_efforts = CASE WHEN source = 'manual' THEN supported_efforts ELSE COALESCE(?, supported_efforts) END,
+              supported_efforts = CASE WHEN source = 'manual' THEN supported_efforts ELSE ? END,
+              provider_variants = CASE WHEN source = 'manual' THEN provider_variants ELSE ? END,
               status = 'available', last_seen_at = ?, last_checked_at = ?, updated_at = ?
         WHERE id = ?`
-    ).run(modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, now, now, now, existing.id);
+    ).run(modelLabel, effortsJson, variantsJson, now, now, now, existing.id);
     return restored ? 'restored' : 'updated';
   }
 
   const id = uuidv4();
   db.prepare(
-    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, sort_order, status, source, last_seen_at, last_checked_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM cli_models WHERE cli_tool = ?), 0), 'available', 'cli', ?, ?, ?, ?)`
-  ).run(id, cliTool, modelValue, modelLabel, supportedEfforts ? JSON.stringify(supportedEfforts) : null, cliTool, now, now, now, now);
+    `INSERT INTO cli_models (id, cli_tool, model_value, model_label, supported_efforts, provider_variants, sort_order, status, source, last_seen_at, last_checked_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM cli_models WHERE cli_tool = ?), 0), 'available', 'cli', ?, ?, ?, ?)`
+  ).run(id, cliTool, modelValue, modelLabel, effortsJson, variantsJson, cliTool, now, now, now, now);
   return 'added';
 }
 
@@ -633,6 +664,7 @@ export interface ExecutionProfileExecutor {
   model_label: string;
   model_status: 'available' | 'missing';
   supported_efforts: string | null;
+  provider_variants: string | null;
 }
 
 export interface ExecutionProfile {
@@ -649,7 +681,7 @@ export interface ExecutionProfile {
 
 function profileExecutors(profileId: string): ExecutionProfileExecutor[] {
   return getDatabase().prepare(`SELECT e.*, m.cli_tool, m.model_value, m.model_label,
-      m.status AS model_status, m.supported_efforts
+      m.status AS model_status, m.supported_efforts, m.provider_variants
     FROM execution_profile_executors e JOIN cli_models m ON m.id = e.cli_model_id
     WHERE e.profile_id = ? ORDER BY e.priority ASC, e.created_at ASC`).all(profileId) as ExecutionProfileExecutor[];
 }

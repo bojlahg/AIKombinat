@@ -7,6 +7,7 @@ export interface CatalogModel {
   status?: 'available' | 'missing';
   source?: 'cli' | 'manual';
   supportedEfforts?: string[] | null;
+  providerVariants?: Record<string, string> | null;
 }
 
 export const PROVIDER_EFFORT_FALLBACKS: Record<AgentCliTool, string[]> = {

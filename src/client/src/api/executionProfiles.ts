@@ -10,6 +10,7 @@ export interface ExecutionProfileExecutor {
   modelLabel: string;
   modelStatus: 'available' | 'missing';
   supportedEfforts: string[] | null;
+  providerVariants?: Record<string, string> | null;
   effortValue: string | null;
   priority: number;
   isEnabled: boolean;

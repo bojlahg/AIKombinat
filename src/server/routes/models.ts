@@ -11,17 +11,7 @@ router.get('/models', (_req: Request, res: Response) => {
     const allModels = queries.getAllModels();
     const result: Record<string, { value: string; label: string; id: string; status: string; supportedEfforts: string[] | null; sortOrder: number; lastSeenAt: string | null; lastCheckedAt: string | null; source: string }[]> = {};
     for (const [tool, models] of Object.entries(allModels)) {
-      result[tool] = models.map((m) => ({
-        value: m.model_value,
-        label: m.model_label,
-        id: m.id,
-        status: m.status,
-        supportedEfforts: m.supported_efforts ? JSON.parse(m.supported_efforts) : null,
-        sortOrder: m.sort_order,
-        lastSeenAt: m.last_seen_at,
-        lastCheckedAt: m.last_checked_at,
-        source: m.source,
-      }));
+      result[tool] = models.map(toApiModel);
     }
     res.json(result);
   } catch (err) {
@@ -141,6 +131,7 @@ function toApiModel(model: queries.CliModel) {
     value: model.model_value,
     label: model.model_label,
     supportedEfforts: model.supported_efforts ? JSON.parse(model.supported_efforts) : null,
+    providerVariants: model.provider_variants ? JSON.parse(model.provider_variants) : null,
     sortOrder: model.sort_order,
     status: model.status,
     source: model.source,
