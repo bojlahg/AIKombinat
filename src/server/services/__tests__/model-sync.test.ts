@@ -101,8 +101,9 @@ describe('model catalog refresh', () => {
   });
 
   it('parses Antigravity and Codex capability output', () => {
-    expect(parseAntigravityModels('gemini-3-pro\n  gemini-3-flash')).toEqual(expect.arrayContaining([
+    expect(parseAntigravityModels('gemini-3-pro\tPro model\ngemini-3-flash\tFlash model')).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: 'gemini-3-pro', supportedEfforts: null }),
+      expect.objectContaining({ value: 'gemini-3-flash', supportedEfforts: null }),
     ]));
     expect(parseAntigravityStructuredModels(JSON.stringify({ models: [
       { id: 'gemini-3-pro-high' },
@@ -134,9 +135,25 @@ describe('model catalog refresh', () => {
 
   it('bootstraps concrete documented Claude models with known native efforts', () => {
     expect(DOCUMENTED_CLAUDE_MODELS.map((model) => model.value)).toEqual([
-      'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5',
+      'claude-fable-5',
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-sonnet-4-6',
+      'claude-opus-4-6',
+      'claude-opus-4-5-20251101',
+      'claude-haiku-4-5-20251001',
+      'claude-sonnet-4-5-20250929',
     ]);
-    expect(DOCUMENTED_CLAUDE_MODELS.every((model) => model.supportedEfforts?.join(',') === 'low,medium,high,xhigh,max')).toBe(true);
+    expect(Object.fromEntries(DOCUMENTED_CLAUDE_MODELS.map((model) => [model.value, model.supportedEfforts]))).toMatchObject({
+      'claude-opus-5': ['low', 'medium', 'high', 'xhigh', 'max'],
+      'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh', 'max'],
+      'claude-opus-4-6': ['low', 'medium', 'high', 'max'],
+      'claude-opus-4-5-20251101': ['low', 'medium', 'high'],
+      'claude-haiku-4-5-20251001': null,
+      'claude-sonnet-4-5-20250929': null,
+    });
   });
 
   it('keeps unknown Antigravity capabilities NULL and preserves manual metadata', async () => {
@@ -149,26 +166,24 @@ describe('model catalog refresh', () => {
     expect(queries.getModelByValue('antigravity', 'gemini-public')?.supported_efforts).toBeNull();
   });
 
-  it('uses Antigravity JSON first and merges only model-specific effort capabilities', async () => {
-    const run = vi.fn()
-      .mockResolvedValueOnce(JSON.stringify({ models: [{ id: 'gemini-pro' }, { id: 'gemini-flash' }] }))
-      .mockResolvedValueOnce(JSON.stringify({ models: [{ id: 'gemini-pro', efforts: ['medium', 'high'] }] }));
+  it('uses only per-model capabilities from Antigravity structured model output', async () => {
+    const run = vi.fn().mockResolvedValueOnce(JSON.stringify({ models: [
+      { id: 'gemini-pro', efforts: ['medium', 'high'] },
+      { id: 'gemini-flash-high' },
+    ] }));
     const result = await discoverAntigravity(run);
-    expect(run.mock.calls.map((call) => call[1])).toEqual([
-      ['models', '--output-format', 'json'], ['-p', '/effort', '--output-format', 'json'],
-    ]);
+    expect(run.mock.calls.map((call) => call[1])).toEqual([['models', '--output-format', 'json']]);
     expect(result).toMatchObject({ source: 'antigravity-models-json', authoritative: true });
     expect(result?.models).toEqual([
       { value: 'gemini-pro', label: 'gemini-pro', supportedEfforts: ['medium', 'high'] },
-      { value: 'gemini-flash', label: 'gemini-flash', supportedEfforts: null },
+      { value: 'gemini-flash-high', label: 'gemini-flash-high', supportedEfforts: null },
     ]);
   });
 
   it('falls back from unsupported JSON to /model JSON and then weak text', async () => {
     const modelCommand = vi.fn()
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(JSON.stringify({ models: [{ id: 'gemini-command' }] }))
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce(JSON.stringify({ models: [{ id: 'gemini-command' }] }));
     expect(await discoverAntigravity(modelCommand)).toMatchObject({ source: 'antigravity-model-command', authoritative: true });
 
     const textFallback = vi.fn().mockResolvedValueOnce('{bad').mockResolvedValueOnce('{bad').mockResolvedValueOnce('gemini-text');

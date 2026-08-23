@@ -13,13 +13,18 @@ const catalog = {
   ],
   antigravity: [
     { id: 'a1', value: 'gemini-missing', label: 'Gemini Missing', status: 'missing', source: 'cli', supportedEfforts: null, lastSeenAt: null, lastCheckedAt: null },
-    { id: 'a2', value: 'gemini-current', label: 'Gemini Current', status: 'available', source: 'cli', supportedEfforts: null, lastSeenAt: null, lastCheckedAt: null },
+    { id: 'a2', value: 'gemini-3.7-flash-high', label: 'Gemini High Slug', status: 'available', source: 'cli', supportedEfforts: null, lastSeenAt: null, lastCheckedAt: null },
+    { id: 'a3', value: 'gemini-known', label: 'Gemini Known', status: 'available', source: 'cli', supportedEfforts: ['high'], lastSeenAt: null, lastCheckedAt: null },
   ],
 };
 
 const profiles = [{
   id: 'p1', slug: 'complex', name: 'Complex', description: 'Hard work', isEnabled: true, sortOrder: 0,
-  executors: [{ id: 'e1', cliModelId: 'a1', cliTool: 'antigravity', modelValue: 'gemini-missing', modelLabel: 'Gemini Missing', modelStatus: 'missing', supportedEfforts: null, effortValue: null, priority: 0, isEnabled: true }],
+  executors: [
+    { id: 'e1', cliModelId: 'a1', cliTool: 'antigravity', modelValue: 'gemini-missing', modelLabel: 'Gemini Missing', modelStatus: 'missing', supportedEfforts: null, effortValue: 'custom', priority: 0, isEnabled: true },
+    { id: 'e2', cliModelId: 'a2', cliTool: 'antigravity', modelValue: 'gemini-3.7-flash-high', modelLabel: 'Gemini High Slug', modelStatus: 'available', supportedEfforts: null, effortValue: null, priority: 1, isEnabled: true },
+    { id: 'e3', cliModelId: 'a3', cliTool: 'antigravity', modelValue: 'gemini-known', modelLabel: 'Gemini Known', modelStatus: 'available', supportedEfforts: ['high'], effortValue: 'high', priority: 2, isEnabled: true },
+  ],
 }];
 
 function response(body: unknown, status = 200) {
@@ -33,6 +38,7 @@ describe('Agents settings model catalog and profiles UX', () => {
     localStorage.setItem('clitrigger-lang', 'en');
     fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/models') return response(catalog);
+      if (input.startsWith('/api/models/refresh/')) return response({ source: 'test', authoritative: true, added: 0, updated: 1, restored: 0, markedMissing: 0 });
       if (input.startsWith('/api/execution-profiles')) return response(profiles);
       if (init?.method === 'PATCH' && input.startsWith('/api/models/')) return response({});
       if (init?.method === 'DELETE') return response(undefined, 204);
@@ -76,6 +82,52 @@ describe('Agents settings model catalog and profiles UX', () => {
     expect(claudeToggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('does not invent Antigravity efforts and preserves saved custom values', async () => {
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    await screen.findByDisplayValue('Complex');
+
+    const savedUnknown = screen.getByLabelText('Effort 1');
+    expect(within(savedUnknown).getByRole('option', { name: 'custom (Capabilities unknown)' })).toBeInTheDocument();
+    expect(screen.getByText('This saved effort remains selected, but the model did not report effort capabilities.')).toBeInTheDocument();
+    expect(within(savedUnknown).queryByRole('option', { name: 'low' })).not.toBeInTheDocument();
+
+    const qualifiedSlug = screen.getByLabelText('Effort 2');
+    expect(within(qualifiedSlug).getAllByRole('option').map((option) => option.textContent)).toEqual(['Provider default']);
+
+    const knownCapabilities = screen.getByLabelText('Effort 3');
+    expect(within(knownCapabilities).getAllByRole('option').map((option) => option.textContent)).toEqual(['Provider default', 'high']);
+    expect(within(knownCapabilities).queryByRole('option', { name: 'medium' })).not.toBeInTheDocument();
+  });
+
+  it('protects dirty agent drafts before refresh and refreshes after confirmation', async () => {
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Models' }));
+    const opus = screen.getByLabelText('Claude Code claude-opus-5 Label');
+    fireEvent.change(opus, { target: { value: 'Unsaved Opus' } });
+    const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+    const refresh = within(claudeSection).getByRole('button', { name: 'Refresh' });
+
+    vi.mocked(confirm).mockReturnValueOnce(false);
+    fireEvent.click(refresh);
+    expect(confirm).toHaveBeenCalledWith('Unsaved changes for Claude Code will be lost. Refresh anyway?');
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/models/refresh/claude')).toBe(false);
+    expect(screen.getByDisplayValue('Unsaved Opus')).toBeInTheDocument();
+
+    vi.mocked(confirm).mockReturnValueOnce(true);
+    fireEvent.click(refresh);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/api/models/refresh/claude')).toBe(true));
+    await waitFor(() => expect(screen.getByDisplayValue('Opus 5')).toBeInTheDocument());
+  });
+
+  it('refreshes a clean agent without confirmation', async () => {
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Models' }));
+    const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+    fireEvent.click(within(claudeSection).getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/api/models/refresh/claude')).toBe(true));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it('keeps the current missing model representable and confirms destructive actions', async () => {
     render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
     await screen.findByDisplayValue('Complex');
@@ -87,7 +139,7 @@ describe('Agents settings model catalog and profiles UX', () => {
     expect(screen.queryByRole('option', { name: 'Gemini Missing (Missing)' })).not.toBeInTheDocument();
 
     vi.mocked(confirm).mockReturnValueOnce(false);
-    fireEvent.click(screen.getByTitle('Remove executor'));
+    fireEvent.click(screen.getAllByTitle('Remove executor')[0]);
     expect(screen.getByLabelText('Agent 1')).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Remove executor'));
 

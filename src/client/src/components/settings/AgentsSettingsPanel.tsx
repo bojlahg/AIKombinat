@@ -16,7 +16,7 @@ const AGENTS: Array<{ value: Tool; label: string }> = [
 const FALLBACK_EFFORTS: Record<Tool, string[]> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],
   codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-  antigravity: ['low', 'medium', 'high'],
+  antigravity: [],
 };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -58,6 +58,10 @@ export default function AgentsSettingsPanel() {
   )])) as Record<Tool, Set<string>>, [models, savedModels]);
 
   const refresh = async (tool: Tool) => {
+    if (dirtyIds[tool].size > 0) {
+      const agent = AGENTS.find((item) => item.value === tool)!;
+      if (!window.confirm(t('catalog.refreshDirtyConfirm').replace('{agent}', agent.label))) return;
+    }
     setRefreshing(tool); setError('');
     try {
       const result = await json<RefreshResult>(`/api/models/refresh/${tool}`, { method: 'POST' });
@@ -197,13 +201,15 @@ export default function AgentsSettingsPanel() {
               const selectedModel = toolModels.find((model) => model.id === executor.cliModelId);
               const selectableModels = toolModels.filter((model) => model.status === 'available' || model.id === executor.cliModelId);
               const efforts = selectedModel?.supportedEfforts ?? FALLBACK_EFFORTS[executor.cliTool];
+              const capabilitiesUnknown = executor.cliTool === 'antigravity' && selectedModel?.supportedEfforts == null;
               const unsupported = !!executor.effortValue && !!selectedModel?.supportedEfforts && !selectedModel.supportedEfforts.includes(executor.effortValue);
-              const effortValues = unsupported ? [executor.effortValue!, ...efforts] : efforts;
+              const uncertain = !!executor.effortValue && capabilitiesUnknown;
+              const effortValues = unsupported || uncertain ? [executor.effortValue!, ...efforts] : efforts;
               return <div key={executor.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[auto_1fr_1.4fr_1fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
                 <span className="self-center text-xs text-warm-500">{index + 1}</span>
                 <select aria-label={`${t('profiles.agent')} ${index + 1}`} className="input-field text-sm" value={executor.cliTool} onChange={(e) => { const tool = e.target.value as Tool; const model = (models[tool] ?? []).find((item) => item.status === 'available'); if (model) changeExecutor(profile, index, { cliTool: tool, cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, effortValue: null }); }}>{AGENTS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label}</option>)}</select>
                 <select aria-label={`${t('catalog.title')} ${index + 1}`} className="input-field text-sm" value={executor.cliModelId} onChange={(e) => { const model = selectableModels.find((item) => item.id === e.target.value); if (model) changeExecutor(profile, index, { cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, effortValue: null }); }}>{selectableModels.map((model) => <option key={model.id} value={model.id}>{model.label}{model.status === 'missing' ? ` (${t('catalog.missingShort')})` : ''}</option>)}</select>
-                <div><select className="input-field text-sm" value={executor.effortValue ?? ''} onChange={(e) => changeExecutor(profile, index, { effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{[...new Set(effortValues)].map((effort) => <option key={effort} value={effort}>{effort}{unsupported && effort === executor.effortValue ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{unsupported && <p className="text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>
+                <div><select aria-label={`${t('profiles.effort')} ${index + 1}`} className="input-field text-sm" value={executor.effortValue ?? ''} onChange={(e) => changeExecutor(profile, index, { effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{[...new Set(effortValues)].map((effort) => <option key={effort} value={effort}>{effort}{effort === executor.effortValue && unsupported ? ` (${t('effort.unsupported')})` : effort === executor.effortValue && uncertain ? ` (${t('effort.unknown')})` : ''}</option>)}</select>{unsupported && <p className="text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}{uncertain && <p className="text-2xs text-status-warning">{t('effort.unknownWarning')}</p>}</div>
                 <div className="flex items-center gap-1"><button onClick={() => moveExecutor(profile, index, -1)}><ArrowUp size={14} /></button><button onClick={() => moveExecutor(profile, index, 1)}><ArrowDown size={14} /></button><button title={t('profiles.removeExecutor')} onClick={() => removeExecutor(profile, index)}><Trash2 size={14} /></button></div>
               </div>;
             })}</div>

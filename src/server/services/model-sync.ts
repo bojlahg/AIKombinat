@@ -30,12 +30,21 @@ export interface ModelDiscoveryResult {
   markedMissing?: number;
 }
 
-const CLAUDE_NATIVE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const CLAUDE_BASE_EFFORTS = ['low', 'medium', 'high'];
+const CLAUDE_MAX_EFFORTS = [...CLAUDE_BASE_EFFORTS, 'max'];
+const CLAUDE_FULL_EFFORTS = [...CLAUDE_BASE_EFFORTS, 'xhigh', 'max'];
 
 export const DOCUMENTED_CLAUDE_MODELS: DiscoveredModel[] = [
-  { value: 'claude-fable-5', label: 'Claude Fable 5', supportedEfforts: CLAUDE_NATIVE_EFFORTS },
-  { value: 'claude-opus-5', label: 'Claude Opus 5', supportedEfforts: CLAUDE_NATIVE_EFFORTS },
-  { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', supportedEfforts: CLAUDE_NATIVE_EFFORTS },
+  { value: 'claude-fable-5', label: 'Claude Fable 5', supportedEfforts: CLAUDE_FULL_EFFORTS },
+  { value: 'claude-opus-5', label: 'Claude Opus 5', supportedEfforts: CLAUDE_FULL_EFFORTS },
+  { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', supportedEfforts: CLAUDE_FULL_EFFORTS },
+  { value: 'claude-opus-4-8', label: 'Claude Opus 4.8', supportedEfforts: CLAUDE_FULL_EFFORTS },
+  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7', supportedEfforts: CLAUDE_FULL_EFFORTS },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', supportedEfforts: CLAUDE_MAX_EFFORTS },
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', supportedEfforts: CLAUDE_MAX_EFFORTS },
+  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5', supportedEfforts: CLAUDE_BASE_EFFORTS },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', supportedEfforts: null },
+  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', supportedEfforts: null },
 ];
 
 function execText(command: string, args: string[]): Promise<string | null> {
@@ -112,14 +121,6 @@ export function parseAntigravityStructuredModels(output: string): DiscoveredMode
   }
 }
 
-function mergeAntigravityEfforts(models: DiscoveredModel[], output: string | null): DiscoveredModel[] {
-  if (output === null) return models;
-  const capabilities = parseAntigravityStructuredModels(output);
-  if (!capabilities) return models;
-  const byValue = new Map(capabilities.filter((model) => model.supportedEfforts).map((model) => [model.value, model.supportedEfforts]));
-  return models.map((model) => ({ ...model, supportedEfforts: model.supportedEfforts ?? byValue.get(model.value) ?? null }));
-}
-
 export function parseCodexModelList(payload: unknown): DiscoveredModel[] {
   return parseModelObjects(payload);
 }
@@ -128,15 +129,13 @@ export async function discoverAntigravity(run = execText): Promise<ModelDiscover
   const jsonModelsOutput = await run('agy', ['models', '--output-format', 'json']);
   const jsonModels = jsonModelsOutput === null ? null : parseAntigravityStructuredModels(jsonModelsOutput);
   if (jsonModels) {
-    const effortsOutput = await run('agy', ['-p', '/effort', '--output-format', 'json']);
-    return { models: mergeAntigravityEfforts(jsonModels, effortsOutput), source: 'antigravity-models-json', authoritative: true, primarySucceeded: true };
+    return { models: jsonModels, source: 'antigravity-models-json', authoritative: true, primarySucceeded: true };
   }
 
   const modelCommandOutput = await run('agy', ['-p', '/model', '--output-format', 'json']);
   const modelCommandModels = modelCommandOutput === null ? null : parseAntigravityStructuredModels(modelCommandOutput);
   if (modelCommandModels) {
-    const effortsOutput = await run('agy', ['-p', '/effort', '--output-format', 'json']);
-    return { models: mergeAntigravityEfforts(modelCommandModels, effortsOutput), source: 'antigravity-model-command', authoritative: true, primarySucceeded: true };
+    return { models: modelCommandModels, source: 'antigravity-model-command', authoritative: true, primarySucceeded: true };
   }
 
   const textOutput = await run('agy', ['models']);
