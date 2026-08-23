@@ -11,6 +11,7 @@ export interface ResolvedExecutionConfig {
   cliModelId?: string;
   requestedModel: string | null;
   model: string | undefined;
+  effectiveModel?: string | null;
   modelAvailability: 'available' | 'unavailable' | 'unknown';
   effort: { nativeEffort: string | undefined; supportedEfforts: string[] | null; resolution: 'exact' | 'capability-unknown' | 'provider-default' };
   warnings: string[];
@@ -56,10 +57,13 @@ export function resolveExecutionConfig(input: {
       const model = queries.getModelById(executor.cli_model_id);
       if (!model) continue;
       try {
+        const effortConf = effortConfig(model, executor.effort_value);
+        const resolved = resolveExecutionModel(model.model_value, executor.cli_tool as CliTool, true, effortConf.nativeEffort);
         return {
           cliTool: executor.cli_tool, source: 'profile', profileId: profile.id, profileSlug: profile.slug, profileName: profile.name,
           executorCandidateId: executor.id, cliModelId: model.id, requestedModel: model.model_value, model: model.model_value,
-          modelAvailability: 'available', effort: effortConfig(model, executor.effort_value), warnings: [], resolvedAt,
+          effectiveModel: resolved.effectiveModel ?? model.model_value,
+          modelAvailability: 'available', effort: effortConf, warnings: [], resolvedAt,
         };
       } catch { /* saved unsupported candidates remain visible but are ineligible */ }
     }
@@ -71,14 +75,17 @@ export function resolveExecutionConfig(input: {
   if (catalogModel?.status === 'missing') throw new Error(`Selected model "${catalogModel.model_label}" is missing from the latest CLI refresh.`);
   const cliTool = (catalogModel?.cli_tool ?? input.cliTool ?? 'claude') as CliTool;
   if (cliTool === 'raw-shell') {
-    return { cliTool, source: 'manual', requestedModel: null, model: undefined, modelAvailability: 'unknown', effort: effortConfig(undefined, null), warnings: [], resolvedAt };
+    return { cliTool, source: 'manual', requestedModel: null, model: undefined, effectiveModel: undefined, modelAvailability: 'unknown', effort: effortConfig(undefined, null), warnings: [], resolvedAt };
   }
   const requested = catalogModel?.model_value ?? input.model ?? undefined;
-  const model = resolveExecutionModel(requested, cliTool, true);
+  const catalog = catalogModel ?? (requested ? queries.getModelByValue(cliTool, requested) : undefined);
+  const effortConf = effortConfig(catalog, input.cliEffort);
+  const resolved = resolveExecutionModel(requested, cliTool, true, effortConf.nativeEffort);
   return {
-    cliTool, source: 'manual', cliModelId: catalogModel?.id, requestedModel: model.requestedModel, model: model.effectiveModel,
-    modelAvailability: model.availability,
-    effort: effortConfig(catalogModel ?? (requested ? queries.getModelByValue(cliTool, requested) : undefined), input.cliEffort),
+    cliTool, source: 'manual', cliModelId: catalogModel?.id, requestedModel: resolved.requestedModel, model: requested,
+    effectiveModel: resolved.effectiveModel ?? requested ?? null,
+    modelAvailability: resolved.availability,
+    effort: effortConf,
     warnings: [], resolvedAt,
   };
 }
@@ -92,6 +99,7 @@ export const executionSnapshot = (config: ResolvedExecutionConfig) => ({
   agent: config.cliTool,
   cliModelId: config.cliModelId ?? null,
   model: config.model ?? null,
+  effectiveModel: config.effectiveModel ?? config.model ?? null,
   effort: config.effort.nativeEffort ?? null,
   resolvedAt: config.resolvedAt,
   warnings: config.warnings,

@@ -120,13 +120,17 @@ export function resolveExecutionModel(
 
   let effectiveModel = model;
   if (cliTool === 'antigravity' && entry?.provider_variants) {
-    try {
-      const variants = JSON.parse(entry.provider_variants) as Record<string, string>;
-      if (effort && variants[effort]) {
-        effectiveModel = variants[effort];
+    let variants: Record<string, string> = {};
+    try { variants = JSON.parse(entry.provider_variants); } catch { variants = {}; }
+    if (Object.keys(variants).length > 0) {
+      if (!effort) {
+        throw new Error(`Antigravity model "${model}" requires an explicit effort selection.`);
       }
-    } catch {
-      // ignore
+      const mapped = variants[effort];
+      if (!mapped) {
+        throw new Error(`Effort "${effort}" is not supported for Antigravity model "${model}". Supported efforts: ${Object.keys(variants).join(', ')}.`);
+      }
+      effectiveModel = mapped;
     }
   }
 
@@ -135,7 +139,7 @@ export function resolveExecutionModel(
 
 function normalizeModel(model: string | undefined, cliTool: CliTool, effort?: string): string | undefined {
   if (!model) return undefined;
-  return resolveExecutionModel(model, cliTool, false, effort).effectiveModel;
+  return resolveExecutionModel(model, cliTool, true, effort).effectiveModel;
 }
 
 /**
@@ -302,6 +306,14 @@ const antigravityAdapter: CliAdapter = {
     if (mode !== 'interactive') args.push('--headless');
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
+    if (effort) {
+      let entry: ReturnType<typeof getModelByValue>;
+      try { entry = model ? getModelByValue('antigravity', model) : undefined; } catch { entry = undefined; }
+      const hasVariants = !!entry?.provider_variants && Object.keys(JSON.parse(entry.provider_variants || '{}')).length > 0;
+      if (!hasVariants) {
+        args.push('--effort', effort);
+      }
+    }
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
     }

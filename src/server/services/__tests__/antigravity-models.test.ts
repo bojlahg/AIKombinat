@@ -179,7 +179,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     });
   });
 
-  it('5. creates a frozen executionSnapshot with canonical model and effort', () => {
+  it('5. creates a frozen executionSnapshot with canonical model, effort, and effective provider slug', () => {
     const model = queries.addModel(
       'antigravity',
       'gemini-3.7-flash',
@@ -203,9 +203,10 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       profileSlug: 'flash-profile',
       agent: 'antigravity',
       cliModelId: model.id,
+      model: 'gemini-3.7-flash',
+      effectiveModel: 'gemini-3.7-flash-high',
+      effort: 'high',
     });
-    expect(snapshot.model).toBe('gemini-3.7-flash');
-    expect(snapshot.effort).toBe('high');
   });
 
   it('6. translates canonical model + effort to provider slug without --effort flag in buildArgs', () => {
@@ -231,7 +232,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     expect(args).not.toContain('medium');
   });
 
-  it('7. throws an informative error when a grouped Antigravity model is executed without explicit effort', () => {
+  it('7. throws an informative error when a grouped Antigravity model is executed without explicit effort or with unsupported effort', () => {
     const model = queries.addModel(
       'antigravity',
       'gemini-3.7-flash',
@@ -245,9 +246,19 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       cliModelId: model.id,
       cliEffort: null,
     })).toThrow(/requires an explicit effort selection/);
+
+    expect(() => resolveExecutionModel('gemini-3.7-flash', 'antigravity', true, 'xhigh'))
+      .toThrow(/Effort "xhigh" is not supported for Antigravity model "gemini-3.7-flash"/);
+
+    expect(() => getAdapter('antigravity').buildArgs({
+      mode: 'headless',
+      prompt: '',
+      model: 'gemini-3.7-flash',
+      effort: 'xhigh',
+    })).toThrow(/Effort "xhigh" is not supported for Antigravity model "gemini-3.7-flash"/);
   });
 
-  it('8. migrates legacy sibling variant rows and reconciles profile executors idempotently', () => {
+  it('8. migrates legacy sibling variant rows and reconciles profile executors idempotently, marking legacy rows superseded', () => {
     const idHigh = uuidv4();
     const idMed = uuidv4();
     const idLow = uuidv4();
@@ -280,9 +291,13 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       high: 'gemini-3.7-flash-high',
     }));
 
-    expect(queries.getModelById(idMed)?.status).toBe('missing');
-    expect(queries.getModelById(idHigh)?.status).toBe('missing');
-    expect(queries.getModelById(idLow)?.status).toBe('missing');
+    // Superseded models are marked superseded and excluded from getAllModels
+    expect(queries.getModelById(idMed)?.status).toBe('superseded');
+    expect(queries.getModelById(idHigh)?.status).toBe('superseded');
+    expect(queries.getModelById(idLow)?.status).toBe('superseded');
+
+    const allModels = queries.getAllModels();
+    expect(allModels.antigravity?.map((m) => m.model_value)).toEqual(['gemini-3.7-flash']);
 
     const updatedProfile = queries.getExecutionProfileById(profile.id)!;
     expect(updatedProfile.executors).toHaveLength(1);
@@ -296,7 +311,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     expect(updatedProfile2.executors[0].effort_value).toBe('medium');
   });
 
-  it('9. migrates active FK references in todos, schedules, sessions, and discussion_agents without corrupting historical snapshots', () => {
+  it('9. migrates active references in todos, schedules, sessions, and discussion_agents with NULL cli_model_id', () => {
     const idHigh = uuidv4();
     const idMed = uuidv4();
     testDb.prepare(`
@@ -307,28 +322,32 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     `).run(idHigh, idMed);
 
     const project = queries.createProject('Test Project', 'C:/test-project');
-    const schedule = queries.createSchedule(project.id, 'Sched', '', '* * * * *', 'antigravity', 'gemini-3.6-flash-high', 1, 'recurring', undefined, null, null, null, null, null, null, null, idHigh);
-    const agent = queries.createDiscussionAgent(project.id, 'Agent', 'role', 'prompt', 'antigravity', 'gemini-3.6-flash-medium', undefined, false, undefined, undefined, idMed);
-    const todo = queries.createTodo(project.id, 'Task', undefined, 0, 'antigravity', 'gemini-3.6-flash-high', undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, idHigh);
-    const session = queries.createSession(project.id, 'Session', undefined, 'antigravity', 'gemini-3.6-flash-medium', undefined, null, null, null, null, undefined, undefined, idMed);
+    const schedule = queries.createSchedule(project.id, 'Sched', '', '* * * * *', 'antigravity', 'gemini-3.6-flash-high', 1, 'recurring', undefined, null, null, null, null, null, null, null, null);
+    const agent = queries.createDiscussionAgent(project.id, 'Agent', 'role', 'prompt', 'antigravity', 'gemini-3.6-flash-medium', undefined, false, undefined, undefined, null);
+    const todo = queries.createTodo(project.id, 'Task', undefined, 0, 'antigravity', 'gemini-3.6-flash-high', undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, null);
+    const session = queries.createSession(project.id, 'Session', undefined, 'antigravity', 'gemini-3.6-flash-medium', undefined, null, null, null, null, undefined, undefined, null);
 
     normalizeAntigravityCatalogAndExecutors(testDb);
 
     const canonical = queries.getModelByValue('antigravity', 'gemini-3.6-flash')!;
     expect(queries.getScheduleById(schedule.id)?.cli_model_id).toBe(canonical.id);
+    expect(queries.getScheduleById(schedule.id)?.cli_model).toBe('gemini-3.6-flash');
     expect(queries.getScheduleById(schedule.id)?.cli_effort).toBe('high');
 
     expect(queries.getDiscussionAgentsByProjectId(project.id)[0].cli_model_id).toBe(canonical.id);
+    expect(queries.getDiscussionAgentsByProjectId(project.id)[0].cli_model).toBe('gemini-3.6-flash');
     expect(queries.getDiscussionAgentsByProjectId(project.id)[0].cli_effort).toBe('medium');
 
     expect(queries.getTodoById(todo.id)?.cli_model_id).toBe(canonical.id);
+    expect(queries.getTodoById(todo.id)?.cli_model).toBe('gemini-3.6-flash');
     expect(queries.getTodoById(todo.id)?.cli_effort).toBe('high');
 
     expect(queries.getSessionById(session.id)?.cli_model_id).toBe(canonical.id);
+    expect(queries.getSessionById(session.id)?.cli_model).toBe('gemini-3.6-flash');
     expect(queries.getSessionById(session.id)?.cli_effort).toBe('medium');
   });
 
-  it('10. roundtrips canonical models and execution profiles through HTTP API endpoints', async () => {
+  it('10. roundtrips canonical models and execution profiles through HTTP API endpoints and rejects invalid efforts', async () => {
     const model = queries.addModel(
       'antigravity',
       'gemini-3.7-flash',
@@ -337,16 +356,38 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       { low: 'gemini-3.7-flash-low', medium: 'gemini-3.7-flash-medium', high: 'gemini-3.7-flash-high' },
     );
 
-    const modelsRes = await apiRequest(modelsRoute, '/models');
-    expect(modelsRes.status).toBe(200);
-    const antigravityModels = modelsRes.body.antigravity as Array<{ id: string; value: string; providerVariants: Record<string, string> }>;
-    const apiModel = antigravityModels.find((m) => m.value === 'gemini-3.7-flash')!;
-    expect(apiModel.providerVariants).toEqual({
-      low: 'gemini-3.7-flash-low',
-      medium: 'gemini-3.7-flash-medium',
-      high: 'gemini-3.7-flash-high',
+    // Reject creating profile with grouped Antigravity model and Provider Default (effortValue = null)
+    const badProfileRes = await apiRequest(executionProfilesRoute, '/execution-profiles', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Bad Profile',
+        description: 'Testing',
+        executors: [{ cliModelId: model.id, effortValue: null, priority: 0, isEnabled: true }],
+      }),
     });
+    expect(badProfileRes.status).toBe(400);
 
+    // Reject creating profile with unsupported effort
+    const invalidEffortProfileRes = await apiRequest(executionProfilesRoute, '/execution-profiles', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Invalid Effort Profile',
+        description: 'Testing',
+        executors: [{ cliModelId: model.id, effortValue: 'xhigh', priority: 0, isEnabled: true }],
+      }),
+    });
+    expect(invalidEffortProfileRes.status).toBe(400);
+
+    // Reject updating model with unmapped supported effort
+    const badModelPatchRes = await apiRequest(modelsRoute, `/models/${model.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh'],
+      }),
+    });
+    expect(badModelPatchRes.status).toBe(400);
+
+    // Create execution profile via API with valid effort
     const createRes = await apiRequest(executionProfilesRoute, '/execution-profiles', {
       method: 'POST',
       body: JSON.stringify({
@@ -373,5 +414,54 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
         },
       ],
     });
+  });
+
+  it('11. passes --effort for manual/ungrouped Antigravity models and updates variants on label-only edit', async () => {
+    // Manual/ungrouped Antigravity model passes --effort if specified
+    const custom = queries.addModel('antigravity', 'custom-model', 'Custom Model', ['low', 'medium']);
+    const adapter = getAdapter('antigravity');
+    const args = adapter.buildArgs({
+      mode: 'headless',
+      prompt: '',
+      model: 'custom-model',
+      effort: 'medium',
+      sandboxMode: 'strict',
+    });
+    expect(args).toEqual(['--headless', '--model', 'custom-model', '--effort', 'medium']);
+
+    // Label-only edit preserves custom label but refresh still updates provider variants
+    const rawStdout1 = 'gemini-3.5-flash-high  Gemini 3.5 Flash (High)\ngemini-3.5-flash-low   Gemini 3.5 Flash (Low)';
+    await refreshModelCatalog('antigravity', {
+      discover: async () => ({
+        models: parseAntigravityModels(rawStdout1),
+        source: 'antigravity-models',
+        authoritative: true,
+        primarySucceeded: true,
+      }),
+    });
+
+    const stored = queries.getModelByValue('antigravity', 'gemini-3.5-flash')!;
+    queries.updateModel(stored.id, { model_label: 'My Custom Gemini 3.5 Flash' });
+    expect(queries.getModelById(stored.id)?.source).toBe('manual');
+
+    // Subsequent discovery with an additional variant updates provider_variants without overwriting custom label
+    const rawStdout2 = 'gemini-3.5-flash-high  Gemini 3.5 Flash (High)\ngemini-3.5-flash-medium Gemini 3.5 Flash (Medium)\ngemini-3.5-flash-low   Gemini 3.5 Flash (Low)';
+    await refreshModelCatalog('antigravity', {
+      discover: async () => ({
+        models: parseAntigravityModels(rawStdout2),
+        source: 'antigravity-models',
+        authoritative: true,
+        primarySucceeded: true,
+      }),
+    });
+
+    const refreshed = queries.getModelById(stored.id)!;
+    expect(refreshed.model_label).toBe('My Custom Gemini 3.5 Flash');
+    expect(refreshed.supported_efforts).toBe(JSON.stringify(['low', 'medium', 'high']));
+    expect(refreshed.provider_variants).toBe(JSON.stringify({
+      low: 'gemini-3.5-flash-low',
+      medium: 'gemini-3.5-flash-medium',
+      high: 'gemini-3.5-flash-high',
+    }));
   });
 });

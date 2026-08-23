@@ -30,16 +30,37 @@ export function modelOptionLabel(model: CatalogModel, labels: { unavailable: str
   return model.label;
 }
 
+export function isGroupedAntigravityModel(cliTool: string, model?: CatalogModel | null): boolean {
+  return cliTool === 'antigravity' && !!model?.providerVariants && Object.keys(model.providerVariants).length > 0;
+}
+
 export function effortOptions(
   cliTool: AgentCliTool,
   models: CatalogModel[],
   modelValue?: string | null,
   savedEffort?: string | null,
-): { values: string[]; unsupportedSavedEffort: boolean; capabilitiesKnown: boolean } {
+): {
+  values: string[];
+  unsupportedSavedEffort: boolean;
+  capabilitiesKnown: boolean;
+  isGrouped: boolean;
+  allowProviderDefault: boolean;
+  defaultEffort?: string;
+} {
   const model = modelValue ? models.find((item) => item.value === modelValue) : undefined;
+  const isGrouped = isGroupedAntigravityModel(cliTool, model);
   const capabilitiesKnown = !!modelValue && !!model && Array.isArray(model.supportedEfforts);
   const supported = capabilitiesKnown ? model!.supportedEfforts! : PROVIDER_EFFORT_FALLBACKS[cliTool];
   const unsupportedSavedEffort = !!savedEffort && capabilitiesKnown && !supported.includes(savedEffort);
   const values = savedEffort && !supported.includes(savedEffort) ? [savedEffort, ...supported] : [...supported];
-  return { values: [...new Set(values)], unsupportedSavedEffort, capabilitiesKnown };
+  const allowProviderDefault = !isGrouped;
+  const defaultEffort = isGrouped ? (supported[0] || 'medium') : undefined;
+  return {
+    values: [...new Set(values)],
+    unsupportedSavedEffort,
+    capabilitiesKnown,
+    isGrouped,
+    allowProviderDefault,
+    defaultEffort,
+  };
 }

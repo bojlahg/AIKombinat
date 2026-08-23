@@ -204,8 +204,15 @@ export default function ScheduleForm({
           </select>
         </div>
         {cliTool !== 'raw-shell' && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('profiles.configuration')}</label><select className="input-field text-sm !py-2" value={executionProfileId} onChange={(e) => setExecutionProfileId(e.target.value)}><option value="">{t('profiles.manual')}</option>{profiles.filter((p) => p.isEnabled || p.id === executionProfileId).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isEnabled ? '' : ` (${t('profiles.profileUnavailable')})`}</option>)}</select></div>}
-        {cliTool !== 'raw-shell' && !executionProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label><select className="input-field text-sm !py-2" value={cliModel} onChange={(e) => setCliModel(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}</select></div>}
-        {cliTool !== 'raw-shell' && !executionProfileId && effort && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label><select className="input-field text-sm !py-2" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}><option value="">{t('profiles.providerDefault')}</option>{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
+        {cliTool !== 'raw-shell' && !executionProfileId && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.model')}</label><select className="input-field text-sm !py-2" value={cliModel} onChange={(e) => {
+          const nextModel = e.target.value;
+          setCliModel(nextModel);
+          const targetModel = toolModels.find((m) => m.value === nextModel);
+          if (cliTool === 'antigravity' && targetModel?.providerVariants && (!cliEffort || !targetModel.supportedEfforts?.includes(cliEffort))) {
+            setCliEffort(targetModel.supportedEfforts?.[0] || 'medium');
+          }
+        }}><option value="">{t('profiles.providerDefault')}</option>{visibleModels.map((model) => <option key={model.value} value={model.value}>{modelLabel(model)}</option>)}</select></div>}
+        {cliTool !== 'raw-shell' && !executionProfileId && effort && <div><label className="block text-xs font-medium text-warm-500 mb-1.5">{t('effort.label')}</label><select className="input-field text-sm !py-2" value={cliEffort} onChange={(e) => setCliEffort(e.target.value)}>{effort.allowProviderDefault && <option value="">{t('profiles.providerDefault')}</option>}{effort.values.map((value) => <option key={value} value={value}>{value}{value === cliEffort && effort.unsupportedSavedEffort ? ` (${t('effort.unsupported')})` : ''}</option>)}</select>{effort.unsupportedSavedEffort && <p className="mt-1 text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}</div>}
       </div>
 
       {/* Skip if Running (only for recurring) */}

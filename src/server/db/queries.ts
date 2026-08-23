@@ -488,7 +488,7 @@ export interface CliModel {
   supported_efforts: string | null;
   provider_variants: string | null;
   sort_order: number;
-  status: 'available' | 'missing';
+  status: 'available' | 'missing' | 'superseded';
   source: 'cli' | 'manual';
   last_seen_at: string | null;
   last_checked_at: string | null;
@@ -498,9 +498,10 @@ export interface CliModel {
 
 export type ModelSource = 'registry' | 'claude-alias' | 'claude-help' | 'claude-documented' | 'antigravity-models' | 'antigravity-models-json' | 'antigravity-model-command' | 'codex-app-server' | 'codex-cache';
 
-export function getModelsByTool(tool: string): CliModel[] {
+export function getModelsByTool(tool: string, includeSuperseded = false): CliModel[] {
   const db = getDatabase();
-  return db.prepare('SELECT * FROM cli_models WHERE cli_tool = ? ORDER BY sort_order ASC, model_label COLLATE NOCASE').all(tool) as CliModel[];
+  const filter = includeSuperseded ? '' : "AND status != 'superseded'";
+  return db.prepare(`SELECT * FROM cli_models WHERE cli_tool = ? ${filter} ORDER BY sort_order ASC, model_label COLLATE NOCASE`).all(tool) as CliModel[];
 }
 
 export function getModelById(id: string): CliModel | undefined {
@@ -512,9 +513,10 @@ export function getModelByValue(cliTool: string, modelValue: string): CliModel |
     .get(cliTool, modelValue) as CliModel | undefined;
 }
 
-export function getAllModels(): Record<string, CliModel[]> {
+export function getAllModels(includeSuperseded = false): Record<string, CliModel[]> {
   const db = getDatabase();
-  const rows = db.prepare('SELECT * FROM cli_models ORDER BY cli_tool ASC, sort_order ASC, model_label COLLATE NOCASE').all() as CliModel[];
+  const filter = includeSuperseded ? '' : "WHERE status != 'superseded'";
+  const rows = db.prepare(`SELECT * FROM cli_models ${filter} ORDER BY cli_tool ASC, sort_order ASC, model_label COLLATE NOCASE`).all() as CliModel[];
   const grouped: Record<string, CliModel[]> = {};
   for (const row of rows) {
     if (!grouped[row.cli_tool]) grouped[row.cli_tool] = [];
@@ -621,15 +623,19 @@ export function upsertDiscoveredModel(
   const variantsJson = providerVariants ? JSON.stringify(providerVariants) : null;
 
   if (existing) {
-    const restored = existing.status === 'missing';
+    const restored = existing.status === 'missing' || existing.status === 'superseded';
     db.prepare(
       `UPDATE cli_models
           SET model_label = CASE WHEN source = 'manual' THEN model_label ELSE ? END,
-              supported_efforts = CASE WHEN source = 'manual' THEN supported_efforts ELSE ? END,
-              provider_variants = CASE WHEN source = 'manual' THEN provider_variants ELSE ? END,
+              supported_efforts = CASE
+                WHEN ? IS NOT NULL THEN ?
+                WHEN source = 'manual' THEN supported_efforts
+                ELSE ?
+              END,
+              provider_variants = COALESCE(?, provider_variants),
               status = 'available', last_seen_at = ?, last_checked_at = ?, updated_at = ?
         WHERE id = ?`
-    ).run(modelLabel, effortsJson, variantsJson, now, now, now, existing.id);
+    ).run(modelLabel, variantsJson, effortsJson, effortsJson, variantsJson, now, now, now, existing.id);
     return restored ? 'restored' : 'updated';
   }
 
@@ -646,7 +652,7 @@ export function markUnavailableExcept(cliTool: string, discoveredValues: string[
   const excluded = discoveredValues.length > 0 ? `AND model_value NOT IN (${discoveredValues.map(() => '?').join(',')})` : '';
   return db.prepare(
     `UPDATE cli_models SET status = 'missing', last_checked_at = ?, updated_at = ?
-     WHERE cli_tool = ? AND source = 'cli' AND status != 'missing' ${excluded}`
+     WHERE cli_tool = ? AND source = 'cli' AND status NOT IN ('missing', 'superseded') ${excluded}`
   ).run(now, now, cliTool, ...discoveredValues).changes;
 }
 

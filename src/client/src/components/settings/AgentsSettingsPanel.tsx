@@ -6,7 +6,7 @@ import * as profilesApi from '../../api/executionProfiles';
 type Tool = profilesApi.AgentCliTool;
 type Model = {
   id: string; value: string; label: string; status: 'available' | 'missing'; source: 'cli' | 'manual';
-  supportedEfforts: string[] | null; sortOrder: number; lastSeenAt: string | null; lastCheckedAt: string | null;
+  supportedEfforts: string[] | null; providerVariants?: Record<string, string> | null; sortOrder: number; lastSeenAt: string | null; lastCheckedAt: string | null;
 };
 type RefreshResult = { source: string; authoritative: boolean; added: number; updated: number; restored: number; markedMissing: number };
 
@@ -136,6 +136,14 @@ export default function AgentsSettingsPanel() {
     } catch (e) { setError(String(e)); }
   };
   const saveProfile = async (profile: profilesApi.ExecutionProfile) => {
+    for (const executor of profile.executors ?? []) {
+      const model = (models[executor.cliTool] ?? []).find((m) => m.id === executor.cliModelId);
+      const isGrouped = executor.cliTool === 'antigravity' && !!model?.providerVariants && Object.keys(model.providerVariants).length > 0;
+      if (isGrouped && (!executor.effortValue || !model?.supportedEfforts?.includes(executor.effortValue))) {
+        setError(`Executor "${executor.modelLabel}" requires an explicit effort selection.`);
+        return;
+      }
+    }
     try {
       const saved = await profilesApi.updateProfile(profile.id, {
         name: profile.name, description: profile.description, isEnabled: profile.isEnabled, sortOrder: profile.sortOrder,
@@ -153,9 +161,11 @@ export default function AgentsSettingsPanel() {
     const tool = AGENTS.find((agent) => (models[agent.value] ?? []).some((model) => model.status === 'available'))?.value;
     const model = tool ? (models[tool] ?? []).find((item) => item.status === 'available') : undefined;
     if (!tool || !model) { setError(t('profiles.noModels')); return; }
+    const isGrouped = tool === 'antigravity' && !!model.providerVariants && Object.keys(model.providerVariants).length > 0;
+    const initialEffort = isGrouped ? (model.supportedEfforts?.[0] || 'medium') : null;
     replaceProfile({ ...profile, executors: [...(profile.executors ?? []), {
       id: `new-${Date.now()}`, cliModelId: model.id, cliTool: tool, modelValue: model.value, modelLabel: model.label, modelStatus: model.status,
-      supportedEfforts: model.supportedEfforts, effortValue: null, priority: profile.executors?.length ?? 0, isEnabled: true,
+      supportedEfforts: model.supportedEfforts, providerVariants: model.providerVariants, effortValue: initialEffort, priority: profile.executors?.length ?? 0, isEnabled: true,
     }] });
   };
   const changeExecutor = (profile: profilesApi.ExecutionProfile, index: number, change: Partial<profilesApi.ExecutionProfileExecutor>) => {
@@ -220,9 +230,31 @@ export default function AgentsSettingsPanel() {
               const effortValues = unsupported || uncertain ? [executor.effortValue!, ...efforts] : efforts;
               return <div key={executor.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[auto_1fr_1.4fr_1fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
                 <span className="self-center text-xs text-warm-500">{index + 1}</span>
-                <select aria-label={`${t('profiles.agent')} ${index + 1}`} className="input-field text-sm" value={executor.cliTool} onChange={(e) => { const tool = e.target.value as Tool; const model = (models[tool] ?? []).find((item) => item.status === 'available'); if (model) changeExecutor(profile, index, { cliTool: tool, cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, effortValue: null }); }}>{AGENTS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label}</option>)}</select>
-                <select aria-label={`${t('catalog.title')} ${index + 1}`} className="input-field text-sm" value={executor.cliModelId} onChange={(e) => { const model = selectableModels.find((item) => item.id === e.target.value); if (model) changeExecutor(profile, index, { cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, effortValue: null }); }}>{selectableModels.map((model) => <option key={model.id} value={model.id}>{model.label}{model.status === 'missing' ? ` (${t('catalog.missingShort')})` : ''}</option>)}</select>
-                <div><select aria-label={`${t('profiles.effort')} ${index + 1}`} className="input-field text-sm" value={executor.effortValue ?? ''} onChange={(e) => changeExecutor(profile, index, { effortValue: e.target.value || null })}><option value="">{t('profiles.providerDefault')}</option>{[...new Set(effortValues)].map((effort) => <option key={effort} value={effort}>{effort}{effort === executor.effortValue && unsupported ? ` (${t('effort.unsupported')})` : effort === executor.effortValue && uncertain ? ` (${t('effort.unknown')})` : ''}</option>)}</select>{unsupported && <p className="text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}{uncertain && <p className="text-2xs text-status-warning">{t('effort.unknownWarning')}</p>}</div>
+                <select aria-label={`${t('profiles.agent')} ${index + 1}`} className="input-field text-sm" value={executor.cliTool} onChange={(e) => {
+                  const tool = e.target.value as Tool;
+                  const model = (models[tool] ?? []).find((item) => item.status === 'available');
+                  if (model) {
+                    const isGrouped = tool === 'antigravity' && !!model.providerVariants && Object.keys(model.providerVariants).length > 0;
+                    const initialEffort = isGrouped ? (model.supportedEfforts?.[0] || 'medium') : null;
+                    changeExecutor(profile, index, { cliTool: tool, cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, providerVariants: model.providerVariants, effortValue: initialEffort });
+                  }
+                }}>{AGENTS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label}</option>)}</select>
+                <select aria-label={`${t('catalog.title')} ${index + 1}`} className="input-field text-sm" value={executor.cliModelId} onChange={(e) => {
+                  const model = selectableModels.find((item) => item.id === e.target.value);
+                  if (model) {
+                    const isGrouped = executor.cliTool === 'antigravity' && !!model.providerVariants && Object.keys(model.providerVariants).length > 0;
+                    const initialEffort = isGrouped ? (model.supportedEfforts?.[0] || 'medium') : null;
+                    changeExecutor(profile, index, { cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, providerVariants: model.providerVariants, effortValue: initialEffort });
+                  }
+                }}>{selectableModels.map((model) => <option key={model.id} value={model.id}>{model.label}{model.status === 'missing' ? ` (${t('catalog.missingShort')})` : ''}</option>)}</select>
+                <div>
+                  <select aria-label={`${t('profiles.effort')} ${index + 1}`} className="input-field text-sm" value={executor.effortValue ?? ''} onChange={(e) => changeExecutor(profile, index, { effortValue: e.target.value || null })}>
+                    {!(executor.cliTool === 'antigravity' && !!selectedModel?.providerVariants && Object.keys(selectedModel.providerVariants).length > 0) && <option value="">{t('profiles.providerDefault')}</option>}
+                    {[...new Set(effortValues)].map((effort) => <option key={effort} value={effort}>{effort}{effort === executor.effortValue && unsupported ? ` (${t('effort.unsupported')})` : effort === executor.effortValue && uncertain ? ` (${t('effort.unknown')})` : ''}</option>)}
+                  </select>
+                  {unsupported && <p className="text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}
+                  {uncertain && <p className="text-2xs text-status-warning">{t('effort.unknownWarning')}</p>}
+                </div>
                 <div className="flex items-center gap-1"><button onClick={() => moveExecutor(profile, index, -1)}><ArrowUp size={14} /></button><button onClick={() => moveExecutor(profile, index, 1)}><ArrowDown size={14} /></button><button title={t('profiles.removeExecutor')} onClick={() => removeExecutor(profile, index)}><Trash2 size={14} /></button></div>
               </div>;
             })}</div>

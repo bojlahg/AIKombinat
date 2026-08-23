@@ -91,6 +91,19 @@ router.patch('/models/:id', (req: Request<{ id: string }>, res: Response) => {
   if (supportedEfforts !== undefined && supportedEfforts !== null && (!Array.isArray(supportedEfforts) || supportedEfforts.some((value) => typeof value !== 'string' || !value.trim()))) {
     res.status(400).json({ error: 'supportedEfforts must be an array of native effort strings or null' }); return;
   }
+  if (supportedEfforts !== undefined && supportedEfforts !== null && existing.cli_tool === 'antigravity' && existing.provider_variants) {
+    let variants: Record<string, string> = {};
+    try { variants = JSON.parse(existing.provider_variants); } catch { variants = {}; }
+    if (Object.keys(variants).length > 0) {
+      const invalid = (supportedEfforts as string[]).filter((effort) => !variants[effort]);
+      if (invalid.length > 0) {
+        res.status(400).json({
+          error: `Supported efforts for grouped Antigravity model "${existing.model_value}" must have a provider variant mapping. Unmapped efforts: ${invalid.join(', ')}.`,
+        });
+        return;
+      }
+    }
+  }
   if (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0)) { res.status(400).json({ error: 'sortOrder must be a non-negative integer' }); return; }
   const labelChanged = modelLabel !== undefined && modelLabel.trim() !== existing.model_label;
   const effortsChanged = supportedEfforts !== undefined && JSON.stringify(supportedEfforts) !== JSON.stringify(existing.supported_efforts ? JSON.parse(existing.supported_efforts) : null);

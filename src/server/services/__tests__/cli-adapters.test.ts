@@ -86,7 +86,7 @@ describe('cli-adapters', () => {
 
   it('translates resolved effort for each CLI without touching global config', () => {
     expect(getAdapter('claude').buildArgs({ mode: 'headless', prompt: '', effort: 'high' })).toContain('high');
-    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium', sandboxMode: 'strict' })).toEqual(['--headless']);
+    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium', sandboxMode: 'strict' })).toEqual(['--headless', '--effort', 'medium']);
     expect(getAdapter('codex').buildArgs({ mode: 'headless', prompt: '', effort: 'xhigh' })).toEqual(expect.arrayContaining(['-c', 'model_reasoning_effort="xhigh"']));
   });
 

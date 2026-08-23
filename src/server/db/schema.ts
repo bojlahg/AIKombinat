@@ -80,7 +80,7 @@ export function initDatabase(db: Database.Database): void {
       supported_efforts TEXT,
       provider_variants TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing')),
+      status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'missing', 'superseded')),
       source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('cli', 'manual')),
       last_seen_at DATETIME,
       last_checked_at DATETIME,
@@ -782,29 +782,29 @@ export function normalizeAntigravityCatalogAndExecutors(db: Database.Database): 
         db.prepare(
           `UPDATE schedules
               SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
-            WHERE cli_model_id = ?`
-        ).run(canonicalId, effort, base, now, siblingRow.id);
+            WHERE cli_model_id = ? OR (cli_tool = 'antigravity' AND cli_model = ?)`
+        ).run(canonicalId, effort, base, now, siblingRow.id, siblingRow.model_value);
 
         db.prepare(
           `UPDATE discussion_agents
               SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
-            WHERE cli_model_id = ?`
-        ).run(canonicalId, effort, base, now, siblingRow.id);
+            WHERE cli_model_id = ? OR (cli_tool = 'antigravity' AND cli_model = ?)`
+        ).run(canonicalId, effort, base, now, siblingRow.id, siblingRow.model_value);
 
         db.prepare(
           `UPDATE todos
               SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
-            WHERE cli_model_id = ?`
-        ).run(canonicalId, effort, base, now, siblingRow.id);
+            WHERE cli_model_id = ? OR (cli_tool = 'antigravity' AND cli_model = ?)`
+        ).run(canonicalId, effort, base, now, siblingRow.id, siblingRow.model_value);
 
         db.prepare(
           `UPDATE sessions
               SET cli_model_id = ?, cli_effort = COALESCE(cli_effort, ?), cli_model = ?, updated_at = ?
-            WHERE cli_model_id = ?`
-        ).run(canonicalId, effort, base, now, siblingRow.id);
+            WHERE cli_model_id = ? OR (cli_tool = 'antigravity' AND cli_model = ?)`
+        ).run(canonicalId, effort, base, now, siblingRow.id, siblingRow.model_value);
 
         db.prepare(
-          `UPDATE cli_models SET status = 'missing', updated_at = ? WHERE id = ?`
+          `UPDATE cli_models SET status = 'superseded', updated_at = ? WHERE id = ?`
         ).run(now, siblingRow.id);
       }
     }
