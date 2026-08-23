@@ -8,6 +8,9 @@ import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
 import { broadcastProjectStatus } from './project-status.js';
 import { snapshotWorkingTree } from '../lib/git-diff.js';
+import { executorPool } from './executor-pool.js';
+import { orchestrator } from './orchestrator.js';
+import type { ResolvedExecutionConfig } from './execution-config.js';
 import * as queries from '../db/queries.js';
 
 const RAW_FLUSH_BYTES = 4 * 1024;
@@ -148,10 +151,49 @@ export class SessionManager {
 
     const cliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
     const cliModel = session.cli_model ?? undefined;
-    const executionConfig = session.execution_profile_id || isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: cliModel, cliModelId: session.cli_model_id, cliEffort: session.cli_effort, executionProfileId: session.execution_profile_id, interactive: true })
-      : null;
-    const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
+    let executionConfig: ResolvedExecutionConfig | null = null;
+    let resolvedCliTool = cliTool;
+
+    if (session.execution_profile_id) {
+      const selection = await executorPool.selectExecutor({
+        executionProfileId: session.execution_profile_id,
+        interactive: true,
+        excludeSessionId: sessionId,
+        reserveOwnerId: sessionId,
+      });
+      if (selection.status === 'waiting_executor') {
+        throw new Error(
+          `Provider concurrency limit reached for profile "${selection.profileName}":\n\n${selection.rejectionSummary}`
+        );
+      }
+      if (selection.status === 'no_candidates') {
+        throw new Error(
+          `Execution profile "${selection.profileName}" has no eligible interactive executors:\n\n${selection.rejectionSummary}`
+        );
+      }
+      executionConfig = selection.selectedConfig!;
+      resolvedCliTool = executionConfig.cliTool;
+    } else {
+      if (isAgentCliTool(cliTool) || session.cli_model_id || session.cli_effort) {
+        executionConfig = resolveExecutionConfig({
+          cliTool,
+          model: cliModel,
+          cliModelId: session.cli_model_id,
+          cliEffort: session.cli_effort,
+          interactive: true,
+        });
+        resolvedCliTool = executionConfig.cliTool;
+      }
+      if (!executorPool.hasAvailableSlot(resolvedCliTool, { excludeSessionId: sessionId })) {
+        const adapter = getAdapter(resolvedCliTool);
+        const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeSessionId: sessionId });
+        const limit = executorPool.getLimit(resolvedCliTool);
+        throw new Error(
+          `Provider concurrency limit reached for ${adapter.displayName} (${usage}/${limit} active). Please try again later.`
+        );
+      }
+    }
+
     if (!supportsInteractiveMode(resolvedCliTool)) {
       throw new Error(`${resolvedCliTool} does not support interactive mode`);
     }
@@ -178,10 +220,6 @@ export class SessionManager {
     }
 
     const adapter = getAdapter(resolvedCliTool);
-    if (executionConfig) {
-      queries.updateSession(sessionId, { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) });
-      queries.createSessionLog(sessionId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`);
-    }
     let prompt = session.description || '';
 
     // Inject long-term memory if configured for this session. Mirrors the
@@ -225,11 +263,14 @@ export class SessionManager {
       this.pendingInitialPrompts.delete(sessionId);
     }
 
-    // Mark as running and open the type-ahead buffer in lockstep. From this
-    // point until the drain block below, every terminal-input WS message
-    // lands in the buffer so the user can start typing while the PTY is
-    // still spawning.
+    // Mark as running and open the type-ahead buffer in lockstep.
+    // Release reservation synchronously with no await in between.
+    if (executionConfig) {
+      queries.updateSession(sessionId, { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) });
+      queries.createSessionLog(sessionId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`);
+    }
     queries.updateSessionStatus(sessionId, 'running');
+    executorPool.releaseReservation(sessionId);
     this.startupInputBuffer.set(sessionId, []);
 
     let workDir = project.path;
@@ -324,6 +365,7 @@ export class SessionManager {
       }
       broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
       broadcastProjectStatus(session.project_id);
+      orchestrator.wakeWaitingExecutors().catch(() => {});
       return;
     }
 
@@ -387,6 +429,7 @@ export class SessionManager {
         broadcaster.broadcast({ type: 'session:log', sessionId, message: msg, logType: exitCode === 0 ? 'output' : 'error' });
         broadcaster.broadcast({ type: 'session:status-changed', sessionId, status });
         broadcastProjectStatus(session.project_id);
+        orchestrator.wakeWaitingExecutors().catch(() => {});
       }
     }).catch(() => {
       this.flushAndForgetRaw(sessionId);
@@ -399,6 +442,7 @@ export class SessionManager {
       } catch { /* ignore */ }
       broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
       broadcastProjectStatus(session.project_id);
+      orchestrator.wakeWaitingExecutors().catch(() => {});
     });
   }
 
@@ -425,6 +469,7 @@ export class SessionManager {
     this.flushAndForgetRaw(sessionId);
     this.pendingInitialPrompts.delete(sessionId);
     this.startupInputBuffer.delete(sessionId);
+    orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 
   /**

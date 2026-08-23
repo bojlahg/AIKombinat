@@ -442,6 +442,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'memory_nodes', column: 'source_path', definition: 'TEXT' },
     { table: 'todos', column: 'memory_raw_file_paths', definition: 'TEXT' },
     { table: 'discussions', column: 'memory_raw_file_paths', definition: 'TEXT' },
+    { table: 'discussions', column: 'execution_snapshot', definition: 'TEXT' },
     { table: 'sessions', column: 'memory_raw_file_paths', definition: 'TEXT' },
     { table: 'sessions', column: 'tag_id', definition: 'TEXT' },
     { table: 'sessions', column: 'session_alias_id', definition: 'TEXT' },

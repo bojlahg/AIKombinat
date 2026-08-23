@@ -61,20 +61,14 @@ function getSessionActiveCliTool(session: queries.Session): CliTool {
 }
 
 function getDiscussionActiveCliTool(discussion: queries.Discussion): CliTool {
+  if (discussion.execution_snapshot) {
+    try {
+      const snap = JSON.parse(discussion.execution_snapshot);
+      if (snap?.agent) return snap.agent as CliTool;
+    } catch { /* ignore */ }
+  }
   if (discussion.current_agent_id) {
     const agent = queries.getDiscussionAgentById(discussion.current_agent_id);
-    if (agent?.execution_profile_id) {
-      try {
-        const resolved = resolveExecutionConfig({
-          cliTool: (agent.cli_tool as CliTool) || undefined,
-          model: agent.cli_model ?? undefined,
-          cliModelId: agent.cli_model_id,
-          cliEffort: agent.cli_effort,
-          executionProfileId: agent.execution_profile_id,
-        });
-        if (resolved?.cliTool) return resolved.cliTool;
-      } catch { /* ignore */ }
-    }
     if (agent?.cli_tool) return agent.cli_tool as CliTool;
   }
   const project = queries.getProjectById(discussion.project_id);
@@ -120,8 +114,16 @@ export class ExecutorPool {
     this.reservations.clear();
   }
 
-  reserveSlot(ownerId: string, tool: CliTool): boolean {
-    if (!this.hasAvailableSlot(tool, { excludeReservationOwnerId: ownerId })) {
+  reserveSlot(
+    ownerId: string,
+    tool: CliTool,
+    options: {
+      excludeTodoId?: string;
+      excludeSessionId?: string;
+      excludeDiscussionId?: string;
+    } = {},
+  ): boolean {
+    if (!this.hasAvailableSlot(tool, { ...options, excludeReservationOwnerId: ownerId })) {
       return false;
     }
     this.reservations.set(ownerId, { ownerId, tool, createdAt: Date.now() });
@@ -142,7 +144,12 @@ export class ExecutorPool {
 
   getActiveToolUsage(
     tool: CliTool,
-    options: { excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+    options: {
+      excludeTodoId?: string;
+      excludeSessionId?: string;
+      excludeDiscussionId?: string;
+      excludeReservationOwnerId?: string;
+    } = {},
   ): number {
     let count = 0;
 
@@ -154,16 +161,21 @@ export class ExecutorPool {
 
     const runningSessions = queries.getSessionsByStatus('running');
     for (const session of runningSessions) {
+      if (options.excludeSessionId && session.id === options.excludeSessionId) continue;
       if (getSessionActiveCliTool(session) === tool) count++;
     }
 
     const runningDiscussions = queries.getDiscussionsByStatus('running');
     for (const discussion of runningDiscussions) {
+      if (options.excludeDiscussionId && discussion.id === options.excludeDiscussionId) continue;
       if (getDiscussionActiveCliTool(discussion) === tool) count++;
     }
 
     for (const res of this.reservations.values()) {
       if (options.excludeReservationOwnerId && res.ownerId === options.excludeReservationOwnerId) continue;
+      if (options.excludeTodoId && res.ownerId === options.excludeTodoId) continue;
+      if (options.excludeSessionId && res.ownerId === options.excludeSessionId) continue;
+      if (options.excludeDiscussionId && res.ownerId === options.excludeDiscussionId) continue;
       if (res.tool === tool) count++;
     }
 
@@ -172,7 +184,12 @@ export class ExecutorPool {
 
   hasAvailableSlot(
     tool: CliTool,
-    options: { excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+    options: {
+      excludeTodoId?: string;
+      excludeSessionId?: string;
+      excludeDiscussionId?: string;
+      excludeReservationOwnerId?: string;
+    } = {},
   ): boolean {
     const active = this.getActiveToolUsage(tool, options);
     const limit = this.getLimit(tool);
@@ -181,7 +198,12 @@ export class ExecutorPool {
 
   getSlotStatus(
     tool: CliTool,
-    options: { excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+    options: {
+      excludeTodoId?: string;
+      excludeSessionId?: string;
+      excludeDiscussionId?: string;
+      excludeReservationOwnerId?: string;
+    } = {},
   ): { active: number; limit: number; available: boolean } {
     const active = this.getActiveToolUsage(tool, options);
     const limit = this.getLimit(tool);
@@ -190,7 +212,13 @@ export class ExecutorPool {
 
   async evaluateCandidate(
     candidate: queries.ExecutionProfileExecutor,
-    options: { interactive?: boolean; excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+    options: {
+      interactive?: boolean;
+      excludeTodoId?: string;
+      excludeSessionId?: string;
+      excludeDiscussionId?: string;
+      excludeReservationOwnerId?: string;
+    } = {},
   ): Promise<CandidateEvaluation> {
     const cliTool = candidate.cli_tool as CliTool;
     const adapter = getAdapter(cliTool);
@@ -287,6 +315,8 @@ export class ExecutorPool {
     // 5. Provider/tool has an available concurrency slot
     if (!this.hasAvailableSlot(cliTool, {
       excludeTodoId: options.excludeTodoId,
+      excludeSessionId: options.excludeSessionId,
+      excludeDiscussionId: options.excludeDiscussionId,
       excludeReservationOwnerId: options.excludeReservationOwnerId,
     })) {
       return {
@@ -307,6 +337,8 @@ export class ExecutorPool {
     executionProfileId: string | null | undefined;
     interactive?: boolean;
     excludeTodoId?: string;
+    excludeSessionId?: string;
+    excludeDiscussionId?: string;
     reserveOwnerId?: string;
   }): Promise<PoolSelectionResult> {
     let release: () => void;
@@ -327,6 +359,8 @@ export class ExecutorPool {
     executionProfileId: string | null | undefined;
     interactive?: boolean;
     excludeTodoId?: string;
+    excludeSessionId?: string;
+    excludeDiscussionId?: string;
     reserveOwnerId?: string;
   }): Promise<PoolSelectionResult> {
     const evaluatedAt = new Date().toISOString();
@@ -351,20 +385,32 @@ export class ExecutorPool {
       const evaluation = await this.evaluateCandidate(candidate, {
         interactive: input.interactive,
         excludeTodoId: input.excludeTodoId,
+        excludeSessionId: input.excludeSessionId,
+        excludeDiscussionId: input.excludeDiscussionId,
         excludeReservationOwnerId: input.reserveOwnerId,
       });
       evaluations.push(evaluation);
 
       if (!selectedCandidate && evaluation.status === 'available') {
-        selectedCandidate = candidate;
+        if (input.reserveOwnerId) {
+          const reserved = this.reserveSlot(input.reserveOwnerId, candidate.cli_tool as CliTool, {
+            excludeTodoId: input.excludeTodoId,
+            excludeSessionId: input.excludeSessionId,
+            excludeDiscussionId: input.excludeDiscussionId,
+          });
+          if (reserved) {
+            selectedCandidate = candidate;
+          } else {
+            evaluation.status = 'busy';
+            evaluation.reason = 'provider concurrency limit reached';
+          }
+        } else {
+          selectedCandidate = candidate;
+        }
       }
     }
 
     if (selectedCandidate) {
-      if (input.reserveOwnerId) {
-        this.reserveSlot(input.reserveOwnerId, selectedCandidate.cli_tool as CliTool);
-      }
-
       const model = queries.getModelById(selectedCandidate.cli_model_id)!;
       const nativeEffort = selectedCandidate.effort_value && selectedCandidate.effort_value !== 'provider-default'
         ? selectedCandidate.effort_value

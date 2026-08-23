@@ -161,7 +161,8 @@ export class Orchestrator {
   }
 
   private isStoppingProjects: Set<string> = new Set();
-  private isWakingExecutors = false;
+  private wakeRunning = false;
+  private wakeRequested = false;
 
   /**
    * Stop all running and waiting todos for a project.
@@ -446,12 +447,16 @@ export class Orchestrator {
     let exitPromise: Promise<number>;
     let debugSession: DebugSession | null = null;
 
-    try {
-      // Mark as running BEFORE any async work to prevent deletion during setup
-      queries.updateTodoStatus(todoId, 'running');
-      queries.updateTodo(todoId, { execution_mode: mode });
-      logStreamer.setRound(todoId, roundNumber);
+    // Mark as running synchronously and release reservation immediately (no await in between)
+    queries.updateTodoStatus(todoId, 'running');
+    queries.updateTodo(todoId, {
+      execution_mode: mode,
+      ...(executionConfig ? { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) } : {}),
+    });
+    executorPool.releaseReservation(todoId);
+    logStreamer.setRound(todoId, roundNumber);
 
+    try {
       const isGitRepo = !!project.is_git_repo;
       const useWorktree = this.resolveUseWorktree(project, todo);
       let worktreePath: string | null = null;
@@ -644,10 +649,12 @@ export class Orchestrator {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       queries.updateTodoStatus(todoId, 'failed');
+      queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
       queries.createTaskLog(todoId, 'error', `Failed to start ${adapter.displayName}: ${message}`, roundNumber);
+      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+      this.broadcastProjectStatus(projectId);
+      this.wakeWaitingExecutors().catch(() => {});
       return;
-    } finally {
-      executorPool.releaseReservation(todoId);
     }
 
     // Handle process exit asynchronously
@@ -895,41 +902,50 @@ export class Orchestrator {
 
   /**
    * Global wake mechanism: resume waiting_executor tasks across any project when executor capacity is freed.
+   * Uses coalescing / loop semantics so that wake requests arriving during an active pass are never dropped.
    */
   async wakeWaitingExecutors(): Promise<void> {
-    if (this.isWakingExecutors) return;
-    this.isWakingExecutors = true;
+    this.wakeRequested = true;
+    if (this.wakeRunning) return;
+    this.wakeRunning = true;
     try {
-      const waitingTodos = queries.getTodosByStatus('waiting_executor');
-      if (waitingTodos.length === 0) return;
-
-      // Deterministic cross-project ordering: created_at ASC, id ASC
-      const sortedWaiting = [...waitingTodos].sort(
-        (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
-      );
-
-      for (const todo of sortedWaiting) {
-        if (this.isStoppingProjects.has(todo.project_id)) continue;
-        const freshTodo = queries.getTodoById(todo.id);
-        if (!freshTodo || freshTodo.status !== 'waiting_executor') continue;
-
-        const project = queries.getProjectById(todo.project_id);
-        if (!project) continue;
-
-        const projectTodos = queries.getTodosByProjectId(todo.project_id);
-        const runningInProject = projectTodos.filter((t) => t.status === 'running');
-        const maxConcurrent = this.getMaxConcurrent(todo.project_id);
-        if (runningInProject.length >= maxConcurrent) continue;
-
-        const gate = this.canStartNow(project, freshTodo, runningInProject);
-        if (!gate.ok) continue;
-
-        if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
-
-        await this.startSingleTodo(freshTodo.id, project.path, project.id, 'headless', true);
+      while (this.wakeRequested) {
+        this.wakeRequested = false;
+        await this.processWaitingExecutors();
       }
     } finally {
-      this.isWakingExecutors = false;
+      this.wakeRunning = false;
+    }
+  }
+
+  private async processWaitingExecutors(): Promise<void> {
+    const waitingTodos = queries.getTodosByStatus('waiting_executor');
+    if (waitingTodos.length === 0) return;
+
+    // Deterministic cross-project ordering: created_at ASC, id ASC
+    const sortedWaiting = [...waitingTodos].sort(
+      (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+    );
+
+    for (const todo of sortedWaiting) {
+      if (this.isStoppingProjects.has(todo.project_id)) continue;
+      const freshTodo = queries.getTodoById(todo.id);
+      if (!freshTodo || freshTodo.status !== 'waiting_executor') continue;
+
+      const project = queries.getProjectById(todo.project_id);
+      if (!project) continue;
+
+      const projectTodos = queries.getTodosByProjectId(todo.project_id);
+      const runningInProject = projectTodos.filter((t) => t.status === 'running');
+      const maxConcurrent = this.getMaxConcurrent(todo.project_id);
+      if (runningInProject.length >= maxConcurrent) continue;
+
+      const gate = this.canStartNow(project, freshTodo, runningInProject);
+      if (!gate.ok) continue;
+
+      if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
+
+      await this.startSingleTodo(freshTodo.id, project.path, project.id, 'headless', true);
     }
   }
 

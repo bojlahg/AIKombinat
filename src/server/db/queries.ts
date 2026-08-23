@@ -968,6 +968,7 @@ export interface Discussion {
   memory_inject_mode: string | null;
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
+  execution_snapshot: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -998,7 +999,7 @@ export function getDiscussionById(id: string): Discussion | undefined {
   return db.prepare('SELECT * FROM discussions WHERE id = ?').get(id) as Discussion | undefined;
 }
 
-export function updateDiscussion(id: string, updates: Partial<Pick<Discussion, 'title' | 'description' | 'current_round' | 'max_rounds' | 'current_agent_id' | 'branch_name' | 'worktree_path' | 'use_worktree' | 'process_pid' | 'agent_ids' | 'auto_implement' | 'implement_agent_id' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths'>>): Discussion | undefined {
+export function updateDiscussion(id: string, updates: Partial<Pick<Discussion, 'title' | 'description' | 'current_round' | 'max_rounds' | 'current_agent_id' | 'branch_name' | 'worktree_path' | 'use_worktree' | 'process_pid' | 'agent_ids' | 'auto_implement' | 'implement_agent_id' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'execution_snapshot'>>): Discussion | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1018,6 +1019,7 @@ export function updateDiscussion(id: string, updates: Partial<Pick<Discussion, '
   if (updates.memory_inject_mode !== undefined) { fields.push('memory_inject_mode = ?'); values.push(updates.memory_inject_mode); }
   if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
+  if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
 
   if (fields.length === 0) return getDiscussionById(id);
 

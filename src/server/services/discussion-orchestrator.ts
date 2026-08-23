@@ -10,6 +10,9 @@ import * as queries from '../db/queries.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
 import { broadcastProjectStatus } from './project-status.js';
+import { executorPool } from './executor-pool.js';
+import { orchestrator } from './orchestrator.js';
+import type { ResolvedExecutionConfig } from './execution-config.js';
 
 function broadcastDiscussionProjectStatus(discussionId: string): void {
   try {
@@ -144,10 +147,11 @@ export class DiscussionOrchestrator {
     }
 
     queries.updateDiscussionStatus(discussionId, 'paused');
-    queries.updateDiscussion(discussionId, { process_pid: 0 });
+    queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
     queries.createDiscussionLog(discussionId, null, 'info', 'Discussion paused by user.');
 
     dispatchDiscussionStatus({ discussionId, status: 'paused', currentRound: discussion.current_round, currentAgentId: null });
+    orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 
   /**
@@ -278,17 +282,82 @@ export class DiscussionOrchestrator {
 
     const cliTool = (agent?.cli_tool || project.cli_tool || 'claude') as CliTool;
     const cliModel = agent?.cli_model ?? undefined;
-    const executionConfig = agent?.execution_profile_id || isAgentCliTool(cliTool)
-      ? resolveExecutionConfig({ cliTool, model: cliModel, cliModelId: agent?.cli_model_id, cliEffort: agent?.cli_effort, executionProfileId: agent?.execution_profile_id })
-      : null;
-    const resolvedCliTool = executionConfig?.cliTool ?? cliTool;
-    if (executionConfig) {
-      queries.createDiscussionLog(discussionId, messageId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`);
+    let executionConfig: ResolvedExecutionConfig | null = null;
+    let resolvedCliTool = cliTool;
+
+    if (agent?.execution_profile_id) {
+      const selection = await executorPool.selectExecutor({
+        executionProfileId: agent.execution_profile_id,
+        excludeDiscussionId: discussionId,
+        reserveOwnerId: discussionId,
+      });
+      if (selection.status === 'waiting_executor') {
+        queries.updateDiscussionStatus(discussionId, 'paused');
+        queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
+        queries.updateDiscussionMessage(messageId, { status: 'pending' });
+        queries.createDiscussionLog(
+          discussionId,
+          messageId,
+          'warning',
+          `[executor-pool] Paused discussion turn: waiting for executor capacity (profile "${selection.profileName}"):\n\n${selection.rejectionSummary}`,
+        );
+        dispatchDiscussionStatus({ discussionId, status: 'paused', currentRound: message.round_number, currentAgentId: message.agent_id });
+        return;
+      }
+      if (selection.status === 'no_candidates') {
+        queries.updateDiscussionStatus(discussionId, 'failed');
+        queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
+        queries.updateDiscussionMessage(messageId, { status: 'failed', completed_at: new Date().toISOString() });
+        queries.createDiscussionLog(
+          discussionId,
+          messageId,
+          'error',
+          `Execution profile "${selection.profileName}" has no eligible executors:\n\n${selection.rejectionSummary}`,
+        );
+        dispatchDiscussionStatus({ discussionId, status: 'failed', currentRound: message.round_number, currentAgentId: message.agent_id });
+        return;
+      }
+      executionConfig = selection.selectedConfig!;
+      resolvedCliTool = executionConfig.cliTool;
+    } else {
+      if (isAgentCliTool(cliTool) || agent?.cli_model_id || agent?.cli_effort) {
+        executionConfig = resolveExecutionConfig({
+          cliTool,
+          model: cliModel,
+          cliModelId: agent?.cli_model_id,
+          cliEffort: agent?.cli_effort,
+        });
+        resolvedCliTool = executionConfig.cliTool;
+      }
+      if (!executorPool.hasAvailableSlot(resolvedCliTool, { excludeDiscussionId: discussionId })) {
+        const adapter = getAdapter(resolvedCliTool);
+        queries.updateDiscussionStatus(discussionId, 'paused');
+        queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
+        queries.updateDiscussionMessage(messageId, { status: 'pending' });
+        queries.createDiscussionLog(
+          discussionId,
+          messageId,
+          'warning',
+          `[executor-pool] Paused discussion turn: provider concurrency limit reached for ${adapter.displayName}.`,
+        );
+        dispatchDiscussionStatus({ discussionId, status: 'paused', currentRound: message.round_number, currentAgentId: message.agent_id });
+        return;
+      }
     }
+
+    const adapter = getAdapter(resolvedCliTool);
+
+    // Persist actual selected execution snapshot and release reservation synchronously
+    const snapshotStr = executionConfig ? JSON.stringify(executionSnapshot(executionConfig)) : null;
+    queries.updateDiscussion(discussionId, { execution_snapshot: snapshotStr });
+    executorPool.releaseReservation(discussionId);
+    if (executionConfig) {
+      queries.createDiscussionLog(discussionId, messageId, 'info', `[execution] ${snapshotStr}`);
+    }
+
     const cliOptions = project.claude_options || undefined;
     const DEFAULT_MAX_TURNS = 30;
     const maxTurns = (isImplementation || canImplement) ? (project.default_max_turns ?? DEFAULT_MAX_TURNS) : 10;
-    const adapter = getAdapter(resolvedCliTool);
 
     let pid: number;
     let exitPromise: Promise<number>;
@@ -354,6 +423,7 @@ export class DiscussionOrchestrator {
           broadcaster.broadcast({ type: 'discussion:message-changed', discussionId, messageId, agentId: message.agent_id, agentName: message.agent_name, round: message.round_number, status: 'completed' });
 
           this.advanceDiscussion(discussionId, messageId).catch(() => {});
+          orchestrator.wakeWaitingExecutors().catch(() => {});
         } else {
           console.error(`[discussion] Agent ${message.agent_name} failed (exit code ${exitCode}). Output:\n${fullOutput.slice(-500)}`);
           queries.updateDiscussionMessage(messageId, {
@@ -362,29 +432,33 @@ export class DiscussionOrchestrator {
             completed_at: new Date().toISOString(),
           });
           queries.updateDiscussionStatus(discussionId, 'failed');
-          queries.updateDiscussion(discussionId, { process_pid: 0 });
+          queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
           queries.createDiscussionLog(discussionId, messageId, 'error', `${message.agent_name} failed (exit code ${exitCode}).`);
           broadcaster.broadcast({ type: 'discussion:message-changed', discussionId, messageId, agentId: message.agent_id, agentName: message.agent_name, round: message.round_number, status: 'failed' });
           dispatchDiscussionStatus({ discussionId, status: 'failed', currentRound: message.round_number, currentAgentId: message.agent_id });
+          orchestrator.wakeWaitingExecutors().catch(() => {});
         }
       }).catch((err) => {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error(`[discussion] Process error for discussion ${discussionId}:`, errMsg);
         queries.updateDiscussionMessage(messageId, { status: 'failed', completed_at: new Date().toISOString() });
         queries.updateDiscussionStatus(discussionId, 'failed');
-        queries.updateDiscussion(discussionId, { process_pid: 0 });
+        queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
         queries.createDiscussionLog(discussionId, messageId, 'error', `Process error: ${errMsg}`);
         broadcaster.broadcast({ type: 'discussion:message-changed', discussionId, messageId, agentId: message.agent_id, agentName: message.agent_name, round: message.round_number, status: 'failed' });
         dispatchDiscussionStatus({ discussionId, status: 'failed', currentRound: message.round_number, currentAgentId: message.agent_id });
+        orchestrator.wakeWaitingExecutors().catch(() => {});
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[discussion] Failed to start ${adapter.displayName} for discussion ${discussionId}:`, errMsg);
       queries.updateDiscussionMessage(messageId, { status: 'failed', completed_at: new Date().toISOString() });
       queries.updateDiscussionStatus(discussionId, 'failed');
+      queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
       queries.createDiscussionLog(discussionId, messageId, 'error', `Failed to start ${adapter.displayName}: ${errMsg}`);
       broadcaster.broadcast({ type: 'discussion:message-changed', discussionId, messageId, agentId: message.agent_id, agentName: message.agent_name, round: message.round_number, status: 'failed' });
       dispatchDiscussionStatus({ discussionId, status: 'failed', currentRound: message.round_number, currentAgentId: message.agent_id });
+      orchestrator.wakeWaitingExecutors().catch(() => {});
     }
   }
 
@@ -402,9 +476,10 @@ export class DiscussionOrchestrator {
     // Check if this was an implementation turn (special round beyond max_rounds)
     if (currentMsg.round_number > discussion.max_rounds) {
       queries.updateDiscussionStatus(discussionId, 'completed');
-      queries.updateDiscussion(discussionId, { current_agent_id: null });
+      queries.updateDiscussion(discussionId, { current_agent_id: null, execution_snapshot: null });
       queries.createDiscussionLog(discussionId, null, 'info', 'Implementation completed. Discussion finished.');
       dispatchDiscussionStatus({ discussionId, status: 'completed', currentRound: currentMsg.round_number, currentAgentId: null });
+      orchestrator.wakeWaitingExecutors().catch(() => {});
       return;
     }
 
@@ -457,9 +532,10 @@ export class DiscussionOrchestrator {
     }
 
     queries.updateDiscussionStatus(discussionId, 'completed');
-    queries.updateDiscussion(discussionId, { current_agent_id: null });
+    queries.updateDiscussion(discussionId, { current_agent_id: null, execution_snapshot: null });
     queries.createDiscussionLog(discussionId, null, 'info', 'All discussion rounds completed.');
     dispatchDiscussionStatus({ discussionId, status: 'completed', currentRound: discussion.max_rounds, currentAgentId: null });
+    orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 
   /**
