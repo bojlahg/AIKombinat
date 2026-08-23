@@ -20,6 +20,7 @@ describe('Executor Pool V1', () => {
     testDb = new Database(':memory:');
     initDatabase(testDb);
     executorPool.resetLimits();
+    executorPool.resetReservations();
     cliStatusModule.clearCache();
     vi.spyOn(broadcaster, 'broadcast').mockImplementation(() => undefined);
   });
@@ -27,6 +28,7 @@ describe('Executor Pool V1', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     executorPool.resetLimits();
+    executorPool.resetReservations();
     cliStatusModule.clearCache();
     testDb.close();
   });
@@ -1779,6 +1781,276 @@ describe('Executor Pool V1', () => {
 
     resolveTurn2(0);
     await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('32. session pre-spawn failure (e.g. memory injection error) marks session failed, clears snapshot, and wakes waiting tasks', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'claude-session-fail',
+      name: 'Claude Session Fail',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Claude limit = 1
+    executorPool.setLimit('claude', 1);
+
+    const project = queries.createProject('Session Fail Project', 'C:/sess-fail', 'main', 0, 'claude');
+    const waitingTodo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
+
+    const memoryInjectHook = await import('../memory-inject-hook.js');
+    vi.spyOn(memoryInjectHook, 'applyMemoryInjection').mockRejectedValue(new Error('Memory store corrupted'));
+
+    const session = queries.createSession(project.id, 'Session With Mem', 'Desc', undefined, undefined, false, 'all', undefined, undefined, undefined, profile.id);
+
+    let resolveTodoExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => ({
+      pid: 2001,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveTodoExit = resolve; }),
+      command: 'claude',
+      args: [],
+    }));
+
+    await expect(sessionManager.startSession(session.id)).rejects.toThrow('Memory store corrupted');
+
+    const failedSession = queries.getSessionById(session.id);
+    expect(failedSession?.status).toBe('failed');
+    expect(failedSession?.execution_snapshot).toBeNull();
+    expect(failedSession?.process_pid).toBe(0);
+
+    // Waiting todo woke up and started running
+    await new Promise((r) => setTimeout(r, 50));
+    expect(queries.getTodoById(waitingTodo.id)?.status).toBe('running');
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+
+    resolveTodoExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('33. user terminal input arriving during memory injection with pending initial prompt is not written to PTY before Send/Skip', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    const project = queries.createProject('Prompt Gate Project', 'C:/prompt-gate', 'main', 0, 'claude');
+    const session = queries.createSession(project.id, 'Session Review', 'Initial description to review', 'claude');
+
+    let resolveMem: (value: string) => void = () => {};
+    const memoryInjectHook = await import('../memory-inject-hook.js');
+    vi.spyOn(memoryInjectHook, 'applyMemoryInjection').mockImplementation(
+      () => new Promise((resolve) => { resolveMem = resolve; })
+    );
+    queries.updateSession(session.id, { memory_inject_mode: 'all' });
+
+    const writtenToPty: string[] = [];
+    vi.spyOn(claudeManager, 'writeStdinRaw').mockImplementation((pid, input) => {
+      writtenToPty.push(input);
+      return true;
+    });
+    vi.spyOn(claudeManager, 'writeToStdin').mockReturnValue(true);
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 2101,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Start session (async memory injection begins)
+    const startPromise = sessionManager.startSession(session.id);
+
+    // User types while memory injection is pending
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(true);
+    sessionManager.writeTerminalInput(session.id, 'accidental-typeahead-1\n');
+
+    // Complete memory injection
+    resolveMem('<long_term_memory>wiki block</long_term_memory>');
+    await startPromise;
+
+    // After spawn, session is running and holds the initial prompt
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(true);
+    // Keystrokes typed during startup were NOT written to PTY
+    expect(writtenToPty).toEqual([]);
+
+    // User reviews and submits the held prompt
+    sessionManager.submitInitialPrompt(session.id);
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(false);
+
+    // Now subsequent typing goes to PTY
+    sessionManager.writeTerminalInput(session.id, 'user-approved-command\n');
+    expect(writtenToPty).toContain('user-approved-command\n');
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('34. normal no-prompt session captures startup type-ahead and drains to PTY upon spawn', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    const project = queries.createProject('No Prompt Project', 'C:/no-prompt', 'main', 0, 'claude');
+    // Session with NO description and NO memory injection
+    const session = queries.createSession(project.id, 'Interactive Shell', '', 'claude');
+
+    const writtenToPty: string[] = [];
+    vi.spyOn(claudeManager, 'writeStdinRaw').mockImplementation((pid, input) => {
+      writtenToPty.push(input);
+      return true;
+    });
+
+    let resolveSpawn: (res: any) => void = () => {};
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(
+      () => new Promise((resolve) => {
+        resolveSpawn = () => resolve({
+          pid: 2201,
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          stdin: null,
+          exitPromise: new Promise<number>((r) => { resolveExit = r; }),
+          command: 'claude',
+          args: [],
+        });
+      })
+    );
+
+    const startPromise = sessionManager.startSession(session.id);
+
+    // Prompt gate is false
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(false);
+
+    // Type-ahead while spawning
+    sessionManager.writeTerminalInput(session.id, 'ls -la\n');
+    sessionManager.writeTerminalInput(session.id, 'pwd\n');
+
+    // Spawn completes
+    resolveSpawn(null);
+    await startPromise;
+
+    // Both buffered inputs were drained directly into PTY
+    expect(writtenToPty).toEqual(['ls -la\n', 'pwd\n']);
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('35. stale process recovery marks dead running todo as failed and automatically wakes WAITING_EXECUTOR todo', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'stale-prof',
+      name: 'Stale Prof',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Claude limit = 1
+    executorPool.setLimit('claude', 1);
+
+    const project = queries.createProject('Stale Project', 'C:/stale-proj', 'main', 0, 'claude');
+    const taskA = queries.createTodo(project.id, 'Task A (Stale)', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(taskA.id, 'running');
+    queries.updateTodo(taskA.id, { process_pid: 999999, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+
+    const taskB = queries.createTodo(project.id, 'Task B (Waiting)', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(taskB.id, 'waiting_executor');
+
+    // Dead process check
+    vi.spyOn(orchestrator as any, 'isProcessAlive').mockReturnValue(false);
+
+    let resolveExitB: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 2301,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitB = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Run stale process check
+    (orchestrator as any).recoverStaleTasks();
+
+    // Task A marked failed, snapshot cleared
+    const updatedA = queries.getTodoById(taskA.id);
+    expect(updatedA?.status).toBe('failed');
+    expect(updatedA?.process_pid).toBe(0);
+    expect(updatedA?.execution_snapshot).toBeNull();
+
+    // Task B automatically woke and started running
+    await new Promise((r) => setTimeout(r, 50));
+    const updatedB = queries.getTodoById(taskB.id);
+    expect(updatedB?.status).toBe('running');
+    expect(updatedB?.process_pid).toBe(2301);
+
+    resolveExitB(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('36. configurable provider concurrency limits respect env vars, overrides, and fallbacks', () => {
+    const pool = new ExecutorPool();
+
+    // Default values
+    expect(pool.getLimit('claude')).toBe(2);
+    expect(pool.getLimit('codex')).toBe(2);
+    expect(pool.getLimit('antigravity')).toBe(2);
+    expect(pool.getLimit('raw-shell')).toBe(10);
+
+    // 1. Valid env override
+    process.env.EXECUTOR_LIMIT_CLAUDE = '4';
+    expect(pool.getLimit('claude')).toBe(4);
+
+    // 2. Zero env limit
+    process.env.EXECUTOR_LIMIT_CODEX = '0';
+    expect(pool.getLimit('codex')).toBe(0);
+
+    // 3. Invalid env fallbacks
+    process.env.EXECUTOR_LIMIT_ANTIGRAVITY = 'invalid';
+    expect(pool.getLimit('antigravity')).toBe(2);
+    process.env.EXECUTOR_LIMIT_ANTIGRAVITY = '-5';
+    expect(pool.getLimit('antigravity')).toBe(2);
+
+    // 4. setLimit overrides env
+    pool.setLimit('claude', 1);
+    expect(pool.getLimit('claude')).toBe(1);
+
+    // 5. resetLimits restores env/default behavior
+    pool.resetLimits();
+    expect(pool.getLimit('claude')).toBe(4); // Back to env value
+
+    // Clean up env vars
+    delete process.env.EXECUTOR_LIMIT_CLAUDE;
+    delete process.env.EXECUTOR_LIMIT_CODEX;
+    delete process.env.EXECUTOR_LIMIT_ANTIGRAVITY;
+
+    expect(pool.getLimit('claude')).toBe(2);
   });
 });
 

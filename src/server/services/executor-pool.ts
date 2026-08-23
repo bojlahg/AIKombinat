@@ -92,27 +92,32 @@ export interface SlotReservation {
 }
 
 export class ExecutorPool {
-  private limits: Map<CliTool, number> = new Map();
+  private limitOverrides: Map<CliTool, number> = new Map();
   private reservations: Map<string, SlotReservation> = new Map();
 
-  constructor() {
-    this.resetLimits();
-  }
-
   getLimit(tool: CliTool): number {
-    return this.limits.get(tool) ?? DEFAULT_CONCURRENCY[tool] ?? 2;
+    const override = this.limitOverrides.get(tool);
+    if (override !== undefined) return override;
+
+    const envKey = `EXECUTOR_LIMIT_${tool.toUpperCase().replace(/-/g, '_')}`;
+    const envVal = process.env[envKey];
+    if (envVal !== undefined && envVal.trim() !== '') {
+      const trimmed = envVal.trim();
+      const parsed = parseInt(trimmed, 10);
+      if (!isNaN(parsed) && parsed >= 0 && /^\d+$/.test(trimmed)) {
+        return parsed;
+      }
+    }
+
+    return DEFAULT_CONCURRENCY[tool] ?? 2;
   }
 
   setLimit(tool: CliTool, limit: number): void {
-    this.limits.set(tool, Math.max(0, limit));
+    this.limitOverrides.set(tool, Math.max(0, limit));
   }
 
   resetLimits(): void {
-    this.limits.clear();
-    for (const [tool, limit] of Object.entries(DEFAULT_CONCURRENCY)) {
-      this.limits.set(tool as CliTool, limit);
-    }
-    this.reservations.clear();
+    this.limitOverrides.clear();
   }
 
   reserveSlot(

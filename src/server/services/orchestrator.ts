@@ -47,17 +47,22 @@ export class Orchestrator {
    */
   private recoverStaleTasks(): void {
     const runningTodos = queries.getTodosByStatus('running');
+    let recoveredCount = 0;
     for (const todo of runningTodos) {
       if (!todo.process_pid || todo.process_pid === 0) continue;
       if (!this.isProcessAlive(todo.process_pid)) {
         try {
           queries.updateTodoStatus(todo.id, 'failed');
           queries.createTaskLog(todo.id, 'error', 'Process exited unexpectedly (detected by liveness check).');
-          queries.updateTodo(todo.id, { process_pid: 0 });
+          queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
         } catch { /* ignore */ }
         broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'failed' });
         this.broadcastProjectStatus(todo.project_id);
+        recoveredCount++;
       }
+    }
+    if (recoveredCount > 0) {
+      this.wakeWaitingExecutors().catch(() => { /* ignore */ });
     }
   }
 

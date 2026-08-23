@@ -150,9 +150,15 @@ export class SessionManager {
     if (!project) throw new Error('Project not found');
 
     let hasReservation = false;
+    let isRunningPersisted = false;
     let executionConfig: ResolvedExecutionConfig | null = null;
     let resolvedCliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
     const cliModel = session.cli_model ?? undefined;
+    let adapter: ReturnType<typeof getAdapter> | null = null;
+    let worktreePath: string | null = null;
+    let branchName: string | null = null;
+    let workDir = project.path;
+    let useWorktree = false;
 
     try {
       if (session.execution_profile_id) {
@@ -188,7 +194,7 @@ export class SessionManager {
         }
         const reserved = executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId });
         if (!reserved) {
-          const adapter = getAdapter(resolvedCliTool);
+          adapter = getAdapter(resolvedCliTool);
           const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeSessionId: sessionId });
           const limit = executorPool.getLimit(resolvedCliTool);
           throw new Error(
@@ -203,7 +209,7 @@ export class SessionManager {
       }
       const isRawShell = resolvedCliTool === 'raw-shell';
 
-      const useWorktree = !!session.use_worktree && !!project.is_git_repo;
+      useWorktree = !!session.use_worktree && !!project.is_git_repo;
       const resume = !!opts?.continueSession;
       if (resume) {
         if (isRawShell) {
@@ -223,7 +229,7 @@ export class SessionManager {
         }
       }
 
-      const adapter = getAdapter(resolvedCliTool);
+      adapter = getAdapter(resolvedCliTool);
 
       // Persist execution identity and mark status='running' synchronously, then immediately release reservation
       const snapshotStr = executionConfig
@@ -236,6 +242,18 @@ export class SessionManager {
       queries.updateSessionStatus(sessionId, 'running');
       executorPool.releaseReservation(sessionId);
       hasReservation = false;
+      isRunningPersisted = true;
+
+      // Establish initial prompt gate BEFORE opening startup buffering so type-ahead cannot bypass Send/Skip
+      const memMode = ((session.memory_inject_mode as MemoryInjectMode | null) || 'none') as MemoryInjectMode;
+      const rawFilePaths = parseRawFilePaths(session.memory_raw_file_paths);
+      const willHaveInitialPrompt = !isRawShell && !resume && (!!session.description?.trim() || memMode !== 'none' || rawFilePaths.length > 0);
+
+      if (willHaveInitialPrompt) {
+        this.pendingInitialPrompts.set(sessionId, session.description || '');
+      } else {
+        this.pendingInitialPrompts.delete(sessionId);
+      }
 
       this.startupInputBuffer.set(sessionId, []);
 
@@ -249,8 +267,6 @@ export class SessionManager {
       // initial prompt on top of restored history.
       // Raw-shell never consumes a prompt at all — it's a regular OS shell —
       // so memory injection is unconditionally skipped.
-      const memMode = ((session.memory_inject_mode as MemoryInjectMode | null) || 'none') as MemoryInjectMode;
-      const rawFilePaths = parseRawFilePaths(session.memory_raw_file_paths);
       if (!isRawShell && !resume && (memMode !== 'none' || rawFilePaths.length > 0)) {
         const memBlock = await applyMemoryInjection({
           projectId: project.id,
@@ -267,18 +283,12 @@ export class SessionManager {
         }
       }
 
-      // Decide whether to hold the initial prompt for Send/Skip BEFORE flipping
-      // status='running' so the WS handler's gate-1 (`hasPendingPrompt`) covers
-      // the entire spawn window.
+      // Update final prepared prompt in pendingInitialPrompts
       if (!isRawShell && !resume && prompt.trim()) {
         this.pendingInitialPrompts.set(sessionId, prompt);
       } else {
         this.pendingInitialPrompts.delete(sessionId);
       }
-
-      let workDir = project.path;
-      let worktreePath: string | null = null;
-      let branchName: string | null = null;
 
       // Worktree setup
       if (useWorktree) {
@@ -290,24 +300,11 @@ export class SessionManager {
           queries.createSessionLog(sessionId, 'output', `Reusing existing worktree on branch ${branchName}`);
         } else {
           const requestedBranch = worktreeManager.sanitizeBranchName(`session-${session.title}`);
-          try {
-            const created = await worktreeManager.createWorktree(project.path, requestedBranch, !!project.npm_auto_install);
-            worktreePath = created.worktreePath;
-            branchName = created.branchName;
-            workDir = worktreePath;
-            queries.createSessionLog(sessionId, 'output', `Created worktree on branch ${branchName}`);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.startupInputBuffer.delete(sessionId);
-            this.pendingInitialPrompts.delete(sessionId);
-            queries.updateSessionStatus(sessionId, 'failed');
-            queries.updateSession(sessionId, { execution_snapshot: null });
-            queries.createSessionLog(sessionId, 'error', `Failed to create worktree: ${message}`);
-            broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
-            broadcastProjectStatus(session.project_id);
-            orchestrator.wakeWaitingExecutors().catch(() => {});
-            return;
-          }
+          const created = await worktreeManager.createWorktree(project.path, requestedBranch, !!project.npm_auto_install);
+          worktreePath = created.worktreePath;
+          branchName = created.branchName;
+          workDir = worktreePath;
+          queries.createSessionLog(sessionId, 'output', `Created worktree on branch ${branchName}`);
         }
       }
 
@@ -324,115 +321,115 @@ export class SessionManager {
         this.pendingBaseSnapshots.set(sessionId, snapshot);
       }
 
-      let pid: number;
-      let exitPromise: Promise<number>;
+      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
+      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
+        ? undefined
+        : executionConfig?.effort.nativeEffort;
+      const result = await claudeManager.startClaude(
+        workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
+        undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
+        opts?.cols ?? 100, opts?.rows ?? 30,
+        launchEffort,
+      );
+      const pid = result.pid;
+      const exitPromise = result.exitPromise;
+      this.subscribeRawForSession(sessionId, pid);
 
-      try {
-        const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
-        const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
-          ? undefined
-          : executionConfig?.effort.nativeEffort;
-        const result = await claudeManager.startClaude(
-          workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
-          undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
-          opts?.cols ?? 100, opts?.rows ?? 30,
-          launchEffort,
+      // Atomic drain: persist process_pid, remove the buffer, replay queued
+      // bytes — all in a single synchronous block. JS being single-threaded
+      // guarantees no WS message can sneak between the DB update and the
+      // map.delete, so a message arriving on the next event-loop tick will
+      // see process_pid set and no buffer, and write straight to the PTY in
+      // correct order after the replayed bytes.
+      // base_commit intentionally absent: the pre-spawn snapshot's completion
+      // handler owns that column — writing the (possibly stale-null) value here
+      // could overwrite a snapshot that already landed.
+      queries.updateSession(sessionId, { process_pid: pid, branch_name: branchName, worktree_path: worktreePath });
+      this.livePids.set(sessionId, pid);
+      const queued = this.startupInputBuffer.get(sessionId);
+      this.startupInputBuffer.delete(sessionId);
+      if (queued && queued.length > 0) {
+        for (const input of queued) {
+          try { claudeManager.writeStdinRaw(pid, input); } catch { /* ignore */ }
+        }
+      }
+
+      const logMsg = useWorktree
+        ? `Started ${adapter.displayName} (PID: ${pid}) on branch ${branchName} [interactive]`
+        : `Started ${adapter.displayName} (PID: ${pid}) [interactive]`;
+      queries.createSessionLog(sessionId, 'output', logMsg);
+      if (resume) {
+        queries.createSessionLog(
+          sessionId,
+          'output',
+          `Resumed Claude session via --continue (cwd: ${workDir}) — picks latest conversation in this directory`,
         );
-        pid = result.pid;
-        exitPromise = result.exitPromise;
-        this.subscribeRawForSession(sessionId, pid);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+      }
+      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'running', worktree_path: worktreePath, branch_name: branchName });
+      broadcastProjectStatus(session.project_id);
+
+      // Handle process exit
+      exitPromise.then((exitCode) => {
+        // Flush any pending raw bytes before status update so re-opening the
+        // session immediately shows the final output.
+        this.flushAndForgetRaw(sessionId);
+        // Guard: a stop-then-restart may have already mapped a NEW pid.
+        if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
+        this.pendingInitialPrompts.delete(sessionId);
+        this.startupInputBuffer.delete(sessionId);
+        const current = queries.getSessionById(sessionId);
+        // pid guard: a session stopped-then-restarted during the kill window has
+        // a new process_pid — the old process's exit must not clobber it.
+        if (current && current.status === 'running' && current.process_pid === pid) {
+          const status = exitCode === 0 ? 'completed' : 'failed';
+          const msg = exitCode === 0
+            ? `${adapter!.displayName} session completed.`
+            : `${adapter!.displayName} exited with code ${exitCode}.`;
+          try {
+            queries.updateSessionStatus(sessionId, status);
+            queries.createSessionLog(sessionId, exitCode === 0 ? 'output' : 'error', msg);
+            queries.updateSession(sessionId, { process_pid: 0 });
+          } catch {
+            try { queries.updateSessionStatus(sessionId, status); } catch { /* ignore */ }
+          }
+          broadcaster.broadcast({ type: 'session:log', sessionId, message: msg, logType: exitCode === 0 ? 'output' : 'error' });
+          broadcaster.broadcast({ type: 'session:status-changed', sessionId, status });
+          broadcastProjectStatus(session.project_id);
+          orchestrator.wakeWaitingExecutors().catch(() => {});
+        }
+      }).catch(() => {
+        this.flushAndForgetRaw(sessionId);
+        if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
+        this.pendingInitialPrompts.delete(sessionId);
+        this.startupInputBuffer.delete(sessionId);
+        try {
+          queries.updateSessionStatus(sessionId, 'failed');
+          queries.updateSession(sessionId, { process_pid: 0 });
+        } catch { /* ignore */ }
+        broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
+        broadcastProjectStatus(session.project_id);
+        orchestrator.wakeWaitingExecutors().catch(() => {});
+      });
+    } catch (err) {
+      if (hasReservation) {
+        executorPool.releaseReservation(sessionId);
+        hasReservation = false;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      if (isRunningPersisted) {
         this.startupInputBuffer.delete(sessionId);
         this.pendingInitialPrompts.delete(sessionId);
         queries.updateSessionStatus(sessionId, 'failed');
-        queries.updateSession(sessionId, { execution_snapshot: null });
-        queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter.displayName}: ${message}`);
-        // Clean up worktree on failure
+        queries.updateSession(sessionId, { process_pid: 0, execution_snapshot: null });
+        queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter?.displayName || 'session'}: ${message}`);
         if (useWorktree && worktreePath && !session.worktree_path) {
           try { await worktreeManager.removeWorktree(project.path, worktreePath); } catch { /* ignore */ }
         }
         broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
         broadcastProjectStatus(session.project_id);
         orchestrator.wakeWaitingExecutors().catch(() => {});
-        return;
       }
-
-    // Atomic drain: persist process_pid, remove the buffer, replay queued
-    // bytes — all in a single synchronous block. JS being single-threaded
-    // guarantees no WS message can sneak between the DB update and the
-    // map.delete, so a message arriving on the next event-loop tick will
-    // see process_pid set and no buffer, and write straight to the PTY in
-    // correct order after the replayed bytes.
-    // base_commit intentionally absent: the pre-spawn snapshot's completion
-    // handler owns that column — writing the (possibly stale-null) value here
-    // could overwrite a snapshot that already landed.
-    queries.updateSession(sessionId, { process_pid: pid, branch_name: branchName, worktree_path: worktreePath });
-    this.livePids.set(sessionId, pid);
-    const queued = this.startupInputBuffer.get(sessionId);
-    this.startupInputBuffer.delete(sessionId);
-    if (queued && queued.length > 0) {
-      for (const input of queued) {
-        try { claudeManager.writeStdinRaw(pid, input); } catch { /* ignore */ }
-      }
-    }
-
-    const logMsg = useWorktree
-      ? `Started ${adapter.displayName} (PID: ${pid}) on branch ${branchName} [interactive]`
-      : `Started ${adapter.displayName} (PID: ${pid}) [interactive]`;
-    queries.createSessionLog(sessionId, 'output', logMsg);
-    if (resume) {
-      queries.createSessionLog(
-        sessionId,
-        'output',
-        `Resumed Claude session via --continue (cwd: ${workDir}) — picks latest conversation in this directory`,
-      );
-    }
-    broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'running', worktree_path: worktreePath, branch_name: branchName });
-    broadcastProjectStatus(session.project_id);
-
-    // Handle process exit
-    exitPromise.then((exitCode) => {
-      // Flush any pending raw bytes before status update so re-opening the
-      // session immediately shows the final output.
-      this.flushAndForgetRaw(sessionId);
-      // Guard: a stop-then-restart may have already mapped a NEW pid.
-      if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
-      this.pendingInitialPrompts.delete(sessionId);
-      this.startupInputBuffer.delete(sessionId);
-      const current = queries.getSessionById(sessionId);
-      // pid guard: a session stopped-then-restarted during the kill window has
-      // a new process_pid — the old process's exit must not clobber it.
-      if (current && current.status === 'running' && current.process_pid === pid) {
-        const status = exitCode === 0 ? 'completed' : 'failed';
-        const msg = exitCode === 0
-          ? `${adapter.displayName} session completed.`
-          : `${adapter.displayName} exited with code ${exitCode}.`;
-        try {
-          queries.updateSessionStatus(sessionId, status);
-          queries.createSessionLog(sessionId, exitCode === 0 ? 'output' : 'error', msg);
-          queries.updateSession(sessionId, { process_pid: 0 });
-        } catch {
-          try { queries.updateSessionStatus(sessionId, status); } catch { /* ignore */ }
-        }
-        broadcaster.broadcast({ type: 'session:log', sessionId, message: msg, logType: exitCode === 0 ? 'output' : 'error' });
-        broadcaster.broadcast({ type: 'session:status-changed', sessionId, status });
-        broadcastProjectStatus(session.project_id);
-        orchestrator.wakeWaitingExecutors().catch(() => {});
-      }
-    }).catch(() => {
-      this.flushAndForgetRaw(sessionId);
-      if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
-      this.pendingInitialPrompts.delete(sessionId);
-      this.startupInputBuffer.delete(sessionId);
-      try {
-        queries.updateSessionStatus(sessionId, 'failed');
-        queries.updateSession(sessionId, { process_pid: 0 });
-      } catch { /* ignore */ }
-      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
-      broadcastProjectStatus(session.project_id);
-      orchestrator.wakeWaitingExecutors().catch(() => {});
-    });
+      throw err;
     } finally {
       if (hasReservation) {
         executorPool.releaseReservation(sessionId);
@@ -479,6 +476,7 @@ export class SessionManager {
    * this, so type-ahead never leaks past the Send/Skip pre-flight.
    */
   writeTerminalInput(sessionId: string, input: string): void {
+    if (this.hasPendingPrompt(sessionId)) return;
     const buf = this.startupInputBuffer.get(sessionId);
     if (buf) {
       buf.push(input);
