@@ -1,7 +1,7 @@
 import * as queries from '../db/queries.js';
 import { getAdapter, resolveExecutionModel, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
-import type { ResolvedExecutionConfig } from './execution-config.js';
+import { resolveExecutionConfig, type ResolvedExecutionConfig } from './execution-config.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -63,6 +63,18 @@ function getSessionActiveCliTool(session: queries.Session): CliTool {
 function getDiscussionActiveCliTool(discussion: queries.Discussion): CliTool {
   if (discussion.current_agent_id) {
     const agent = queries.getDiscussionAgentById(discussion.current_agent_id);
+    if (agent?.execution_profile_id) {
+      try {
+        const resolved = resolveExecutionConfig({
+          cliTool: (agent.cli_tool as CliTool) || undefined,
+          model: agent.cli_model ?? undefined,
+          cliModelId: agent.cli_model_id,
+          cliEffort: agent.cli_effort,
+          executionProfileId: agent.execution_profile_id,
+        });
+        if (resolved?.cliTool) return resolved.cliTool;
+      } catch { /* ignore */ }
+    }
     if (agent?.cli_tool) return agent.cli_tool as CliTool;
   }
   const project = queries.getProjectById(discussion.project_id);
@@ -76,8 +88,15 @@ export function formatCandidateDiagnostics(evaluations: CandidateEvaluation[]): 
   }).join('\n\n');
 }
 
+export interface SlotReservation {
+  ownerId: string;
+  tool: CliTool;
+  createdAt: number;
+}
+
 export class ExecutorPool {
   private limitOverrides: Map<CliTool, number> = new Map();
+  private reservations: Map<string, SlotReservation> = new Map();
 
   getLimit(tool: CliTool): number {
     const override = this.limitOverrides.get(tool);
@@ -98,9 +117,33 @@ export class ExecutorPool {
 
   resetLimits(): void {
     this.limitOverrides.clear();
+    this.reservations.clear();
   }
 
-  getActiveToolUsage(tool: CliTool, options: { excludeTodoId?: string } = {}): number {
+  reserveSlot(ownerId: string, tool: CliTool): boolean {
+    if (!this.hasAvailableSlot(tool, { excludeReservationOwnerId: ownerId })) {
+      return false;
+    }
+    this.reservations.set(ownerId, { ownerId, tool, createdAt: Date.now() });
+    return true;
+  }
+
+  releaseReservation(ownerId: string): void {
+    this.reservations.delete(ownerId);
+  }
+
+  resetReservations(): void {
+    this.reservations.clear();
+  }
+
+  getReservations(): SlotReservation[] {
+    return Array.from(this.reservations.values());
+  }
+
+  getActiveToolUsage(
+    tool: CliTool,
+    options: { excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+  ): number {
     let count = 0;
 
     const runningTodos = queries.getTodosByStatus('running');
@@ -119,16 +162,27 @@ export class ExecutorPool {
       if (getDiscussionActiveCliTool(discussion) === tool) count++;
     }
 
+    for (const res of this.reservations.values()) {
+      if (options.excludeReservationOwnerId && res.ownerId === options.excludeReservationOwnerId) continue;
+      if (res.tool === tool) count++;
+    }
+
     return count;
   }
 
-  hasAvailableSlot(tool: CliTool, options: { excludeTodoId?: string } = {}): boolean {
+  hasAvailableSlot(
+    tool: CliTool,
+    options: { excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+  ): boolean {
     const active = this.getActiveToolUsage(tool, options);
     const limit = this.getLimit(tool);
     return active < limit;
   }
 
-  getSlotStatus(tool: CliTool, options: { excludeTodoId?: string } = {}): { active: number; limit: number; available: boolean } {
+  getSlotStatus(
+    tool: CliTool,
+    options: { excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
+  ): { active: number; limit: number; available: boolean } {
     const active = this.getActiveToolUsage(tool, options);
     const limit = this.getLimit(tool);
     return { active, limit, available: active < limit };
@@ -136,7 +190,7 @@ export class ExecutorPool {
 
   async evaluateCandidate(
     candidate: queries.ExecutionProfileExecutor,
-    options: { interactive?: boolean; excludeTodoId?: string } = {},
+    options: { interactive?: boolean; excludeTodoId?: string; excludeReservationOwnerId?: string } = {},
   ): Promise<CandidateEvaluation> {
     const cliTool = candidate.cli_tool as CliTool;
     const adapter = getAdapter(cliTool);
@@ -231,7 +285,10 @@ export class ExecutorPool {
     }
 
     // 5. Provider/tool has an available concurrency slot
-    if (!this.hasAvailableSlot(cliTool, { excludeTodoId: options.excludeTodoId })) {
+    if (!this.hasAvailableSlot(cliTool, {
+      excludeTodoId: options.excludeTodoId,
+      excludeReservationOwnerId: options.excludeReservationOwnerId,
+    })) {
       return {
         candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
         status: 'busy', reason: 'provider concurrency limit reached',
@@ -244,12 +301,38 @@ export class ExecutorPool {
     };
   }
 
+  private selectMutex: Promise<void> = Promise.resolve();
+
   async selectExecutor(input: {
-    executionProfileId: string;
+    executionProfileId: string | null | undefined;
     interactive?: boolean;
     excludeTodoId?: string;
+    reserveOwnerId?: string;
+  }): Promise<PoolSelectionResult> {
+    let release: () => void;
+    const prevMutex = this.selectMutex;
+    this.selectMutex = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    try {
+      await prevMutex;
+      return await this._doSelectExecutor(input);
+    } finally {
+      release!();
+    }
+  }
+
+  private async _doSelectExecutor(input: {
+    executionProfileId: string | null | undefined;
+    interactive?: boolean;
+    excludeTodoId?: string;
+    reserveOwnerId?: string;
   }): Promise<PoolSelectionResult> {
     const evaluatedAt = new Date().toISOString();
+    if (!input.executionProfileId) {
+      throw new ExecutionSelectionError('Execution profile is required.');
+    }
     const profile = queries.getExecutionProfileById(input.executionProfileId);
     if (!profile) {
       throw new ExecutionSelectionError(`Execution profile "${input.executionProfileId}" no longer exists.`);
@@ -268,6 +351,7 @@ export class ExecutorPool {
       const evaluation = await this.evaluateCandidate(candidate, {
         interactive: input.interactive,
         excludeTodoId: input.excludeTodoId,
+        excludeReservationOwnerId: input.reserveOwnerId,
       });
       evaluations.push(evaluation);
 
@@ -277,6 +361,10 @@ export class ExecutorPool {
     }
 
     if (selectedCandidate) {
+      if (input.reserveOwnerId) {
+        this.reserveSlot(input.reserveOwnerId, selectedCandidate.cli_tool as CliTool);
+      }
+
       const model = queries.getModelById(selectedCandidate.cli_model_id)!;
       const nativeEffort = selectedCandidate.effort_value && selectedCandidate.effort_value !== 'provider-default'
         ? selectedCandidate.effort_value

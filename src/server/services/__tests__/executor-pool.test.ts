@@ -550,6 +550,394 @@ describe('Executor Pool V1', () => {
     await new Promise((r) => setTimeout(r, 20));
   });
 
+  it('11. atomic reservation prevents concurrent oversubscription with Promise.all', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'single-slot-race',
+      name: 'Single Slot Race',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Tool limit is 1
+    executorPool.setLimit('claude', 1);
+
+    const { worktreeManager } = await import('../worktree-manager.js');
+    vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
+      worktreePath: 'C:/mock-worktree',
+      branchName: 'mock-branch',
+    });
+    vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
+
+    const project = queries.createProject('Race Project', 'C:/race-proj', 'main', 1);
+    queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
+
+    const t1 = queries.createTodo(project.id, 'Task 1', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
+    const t2 = queries.createTodo(project.id, 'Task 2', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
+
+    let resolveExit: (code: number) => void = () => {};
+    let startCallCount = 0;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      startCallCount++;
+      return {
+        pid: 400 + startCallCount,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    // Start both concurrently
+    await Promise.all([
+      orchestrator.startTodo(t1.id),
+      orchestrator.startTodo(t2.id),
+    ]);
+
+    const status1 = queries.getTodoById(t1.id)?.status;
+    const status2 = queries.getTodoById(t2.id)?.status;
+
+    // Exactly one is running and one is waiting_executor
+    const runningCount = (status1 === 'running' ? 1 : 0) + (status2 === 'running' ? 1 : 0);
+    const waitingCount = (status1 === 'waiting_executor' ? 1 : 0) + (status2 === 'waiting_executor' ? 1 : 0);
+
+    expect(runningCount).toBe(1);
+    expect(waitingCount).toBe(1);
+    expect(startCallCount).toBe(1);
+
+    // Clean up
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('12. reservation released after setup/spawn failure', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'failure-release',
+      name: 'Failure Release',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    executorPool.setLimit('claude', 1);
+
+    const project = queries.createProject('Fail Project', 'C:/fail-proj');
+    const t1 = queries.createTodo(project.id, 'Failing Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    const t2 = queries.createTodo(project.id, 'Next Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+
+    // Mock startClaude throwing an error on first call, succeeding on second call
+    let resolveExit2: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude')
+      .mockRejectedValueOnce(new Error('CLI spawn failed'))
+      .mockResolvedValueOnce({
+        pid: 502,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit2 = resolve; }),
+        command: 'claude',
+        args: [],
+      });
+
+    await orchestrator.startTodo(t1.id);
+    expect(queries.getTodoById(t1.id)?.status).toBe('failed');
+    // Ensure reservation was released
+    expect(executorPool.getReservations().length).toBe(0);
+
+    // Second task can now run immediately without being blocked by a leaked reservation
+    await orchestrator.startTodo(t2.id);
+    expect(queries.getTodoById(t2.id)?.status).toBe('running');
+    expect(queries.getTodoById(t2.id)?.process_pid).toBe(502);
+
+    resolveExit2(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('13. Stop All never launches waiting work & converts waiting tasks to stopped', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'stop-all-test',
+      name: 'Stop All Test',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    const project = queries.createProject('Stop All Project', 'C:/stop-all-proj');
+    const runningTodo = queries.createTodo(project.id, 'Running A', undefined, 0, 'claude');
+    queries.updateTodoStatus(runningTodo.id, 'running');
+    queries.updateTodo(runningTodo.id, { process_pid: 999 });
+
+    const waitingTodo = queries.createTodo(project.id, 'Waiting B', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
+
+    vi.spyOn(claudeManager, 'stopClaude').mockResolvedValue(true);
+
+    await orchestrator.stopProject(project.id);
+
+    // Both should be stopped, and waiting task must NOT have become running
+    expect(queries.getTodoById(runningTodo.id)?.status).toBe('stopped');
+    expect(queries.getTodoById(waitingTodo.id)?.status).toBe('stopped');
+  });
+
+  it('14. cross-project capacity release wakes waiting task', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'cross-project-profile',
+      name: 'Cross Project Profile',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Provider limit is 1
+    executorPool.setLimit('claude', 1);
+
+    const projectA = queries.createProject('Project A', 'C:/proj-a');
+    const projectB = queries.createProject('Project B', 'C:/proj-b');
+
+    const todoA = queries.createTodo(projectA.id, 'Task A', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    const todoB = queries.createTodo(projectB.id, 'Task B', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+
+    let resolveExitA: (code: number) => void = () => {};
+    let resolveExitB: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude')
+      .mockImplementationOnce(async () => ({
+        pid: 601,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExitA = resolve; }),
+        command: 'claude',
+        args: [],
+      }))
+      .mockImplementationOnce(async () => ({
+        pid: 602,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExitB = resolve; }),
+        command: 'claude',
+        args: [],
+      }));
+
+    // Start Task A in Project A -> starts
+    await orchestrator.startTodo(todoA.id);
+    expect(queries.getTodoById(todoA.id)?.status).toBe('running');
+
+    // Start Task B in Project B -> enters waiting_executor because capacity (1) is occupied
+    await orchestrator.startTodo(todoB.id);
+    expect(queries.getTodoById(todoB.id)?.status).toBe('waiting_executor');
+
+    // Task A completes in Project A -> releases global Claude capacity
+    resolveExitA(0);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(queries.getTodoById(todoA.id)?.status).toBe('completed');
+    // Task B in Project B is automatically woken and started!
+    expect(queries.getTodoById(todoB.id)?.status).toBe('running');
+    expect(queries.getTodoById(todoB.id)?.process_pid).toBe(602);
+
+    resolveExitB(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('15. profile-based Discussion counts actual selected provider', async () => {
+    const codex = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
+    const profile = queries.createExecutionProfile({
+      slug: 'discussion-codex',
+      name: 'Discussion Codex Profile',
+      description: '',
+      executors: [{ cli_model_id: codex.id, effort_value: 'medium', priority: 1 }],
+    });
+
+    // Project default is Claude
+    const project = queries.createProject('Disc Project', 'C:/disc-proj', 'main', 0, 'claude');
+
+    // Discussion agent uses the profile (cli_tool is null)
+    const agent = queries.createDiscussionAgent(
+      project.id,
+      'Codex Agent',
+      'Engineer',
+      'System prompt',
+      undefined,
+      undefined,
+      undefined,
+      false,
+      profile.id,
+    );
+
+    const discussion = queries.createDiscussion(
+      project.id,
+      'Active Discussion',
+      'Description',
+      [agent.id],
+    );
+
+    // Set discussion running with current_agent_id
+    queries.updateDiscussionStatus(discussion.id, 'running');
+    queries.updateDiscussion(discussion.id, {
+      current_agent_id: agent.id,
+    });
+
+    // Verify accounting: Codex capacity is 1, Claude capacity is 0
+    expect(executorPool.getActiveToolUsage('codex')).toBe(1);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(0);
+  });
+
+  it('16. persisted WAITING_EXECUTOR is safely reevaluated after startup/recovery', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'recovery-wake',
+      name: 'Recovery Wake',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    const project = queries.createProject('Recovery Project', 'C:/recovery-proj');
+    const waitingTodo = queries.createTodo(project.id, 'Persisted Waiting', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 701,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Wake all waiting executors on startup
+    await orchestrator.wakeWaitingExecutors();
+
+    expect(queries.getTodoById(waitingTodo.id)?.status).toBe('running');
+    expect(queries.getTodoById(waitingTodo.id)?.process_pid).toBe(701);
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('17. repeated unchanged reevaluation does not spam identical logs', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'no-spam-profile',
+      name: 'No Spam Profile',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    // Claude is busy (limit = 0)
+    executorPool.setLimit('claude', 0);
+
+    const project = queries.createProject('Spam Project', 'C:/spam-proj');
+    const todo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+
+    // Start task -> becomes waiting_executor, logs initial diagnostic
+    await orchestrator.startTodo(todo.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_executor');
+
+    const logsAfterFirstStart = queries.getTaskLogsByTodoId(todo.id).filter((l) => l.message.includes('[executor-pool] Waiting for executor capacity'));
+    expect(logsAfterFirstStart.length).toBe(1);
+
+    // Repeated wakes occur (e.g. 5 other tasks finish, but Claude is still limit=0)
+    await orchestrator.wakeWaitingExecutors();
+    await orchestrator.wakeWaitingExecutors();
+    await orchestrator.wakeWaitingExecutors();
+
+    // Verify logs were NOT duplicated
+    const logsAfterWakes = queries.getTaskLogsByTodoId(todo.id).filter((l) => l.message.includes('[executor-pool] Waiting for executor capacity'));
+    expect(logsAfterWakes.length).toBe(1);
+  });
+
+  it('18. simultaneous capacity release/wake does not launch the same todo twice', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'wake-concurrency-profile',
+      name: 'Wake Concurrency Profile',
+      description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool,
+      installed: true,
+      version: '1.0.0',
+    }));
+
+    const project = queries.createProject('Double Wake Project', 'C:/double-wake-proj');
+    const waitingTodo = queries.createTodo(project.id, 'Double Wake Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
+
+    let resolveExit: (code: number) => void = () => {};
+    let launchCount = 0;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      launchCount++;
+      return {
+        pid: 800 + launchCount,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    // Fire 5 concurrent wake calls simultaneously
+    await Promise.all([
+      orchestrator.wakeWaitingExecutors(),
+      orchestrator.wakeWaitingExecutors(),
+      orchestrator.wakeWaitingExecutors(),
+      orchestrator.wakeWaitingExecutors(),
+      orchestrator.wakeWaitingExecutors(),
+    ]);
+
+    expect(launchCount).toBe(1);
+    expect(queries.getTodoById(waitingTodo.id)?.status).toBe('running');
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
   it('formats human-readable diagnostics matching roadmap examples', () => {
     const diagnostics = formatCandidateDiagnostics([
       {

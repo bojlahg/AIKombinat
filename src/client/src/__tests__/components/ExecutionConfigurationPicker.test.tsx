@@ -303,6 +303,52 @@ describe('ExecutionConfigurationPicker', () => {
     expect(screen.getByTestId('no-eligible-warning')).toHaveTextContent('Profile has no eligible executors.');
   });
 
+  it('renders disabled profile warning and 0 eligible executors for saved disabled profile', () => {
+    const onChange = vi.fn();
+    const disabledProfile: ExecutionProfile = {
+      id: 'prof-disabled-saved',
+      slug: 'disabled-saved',
+      name: 'Old Disabled Profile',
+      description: 'Legacy profile',
+      isEnabled: false,
+      sortOrder: 0,
+      executors: [
+        {
+          id: 'ex-1',
+          cliModelId: 'claude-sonnet-4-6-id',
+          cliTool: 'claude',
+          modelValue: 'claude-sonnet-4-6',
+          modelLabel: 'Claude Sonnet 4.6',
+          modelStatus: 'available',
+          supportedEfforts: ['low', 'medium', 'high'],
+          effortValue: 'high',
+          priority: 1,
+          isEnabled: true,
+        },
+      ],
+    };
+
+    render(
+      <I18nProvider>
+        <ExecutionConfigurationPicker
+          executionProfileId="prof-disabled-saved"
+          profiles={[...mockProfiles, disabledProfile]}
+          models={mockModels}
+          onChange={onChange}
+        />
+      </I18nProvider>
+    );
+
+    // Profile dropdown keeps the disabled profile selected
+    expect(screen.getByLabelText('Profile')).toHaveValue('prof-disabled-saved');
+    expect(screen.getByText(/Old Disabled Profile/)).toBeInTheDocument();
+
+    // Disabled warning is shown and indicates no eligible executors
+    const warning = screen.getByTestId('profile-disabled-warning');
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent('Profile unavailable — Profile has no eligible executors.');
+  });
+
   it('disables Profile toggle when profiles have no enabled entries and never auto-selects disabled profiles', () => {
     const onChange = vi.fn();
     const disabledProfiles: ExecutionProfile[] = [

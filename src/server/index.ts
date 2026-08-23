@@ -111,9 +111,11 @@ app.use(express.json({ limit: '50mb' }));
 getDatabase();
 
 // Kick off an initial CLI status check so version-change triggers fire and
-// model reconciliation runs before the UI loads /api/models. Fire-and-forget
-// — failures are swallowed inside checkAllTools / maybeTriggerSync.
-checkAllTools().catch(() => { /* ignore */ });
+// model reconciliation runs before the UI loads /api/models. Re-evaluate
+// persisted WAITING_EXECUTOR tasks once initial status check completes.
+checkAllTools().then(() => {
+  orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
+}).catch(() => { /* ignore */ });
 
 // Startup recovery: reset stale 'running' todos to 'failed'
 // (processes are dead after server restart)

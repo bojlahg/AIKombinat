@@ -220,9 +220,12 @@ export default function ExecutionConfigurationPicker({
       .sort((a, b) => a.priority - b.priority);
   }, [selectedProfile]);
 
+  const isProfileDisabled = selectedProfile ? selectedProfile.isEnabled === false : false;
+
   const actuallyEligibleExecutors = useMemo(() => {
+    if (isProfileDisabled) return [];
     return previewExecutors.filter((e) => e.modelStatus !== 'missing');
-  }, [previewExecutors]);
+  }, [previewExecutors, isProfileDisabled]);
 
   const isProfileToggleDisabled = disabled || !profilesLoaded || !hasSelectableProfiles;
 
@@ -417,7 +420,30 @@ export default function ExecutionConfigurationPicker({
               <div className="text-2xs font-medium uppercase tracking-wider text-warm-400 mb-1.5">
                 {t('executionMode.previewTitle')}
               </div>
-              {previewExecutors.length === 0 ? (
+              {isProfileDisabled ? (
+                <div className="space-y-2">
+                  <p className="text-status-warning font-medium flex items-center gap-1.5 text-xs py-0.5" data-testid="profile-disabled-warning">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{t('profiles.profileUnavailable')} — {t('profiles.noEligible')}</span>
+                  </p>
+                  {previewExecutors.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-warm-400 opacity-60">
+                      {previewExecutors.map((executor, idx) => {
+                        const toolLabel = CLI_TOOLS.find((t) => t.value === executor.cliTool)?.label || executor.cliTool;
+                        const effortText = executor.effortValue ? ` / ${executor.effortValue}` : '';
+                        return (
+                          <div key={executor.id || idx} className="inline-flex items-center gap-1.5">
+                            {idx > 0 && <span className="text-warm-300 select-none">→</span>}
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-warm-200 bg-warm-100/50 font-medium text-xs text-warm-400 line-through">
+                              <span>{toolLabel} / {executor.modelLabel || executor.modelValue}{effortText}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : previewExecutors.length === 0 ? (
                 <p className="text-status-warning font-medium flex items-center gap-1.5 text-xs py-0.5" data-testid="no-eligible-warning">
                   <AlertTriangle size={14} className="shrink-0" />
                   <span>{t('profiles.noEligible')}</span>
