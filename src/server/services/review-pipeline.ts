@@ -20,6 +20,14 @@ import { broadcaster } from '../websocket/broadcaster.js';
 import { createGit, resolveLocalBaseBranch } from '../lib/git.js';
 import { parseReviewResult } from './review-result-parser.js';
 import type { ReviewResult, ReviewIssue } from './review-result.js';
+import { resourceManager } from './resource-manager.js';
+
+export class InvalidTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTransitionError';
+  }
+}
 
 export interface AdvanceRoundResult {
   action: 'start_review' | 'start_rework' | 'completed' | 'failed' | 'max_rounds_reached';
@@ -38,7 +46,7 @@ export class ReviewPipelineService {
 
     const existingRounds = getExecutionRoundsByTodoId(todoId);
     if (existingRounds.length > 0) {
-      return existingRounds[0];
+      return getActiveExecutionRound(todoId) || existingRounds[0];
     }
 
     const runToken = uuidv4();
@@ -147,8 +155,8 @@ JSON Schema:
 }
 \`\`\`
 
-- Return \`"verdict": "approved"\` with an empty \`"issues": []\` array if the implementation fulfills the task and has no blocking/major flaws.
-- Return \`"verdict": "needs_changes"\` with actionable issues if bugs, omissions, or blocking deficiencies exist.`);
+- Return \"verdict\": \"approved\" with an empty \"issues\": [] array if the implementation fulfills the task and has no blocking/major flaws.
+- Return \"verdict\": \"needs_changes\" with actionable issues if bugs, omissions, or blocking deficiencies exist.`);
 
     return sections.join('\n\n');
   }
@@ -161,7 +169,7 @@ JSON Schema:
     reviewResult: ReviewResult;
     roundIndex: number;
   }): string {
-    const { todo, reviewResult, roundIndex } = params;
+    const { todo, reviewResult } = params;
 
     const sections: string[] = [];
 
@@ -187,6 +195,8 @@ When done, ensure all tests pass.`);
 
   /**
    * Advance round on successful process completion.
+   * Asynchronous preparation (diff summary / prompts) is done first,
+   * then database updates execute inside a synchronous transaction.
    */
   async advanceRoundOnSuccess(
     todoId: string,
@@ -202,24 +212,26 @@ When done, ensure all tests pass.`);
     const currentRound = getExecutionRoundById(currentRoundId);
     if (!currentRound) return { action: 'failed', reason: 'round_not_found' };
 
+    const db = getDatabase();
     const now = new Date().toISOString();
 
     if (currentRound.phase === 'implementation') {
-      // Mark implementation round completed
-      updateExecutionRound(currentRoundId, {
-        status: 'completed',
-        finished_at: now,
-      });
-      const updatedCurrent = getExecutionRoundById(currentRoundId)!;
-      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
-
-      // Resolve review profile
       const reviewProfileId = todo.review_profile_id ?? project.default_review_profile_id;
       if (!reviewProfileId) {
         const errorMsg = 'Configuration error: Review profile is not configured (todo.review_profile_id is null and project has no default_review_profile_id).';
-        updateTodo(todoId, { pipeline_phase: 'review' });
-        updateTodoStatus(todoId, 'failed');
-        createTaskLog(todoId, 'error', errorMsg, currentRound.round_index);
+        db.transaction(() => {
+          updateExecutionRound(currentRoundId, {
+            status: 'failed',
+            error_message: errorMsg,
+            finished_at: now,
+          });
+          updateTodo(todoId, { pipeline_phase: 'review' });
+          updateTodoStatus(todoId, 'failed');
+          createTaskLog(todoId, 'error', errorMsg, currentRound.round_index);
+        })();
+
+        const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+        broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
         return { action: 'failed', reason: 'review_profile_missing' };
       }
@@ -235,19 +247,32 @@ When done, ensure all tests pass.`);
       });
 
       const nextRunToken = uuidv4();
-      const nextRound = createExecutionRound(
-        todoId,
-        'review',
-        currentRound.round_index + 1,
-        nextRunToken,
-        {
-          status: 'pending',
-          inputPayload: reviewPrompt,
-        }
-      );
-      updateTodo(todoId, { pipeline_phase: 'review' });
-      createTaskLog(todoId, 'info', `Implementation phase completed. Starting Review Round 1 of ${todo.max_review_rounds}.`, nextRound.round_index);
-      broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
+      let nextRound: TodoExecutionRound | undefined;
+
+      db.transaction(() => {
+        updateExecutionRound(currentRoundId, {
+          status: 'completed',
+          finished_at: now,
+        });
+
+        nextRound = createExecutionRound(
+          todoId,
+          'review',
+          currentRound.round_index + 1,
+          nextRunToken,
+          {
+            status: 'pending',
+            inputPayload: reviewPrompt,
+          }
+        );
+        updateTodo(todoId, { pipeline_phase: 'review' });
+        updateTodoStatus(todoId, 'pending');
+        createTaskLog(todoId, 'info', `Implementation phase completed. Starting Review Round 1 of ${todo.max_review_rounds}.`, nextRound.round_index);
+      })();
+
+      const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
+      if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
 
       return { action: 'start_review', nextRound };
     }
@@ -256,55 +281,68 @@ When done, ensure all tests pass.`);
       const parseResult = parseReviewResult(processOutput);
 
       if (!parseResult.ok) {
-        // Reviewer returned invalid format -> Fail review round and todo
-        updateExecutionRound(currentRoundId, {
-          status: 'failed',
-          result_payload: parseResult.rawText,
-          error_message: parseResult.error,
-          finished_at: now,
-        });
+        db.transaction(() => {
+          updateExecutionRound(currentRoundId, {
+            status: 'failed',
+            result_payload: parseResult.rawText,
+            error_message: parseResult.error,
+            finished_at: now,
+          });
+          updateTodo(todoId, { pipeline_phase: 'review' });
+          updateTodoStatus(todoId, 'failed');
+          createTaskLog(todoId, 'error', `Review failed: ${parseResult.error}`, currentRound.round_index);
+        })();
+
         const updatedCurrent = getExecutionRoundById(currentRoundId)!;
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
-
-        updateTodo(todoId, { pipeline_phase: 'review' });
-        updateTodoStatus(todoId, 'failed');
-        createTaskLog(todoId, 'error', `Review failed: ${parseResult.error}`, currentRound.round_index);
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
 
         return { action: 'failed', reason: 'review_invalid_result' };
       }
 
       const reviewData = parseResult.data;
-      updateExecutionRound(currentRoundId, {
-        status: 'completed',
-        result_payload: JSON.stringify(reviewData),
-        finished_at: now,
-      });
-      const updatedCurrent = getExecutionRoundById(currentRoundId)!;
-      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
 
       if (reviewData.verdict === 'approved') {
-        updateTodo(todoId, { pipeline_phase: 'review' });
-        updateTodoStatus(todoId, 'completed');
-        createTaskLog(todoId, 'info', `Review approved: ${reviewData.summary}`, currentRound.round_index);
+        db.transaction(() => {
+          updateExecutionRound(currentRoundId, {
+            status: 'completed',
+            result_payload: JSON.stringify(reviewData),
+            finished_at: now,
+          });
+          updateTodo(todoId, { pipeline_phase: 'review' });
+          updateTodoStatus(todoId, 'completed');
+          createTaskLog(todoId, 'info', `Review approved: ${reviewData.summary}`, currentRound.round_index);
+        })();
+
+        const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+        broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
         return { action: 'completed', reviewResult: reviewData };
       }
 
       // Verdict is needs_changes
-      // Count completed review rounds
       const allRounds = getExecutionRoundsByTodoId(todoId);
-      const completedReviewRounds = allRounds.filter((r) => r.phase === 'review' && r.status === 'completed');
+      const completedReviewRounds = allRounds.filter((r) => r.phase === 'review' && (r.status === 'completed' || r.id === currentRoundId));
 
       if (completedReviewRounds.length >= todo.max_review_rounds) {
-        updateTodo(todoId, { pipeline_phase: 'review' });
-        updateTodoStatus(todoId, 'failed');
-        createTaskLog(
-          todoId,
-          'error',
-          `Maximum review rounds reached (${todo.max_review_rounds}). Last review requested changes: ${reviewData.summary}`,
-          currentRound.round_index
-        );
+        db.transaction(() => {
+          updateExecutionRound(currentRoundId, {
+            status: 'completed',
+            result_payload: JSON.stringify(reviewData),
+            finished_at: now,
+          });
+          updateTodo(todoId, { pipeline_phase: 'review' });
+          updateTodoStatus(todoId, 'failed');
+          createTaskLog(
+            todoId,
+            'error',
+            `Maximum review rounds reached (${todo.max_review_rounds}). Last review requested changes: ${reviewData.summary}`,
+            currentRound.round_index
+          );
+        })();
+
+        const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+        broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
         return { action: 'max_rounds_reached', reviewResult: reviewData };
       }
@@ -317,44 +355,59 @@ When done, ensure all tests pass.`);
       });
 
       const nextRunToken = uuidv4();
-      const nextRound = createExecutionRound(
-        todoId,
-        'rework',
-        currentRound.round_index + 1,
-        nextRunToken,
-        {
-          status: 'pending',
-          inputPayload: reworkPrompt,
-        }
-      );
-      updateTodo(todoId, { pipeline_phase: 'rework' });
-      createTaskLog(
-        todoId,
-        'info',
-        `Review requested changes (${reviewData.issues.length} issues). Starting Rework round.`,
-        nextRound.round_index
-      );
-      broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
+      let nextRound: TodoExecutionRound | undefined;
+
+      db.transaction(() => {
+        updateExecutionRound(currentRoundId, {
+          status: 'completed',
+          result_payload: JSON.stringify(reviewData),
+          finished_at: now,
+        });
+
+        nextRound = createExecutionRound(
+          todoId,
+          'rework',
+          currentRound.round_index + 1,
+          nextRunToken,
+          {
+            status: 'pending',
+            inputPayload: reworkPrompt,
+          }
+        );
+        updateTodo(todoId, { pipeline_phase: 'rework' });
+        updateTodoStatus(todoId, 'pending');
+        createTaskLog(
+          todoId,
+          'info',
+          `Review requested changes (${reviewData.issues.length} issues). Starting Rework round.`,
+          nextRound.round_index
+        );
+      })();
+
+      const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
+      if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
 
       return { action: 'start_rework', nextRound, reviewResult: reviewData };
     }
 
     if (currentRound.phase === 'rework') {
-      // Mark rework round completed
-      updateExecutionRound(currentRoundId, {
-        status: 'completed',
-        finished_at: now,
-      });
-      const updatedCurrent = getExecutionRoundById(currentRoundId)!;
-      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
-
-      // Resolve review profile
       const reviewProfileId = todo.review_profile_id ?? project.default_review_profile_id;
       if (!reviewProfileId) {
         const errorMsg = 'Configuration error: Review profile is not configured (todo.review_profile_id is null and project has no default_review_profile_id).';
-        updateTodo(todoId, { pipeline_phase: 'review' });
-        updateTodoStatus(todoId, 'failed');
-        createTaskLog(todoId, 'error', errorMsg, currentRound.round_index);
+        db.transaction(() => {
+          updateExecutionRound(currentRoundId, {
+            status: 'failed',
+            error_message: errorMsg,
+            finished_at: now,
+          });
+          updateTodo(todoId, { pipeline_phase: 'review' });
+          updateTodoStatus(todoId, 'failed');
+          createTaskLog(todoId, 'error', errorMsg, currentRound.round_index);
+        })();
+
+        const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+        broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
         return { action: 'failed', reason: 'review_profile_missing' };
       }
@@ -363,7 +416,6 @@ When done, ensure all tests pass.`);
       const completedReviewRounds = allRounds.filter((r) => r.phase === 'review' && r.status === 'completed');
       const nextAttemptNumber = completedReviewRounds.length + 1;
 
-      // Extract issues from last review
       let previousIssues: ReviewIssue[] | undefined = undefined;
       const lastReviewRound = [...allRounds].reverse().find((r) => r.phase === 'review' && r.result_payload);
       if (lastReviewRound?.result_payload) {
@@ -387,24 +439,37 @@ When done, ensure all tests pass.`);
       });
 
       const nextRunToken = uuidv4();
-      const nextRound = createExecutionRound(
-        todoId,
-        'review',
-        currentRound.round_index + 1,
-        nextRunToken,
-        {
-          status: 'pending',
-          inputPayload: reviewPrompt,
-        }
-      );
-      updateTodo(todoId, { pipeline_phase: 'review' });
-      createTaskLog(
-        todoId,
-        'info',
-        `Rework phase completed. Starting Review Round ${nextAttemptNumber} of ${todo.max_review_rounds}.`,
-        nextRound.round_index
-      );
-      broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
+      let nextRound: TodoExecutionRound | undefined;
+
+      db.transaction(() => {
+        updateExecutionRound(currentRoundId, {
+          status: 'completed',
+          finished_at: now,
+        });
+
+        nextRound = createExecutionRound(
+          todoId,
+          'review',
+          currentRound.round_index + 1,
+          nextRunToken,
+          {
+            status: 'pending',
+            inputPayload: reviewPrompt,
+          }
+        );
+        updateTodo(todoId, { pipeline_phase: 'review' });
+        updateTodoStatus(todoId, 'pending');
+        createTaskLog(
+          todoId,
+          'info',
+          `Rework phase completed. Starting Review Round ${nextAttemptNumber} of ${todo.max_review_rounds}.`,
+          nextRound.round_index
+        );
+      })();
+
+      const updatedCurrent = getExecutionRoundById(currentRoundId)!;
+      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
+      if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
 
       return { action: 'start_review', nextRound };
     }
@@ -417,16 +482,20 @@ When done, ensure all tests pass.`);
    */
   handleRoundFailure(todoId: string, currentRoundId: string, errorMessage?: string): void {
     const now = new Date().toISOString();
-    updateExecutionRound(currentRoundId, {
-      status: 'failed',
-      error_message: errorMessage ?? 'Process execution failed.',
-      finished_at: now,
-    });
+    const db = getDatabase();
+    db.transaction(() => {
+      updateExecutionRound(currentRoundId, {
+        status: 'failed',
+        error_message: errorMessage ?? 'Process execution failed.',
+        finished_at: now,
+      });
+      updateTodoStatus(todoId, 'failed');
+    })();
+
     const updatedRound = getExecutionRoundById(currentRoundId);
     if (updatedRound) {
       broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedRound });
     }
-    updateTodoStatus(todoId, 'failed');
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
   }
 
@@ -435,15 +504,19 @@ When done, ensure all tests pass.`);
    */
   handleRoundStop(todoId: string, currentRoundId: string): void {
     const now = new Date().toISOString();
-    updateExecutionRound(currentRoundId, {
-      status: 'stopped',
-      finished_at: now,
-    });
+    const db = getDatabase();
+    db.transaction(() => {
+      updateExecutionRound(currentRoundId, {
+        status: 'stopped',
+        finished_at: now,
+      });
+      updateTodoStatus(todoId, 'stopped');
+    })();
+
     const updatedRound = getExecutionRoundById(currentRoundId);
     if (updatedRound) {
       broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedRound });
     }
-    updateTodoStatus(todoId, 'stopped');
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'stopped' });
   }
 
@@ -454,28 +527,66 @@ When done, ensure all tests pass.`);
     const todo = getTodoById(todoId);
     if (!todo) throw new Error('Todo not found');
 
-    const activeRound = getActiveExecutionRound(todoId);
-    if (activeRound && activeRound.status === 'running') {
-      throw new Error('Cannot manually approve while a process is running. Stop the process first.');
+    if (!todo.review_enabled) {
+      throw new InvalidTransitionError('Review is not enabled for this task.');
     }
 
-    const latestRound = getLatestExecutionRound(todoId);
+    if (todo.status === 'completed') {
+      throw new InvalidTransitionError('Task is already completed.');
+    }
+
+    const activeRound = getActiveExecutionRound(todoId);
+    if (activeRound && (activeRound.status === 'running' || activeRound.status.startsWith('waiting_'))) {
+      throw new InvalidTransitionError('Cannot manually approve while execution is in progress or waiting.');
+    }
+
+    const allRounds = getExecutionRoundsByTodoId(todoId);
+    const latestRound = allRounds[allRounds.length - 1];
+
+    if (!latestRound) {
+      throw new InvalidTransitionError('No execution rounds exist for this task.');
+    }
+
+    if (latestRound.phase !== 'review') {
+      throw new InvalidTransitionError(`Cannot approve during ${latestRound.phase} phase. Manual approval is only allowed after a completed review.`);
+    }
+
+    if (!latestRound.result_payload) {
+      throw new InvalidTransitionError('Cannot approve review: No review result payload found.');
+    }
+
+    let reviewResult: ReviewResult;
+    try {
+      reviewResult = JSON.parse(latestRound.result_payload) as ReviewResult;
+    } catch {
+      throw new InvalidTransitionError('Invalid review result payload.');
+    }
+
+    if (reviewResult.verdict !== 'needs_changes') {
+      throw new InvalidTransitionError(`Review verdict is already "${reviewResult.verdict}".`);
+    }
+
+    const db = getDatabase();
     const now = new Date().toISOString();
 
-    if (latestRound && (latestRound.status === 'pending' || latestRound.status.startsWith('waiting_'))) {
-      updateExecutionRound(latestRound.id, {
-        status: 'completed',
-        finished_at: now,
-      });
-      const updated = getExecutionRoundById(latestRound.id)!;
-      broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+    db.transaction(() => {
+      if (activeRound && activeRound.status === 'pending') {
+        updateExecutionRound(activeRound.id, {
+          status: 'completed',
+          finished_at: now,
+        });
+      }
+      updateTodo(todoId, { pipeline_phase: 'review' });
+      updateTodoStatus(todoId, 'completed');
+      createTaskLog(todoId, 'info', `Manual override: Approved review (${reviewResult.summary}).`, latestRound.round_index);
+    })();
+
+    if (activeRound && activeRound.status === 'pending') {
+      const updatedRound = getExecutionRoundById(activeRound.id);
+      if (updatedRound) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedRound });
     }
 
-    updateTodo(todoId, { pipeline_phase: 'review' });
-    updateTodoStatus(todoId, 'completed');
-    createTaskLog(todoId, 'info', 'Manual override: Approved review loop.', latestRound?.round_index ?? 1);
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
-
     return getTodoById(todoId)!;
   }
 
@@ -486,56 +597,77 @@ When done, ensure all tests pass.`);
     const todo = getTodoById(todoId);
     if (!todo) throw new Error('Todo not found');
 
+    if (!todo.review_enabled) {
+      throw new InvalidTransitionError('Review is not enabled for this task.');
+    }
+
     const activeRound = getActiveExecutionRound(todoId);
     if (activeRound) {
-      throw new Error('A round is already active or in progress for this task.');
+      throw new InvalidTransitionError('A round is already active or in progress for this task.');
     }
 
     const allRounds = getExecutionRoundsByTodoId(todoId);
     const latestRound = allRounds[allRounds.length - 1];
 
     if (!latestRound) {
-      throw new Error('Cannot request rework: No execution rounds exist.');
+      throw new InvalidTransitionError('Cannot request rework: No execution rounds exist.');
     }
 
-    let reviewResult: ReviewResult | undefined = undefined;
-    const lastReviewRound = [...allRounds].reverse().find((r) => r.phase === 'review' && r.result_payload);
-    if (lastReviewRound?.result_payload) {
-      try {
-        reviewResult = JSON.parse(lastReviewRound.result_payload) as ReviewResult;
-      } catch {
-        // ignore
-      }
+    if (latestRound.phase !== 'review' || latestRound.status !== 'completed') {
+      throw new InvalidTransitionError('Manual rework is only allowed after a completed review phase.');
     }
 
-    const reworkPrompt = reviewResult
-      ? this.buildReworkPrompt({ todo, reviewResult, roundIndex: latestRound.round_index + 1 })
-      : `Manual Rework Request for "${todo.title}":\nPlease refine the implementation according to the project requirements.`;
+    if (!latestRound.result_payload) {
+      throw new InvalidTransitionError('No review result payload found on the latest review round.');
+    }
+
+    let reviewResult: ReviewResult;
+    try {
+      reviewResult = JSON.parse(latestRound.result_payload) as ReviewResult;
+    } catch {
+      throw new InvalidTransitionError('Invalid review result payload.');
+    }
+
+    if (reviewResult.verdict !== 'needs_changes') {
+      throw new InvalidTransitionError('Manual rework requires a review verdict of "needs_changes".');
+    }
+
+    const reworkPrompt = this.buildReworkPrompt({
+      todo,
+      reviewResult,
+      roundIndex: latestRound.round_index + 1,
+    });
 
     const nextRunToken = uuidv4();
-    const nextRound = createExecutionRound(
-      todoId,
-      'rework',
-      latestRound.round_index + 1,
-      nextRunToken,
-      {
-        status: 'pending',
-        inputPayload: reworkPrompt,
-      }
-    );
+    let nextRound: TodoExecutionRound | undefined;
+    const db = getDatabase();
 
-    updateTodo(todoId, { pipeline_phase: 'rework' });
-    updateTodoStatus(todoId, 'pending');
-    createTaskLog(todoId, 'info', 'Manual override: Triggered manual rework.', nextRound.round_index);
+    db.transaction(() => {
+      nextRound = createExecutionRound(
+        todoId,
+        'rework',
+        latestRound.round_index + 1,
+        nextRunToken,
+        {
+          status: 'pending',
+          inputPayload: reworkPrompt,
+        }
+      );
 
-    broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
+      updateTodo(todoId, { pipeline_phase: 'rework' });
+      updateTodoStatus(todoId, 'pending');
+      createTaskLog(todoId, 'info', 'Manual override: Triggered manual rework.', nextRound.round_index);
+    })();
+
+    if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'pending' });
 
-    return { todo: getTodoById(todoId)!, round: nextRound };
+    return { todo: getTodoById(todoId)!, round: nextRound! };
   }
 
   /**
    * Reconcile rounds on startup to handle crashes or interrupted transitions.
+   * Live PID processes are preserved; dead/missing PID runs are marked failed.
    */
   reconcileOnStartup(): void {
     const db = getDatabase();
@@ -545,12 +677,65 @@ When done, ensure all tests pass.`);
 
     const now = new Date().toISOString();
     for (const round of runningRounds) {
-      updateExecutionRound(round.id, {
-        status: 'failed',
-        error_message: 'Server restarted while round was running.',
-        finished_at: now,
-      });
-      updateTodoStatus(round.todo_id, 'failed');
+      const todo = getTodoById(round.todo_id);
+      if (!todo) {
+        updateExecutionRound(round.id, {
+          status: 'failed',
+          finished_at: now,
+          error_message: 'Todo no longer exists.',
+        });
+        continue;
+      }
+
+      let isAlive = false;
+      if (todo.process_pid && todo.process_pid > 0) {
+        try {
+          process.kill(todo.process_pid, 0);
+          isAlive = true;
+        } catch {
+          isAlive = false;
+        }
+      }
+
+      if (isAlive && todo.status === 'running') {
+        // Process is still alive — preserve running state
+        continue;
+      }
+
+      // Process is dead
+      db.transaction(() => {
+        updateExecutionRound(round.id, {
+          status: 'failed',
+          error_message: 'Process terminated unexpectedly (server restarted or process exited).',
+          finished_at: now,
+        });
+        updateTodoStatus(todo.id, 'failed');
+        updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
+      })();
+
+      if (round.run_token) {
+        resourceManager.releaseRun(round.run_token);
+      }
+      resourceManager.releaseOwner('todo', todo.id);
+
+      const updated = getExecutionRoundById(round.id);
+      if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId: todo.id, round: updated });
+      broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'failed' });
+    }
+
+    // Check for any non-terminal review_enabled todo with no active round
+    const nonTerminalReviewTodos = db.prepare(
+      `SELECT * FROM todos WHERE review_enabled = 1 AND status IN ('pending', 'running')`
+    ).all() as Todo[];
+
+    for (const todo of nonTerminalReviewTodos) {
+      const activeRound = getActiveExecutionRound(todo.id);
+      if (!activeRound) {
+        const allRounds = getExecutionRoundsByTodoId(todo.id);
+        if (allRounds.length === 0) {
+          this.ensureInitialRound(todo.id);
+        }
+      }
     }
   }
 }

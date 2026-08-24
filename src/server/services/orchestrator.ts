@@ -324,6 +324,18 @@ export class Orchestrator {
       await claudeManager.stopClaude(todo.process_pid);
     }
 
+    if (todo.review_enabled) {
+      const activeRound = queries.getActiveExecutionRound(todoId);
+      if (activeRound) {
+        queries.updateExecutionRound(activeRound.id, {
+          status: 'stopped',
+          finished_at: new Date().toISOString(),
+        });
+        const updatedRound = queries.getExecutionRoundById(activeRound.id);
+        if (updatedRound) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedRound });
+      }
+    }
+
     const runToken = this.activeResourceRuns.get(todoId);
     if (runToken) resourceManager.releaseRun(runToken);
     else resourceManager.releaseOwner('todo', todoId);
@@ -442,6 +454,11 @@ export class Orchestrator {
         if (selection.status === 'waiting_executor') {
           queries.updateTodoStatus(todoId, 'waiting_executor');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          if (currentRound) {
+            queries.updateExecutionRound(currentRound.id, { status: 'waiting_executor' });
+            const updated = queries.getExecutionRoundById(currentRound.id);
+            if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+          }
           const message = `[executor-pool] Waiting for executor capacity (profile "${selection.profileName}"):\n\n${selection.rejectionSummary}`;
           const recentLogs = queries.getTaskLogsByTodoId(todoId);
           const lastOutput = [...recentLogs].reverse().find((l) => l.log_type === 'output');
@@ -456,6 +473,15 @@ export class Orchestrator {
         if (selection.status === 'no_candidates') {
           queries.updateTodoStatus(todoId, 'failed');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          if (currentRound) {
+            queries.updateExecutionRound(currentRound.id, {
+              status: 'failed',
+              error_message: `Execution profile "${selection.profileName}" has no eligible executors`,
+              finished_at: new Date().toISOString(),
+            });
+            const updated = queries.getExecutionRoundById(currentRound.id);
+            if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+          }
           queries.createTaskLog(
             todoId,
             'error',
@@ -479,6 +505,15 @@ export class Orchestrator {
         const message = err instanceof Error ? err.message : String(err);
         queries.updateTodoStatus(todoId, 'failed');
         queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+        if (currentRound) {
+          queries.updateExecutionRound(currentRound.id, {
+            status: 'failed',
+            error_message: `Execution selection error: ${message}`,
+            finished_at: new Date().toISOString(),
+          });
+          const updated = queries.getExecutionRoundById(currentRound.id);
+          if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+        }
         queries.createTaskLog(todoId, 'error', `Execution selection error: ${message}`, roundNumber);
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
         this.broadcastProjectStatus(projectId);
@@ -507,6 +542,15 @@ export class Orchestrator {
             const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${quota.reason || 'provider quota is currently exhausted'}).`;
             queries.updateTodoStatus(todoId, 'failed');
             queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+            if (currentRound) {
+              queries.updateExecutionRound(currentRound.id, {
+                status: 'failed',
+                error_message: failMsg,
+                finished_at: new Date().toISOString(),
+              });
+              const updated = queries.getExecutionRoundById(currentRound.id);
+              if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+            }
             queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
             broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
             broadcaster.broadcast({ type: 'todo:log', todoId, message: failMsg, logType: 'error' });
@@ -519,6 +563,11 @@ export class Orchestrator {
         if (!reserved) {
           queries.updateTodoStatus(todoId, 'waiting_executor');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          if (currentRound) {
+            queries.updateExecutionRound(currentRound.id, { status: 'waiting_executor' });
+            const updated = queries.getExecutionRoundById(currentRound.id);
+            if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+          }
           const adapter = getAdapter(resolvedCliTool);
           const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeTodoId: todoId });
           const limit = executorPool.getLimit(resolvedCliTool);
@@ -554,7 +603,7 @@ export class Orchestrator {
 
     try {
       const requirements = parseStoredResourceRequirements(todo.resource_requirements);
-      resourceRunToken = uuidv4();
+      resourceRunToken = currentRound ? currentRound.run_token : uuidv4();
       const acquisition = resourceManager.acquireAtomic({
         ownerType: 'todo', ownerId: todoId, runToken: resourceRunToken, resources: requirements,
       });
@@ -563,6 +612,11 @@ export class Orchestrator {
         resourceRunToken = null;
         queries.updateTodoStatus(todoId, 'waiting_resource');
         queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+        if (currentRound) {
+          queries.updateExecutionRound(currentRound.id, { status: 'waiting_resource' });
+          const updated = queries.getExecutionRoundById(currentRound.id);
+          if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+        }
         const details = acquisition.busy.map((busy) => {
           const holders = busy.holders.map((holder) => `${holder.ownerType === 'todo' ? 'Todo' : 'Session'} ${holder.ownerId}`).join(', ');
           return `- ${busy.key}: busy, held by ${holders}`;
@@ -582,12 +636,22 @@ export class Orchestrator {
 
       // Persist running provider usage, then release the temporary provider reservation.
       queries.updateTodoStatus(todoId, 'running');
+      const initialSnapshot = executionConfig
+        ? JSON.stringify(executionSnapshot(executionConfig))
+        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool });
       queries.updateTodo(todoId, {
         execution_mode: mode,
-        ...(executionConfig
-          ? { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) }
-          : { execution_snapshot: JSON.stringify({ configuration: 'manual', agent: resolvedCliTool }) }),
+        execution_snapshot: initialSnapshot,
       });
+      if (currentRound) {
+        queries.updateExecutionRound(currentRound.id, {
+          status: 'running',
+          started_at: new Date().toISOString(),
+          execution_snapshot: initialSnapshot,
+        });
+        const updated = queries.getExecutionRoundById(currentRound.id);
+        if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+      }
       executorPool.releaseReservation(todoId);
     } catch (err) {
       executorPool.releaseReservation(todoId);
@@ -641,10 +705,22 @@ export class Orchestrator {
           }
         }
         workDir = worktreePath;
-        prompt = isContinue ? continueOptions!.followUpPrompt : (todo.description || todo.title);
+        if (isContinue) {
+          prompt = continueOptions!.followUpPrompt;
+        } else if (todo.review_enabled && currentRound?.input_payload) {
+          prompt = currentRound.input_payload;
+        } else {
+          prompt = todo.description || todo.title || '';
+        }
       } else {
         workDir = projectPath;
-        prompt = isContinue ? continueOptions!.followUpPrompt : (todo.description || todo.title);
+        if (isContinue) {
+          prompt = continueOptions!.followUpPrompt;
+        } else if (todo.review_enabled && currentRound?.input_payload) {
+          prompt = currentRound.input_payload;
+        } else {
+          prompt = todo.description || todo.title || '';
+        }
       }
 
       // Handle attached reference images: copy them into the task's worktree/dir
@@ -803,6 +879,15 @@ export class Orchestrator {
       const message = err instanceof Error ? err.message : String(err);
       queries.updateTodoStatus(todoId, 'failed');
       queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
+      if (currentRound) {
+        queries.updateExecutionRound(currentRound.id, {
+          status: 'failed',
+          error_message: `Failed to start ${adapter.displayName}: ${message}`,
+          finished_at: new Date().toISOString(),
+        });
+        const updated = queries.getExecutionRoundById(currentRound.id);
+        if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+      }
       queries.createTaskLog(todoId, 'error', `Failed to start ${adapter.displayName}: ${message}`, roundNumber);
       broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
       this.broadcastProjectStatus(projectId);
@@ -829,8 +914,16 @@ export class Orchestrator {
 
       let delegated: queries.Todo | null = null;
       const currentTodo = queries.getTodoById(todoId);
-      // Only update if still in running state (not manually stopped)
+      // Only update if still in running state (not manually stopped or superseded)
       if (currentTodo && currentTodo.status === 'running') {
+        if (todo.review_enabled && currentRound) {
+          const freshRound = queries.getExecutionRoundById(currentRound.id);
+          if (!freshRound || freshRound.run_token !== currentRound.run_token || freshRound.status !== 'running') {
+            // Late callback from an older or superseded execution round — discard
+            return;
+          }
+        }
+
         if (exitCode !== 0) {
           // Check for context exhaustion before normal failure handling
           const isContextExhausted = logStreamer.isContextExhausted(todoId);
@@ -853,7 +946,11 @@ export class Orchestrator {
             });
             this.restartWithNextCli(todoId, projectId, resolvedCliTool, fallback, autoChain).catch(() => {
               try {
-                queries.updateTodoStatus(todoId, 'failed');
+                if (todo.review_enabled && currentRound) {
+                  reviewPipeline.handleRoundFailure(todoId, currentRound.id, 'Context switch restart failed.');
+                } else {
+                  queries.updateTodoStatus(todoId, 'failed');
+                }
                 queries.createTaskLog(todoId, 'error', 'Context switch restart failed.', roundNumber);
               } catch { /* ignore */ }
               broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
@@ -878,13 +975,21 @@ export class Orchestrator {
             const quotaMsg = `[quota] ${adapter.displayName} quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
             queries.createTaskLog(todoId, 'warning', quotaMsg, roundNumber);
 
-            if (currentTodo.execution_profile_id) {
-              // Profile execution: re-evaluate with next eligible candidate
+            if (effectiveProfileId) {
+              // Profile execution: re-evaluate with next eligible candidate in effective profile
               queries.updateTodo(todoId, {
                 process_pid: 0,
                 execution_snapshot: null,
               });
               queries.updateTodoStatus(todoId, 'pending');
+              if (currentRound) {
+                queries.updateExecutionRound(currentRound.id, {
+                  status: 'pending',
+                  execution_snapshot: null,
+                });
+                const updated = queries.getExecutionRoundById(currentRound.id);
+                if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+              }
               queries.createTaskLog(
                 todoId,
                 'output',
@@ -893,7 +998,11 @@ export class Orchestrator {
               );
               this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions).catch(() => {
                 try {
-                  queries.updateTodoStatus(todoId, 'failed');
+                  if (todo.review_enabled && currentRound) {
+                    reviewPipeline.handleRoundFailure(todoId, currentRound.id, 'Profile candidate switch failed.');
+                  } else {
+                    queries.updateTodoStatus(todoId, 'failed');
+                  }
                   queries.createTaskLog(todoId, 'error', 'Profile candidate switch failed.', roundNumber);
                 } catch { /* ignore */ }
                 broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
@@ -905,7 +1014,11 @@ export class Orchestrator {
               // Manual execution: do not silently switch executor; fail clearly with quota diagnostic
               const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
               try {
-                queries.updateTodoStatus(todoId, 'failed');
+                if (todo.review_enabled && currentRound) {
+                  reviewPipeline.handleRoundFailure(todoId, currentRound.id, failMsg);
+                } else {
+                  queries.updateTodoStatus(todoId, 'failed');
+                }
                 queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
                 queries.updateTodo(todoId, {
                   process_pid: 0,
@@ -931,7 +1044,11 @@ export class Orchestrator {
           // Normal failure path
           const failMsg = `${adapter.displayName} exited with code ${exitCode}.`;
           try {
-            queries.updateTodoStatus(todoId, 'failed');
+            if (todo.review_enabled && currentRound) {
+              reviewPipeline.handleRoundFailure(todoId, currentRound.id, failMsg);
+            } else {
+              queries.updateTodoStatus(todoId, 'failed');
+            }
             queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
             queries.updateTodo(todoId, {
               process_pid: 0,
@@ -956,10 +1073,13 @@ export class Orchestrator {
           }
 
           const doneMsg = `${adapter.displayName} completed successfully.${isContinue ? ` (round ${roundNumber})` : ''}`;
-          try {
-            queries.updateTodoStatus(todoId, 'completed');
-            queries.createTaskLog(todoId, 'output', doneMsg, roundNumber);
-            const tokenUsage = logStreamer.getTokenUsage(todoId);
+          queries.createTaskLog(todoId, 'output', doneMsg, roundNumber);
+          const tokenUsage = logStreamer.getTokenUsage(todoId);
+
+          if (todo.review_enabled && currentRound) {
+            const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
+            const advanceResult = await reviewPipeline.advanceRoundOnSuccess(todoId, currentRound.id, combinedOutput);
+
             queries.updateTodo(todoId, {
               process_pid: 0,
               ...(tokenUsage ? {
@@ -968,22 +1088,55 @@ export class Orchestrator {
                 total_tokens: ((tokenUsage.input_tokens ?? 0) + (tokenUsage.output_tokens ?? 0)) || null,
               } : {}),
             });
-          } catch {
-            try { queries.updateTodoStatus(todoId, 'completed'); } catch { /* ignore */ }
-          }
 
-          captureReviewMetadata(todoId).catch(() => { /* ignore */ });
-          broadcaster.broadcast({ type: 'todo:log', todoId, message: doneMsg, logType: 'output' });
-          broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
-          try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
+            if (advanceResult.action === 'start_review' || advanceResult.action === 'start_rework') {
+              // Auto-chain next round in pipeline!
+              await this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain);
+              return;
+            } else if (advanceResult.action === 'completed') {
+              captureReviewMetadata(todoId).catch(() => { /* ignore */ });
+              broadcaster.broadcast({ type: 'todo:log', todoId, message: doneMsg, logType: 'output' });
+              broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
+              try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
 
-          try {
-            delegated = maybeCreateReviewTodo(projectId, todoId);
-          } catch { /* never block completion */ }
-          if (delegated) {
-            queries.createTaskLog(todoId, 'output', `Auto-delegation: created review task "${delegated.title}" (${delegated.cli_tool}).`, roundNumber);
-            broadcaster.broadcast({ type: 'todo:created', todo: delegated });
+              try {
+                delegated = maybeCreateReviewTodo(projectId, todoId);
+              } catch { /* never block completion */ }
+              if (delegated) {
+                queries.createTaskLog(todoId, 'output', `Auto-delegation: created review task "${delegated.title}" (${delegated.cli_tool}).`, roundNumber);
+                broadcaster.broadcast({ type: 'todo:created', todo: delegated });
+                try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
+              }
+            }
+          } else {
+            // Normal non-pipeline todo completion
+            try {
+              queries.updateTodoStatus(todoId, 'completed');
+              queries.updateTodo(todoId, {
+                process_pid: 0,
+                ...(tokenUsage ? {
+                  token_usage: JSON.stringify(tokenUsage),
+                  total_cost_usd: tokenUsage.total_cost ?? null,
+                  total_tokens: ((tokenUsage.input_tokens ?? 0) + (tokenUsage.output_tokens ?? 0)) || null,
+                } : {}),
+              });
+            } catch {
+              try { queries.updateTodoStatus(todoId, 'completed'); } catch { /* ignore */ }
+            }
+
+            captureReviewMetadata(todoId).catch(() => { /* ignore */ });
+            broadcaster.broadcast({ type: 'todo:log', todoId, message: doneMsg, logType: 'output' });
+            broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
             try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
+
+            try {
+              delegated = maybeCreateReviewTodo(projectId, todoId);
+            } catch { /* never block completion */ }
+            if (delegated) {
+              queries.createTaskLog(todoId, 'output', `Auto-delegation: created review task "${delegated.title}" (${delegated.cli_tool}).`, roundNumber);
+              broadcaster.broadcast({ type: 'todo:created', todo: delegated });
+              try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
+            }
           }
         }
       }

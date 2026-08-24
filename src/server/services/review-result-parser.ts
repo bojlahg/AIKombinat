@@ -30,6 +30,13 @@ export function parseReviewResult(rawOutput: string): ParseReviewResultOutput {
   const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
   if (fenceMatch) {
     jsonStr = fenceMatch[1].trim();
+  } else {
+    // Scan for JSON object enclosed in braces { ... }
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      jsonStr = trimmed.slice(firstBrace, lastBrace + 1).trim();
+    }
   }
 
   let parsed: unknown;

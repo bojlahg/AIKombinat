@@ -405,11 +405,14 @@ export function initDatabase(db: Database.Database): void {
       started_at DATETIME,
       finished_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(todo_id, round_index)
     );
 
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_todo ON todo_execution_rounds(todo_id, round_index);
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_run_token ON todo_execution_rounds(run_token);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_unique_index ON todo_execution_rounds(todo_id, round_index);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_active_unique ON todo_execution_rounds(todo_id) WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
   `);
 
   // Backwards-compatible migration: add new columns to existing DBs

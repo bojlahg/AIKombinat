@@ -3,7 +3,7 @@ import { createGit } from '../lib/git.js';
 import { getTodosByProjectId, getTodoById, updateTodoStatus, updateTodo, deleteTaskLogsByTodoId, getExecutionRoundsByTodoId } from '../db/queries.js';
 import { getProjectById } from '../db/queries.js';
 import { orchestrator } from '../services/orchestrator.js';
-import { reviewPipeline } from '../services/review-pipeline.js';
+import { reviewPipeline, InvalidTransitionError } from '../services/review-pipeline.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { supportsInteractiveMode, type CliTool } from '../services/cli-adapters.js';
 
@@ -489,6 +489,10 @@ router.post('/todos/:id/review/approve', (req: Request<{ id: string }>, res: Res
     const updated = reviewPipeline.manualApprove(req.params.id);
     res.json(updated);
   } catch (err: unknown) {
+    if (err instanceof InvalidTransitionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(400).json({ error: message });
   }
@@ -509,6 +513,10 @@ router.post('/todos/:id/review/rework', async (req: Request<{ id: string }>, res
 
     res.json(result);
   } catch (err: unknown) {
+    if (err instanceof InvalidTransitionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(400).json({ error: message });
   }

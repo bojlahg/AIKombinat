@@ -436,10 +436,15 @@ export function createExecutionRound(
   options: {
     status?: RoundStatus;
     executionSnapshot?: string | null;
+    execution_snapshot?: string | null;
     inputPayload?: string | null;
+    input_payload?: string | null;
     resultPayload?: string | null;
+    result_payload?: string | null;
     errorMessage?: string | null;
+    error_message?: string | null;
     startedAt?: string | null;
+    started_at?: string | null;
   } = {}
 ): TodoExecutionRound {
   const db = getDatabase();
@@ -455,11 +460,11 @@ export function createExecutionRound(
     phase,
     options.status ?? 'pending',
     runToken,
-    options.executionSnapshot ?? null,
-    options.inputPayload ?? null,
-    options.resultPayload ?? null,
-    options.errorMessage ?? null,
-    options.startedAt ?? null,
+    options.executionSnapshot ?? options.execution_snapshot ?? null,
+    options.inputPayload ?? options.input_payload ?? null,
+    options.resultPayload ?? options.result_payload ?? null,
+    options.errorMessage ?? options.error_message ?? null,
+    options.startedAt ?? options.started_at ?? null,
     now,
     now
   );
@@ -499,19 +504,34 @@ export function getLatestExecutionRound(todoId: string): TodoExecutionRound | un
 
 export function updateExecutionRound(
   id: string,
-  updates: Partial<Pick<TodoExecutionRound, 'status' | 'execution_snapshot' | 'input_payload' | 'result_payload' | 'error_message' | 'started_at' | 'finished_at'>>
+  updates: Partial<Pick<TodoExecutionRound, 'status' | 'execution_snapshot' | 'input_payload' | 'result_payload' | 'error_message' | 'started_at' | 'finished_at'>> & {
+    executionSnapshot?: string | null;
+    inputPayload?: string | null;
+    resultPayload?: string | null;
+    errorMessage?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+  }
 ): TodoExecutionRound | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
 
-  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
-  if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
-  if (updates.input_payload !== undefined) { fields.push('input_payload = ?'); values.push(updates.input_payload); }
-  if (updates.result_payload !== undefined) { fields.push('result_payload = ?'); values.push(updates.result_payload); }
-  if (updates.error_message !== undefined) { fields.push('error_message = ?'); values.push(updates.error_message); }
-  if (updates.started_at !== undefined) { fields.push('started_at = ?'); values.push(updates.started_at); }
-  if (updates.finished_at !== undefined) { fields.push('finished_at = ?'); values.push(updates.finished_at); }
+  const status = updates.status;
+  const execution_snapshot = updates.execution_snapshot ?? updates.executionSnapshot;
+  const input_payload = updates.input_payload ?? updates.inputPayload;
+  const result_payload = updates.result_payload ?? updates.resultPayload;
+  const error_message = updates.error_message ?? updates.errorMessage;
+  const started_at = updates.started_at ?? updates.startedAt;
+  const finished_at = updates.finished_at ?? updates.finishedAt;
+
+  if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+  if (execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(execution_snapshot); }
+  if (input_payload !== undefined) { fields.push('input_payload = ?'); values.push(input_payload); }
+  if (result_payload !== undefined) { fields.push('result_payload = ?'); values.push(result_payload); }
+  if (error_message !== undefined) { fields.push('error_message = ?'); values.push(error_message); }
+  if (started_at !== undefined) { fields.push('started_at = ?'); values.push(started_at); }
+  if (finished_at !== undefined) { fields.push('finished_at = ?'); values.push(finished_at); }
 
   if (fields.length === 0) return getExecutionRoundById(id);
 

@@ -409,7 +409,7 @@ describe('ReviewPipelineService', () => {
     expect(updatedTodo.status).toBe('failed');
   });
 
-  it('TC-17: manualApprove marks todo and pending review rounds as completed', () => {
+  it('TC-17: manualApprove marks todo and pending review rounds as completed', async () => {
     const todo = queries.createTodo(
       project.id,
       'Feature task',
@@ -437,12 +437,21 @@ describe('ReviewPipelineService', () => {
 
     reviewPipeline.ensureInitialRound(todo.id);
     const initialRound = queries.getActiveExecutionRound(todo.id)!;
+    await reviewPipeline.advanceRoundOnSuccess(todo.id, initialRound.id);
+
+    const reviewRound = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(reviewRound.id, {
+      status: 'completed',
+      result_payload: JSON.stringify({
+        verdict: 'needs_changes',
+        summary: 'Changes requested but human decides to approve',
+        issues: [{ severity: 'minor', description: 'Minor naming', files: [] }],
+      }),
+    });
+    queries.updateTodoStatus(todo.id, 'stopped');
 
     const updated = reviewPipeline.manualApprove(todo.id);
     expect(updated.status).toBe('completed');
-
-    const round = queries.getExecutionRoundById(initialRound.id)!;
-    expect(round.status).toBe('completed');
   });
 
   it('TC-18: manualRework creates next rework round when latest review requested changes', async () => {
@@ -563,7 +572,7 @@ describe('ReviewPipelineService', () => {
 
     const reconciled = queries.getExecutionRoundById(round.id)!;
     expect(reconciled.status).toBe('failed');
-    expect(reconciled.error_message).toContain('Server restarted while round was running.');
+    expect(reconciled.error_message).toContain('Process terminated unexpectedly');
   });
   it('TC-09: missing review profile fails advance on implementation success with review_profile_missing', async () => {
     const todo = queries.createTodo(

@@ -55,6 +55,7 @@ import { registerPlugin, mountPluginRoutes } from './plugins/registry.js';
 import { harnessPlugin } from './plugins/harness/index.js';
 import { resolveBindHost } from './utils/bind-host.js';
 import { resourceManager } from './services/resource-manager.js';
+import { reviewPipeline } from './services/review-pipeline.js';
 
 const app = express();
 const server = createServer(app);
@@ -281,6 +282,7 @@ resourceManager.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
 });
 resourceManager.initialize();
+reviewPipeline.reconcileOnStartup();
 
 // MCP endpoint (bearer-auth, not under /api). Mount before static/SPA serving
 // so the catch-all does not swallow /mcp.
