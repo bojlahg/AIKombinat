@@ -717,10 +717,7 @@ export class Orchestrator {
       // Ensure log streamer has fully drained streams and flushed all trailing lines before log inspection
       if (streamDrainPromise) {
         try {
-          await Promise.race([
-            streamDrainPromise,
-            new Promise((resolve) => setTimeout(resolve, 20)),
-          ]);
+          await streamDrainPromise;
         } catch { /* ignore */ }
       }
 

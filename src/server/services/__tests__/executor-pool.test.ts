@@ -15,6 +15,29 @@ const { claudeManager } = await import('../claude-manager.js');
 const cliStatusModule = await import('../cli-status.js');
 const { broadcaster } = await import('../../websocket/broadcaster.js');
 
+function createMockCliResult(pid: number, command: string = 'claude', args: string[] = []) {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let resolveExit!: (code: number) => void;
+  const exitPromise = new Promise<number>((resolve) => {
+    resolveExit = (code: number) => {
+      stdout.end();
+      stderr.end();
+      resolve(code);
+    };
+  });
+  return {
+    pid,
+    stdout,
+    stderr,
+    stdin: null,
+    exitPromise,
+    resolveExit,
+    command,
+    args,
+  };
+}
+
 describe('Executor Pool V1', () => {
   beforeEach(() => {
     testDb = new Database(':memory:');
@@ -319,28 +342,12 @@ describe('Executor Pool V1', () => {
     // Create Todo 2 (will wait)
     const todo2 = queries.createTodo(project.id, 'Task 2', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
 
-    let resolveExit1: (code: number) => void = () => {};
-    let resolveExit2: (code: number) => void = () => {};
+    const mock1 = createMockCliResult(101, 'claude');
+    const mock2 = createMockCliResult(102, 'claude');
 
     vi.spyOn(claudeManager, 'startClaude')
-      .mockImplementationOnce(async () => ({
-        pid: 101,
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        stdin: null,
-        exitPromise: new Promise<number>((resolve) => { resolveExit1 = resolve; }),
-        command: 'claude',
-        args: [],
-      }))
-      .mockImplementationOnce(async () => ({
-        pid: 102,
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        stdin: null,
-        exitPromise: new Promise<number>((resolve) => { resolveExit2 = resolve; }),
-        command: 'claude',
-        args: [],
-      }));
+      .mockImplementationOnce(async () => mock1)
+      .mockImplementationOnce(async () => mock2);
 
     // Start Task 1 -> should run
     await orchestrator.startTodo(todo1.id);
@@ -352,7 +359,7 @@ describe('Executor Pool V1', () => {
     expect(queries.getTodoById(todo2.id)?.status).toBe('waiting_executor');
 
     // Now Task 1 finishes successfully -> releases capacity
-    resolveExit1(0);
+    mock1.resolveExit(0);
     // Yield event loop so exitPromise resolves and triggers resumeWaitingTasks
     await new Promise((r) => setTimeout(r, 50));
 
@@ -363,7 +370,7 @@ describe('Executor Pool V1', () => {
     expect(refreshedTodo2?.process_pid).toBe(102);
 
     // Cleanup Task 2
-    resolveExit2(0);
+    mock2.resolveExit(0);
     await new Promise((r) => setTimeout(r, 20));
   });
 
@@ -727,28 +734,12 @@ describe('Executor Pool V1', () => {
     const todoA = queries.createTodo(projectA.id, 'Task A', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     const todoB = queries.createTodo(projectB.id, 'Task B', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
 
-    let resolveExitA: (code: number) => void = () => {};
-    let resolveExitB: (code: number) => void = () => {};
+    const mockA = createMockCliResult(601, 'claude');
+    const mockB = createMockCliResult(602, 'claude');
 
     vi.spyOn(claudeManager, 'startClaude')
-      .mockImplementationOnce(async () => ({
-        pid: 601,
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        stdin: null,
-        exitPromise: new Promise<number>((resolve) => { resolveExitA = resolve; }),
-        command: 'claude',
-        args: [],
-      }))
-      .mockImplementationOnce(async () => ({
-        pid: 602,
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        stdin: null,
-        exitPromise: new Promise<number>((resolve) => { resolveExitB = resolve; }),
-        command: 'claude',
-        args: [],
-      }));
+      .mockImplementationOnce(async () => mockA)
+      .mockImplementationOnce(async () => mockB);
 
     // Start Task A in Project A -> starts
     await orchestrator.startTodo(todoA.id);
@@ -759,7 +750,7 @@ describe('Executor Pool V1', () => {
     expect(queries.getTodoById(todoB.id)?.status).toBe('waiting_executor');
 
     // Task A completes in Project A -> releases global Claude capacity
-    resolveExitA(0);
+    mockA.resolveExit(0);
     await new Promise((r) => setTimeout(r, 50));
 
     expect(queries.getTodoById(todoA.id)?.status).toBe('completed');
@@ -767,7 +758,7 @@ describe('Executor Pool V1', () => {
     expect(queries.getTodoById(todoB.id)?.status).toBe('running');
     expect(queries.getTodoById(todoB.id)?.process_pid).toBe(602);
 
-    resolveExitB(0);
+    mockB.resolveExit(0);
     await new Promise((r) => setTimeout(r, 20));
   });
 
@@ -1440,28 +1431,12 @@ describe('Executor Pool V1', () => {
     const t1 = queries.createTodo(project.id, 'Task 1', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
     const t2 = queries.createTodo(project.id, 'Task 2', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
 
-    let resolveExit1: (code: number) => void = () => {};
-    let resolveExit2: (code: number) => void = () => {};
+    const mock1 = createMockCliResult(1301, 'claude');
+    const mock2 = createMockCliResult(1302, 'claude');
 
     vi.spyOn(claudeManager, 'startClaude')
-      .mockImplementationOnce(async () => ({
-        pid: 1301,
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        stdin: null,
-        exitPromise: new Promise<number>((resolve) => { resolveExit1 = resolve; }),
-        command: 'claude',
-        args: [],
-      }))
-      .mockImplementationOnce(async () => ({
-        pid: 1302,
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        stdin: null,
-        exitPromise: new Promise<number>((resolve) => { resolveExit2 = resolve; }),
-        command: 'claude',
-        args: [],
-      }));
+      .mockImplementationOnce(async () => mock1)
+      .mockImplementationOnce(async () => mock2);
 
     // Start Task 1 -> starts normally
     await orchestrator.startTodo(t1.id);
@@ -1475,7 +1450,7 @@ describe('Executor Pool V1', () => {
     expect(logs.some((l) => l.message.includes('[executor-pool] Waiting for executor capacity (manual Claude CLI)'))).toBe(true);
 
     // Task 1 completes -> releases capacity and wakes Task 2
-    resolveExit1(0);
+    mock1.resolveExit(0);
     await new Promise((r) => setTimeout(r, 50));
 
     expect(queries.getTodoById(t1.id)?.status).toBe('completed');
@@ -1483,7 +1458,7 @@ describe('Executor Pool V1', () => {
     expect(queries.getTodoById(t2.id)?.process_pid).toBe(1302);
     expect(executorPool.getActiveToolUsage('claude')).toBe(1);
 
-    resolveExit2(0);
+    mock2.resolveExit(0);
     await new Promise((r) => setTimeout(r, 20));
   });
 

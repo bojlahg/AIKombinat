@@ -23,25 +23,27 @@ const RAW_DB_CAP_BYTES = 2 * 1024 * 1024;
 // table every ≤100ms and blocked the event loop under heavy TUI output.
 const RAW_TRIM_EVERY_BYTES = 256 * 1024;
 
+export type SessionRunToken = string;
+
 export class SessionManager {
   // Monotonically increasing run generation per session to isolate transient state across runs
   private sessionRunGenerations: Map<string, number> = new Map();
   // sessionId -> currently active execution run token
-  private activeRunTokens: Map<string, number> = new Map();
+  private activeRunTokens: Map<string, SessionRunToken> = new Map();
 
   // runToken -> pending-flush callback so we can drain the byte buffer when
   // the PTY exits or the user stops the session.
-  private runFlushers: Map<number, () => void> = new Map();
+  private runFlushers: Map<SessionRunToken, () => void> = new Map();
 
   // runToken -> raw PTY unsubscribe callback
-  private runRawUnsubscribes: Map<number, () => void> = new Map();
+  private runRawUnsubscribes: Map<SessionRunToken, () => void> = new Map();
 
   // Initial prompts (description + optional injected wiki) keyed by runToken that have NOT been
   // submitted to the PTY yet. We hold them so the user gets to review the
   // payload — including any auto-retrieved wiki nodes — and explicitly hit
   // Send (or Skip) instead of having the prompt fire the moment the CLI
   // emits its ready indicator.
-  private runInitialPrompts: Map<number, string> = new Map();
+  private runInitialPrompts: Map<SessionRunToken, string> = new Map();
 
   // Per-run type-ahead queue. While the session has status='running'
   // but the PTY hasn't spawned yet (process_pid still 0), every
@@ -51,7 +53,7 @@ export class SessionManager {
   // the end of `startSession` deletes the entry atomically with the
   // process_pid DB update so subsequent input goes straight to the PTY
   // without any reordering window.
-  private runStartupBuffers: Map<number, string[]> = new Map();
+  private runStartupBuffers: Map<SessionRunToken, string[]> = new Map();
 
   // sessionId → live PTY pid. Keystroke routing hot path: writeTerminalInput
   // fires on every WS terminal-input message, and looking the pid up in the
@@ -79,7 +81,7 @@ export class SessionManager {
    * Memory-bounded by the upstream ring buffer in claudeManager and by
    * `trimSessionRawChunks` (~2MB rolling) on the DB side.
    */
-  private subscribeRawForSession(sessionId: string, pid: number, runToken: number): void {
+  private subscribeRawForSession(sessionId: string, pid: number, runToken: SessionRunToken): void {
     let pending: Buffer[] = [];
     let pendingBytes = 0;
     let bytesSinceTrim = 0;
@@ -135,7 +137,7 @@ export class SessionManager {
     this.runRawUnsubscribes.set(runToken, unsub);
   }
 
-  private flushAndForgetRaw(runToken: number): void {
+  private flushAndForgetRaw(runToken: SessionRunToken): void {
     const flusher = this.runFlushers.get(runToken);
     if (flusher) {
       try { flusher(); } catch { /* ignore */ }
@@ -180,8 +182,9 @@ export class SessionManager {
     const project = queries.getProjectById(session.project_id);
     if (!project) throw new Error('Project not found');
 
-    const runToken = (this.sessionRunGenerations.get(sessionId) ?? 0) + 1;
-    this.sessionRunGenerations.set(sessionId, runToken);
+    const generation = (this.sessionRunGenerations.get(sessionId) ?? 0) + 1;
+    this.sessionRunGenerations.set(sessionId, generation);
+    const runToken: SessionRunToken = `${sessionId}:${generation}`;
     this.activeRunTokens.set(sessionId, runToken);
 
     let hasReservation = false;
@@ -508,8 +511,8 @@ export class SessionManager {
       }
       const message = err instanceof Error ? err.message : String(err);
       if (this.activeRunTokens.get(sessionId) === runToken) {
-        this.activeRunTokens.delete(sessionId);
         this.flushAndForgetRaw(runToken);
+        this.activeRunTokens.delete(sessionId);
         this.runInitialPrompts.delete(runToken);
         this.runStartupBuffers.delete(runToken);
         if (isRunningPersisted) {
@@ -542,8 +545,8 @@ export class SessionManager {
 
     const runToken = this.activeRunTokens.get(sessionId);
     if (runToken !== undefined) {
-      this.activeRunTokens.delete(sessionId);
       this.flushAndForgetRaw(runToken);
+      this.activeRunTokens.delete(sessionId);
       this.runInitialPrompts.delete(runToken);
       this.runStartupBuffers.delete(runToken);
     }
