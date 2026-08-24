@@ -488,6 +488,7 @@ export class Orchestrator {
     let pid: number;
     let exitPromise: Promise<number>;
     let debugSession: DebugSession | null = null;
+    let executionStartRowid = 0;
 
     // Mark as running synchronously and release reservation immediately (no await in between)
     queries.updateTodoStatus(todoId, 'running');
@@ -543,6 +544,8 @@ export class Orchestrator {
         workDir = projectPath;
         prompt = isContinue ? continueOptions!.followUpPrompt : (todo.description || todo.title);
       }
+
+      executionStartRowid = queries.getMaxTaskLogRowid(todoId);
 
       // Handle attached reference images: copy them into the task's worktree/dir
       if (todo.images) {
@@ -742,9 +745,8 @@ export class Orchestrator {
             return;
           }
 
-          // Check for runtime quota / rate-limit rejection
-          const recentLogs = queries.getTaskLogsByTodoId(todoId);
-          const combinedOutput = recentLogs.map((l) => l.message).join('\n');
+          // Check for runtime quota / rate-limit rejection (scoped to current execution)
+          const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
           const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
 
           if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {

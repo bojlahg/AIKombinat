@@ -308,6 +308,37 @@ export function deleteTaskLogsByTodoId(todoId: string): number {
   return result.changes;
 }
 
+export function getMaxTaskLogRowid(todoId?: string): number {
+  const db = getDatabase();
+  if (todoId) {
+    const row = db.prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM task_logs WHERE todo_id = ?').get(todoId) as { max_rowid: number };
+    return row.max_rowid;
+  }
+  const row = db.prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM task_logs').get() as { max_rowid: number };
+  return row.max_rowid;
+}
+
+export function getRecentTaskLogText(todoId: string, minRowid?: number, maxBytes: number = 64 * 1024, maxRows: number = 200): string {
+  const db = getDatabase();
+  const query = minRowid !== undefined
+    ? 'SELECT message FROM task_logs WHERE todo_id = ? AND rowid > ? ORDER BY rowid DESC LIMIT ?'
+    : 'SELECT message FROM task_logs WHERE todo_id = ? ORDER BY rowid DESC LIMIT ?';
+  const params = minRowid !== undefined ? [todoId, minRowid, maxRows] : [todoId, maxRows];
+  const rows = db.prepare(query).all(...params) as { message: string }[];
+  if (rows.length === 0) return '';
+
+  const messages: string[] = [];
+  let totalLen = 0;
+  for (const row of rows) {
+    messages.push(row.message);
+    totalLen += row.message.length;
+    if (totalLen >= maxBytes) break;
+  }
+  messages.reverse();
+  const combined = messages.join('\n');
+  return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
+}
+
 // ── Schedules ──
 
 export interface Schedule {
@@ -1422,6 +1453,37 @@ export function deleteSessionLogsBySessionId(sessionId: string): number {
   return result.changes;
 }
 
+export function getMaxSessionLogRowid(sessionId?: string): number {
+  const db = getDatabase();
+  if (sessionId) {
+    const row = db.prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM session_logs WHERE session_id = ?').get(sessionId) as { max_rowid: number };
+    return row.max_rowid;
+  }
+  const row = db.prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM session_logs').get() as { max_rowid: number };
+  return row.max_rowid;
+}
+
+export function getRecentSessionLogText(sessionId: string, minRowid?: number, maxBytes: number = 32 * 1024, maxRows: number = 200): string {
+  const db = getDatabase();
+  const query = minRowid !== undefined
+    ? 'SELECT message FROM session_logs WHERE session_id = ? AND rowid > ? ORDER BY rowid DESC LIMIT ?'
+    : 'SELECT message FROM session_logs WHERE session_id = ? ORDER BY rowid DESC LIMIT ?';
+  const params = minRowid !== undefined ? [sessionId, minRowid, maxRows] : [sessionId, maxRows];
+  const rows = db.prepare(query).all(...params) as { message: string }[];
+  if (rows.length === 0) return '';
+
+  const messages: string[] = [];
+  let totalLen = 0;
+  for (const row of rows) {
+    messages.push(row.message);
+    totalLen += row.message.length;
+    if (totalLen >= maxBytes) break;
+  }
+  messages.reverse();
+  const combined = messages.join('\n');
+  return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
+}
+
 // ── Session Raw Chunks (xterm.js terminal byte-level history) ──
 
 export interface SessionRawChunk {
@@ -1429,6 +1491,14 @@ export interface SessionRawChunk {
   seq: number;
   bytes: Buffer;
   created_at: string;
+}
+
+export function getMaxSessionRawSeq(sessionId: string): number {
+  const db = getDatabase();
+  const row = db.prepare(
+    'SELECT COALESCE(MAX(seq), -1) AS max_seq FROM session_raw_chunks WHERE session_id = ?'
+  ).get(sessionId) as { max_seq: number };
+  return row.max_seq;
 }
 
 export function appendSessionRawChunk(sessionId: string, bytes: Buffer): number {
@@ -1483,12 +1553,20 @@ export function trimSessionRawChunks(sessionId: string, maxBytes: number): numbe
 
 /**
  * Retrieve the tail of recent raw chunks decoded as UTF-8 text, up to maxBytes (default 64 KiB).
+ * Supports bounding to chunks generated since minSeq and limiting SQLite chunk scan count.
  */
-export function getRecentSessionRawText(sessionId: string, maxBytes: number = 64 * 1024): string {
+export function getRecentSessionRawText(
+  sessionId: string,
+  maxBytes: number = 64 * 1024,
+  minSeq?: number,
+  maxChunks: number = 200,
+): string {
   const db = getDatabase();
-  const rows = db.prepare(
-    'SELECT bytes FROM session_raw_chunks WHERE session_id = ? ORDER BY seq DESC'
-  ).all(sessionId) as { bytes: Buffer | Uint8Array }[];
+  const query = minSeq !== undefined
+    ? 'SELECT bytes FROM session_raw_chunks WHERE session_id = ? AND seq >= ? ORDER BY seq DESC LIMIT ?'
+    : 'SELECT bytes FROM session_raw_chunks WHERE session_id = ? ORDER BY seq DESC LIMIT ?';
+  const params = minSeq !== undefined ? [sessionId, minSeq, maxChunks] : [sessionId, maxChunks];
+  const rows = db.prepare(query).all(...params) as { bytes: Buffer | Uint8Array }[];
 
   if (rows.length === 0) return '';
 

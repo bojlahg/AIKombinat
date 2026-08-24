@@ -339,6 +339,8 @@ export class SessionManager {
       const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
         ? undefined
         : executionConfig?.effort.nativeEffort;
+      const startRawSeq = queries.getMaxSessionRawSeq(sessionId) + 1;
+      const startLogRowid = queries.getMaxSessionLogRowid(sessionId);
       const result = await claudeManager.startClaude(
         workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
@@ -400,9 +402,8 @@ export class SessionManager {
               providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
             }
           } else {
-            const recentLogs = queries.getSessionLogsBySessionId(sessionId);
-            const logsText = recentLogs.map((l) => l.message).join('\n');
-            const recentPtyText = queries.getRecentSessionRawText(sessionId, 64 * 1024);
+            const logsText = queries.getRecentSessionLogText(sessionId, startLogRowid, 32 * 1024);
+            const recentPtyText = queries.getRecentSessionRawText(sessionId, 64 * 1024, startRawSeq);
             const combinedOutput = [logsText, recentPtyText].filter(Boolean).join('\n');
             const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
             if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {

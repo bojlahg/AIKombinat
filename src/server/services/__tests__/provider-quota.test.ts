@@ -915,5 +915,155 @@ describe('Quota Awareness V1', () => {
     // Quota state remains unknown
     expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
   });
+
+  it('18. Todo failure classification is strictly isolated to current execution and ignores historical logs', async () => {
+    providerQuotaService.setCooldownMs(100);
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Todo Iso Project', 'C:/todo-iso-proj');
+    const todo = queries.createTodo(
+      project.id,
+      'Todo Isolation Task',
+      undefined,
+      0,
+      'claude',
+      'claude-3.7-sonnet',
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      'high',
+      claude.id,
+    );
+
+    let resolveExitA: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid: 1801,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitA = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Run A starts
+    await orchestrator.startTodo(todo.id);
+    queries.createTaskLog(todo.id, 'error', 'Error: usage limit reached');
+    resolveExitA(1);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Run A marked Claude exhausted
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // Fast-forward past cooldown -> Claude becomes unknown
+    vi.setSystemTime(Date.now() + 200);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    // Reset todo status to pending for Retry
+    queries.updateTodoStatus(todo.id, 'pending');
+
+    let resolveExitB: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid: 1802,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitB = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Run B starts (same Todo retried)
+    await orchestrator.startTodo(todo.id);
+    // Run B fails with an unrelated error (e.g. exit code 127)
+    queries.createTaskLog(todo.id, 'error', 'bash: build-script.sh: command not found');
+    resolveExitB(127);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Run B must NOT poison Claude quota from Run A's historical quota error
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    vi.useRealTimers();
+  });
+
+  it('19. Session failure classification is strictly isolated to current execution and ignores historical raw chunks', async () => {
+    providerQuotaService.setCooldownMs(100);
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Session Iso Project', 'C:/sess-iso-proj');
+    const session = queries.createSession(
+      project.id,
+      'Session Isolation',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    let resolveExitA: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid: 1901,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitA = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Session Run A starts
+    await sessionManager.startSession(session.id);
+    queries.appendSessionRawChunk(session.id, Buffer.from('\x1b[31mError: usage limit reached\x1b[0m'));
+    resolveExitA(1);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Run A marked Claude exhausted
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // Fast-forward past cooldown -> Claude becomes unknown
+    vi.setSystemTime(Date.now() + 200);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    let resolveExitB: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid: 1902,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitB = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    // Session Run B starts (same session restarted)
+    await sessionManager.startSession(session.id);
+    queries.appendSessionRawChunk(session.id, Buffer.from('error: failed to push some refs'));
+    resolveExitB(1);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Run B must NOT poison Claude quota from Run A's historical raw chunks
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    // Verify historical raw chunks from both runs are still preserved for terminal replay
+    const allChunks = queries.getSessionRawChunks(session.id);
+    expect(allChunks.length).toBe(2);
+
+    vi.useRealTimers();
+  });
 });
 

@@ -6,10 +6,15 @@ import PasswordSettingsPanel from '../PasswordSettingsPanel';
 import SessionSettingsPanel from '../SessionSettingsPanel';
 import { TunnelSettingsPanel } from '../TunnelSettings';
 import McpSettingsPanel from '../McpSettingsPanel';
+import type { WsEvent } from '../../hooks/useWebSocket';
 import GeneralSettingsPanel from './GeneralSettingsPanel';
 import AgentsSettingsPanel from './AgentsSettingsPanel';
 
-export default function SettingsPage() {
+export interface SettingsPageProps {
+  onEvent?: (cb: (event: WsEvent) => void) => () => void;
+}
+
+export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
   const { t } = useI18n();
   const location = useLocation();
   const [tunnelDirty, setTunnelDirty] = useState(false);
@@ -61,7 +66,7 @@ export default function SettingsPage() {
             <Routes>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPanel />} />
-              <Route path="agents" element={<AgentsSettingsPanel />} />
+              <Route path="agents" element={<AgentsSettingsPanel onEvent={onEvent} />} />
               <Route path="account" element={<PasswordSettingsPanel />} />
               <Route path="terminals" element={<SessionSettingsPanel />} />
               <Route path="tunnel" element={<TunnelSettingsPanel onDirtyChange={setTunnelDirty} />} />

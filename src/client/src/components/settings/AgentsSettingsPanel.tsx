@@ -4,6 +4,8 @@ import { useI18n } from '../../i18n';
 import * as profilesApi from '../../api/executionProfiles';
 import { type ProviderQuotaState } from '../../api/cli-status';
 
+import type { WsEvent } from '../../hooks/useWebSocket';
+
 type Tool = profilesApi.AgentCliTool;
 type Model = {
   id: string; value: string; label: string; status: 'available' | 'missing'; source: 'cli' | 'manual';
@@ -32,7 +34,11 @@ const sameModelDraft = (left: Model, right?: Model) => !!right
   && JSON.stringify(left.supportedEfforts) === JSON.stringify(right.supportedEfforts)
   && left.sortOrder === right.sortOrder;
 
-export default function AgentsSettingsPanel() {
+export interface AgentsSettingsPanelProps {
+  onEvent?: (cb: (event: WsEvent) => void) => () => void;
+}
+
+export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProps = {}) {
   const { t } = useI18n();
   const [tab, setTab] = useState<'profiles' | 'models'>('profiles');
   const [models, setModels] = useState<Record<string, Model[]>>({});
@@ -46,6 +52,29 @@ export default function AgentsSettingsPanel() {
   const [saving, setSaving] = useState<Tool | null>(null);
   const [refreshResults, setRefreshResults] = useState<Partial<Record<Tool, RefreshResult | 'failed'>>>({});
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!onEvent) return;
+    return onEvent((event) => {
+      if (event.type === 'quota:updated' && event.tool) {
+        setQuotas((prev) => {
+          const existing = prev[event.tool!];
+          const updated: ProviderQuotaState = {
+            tool: event.tool as ProviderQuotaState['tool'],
+            state: (event.state as ProviderQuotaState['state']) ?? existing?.state ?? 'unknown',
+            source: existing?.source ?? 'websocket',
+            observedAt: new Date().toISOString(),
+            reason: event.reason !== undefined ? (event.reason ?? null) : (existing?.reason ?? null),
+            resetAt: event.resetAt !== undefined ? (event.resetAt ?? null) : (existing?.resetAt ?? null),
+          };
+          return {
+            ...prev,
+            [event.tool!]: updated,
+          };
+        });
+      }
+    });
+  }, [onEvent]);
 
   useEffect(() => {
     Promise.all([

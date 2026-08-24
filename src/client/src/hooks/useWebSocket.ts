@@ -54,6 +54,10 @@ export interface WsEvent {
     selfEdge: number;
     edgeUniqueConflict: number;
   };
+  // Quota events
+  tool?: string;
+  state?: string;
+  resetAt?: string | null;
   error?: string;
 }
 

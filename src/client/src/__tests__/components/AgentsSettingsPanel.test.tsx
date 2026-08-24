@@ -197,4 +197,50 @@ describe('Agents settings model catalog and profiles UX', () => {
     fireEvent.click(screen.getByTitle('Delete Opus 5'));
     expect(confirm).toHaveBeenCalledWith('Delete model "Opus 5"?');
   });
+
+  it('updates targeted agent quota badge upon receiving quota:updated WebSocket event without full reload', async () => {
+    let wsCallback: ((event: any) => void) | undefined;
+    const unsubSpy = vi.fn();
+    const onEvent = vi.fn((cb: (event: any) => void) => {
+      wsCallback = cb;
+      return unsubSpy;
+    });
+
+    const { unmount } = render(
+      <I18nProvider>
+        <AgentsSettingsPanel onEvent={onEvent} />
+      </I18nProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Models' }));
+    expect(await screen.findByText('Claude Code')).toBeInTheDocument();
+
+    const initialFetchCount = fetchMock.mock.calls.length;
+
+    // Simulate quota:updated WS event for Claude
+    expect(wsCallback).toBeDefined();
+    wsCallback!({
+      type: 'quota:updated',
+      tool: 'claude',
+      state: 'exhausted',
+      reason: 'Usage limit reached',
+    });
+
+    // Claude badge updates to Exhausted
+    await waitFor(() => {
+      const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+      expect(within(claudeSection).getByText(/Exhausted/)).toBeInTheDocument();
+    });
+
+    // Other agents remain Unknown
+    const codexSection = screen.getByText('Codex').closest('.rounded-xl') as HTMLElement;
+    expect(within(codexSection).getByText(/Unknown/)).toBeInTheDocument();
+
+    // No extra fetch calls made
+    expect(fetchMock.mock.calls.length).toBe(initialFetchCount);
+
+    // Unmount triggers unsubscribe
+    unmount();
+    expect(unsubSpy).toHaveBeenCalled();
+  });
 });

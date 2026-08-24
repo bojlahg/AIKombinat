@@ -207,7 +207,7 @@ function App() {
                       <PersonalAgenda />
                     }
                   />
-                  <Route path="/settings/*" element={<SettingsPage />} />
+                  <Route path="/settings/*" element={<SettingsPage onEvent={onEvent} />} />
                   <Route
                     path="/projects/:id"
                     element={

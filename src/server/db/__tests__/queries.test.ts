@@ -278,5 +278,45 @@ describe('Database Queries', () => {
       const rows = queries.getSessionRawChunks(sessionId);
       expect(rows.map(r => r.seq)).toEqual([3, 4]);
     });
+
+    it('getRecentSessionRawText reads only a bounded subset since minSeq', () => {
+      // Append 500 chunks of 100 bytes each
+      for (let i = 0; i < 500; i++) {
+        queries.appendSessionRawChunk(sessionId, Buffer.from(`chunk-${i.toString().padStart(4, '0')}\n`));
+      }
+
+      // Query only since chunk 450 (minSeq = 450) with 1024 bytes max
+      const textSince450 = queries.getRecentSessionRawText(sessionId, 1024, 450);
+      expect(textSince450).toContain('chunk-0450');
+      expect(textSince450).toContain('chunk-0499');
+      expect(textSince450).not.toContain('chunk-0449');
+
+      // Cap to 50 bytes (roughly last 4 chunks)
+      const smallTail = queries.getRecentSessionRawText(sessionId, 50, 450);
+      expect(smallTail).toContain('chunk-0499');
+      expect(smallTail).not.toContain('chunk-0450');
+    });
+  });
+
+  describe('getRecentTaskLogText', () => {
+    let todoId: string;
+
+    beforeEach(() => {
+      const project = queries.createProject('Test Log Boundary', '/tmp/log-bound-' + Date.now());
+      todoId = queries.createTodo(project.id, 'Log Boundary Task').id;
+    });
+
+    it('reads only logs created after minRowid', () => {
+      queries.createTaskLog(todoId, 'output', 'Run 1: error quota limit reached');
+      const startRowid = queries.getMaxTaskLogRowid(todoId);
+
+      queries.createTaskLog(todoId, 'output', 'Run 2: normal line 1');
+      queries.createTaskLog(todoId, 'error', 'Run 2: git command not found');
+
+      const currentRunOutput = queries.getRecentTaskLogText(todoId, startRowid, 1024);
+      expect(currentRunOutput).toContain('Run 2: normal line 1');
+      expect(currentRunOutput).toContain('Run 2: git command not found');
+      expect(currentRunOutput).not.toContain('quota limit reached');
+    });
   });
 });
