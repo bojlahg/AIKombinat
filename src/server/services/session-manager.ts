@@ -580,20 +580,17 @@ export class SessionManager {
       this.runStartupBuffers.delete(runToken);
     }
 
-    // Mark stopped + broadcast BEFORE the (up to 7s) graceful kill so the UI
-    // updates immediately; the exit handler's guards then skip this session.
     this.livePids.delete(sessionId);
-    queries.updateSessionStatus(sessionId, 'stopped');
-    queries.updateSession(sessionId, { process_pid: 0 });
-    queries.createSessionLog(sessionId, 'output', 'Session stopped by user.');
-    broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
-    broadcastProjectStatus(session.project_id);
-
     if (pid) {
       await claudeManager.stopClaude(pid);
     }
     if (runToken !== undefined) resourceManager.releaseRun(runToken);
     else resourceManager.releaseOwner('session', sessionId);
+    queries.updateSessionStatus(sessionId, 'stopped');
+    queries.updateSession(sessionId, { process_pid: 0 });
+    queries.createSessionLog(sessionId, 'output', 'Session stopped by user.');
+    broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
+    broadcastProjectStatus(session.project_id);
     orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 

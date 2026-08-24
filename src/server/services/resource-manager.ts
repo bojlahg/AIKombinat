@@ -53,7 +53,8 @@ export const RESOURCE_HEARTBEAT_INTERVAL_MS = 15_000;
 export const RESOURCE_LEASE_TTL_MS = 60_000;
 
 export class ResourceManager {
-  private activeRunTokens = new Set<string>();
+  private localRunTokens = new Set<string>();
+  private recoveredRunTokens = new Set<string>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private availabilityCallback: (() => void) | null = null;
@@ -123,10 +124,13 @@ export class ResourceManager {
       return { status: 'acquired' as const, runToken: request.runToken, resources };
     })();
 
-    for (const token of recoveredTokens) this.activeRunTokens.add(token);
+    for (const token of recoveredTokens) {
+      if (!this.localRunTokens.has(token)) this.recoveredRunTokens.add(token);
+    }
     if (removedKeys.size > 0) this.notifyCapacityChanged([...removedKeys], true);
     if (result.status === 'acquired') {
-      this.activeRunTokens.add(request.runToken);
+      this.localRunTokens.add(request.runToken);
+      this.recoveredRunTokens.delete(request.runToken);
       this.notifyCapacityChanged(resources, false);
     }
     return result;
@@ -136,7 +140,7 @@ export class ResourceManager {
     const db = getDatabase();
     const rows = db.prepare('SELECT DISTINCT resource_key FROM resource_leases WHERE run_token = ?').all(runToken) as Array<{ resource_key: ResourceKey }>;
     const result = db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
-    this.activeRunTokens.delete(runToken);
+    this.forgetRun(runToken);
     if (result.changes > 0) this.notifyCapacityChanged(rows.map((row) => row.resource_key), true);
     return result.changes;
   }
@@ -147,7 +151,7 @@ export class ResourceManager {
       'SELECT DISTINCT resource_key, run_token FROM resource_leases WHERE owner_type = ? AND owner_id = ?'
     ).all(ownerType, ownerId) as Array<{ resource_key: ResourceKey; run_token: string }>;
     const result = db.prepare('DELETE FROM resource_leases WHERE owner_type = ? AND owner_id = ?').run(ownerType, ownerId);
-    for (const row of rows) this.activeRunTokens.delete(row.run_token);
+    for (const row of rows) this.forgetRun(row.run_token);
     if (result.changes > 0) this.notifyCapacityChanged([...new Set(rows.map((row) => row.resource_key))], true);
     return result.changes;
   }
@@ -194,7 +198,9 @@ export class ResourceManager {
     const recoveredTokens = new Set<string>();
     const before = db.prepare('SELECT COUNT(*) AS count FROM resource_leases').get() as { count: number };
     db.transaction(() => this.reconcileExpiredInTransaction(nowIso, expiresIso, removedKeys, recoveredTokens, includeAll))();
-    for (const token of recoveredTokens) this.activeRunTokens.add(token);
+    for (const token of recoveredTokens) {
+      if (!this.localRunTokens.has(token)) this.recoveredRunTokens.add(token);
+    }
     const after = db.prepare('SELECT COUNT(*) AS count FROM resource_leases').get() as { count: number };
     if (removedKeys.size > 0) this.notifyCapacityChanged([...removedKeys], true);
     return { released: before.count - after.count, recovered: recoveredTokens.size };
@@ -204,7 +210,8 @@ export class ResourceManager {
     this.recoverStaleLeases(true);
     if (!this.heartbeatTimer) {
       this.heartbeatTimer = setInterval(() => {
-        for (const token of [...this.activeRunTokens]) this.heartbeatRun(token);
+        for (const token of [...this.localRunTokens]) this.heartbeatRun(token);
+        this.heartbeatRecoveredRuns();
       }, RESOURCE_HEARTBEAT_INTERVAL_MS);
       this.heartbeatTimer.unref?.();
     }
@@ -219,7 +226,8 @@ export class ResourceManager {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.heartbeatTimer = null;
     this.sweepTimer = null;
-    this.activeRunTokens.clear();
+    this.localRunTokens.clear();
+    this.recoveredRunTokens.clear();
   }
 
   resetForTesting(): void {
@@ -247,6 +255,7 @@ export class ResourceManager {
       byRun.set(row.run_token, group);
     }
     for (const [runToken, leases] of byRun) {
+      if (this.localRunTokens.has(runToken)) continue;
       const row = leases[0];
       const ownerTable = row.owner_type === 'todo' ? 'todos' : 'sessions';
       const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
@@ -260,9 +269,52 @@ export class ResourceManager {
       } else {
         db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
         for (const lease of leases) removedKeys.add(lease.resource_key);
-        this.activeRunTokens.delete(runToken);
+        this.forgetRun(runToken);
       }
     }
+  }
+
+  private heartbeatRecoveredRuns(): void {
+    if (this.recoveredRunTokens.size === 0) return;
+    const db = getDatabase();
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const expiresIso = new Date(now.getTime() + RESOURCE_LEASE_TTL_MS).toISOString();
+    const removedKeys = new Set<ResourceKey>();
+
+    db.transaction(() => {
+      for (const runToken of [...this.recoveredRunTokens]) {
+        const leases = db.prepare(
+          `SELECT resource_key, amount, owner_type, owner_id, run_token, acquired_at, heartbeat_at, expires_at
+           FROM resource_leases WHERE run_token = ? ORDER BY id ASC`
+        ).all(runToken) as LeaseRow[];
+        if (leases.length === 0) {
+          this.forgetRun(runToken);
+          continue;
+        }
+        const row = leases[0];
+        const ownerTable = row.owner_type === 'todo' ? 'todos' : 'sessions';
+        const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
+          | { status: string; process_pid: number | null }
+          | undefined;
+        const live = !!owner && owner.status === 'running' && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
+        if (live) {
+          db.prepare('UPDATE resource_leases SET heartbeat_at = ?, expires_at = ? WHERE run_token = ?')
+            .run(nowIso, expiresIso, runToken);
+        } else {
+          db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
+          for (const lease of leases) removedKeys.add(lease.resource_key);
+          this.forgetRun(runToken);
+        }
+      }
+    })();
+
+    if (removedKeys.size > 0) this.notifyCapacityChanged([...removedKeys], true);
+  }
+
+  private forgetRun(runToken: string): void {
+    this.localRunTokens.delete(runToken);
+    this.recoveredRunTokens.delete(runToken);
   }
 
   private notifyCapacityChanged(resourceKeys: ResourceKey[], wakeWaiters: boolean): void {
