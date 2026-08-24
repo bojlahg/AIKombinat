@@ -688,10 +688,11 @@ describe('Quota Awareness V1', () => {
   });
 
   it('13. quota state survives DB restart', () => {
+    const futureResetAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     providerQuotaService.markExhausted('claude', {
       source: 'runtime_rejection',
       reason: 'Quota limit exceeded',
-      resetAt: '2026-08-24T12:00:00.000Z',
+      resetAt: futureResetAt,
     });
 
     // Clear in-memory service cache (simulating process restart)
@@ -702,7 +703,7 @@ describe('Quota Awareness V1', () => {
     expect(reloaded.state).toBe('exhausted');
     expect(reloaded.source).toBe('runtime_rejection');
     expect(reloaded.reason).toBe('Quota limit exceeded');
-    expect(reloaded.resetAt).toBe('2026-08-24T12:00:00.000Z');
+    expect(reloaded.resetAt).toBe(futureResetAt);
   });
 
   it('14. quota exhaustion and concurrency busy remain distinct diagnostics', async () => {

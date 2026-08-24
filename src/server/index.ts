@@ -20,6 +20,7 @@ import logsRouter from './routes/logs.js';
 import imagesRouter from './routes/images.js';
 import { claudeManager } from './services/claude-manager.js';
 import { orchestrator } from './services/orchestrator.js';
+import { sessionManager } from './services/session-manager.js';
 import { tunnelManager } from './services/tunnel-manager.js';
 import { getSetting as getAppSetting, setSetting as setAppSetting } from './db/app-settings.js';
 import { hashPassword } from './utils/password.js';
@@ -344,6 +345,7 @@ app.get('/api/health', (_req, res) => {
 function cleanup() {
   console.log('Shutting down: killing all Claude CLI processes, scheduler, and tunnel...');
   orchestrator.stopStaleProcessChecker();
+  sessionManager.stopStaleProcessChecker();
   resourceManager.shutdown();
   scheduler.stopAll();
   Promise.all([
@@ -396,6 +398,7 @@ function tryListen(port: number, attempt: number) {
     console.log('    Press Ctrl+C to stop.');
     console.log('');
     orchestrator.startStaleProcessChecker();
+    sessionManager.startStaleProcessChecker();
 
     // Fetch rate limit reset time in background (lightweight Claude CLI call)
     logStreamer.fetchRateLimitOnStartup();

@@ -24,6 +24,7 @@ const RAW_DB_CAP_BYTES = 2 * 1024 * 1024;
 // last trim — trimming on every flush scanned the whole per-session chunk
 // table every ≤100ms and blocked the event loop under heavy TUI output.
 const RAW_TRIM_EVERY_BYTES = 256 * 1024;
+const STALE_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 
 export type SessionRunToken = string;
 
@@ -32,6 +33,104 @@ export class SessionManager {
   private sessionRunGenerations: Map<string, number> = new Map();
   // sessionId -> currently active execution run token
   private activeRunTokens: Map<string, SessionRunToken> = new Map();
+
+  // Guard set to prevent race conditions during stopSession kill window
+  private stoppingSessionIds: Set<string> = new Set();
+  private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private processAliveChecker: ((pid: number) => boolean) | null = null;
+
+  constructor(
+    private readonly isProcessAliveFn: (pid: number) => boolean = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  ) {}
+
+  private isProcessAlive(pid: number): boolean {
+    if (this.processAliveChecker) return this.processAliveChecker(pid);
+    return this.isProcessAliveFn(pid);
+  }
+
+  setProcessAliveCheckerForTesting(checker: ((pid: number) => boolean) | null): void {
+    this.processAliveChecker = checker;
+  }
+
+  /**
+   * Start periodic process liveness check for sessions.
+   * Detects sessions stuck in 'running' state whose process has already exited.
+   */
+  startStaleProcessChecker(): void {
+    if (this.staleCheckTimer) return;
+    this.staleCheckTimer = setInterval(() => this.recoverStaleSessions(), STALE_CHECK_INTERVAL_MS);
+    this.staleCheckTimer.unref?.();
+  }
+
+  stopStaleProcessChecker(): void {
+    if (this.staleCheckTimer) {
+      clearInterval(this.staleCheckTimer);
+      this.staleCheckTimer = null;
+    }
+  }
+
+  /**
+   * Find persisted/recovered sessions marked 'running' whose process is no longer alive,
+   * and mark them as failed.
+   */
+  recoverStaleSessions(): number {
+    const runningSessions = queries.getSessionsByStatus('running');
+    let recoveredCount = 0;
+    for (const session of runningSessions) {
+      if (this.activeRunTokens.has(session.id)) continue;
+      if (this.stoppingSessionIds.has(session.id)) continue;
+
+      const pid = session.process_pid;
+      if (pid && pid > 0 && this.isProcessAlive(pid)) {
+        continue;
+      }
+
+      const msg = 'Process exited unexpectedly (detected by liveness check).';
+      try {
+        queries.updateSessionStatus(session.id, 'failed');
+        queries.createSessionLog(session.id, 'error', msg);
+        queries.updateSession(session.id, { process_pid: 0 });
+        resourceManager.releaseOwner('session', session.id);
+      } catch {
+        try {
+          queries.updateSessionStatus(session.id, 'failed');
+          queries.updateSession(session.id, { process_pid: 0 });
+          resourceManager.releaseOwner('session', session.id);
+        } catch { /* ignore */ }
+      }
+      broadcaster.broadcast({ type: 'session:log', sessionId: session.id, message: msg, logType: 'error' });
+      broadcaster.broadcast({ type: 'session:status-changed', sessionId: session.id, status: 'failed' });
+      broadcastProjectStatus(session.project_id);
+      recoveredCount++;
+    }
+
+    if (recoveredCount > 0) {
+      orchestrator.wakeWaitingExecutors().catch(() => {});
+    }
+
+    return recoveredCount;
+  }
+
+  resetForTesting(): void {
+    this.stopStaleProcessChecker();
+    this.processAliveChecker = null;
+    this.sessionRunGenerations.clear();
+    this.activeRunTokens.clear();
+    this.runFlushers.clear();
+    this.runRawUnsubscribes.clear();
+    this.runInitialPrompts.clear();
+    this.runStartupBuffers.clear();
+    this.livePids.clear();
+    this.pendingBaseSnapshots.clear();
+    this.stoppingSessionIds.clear();
+  }
 
   // runToken -> pending-flush callback so we can drain the byte buffer when
   // the PTY exits or the user stops the session.
@@ -572,26 +671,31 @@ export class SessionManager {
     if (!session) throw new Error('Session not found');
     const pid = session.process_pid;
 
-    const runToken = this.activeRunTokens.get(sessionId);
-    if (runToken !== undefined) {
-      this.flushAndForgetRaw(runToken);
-      this.activeRunTokens.delete(sessionId);
-      this.runInitialPrompts.delete(runToken);
-      this.runStartupBuffers.delete(runToken);
-    }
+    this.stoppingSessionIds.add(sessionId);
+    try {
+      const runToken = this.activeRunTokens.get(sessionId);
+      if (runToken !== undefined) {
+        this.flushAndForgetRaw(runToken);
+        this.activeRunTokens.delete(sessionId);
+        this.runInitialPrompts.delete(runToken);
+        this.runStartupBuffers.delete(runToken);
+      }
 
-    this.livePids.delete(sessionId);
-    if (pid) {
-      await claudeManager.stopClaude(pid);
+      this.livePids.delete(sessionId);
+      if (pid) {
+        await claudeManager.stopClaude(pid);
+      }
+      if (runToken !== undefined) resourceManager.releaseRun(runToken);
+      else resourceManager.releaseOwner('session', sessionId);
+      queries.updateSessionStatus(sessionId, 'stopped');
+      queries.updateSession(sessionId, { process_pid: 0 });
+      queries.createSessionLog(sessionId, 'output', 'Session stopped by user.');
+      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
+      broadcastProjectStatus(session.project_id);
+      orchestrator.wakeWaitingExecutors().catch(() => {});
+    } finally {
+      this.stoppingSessionIds.delete(sessionId);
     }
-    if (runToken !== undefined) resourceManager.releaseRun(runToken);
-    else resourceManager.releaseOwner('session', sessionId);
-    queries.updateSessionStatus(sessionId, 'stopped');
-    queries.updateSession(sessionId, { process_pid: 0 });
-    queries.createSessionLog(sessionId, 'output', 'Session stopped by user.');
-    broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
-    broadcastProjectStatus(session.project_id);
-    orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 
   /**
