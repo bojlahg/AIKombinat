@@ -194,6 +194,18 @@ export class SessionManager {
           });
           resolvedCliTool = executionConfig.cliTool;
         }
+
+        // Quota preflight for manual session (agents only, not raw-shell)
+        if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+          const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+          if (quota.state === 'exhausted') {
+            adapter = getAdapter(resolvedCliTool);
+            throw new Error(
+              `Provider quota exhausted for ${adapter.displayName} (${quota.reason || 'provider quota is currently exhausted'}). Please try again later.`
+            );
+          }
+        }
+
         const reserved = executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId });
         if (!reserved) {
           adapter = getAdapter(resolvedCliTool);
@@ -389,7 +401,9 @@ export class SessionManager {
             }
           } else {
             const recentLogs = queries.getSessionLogsBySessionId(sessionId);
-            const combinedOutput = recentLogs.map((l) => l.message).join('\n');
+            const logsText = recentLogs.map((l) => l.message).join('\n');
+            const recentPtyText = queries.getRecentSessionRawText(sessionId, 64 * 1024);
+            const combinedOutput = [logsText, recentPtyText].filter(Boolean).join('\n');
             const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
             if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
               if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {

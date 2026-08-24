@@ -332,6 +332,26 @@ export class DiscussionOrchestrator {
         });
         resolvedCliTool = executionConfig.cliTool;
       }
+
+      // Quota preflight for manual discussion turn (agents only, not raw-shell)
+      if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+        const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+        if (quota.state === 'exhausted') {
+          const adapter = getAdapter(resolvedCliTool);
+          queries.updateDiscussionStatus(discussionId, 'paused');
+          queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
+          queries.updateDiscussionMessage(messageId, { status: 'pending' });
+          queries.createDiscussionLog(
+            discussionId,
+            messageId,
+            'warning',
+            `[quota] Paused discussion turn: provider quota exhausted for ${adapter.displayName} (${quota.reason || 'provider quota is currently exhausted'}).`,
+          );
+          dispatchDiscussionStatus({ discussionId, status: 'paused', currentRound: message.round_number, currentAgentId: message.agent_id });
+          return;
+        }
+      }
+
       const reserved = executorPool.reserveSlot(discussionId, resolvedCliTool, { excludeDiscussionId: discussionId });
       if (!reserved) {
         const adapter = getAdapter(resolvedCliTool);

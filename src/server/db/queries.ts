@@ -1481,6 +1481,33 @@ export function trimSessionRawChunks(sessionId: string, maxBytes: number): numbe
   return result.changes;
 }
 
+/**
+ * Retrieve the tail of recent raw chunks decoded as UTF-8 text, up to maxBytes (default 64 KiB).
+ */
+export function getRecentSessionRawText(sessionId: string, maxBytes: number = 64 * 1024): string {
+  const db = getDatabase();
+  const rows = db.prepare(
+    'SELECT bytes FROM session_raw_chunks WHERE session_id = ? ORDER BY seq DESC'
+  ).all(sessionId) as { bytes: Buffer | Uint8Array }[];
+
+  if (rows.length === 0) return '';
+
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  for (const row of rows) {
+    const buf = Buffer.isBuffer(row.bytes) ? row.bytes : Buffer.from(row.bytes);
+    chunks.push(buf);
+    totalBytes += buf.length;
+    if (totalBytes >= maxBytes) break;
+  }
+
+  // Reconstruct in chronological order
+  chunks.reverse();
+  const combined = Buffer.concat(chunks);
+  const slice = totalBytes > maxBytes ? combined.subarray(combined.length - maxBytes) : combined;
+  return slice.toString('utf8');
+}
+
 // ── Planner Items ──
 
 const PLANNER_TAG_COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'];

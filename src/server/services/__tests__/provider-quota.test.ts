@@ -9,6 +9,8 @@ vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
 const queries = await import('../../db/queries.js');
 const { executorPool } = await import('../executor-pool.js');
 const { orchestrator } = await import('../orchestrator.js');
+const { sessionManager } = await import('../session-manager.js');
+const { discussionOrchestrator } = await import('../discussion-orchestrator.js');
 const { claudeManager } = await import('../claude-manager.js');
 const cliStatusModule = await import('../cli-status.js');
 const { providerQuotaService } = await import('../provider-quota.js');
@@ -445,6 +447,27 @@ describe('Quota Awareness V1', () => {
     vi.useRealTimers();
   });
 
+  it('10b. known resetAt in 4 hours remains exhausted after 5-minute cooldown and transitions only after resetAt', () => {
+    providerQuotaService.setCooldownMs(5 * 60 * 1000); // 5 min cooldown
+    const fourHoursLater = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+
+    providerQuotaService.markExhausted('claude', {
+      source: 'runtime_rejection',
+      reason: 'Daily quota exhausted',
+      resetAt: fourHoursLater,
+    });
+
+    // 10 minutes pass (greater than generic 5-min cooldown, but less than 4 hours)
+    vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // 4 hours + 1 minute pass (past resetAt)
+    vi.setSystemTime(Date.now() + 4 * 60 * 60 * 1000 + 60 * 1000);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    vi.useRealTimers();
+  });
+
   it('11. successful execution may mark provider available', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     const project = queries.createProject('Success Project', 'C:/success-proj');
@@ -488,6 +511,33 @@ describe('Quota Awareness V1', () => {
 
     expect(providerQuotaService.getQuotaState('claude').state).toBe('available');
     expect(providerQuotaService.getQuotaState('claude').source).toBe('execution_success');
+  });
+
+  it('11b. stale success cannot erase newer active exhaustion, but expired exhaustion can become available', async () => {
+    providerQuotaService.setCooldownMs(100);
+    // Mark Claude as actively exhausted
+    providerQuotaService.markExhausted('claude', {
+      source: 'runtime_rejection',
+      reason: 'Rate limited on earlier task',
+    });
+
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // A concurrent task that started before exhaustion now finishes with success
+    providerQuotaService.markAvailable('claude', { source: 'stale_success' });
+
+    // Active exhaustion MUST be preserved
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // Fast forward past cooldown -> transitions to unknown
+    vi.setSystemTime(Date.now() + 200);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    // A subsequent successful execution can now establish available state
+    providerQuotaService.markAvailable('claude', { source: 'fresh_success' });
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('available');
+
+    vi.useRealTimers();
   });
 
   it('12. manual execution does not silently fall back to another provider', async () => {
@@ -544,6 +594,135 @@ describe('Quota Awareness V1', () => {
     expect(quotaErrorLog?.log_type).toBe('error');
   });
 
+  it('12b. manual Todo preflight blocks launch of already exhausted provider without spawning CLI', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Preflight Todo Project', 'C:/preflight-todo-proj');
+    const todo = queries.createTodo(
+      project.id,
+      'Preflight Todo Task',
+      undefined,
+      0,
+      'claude',
+      'claude-3.7-sonnet',
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      'high',
+      claude.id,
+    );
+
+    // Mark Claude as already exhausted
+    providerQuotaService.markExhausted('claude', { source: 'test', reason: 'daily quota limit exceeded' });
+
+    const startSpy = vi.spyOn(claudeManager, 'startClaude');
+
+    await orchestrator.startTodo(todo.id);
+
+    // CLI must NOT have been spawned
+    expect(startSpy).not.toHaveBeenCalled();
+
+    const failedTodo = queries.getTodoById(todo.id);
+    expect(failedTodo?.status).toBe('failed');
+
+    const logs = queries.getTaskLogsByTodoId(todo.id);
+    const quotaLog = logs.find((l) => l.message.includes('provider quota exhausted'));
+    expect(quotaLog).toBeDefined();
+    expect(quotaLog?.log_type).toBe('error');
+  });
+
+  it('12c. manual Session preflight blocks launch of already exhausted provider', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Preflight Session Project', 'C:/preflight-sess-proj');
+    const session = queries.createSession(
+      project.id,
+      'Preflight Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    providerQuotaService.markExhausted('claude', { source: 'test', reason: 'quota exceeded' });
+    const startSpy = vi.spyOn(claudeManager, 'startClaude');
+
+    await expect(sessionManager.startSession(session.id)).rejects.toThrow('Provider quota exhausted');
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it('12d. manual Discussion preflight pauses turn for already exhausted provider', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const codex = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
+    const project = queries.createProject('Preflight Disc Project', 'C:/preflight-disc-proj');
+
+    const agent1 = queries.createDiscussionAgent(
+      project.id,
+      'Agent Alpha',
+      'Role description',
+      'System prompt',
+      'claude',
+      'claude-3.7-sonnet',
+      'blue',
+      false,
+      null,
+      'high',
+      claude.id,
+    );
+    const agent2 = queries.createDiscussionAgent(
+      project.id,
+      'Agent Beta',
+      'Role description 2',
+      'System prompt 2',
+      'codex',
+      'gpt-5',
+      'green',
+      false,
+      null,
+      'medium',
+      codex.id,
+    );
+
+    const disc = queries.createDiscussion(
+      project.id,
+      'Test Topic',
+      'Discussion Description',
+      [agent1.id, agent2.id],
+      3,
+      false,
+      undefined,
+      'none',
+      null,
+      null,
+      0,
+    );
+
+    providerQuotaService.markExhausted('claude', { source: 'test', reason: 'quota limit reached' });
+    const startSpy = vi.spyOn(claudeManager, 'startClaude');
+
+    await discussionOrchestrator.startDiscussion(disc.id);
+
+    expect(startSpy).not.toHaveBeenCalled();
+    const updatedDisc = queries.getDiscussionById(disc.id);
+    expect(updatedDisc?.status).toBe('paused');
+
+    const logs = queries.getDiscussionLogs(disc.id);
+    const quotaWarn = logs.find((l) => l.message.includes('provider quota exhausted'));
+    expect(quotaWarn).toBeDefined();
+    expect(quotaWarn?.log_type).toBe('warning');
+  });
+
   it('13. quota state survives DB restart', () => {
     providerQuotaService.markExhausted('claude', {
       source: 'runtime_rejection',
@@ -598,4 +777,143 @@ describe('Quota Awareness V1', () => {
     expect(codexEval?.status).toBe('busy');
     expect(codexEval?.reason).toBe('provider concurrency limit reached');
   });
+
+  it('15. Session failure classification reads raw PTY output for quota detection', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('PTY Session Project', 'C:/pty-sess-proj');
+    const session = queries.createSession(
+      project.id,
+      'PTY Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 1501,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    await sessionManager.startSession(session.id);
+
+    // Simulate writing raw PTY chunk with quota message (no lifecycle log has quota text)
+    queries.appendSessionRawChunk(session.id, Buffer.from('\x1b[31mError: usage limit reached. Please try later.\x1b[0m'));
+
+    // Process exits with error code
+    resolveExit(1);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Claude quota must be marked exhausted from raw PTY chunk
+    const claudeQuota = providerQuotaService.getQuotaState('claude');
+    expect(claudeQuota.state).toBe('exhausted');
+    expect(claudeQuota.source).toBe('runtime_rejection');
+    expect(claudeQuota.reason).toContain('usage limit reached');
+  });
+
+  it('15b. Antigravity Session failure classification reads raw PTY output for RESOURCE_EXHAUSTED', async () => {
+    const agy = queries.addModel('antigravity', 'gemini-3.7-flash', 'Gemini 3.7 Flash', ['high'], { high: 'gemini-3.7-flash-high' });
+    const project = queries.createProject('Agy PTY Project', 'C:/agy-pty-proj');
+    const session = queries.createSession(
+      project.id,
+      'Agy PTY Session',
+      'Session description',
+      'antigravity',
+      'gemini-3.7-flash',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      agy.id,
+    );
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 1551,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'agy',
+      args: [],
+    });
+
+    await sessionManager.startSession(session.id);
+
+    queries.appendSessionRawChunk(session.id, Buffer.from('Error: RESOURCE_EXHAUSTED: Quota exceeded for quota metric'));
+    resolveExit(1);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    const agyQuota = providerQuotaService.getQuotaState('antigravity');
+    expect(agyQuota.state).toBe('exhausted');
+    expect(agyQuota.source).toBe('runtime_rejection');
+    expect(agyQuota.reason).toContain('RESOURCE_EXHAUSTED');
+  });
+
+  it('16. Session unrelated PTY failure does not change quota state', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('PTY Normal Err Project', 'C:/pty-normal-proj');
+    const session = queries.createSession(
+      project.id,
+      'PTY Normal Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValue({
+      pid: 1601,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    await sessionManager.startSession(session.id);
+
+    queries.appendSessionRawChunk(session.id, Buffer.from('bash: git: command not found'));
+    resolveExit(127);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+  });
+
+  it('17. overloaded_error is classified as other and does not alter quota state', () => {
+    const result = classifyProviderFailure('claude', 1, 'Error: overloaded_error - Anthropic server is temporarily overloaded.');
+    expect(result.category).toBe('other');
+
+    // Quota state remains unknown
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+  });
 });
+

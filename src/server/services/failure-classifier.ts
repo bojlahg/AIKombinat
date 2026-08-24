@@ -18,7 +18,6 @@ const CLAUDE_QUOTA_PATTERNS = [
   /rate_limit_error/i,
   /429\s*(?:Too Many Requests|Quota exceeded|Resource has been exhausted)/i,
   /hit your daily rate limit/i,
-  /overloaded_error/i,
 ];
 
 const CLAUDE_AUTH_PATTERNS = [

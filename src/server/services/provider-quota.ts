@@ -49,14 +49,14 @@ export class ProviderQuotaService {
 
     if (record.resetAt) {
       const resetTime = new Date(record.resetAt).getTime();
-      if (!isNaN(resetTime) && now >= resetTime) {
-        return true;
+      if (!isNaN(resetTime)) {
+        return now >= resetTime;
       }
     }
 
     const observedTime = new Date(record.observedAt).getTime();
-    if (!isNaN(observedTime) && now - observedTime >= this.getCooldownMs()) {
-      return true;
+    if (!isNaN(observedTime)) {
+      return now - observedTime >= this.getCooldownMs();
     }
 
     return false;
@@ -171,6 +171,11 @@ export class ProviderQuotaService {
     tool: AgentCliTool,
     options: { source?: string } = {},
   ): ProviderQuotaStateRecord {
+    const current = this.getQuotaState(tool);
+    if (current.state === 'exhausted') {
+      return current;
+    }
+
     const observedAt = new Date().toISOString();
     const record: ProviderQuotaStateRecord = {
       tool,

@@ -439,6 +439,22 @@ export class Orchestrator {
           : null;
         resolvedCliTool = executionConfig?.cliTool ?? cliTool;
 
+        // Quota preflight for manual execution (agents only, not raw-shell)
+        if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+          const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+          if (quota.state === 'exhausted') {
+            const adapter = getAdapter(resolvedCliTool);
+            const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${quota.reason || 'provider quota is currently exhausted'}).`;
+            queries.updateTodoStatus(todoId, 'failed');
+            queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+            queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
+            broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+            broadcaster.broadcast({ type: 'todo:log', todoId, message: failMsg, logType: 'error' });
+            this.broadcastProjectStatus(projectId);
+            return;
+          }
+        }
+
         const reserved = executorPool.reserveSlot(todoId, resolvedCliTool, { excludeTodoId: todoId });
         if (!reserved) {
           queries.updateTodoStatus(todoId, 'waiting_executor');
