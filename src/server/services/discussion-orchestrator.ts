@@ -12,6 +12,8 @@ import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './
 import { broadcastProjectStatus } from './project-status.js';
 import { executorPool } from './executor-pool.js';
 import { orchestrator } from './orchestrator.js';
+import { providerQuotaService } from './provider-quota.js';
+import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 
 function broadcastDiscussionProjectStatus(discussionId: string): void {
@@ -417,6 +419,10 @@ export class DiscussionOrchestrator {
         const fullOutput = outputBuffer.join('\n');
 
         if (exitCode === 0) {
+          if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+            providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+          }
+
           queries.updateDiscussionMessage(messageId, {
             content: fullOutput,
             status: 'completed',
@@ -429,6 +435,17 @@ export class DiscussionOrchestrator {
           orchestrator.wakeWaitingExecutors().catch(() => {});
           this.advanceDiscussion(discussionId, messageId).catch(() => {});
         } else {
+          const classification = classifyProviderFailure(resolvedCliTool, exitCode, fullOutput);
+          if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
+            if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+              providerQuotaService.markExhausted(resolvedCliTool, {
+                source: 'runtime_rejection',
+                reason: classification.reason,
+                resetAt: classification.resetAt,
+              });
+            }
+          }
+
           console.error(`[discussion] Agent ${message.agent_name} failed (exit code ${exitCode}). Output:\n${fullOutput.slice(-500)}`);
           queries.updateDiscussionMessage(messageId, {
             content: fullOutput,

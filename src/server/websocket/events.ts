@@ -43,4 +43,6 @@ export type WSEvent =
         edgeUniqueConflict: number;
       };
       error?: string;
-    };
+    }
+  | { type: 'quota:updated'; tool: string; state: string; reason?: string | null; resetAt?: string | null };
+

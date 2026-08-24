@@ -2,6 +2,7 @@ import * as queries from '../db/queries.js';
 import { getAdapter, resolveExecutionModel, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
 import { resolveExecutionConfig, type ResolvedExecutionConfig } from './execution-config.js';
+import { providerQuotaService } from './provider-quota.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -317,6 +318,18 @@ export class ExecutorPool {
         candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
         status: 'invalid', reason: `Effort "${effort}" is not supported by model "${catalogModel.model_label}"`,
       };
+    }
+
+    // 4. Provider quota is not known-exhausted
+    if (cliTool === 'claude' || cliTool === 'codex' || cliTool === 'antigravity') {
+      const quotaState = providerQuotaService.getQuotaState(cliTool);
+      if (quotaState.state === 'exhausted') {
+        const reasonDetail = quotaState.reason ? `: ${quotaState.reason}` : '';
+        return {
+          candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+          status: 'unavailable', reason: `provider quota exhausted${reasonDetail}`,
+        };
+      }
     }
 
     // 5. Provider/tool has an available concurrency slot

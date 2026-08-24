@@ -16,6 +16,8 @@ import { captureReviewMetadata } from './review-capture.js';
 import { broadcastProjectStatus as broadcastProjectStatusShared } from './project-status.js';
 import { maybeCreateReviewTodo } from './auto-delegate.js';
 import { executorPool } from './executor-pool.js';
+import { providerQuotaService } from './provider-quota.js';
+import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import * as queries from '../db/queries.js';
 
@@ -724,6 +726,73 @@ export class Orchestrator {
             return;
           }
 
+          // Check for runtime quota / rate-limit rejection
+          const recentLogs = queries.getTaskLogsByTodoId(todoId);
+          const combinedOutput = recentLogs.map((l) => l.message).join('\n');
+          const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
+
+          if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
+            if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+              providerQuotaService.markExhausted(resolvedCliTool, {
+                source: 'runtime_rejection',
+                reason: classification.reason,
+                resetAt: classification.resetAt,
+              });
+            }
+
+            const quotaMsg = `[quota] ${adapter.displayName} quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
+            queries.createTaskLog(todoId, 'warning', quotaMsg, roundNumber);
+
+            if (currentTodo.execution_profile_id) {
+              // Profile execution: re-evaluate with next eligible candidate
+              queries.updateTodo(todoId, {
+                process_pid: 0,
+                execution_snapshot: null,
+              });
+              queries.updateTodoStatus(todoId, 'pending');
+              queries.createTaskLog(
+                todoId,
+                'output',
+                `[quota] Switching to next candidate in profile after ${adapter.displayName} quota exhaustion...`,
+                roundNumber,
+              );
+              this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions).catch(() => {
+                try {
+                  queries.updateTodoStatus(todoId, 'failed');
+                  queries.createTaskLog(todoId, 'error', 'Profile candidate switch failed.', roundNumber);
+                } catch { /* ignore */ }
+                broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+                this.broadcastProjectStatus(projectId);
+              });
+              this.wakeWaitingExecutors().catch(() => {});
+              return;
+            } else {
+              // Manual execution: do not silently switch executor; fail clearly with quota diagnostic
+              const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
+              try {
+                queries.updateTodoStatus(todoId, 'failed');
+                queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
+                queries.updateTodo(todoId, {
+                  process_pid: 0,
+                  ...(tokenUsage ? {
+                    token_usage: JSON.stringify(tokenUsage),
+                    total_cost_usd: tokenUsage.total_cost ?? null,
+                    total_tokens: ((tokenUsage.input_tokens ?? 0) + (tokenUsage.output_tokens ?? 0)) || null,
+                  } : {}),
+                });
+              } catch {
+                try { queries.updateTodoStatus(todoId, 'failed'); } catch { /* ignore */ }
+              }
+
+              captureReviewMetadata(todoId).catch(() => { /* ignore */ });
+              broadcaster.broadcast({ type: 'todo:log', todoId, message: failMsg, logType: 'error' });
+              broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+              this.broadcastProjectStatus(projectId);
+              this.wakeWaitingExecutors().catch(() => {});
+              return;
+            }
+          }
+
           // Normal failure path
           const failMsg = `${adapter.displayName} exited with code ${exitCode}.`;
           try {
@@ -747,6 +816,10 @@ export class Orchestrator {
           this.broadcastProjectStatus(projectId);
         } else {
           // Success path
+          if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+            providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+          }
+
           const doneMsg = `${adapter.displayName} completed successfully.${isContinue ? ` (round ${roundNumber})` : ''}`;
           try {
             queries.updateTodoStatus(todoId, 'completed');

@@ -10,6 +10,8 @@ import { broadcastProjectStatus } from './project-status.js';
 import { snapshotWorkingTree } from '../lib/git-diff.js';
 import { executorPool } from './executor-pool.js';
 import { orchestrator } from './orchestrator.js';
+import { providerQuotaService } from './provider-quota.js';
+import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import * as queries from '../db/queries.js';
 
@@ -381,6 +383,25 @@ export class SessionManager {
         // pid guard: a session stopped-then-restarted during the kill window has
         // a new process_pid — the old process's exit must not clobber it.
         if (current && current.status === 'running' && current.process_pid === pid) {
+          if (exitCode === 0) {
+            if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+              providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+            }
+          } else {
+            const recentLogs = queries.getSessionLogsBySessionId(sessionId);
+            const combinedOutput = recentLogs.map((l) => l.message).join('\n');
+            const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
+            if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
+              if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+                providerQuotaService.markExhausted(resolvedCliTool, {
+                  source: 'runtime_rejection',
+                  reason: classification.reason,
+                  resetAt: classification.resetAt,
+                });
+              }
+            }
+          }
+
           const status = exitCode === 0 ? 'completed' : 'failed';
           const msg = exitCode === 0
             ? `${adapter!.displayName} session completed.`

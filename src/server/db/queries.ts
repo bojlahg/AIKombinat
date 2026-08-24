@@ -2243,3 +2243,64 @@ export function setAppSetting(key: string, value: string): void {
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
   ).run(key, value, new Date().toISOString());
 }
+
+// ── Provider Quota State ──────────────────────────────────────────────
+
+export type QuotaState = 'available' | 'exhausted' | 'unknown';
+
+export interface ProviderQuotaStateRow {
+  tool: AgentCliTool;
+  state: QuotaState;
+  source: string;
+  reason: string | null;
+  observed_at: string;
+  reset_at: string | null;
+  updated_at: string;
+}
+
+export function getProviderQuotaState(tool: AgentCliTool): ProviderQuotaStateRow | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM provider_quota_state WHERE tool = ?').get(tool) as ProviderQuotaStateRow | undefined;
+}
+
+export function getAllProviderQuotaStates(): ProviderQuotaStateRow[] {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM provider_quota_state ORDER BY tool ASC').all() as ProviderQuotaStateRow[];
+}
+
+export function upsertProviderQuotaState(data: {
+  tool: AgentCliTool;
+  state: QuotaState;
+  source: string;
+  reason?: string | null;
+  observed_at: string;
+  reset_at?: string | null;
+}): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO provider_quota_state (tool, state, source, reason, observed_at, reset_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(tool) DO UPDATE SET
+       state = excluded.state,
+       source = excluded.source,
+       reason = excluded.reason,
+       observed_at = excluded.observed_at,
+       reset_at = excluded.reset_at,
+       updated_at = excluded.updated_at`
+  ).run(
+    data.tool,
+    data.state,
+    data.source,
+    data.reason ?? null,
+    data.observed_at,
+    data.reset_at ?? null,
+    now,
+  );
+}
+
+export function deleteProviderQuotaState(tool: AgentCliTool): boolean {
+  const db = getDatabase();
+  return db.prepare('DELETE FROM provider_quota_state WHERE tool = ?').run(tool).changes > 0;
+}
+

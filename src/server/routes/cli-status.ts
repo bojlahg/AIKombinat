@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { checkAllTools, clearCache } from '../services/cli-status.js';
+import { providerQuotaService } from '../services/provider-quota.js';
 
 const router = Router();
 
@@ -26,4 +27,16 @@ router.post('/status/refresh', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/cli/quota - get all provider quota states
+router.get('/quota', (_req: Request, res: Response) => {
+  try {
+    const states = providerQuotaService.getAllQuotaStates();
+    res.json(states);
+  } catch (err) {
+    console.error('Failed to get quota states:', err);
+    res.status(500).json({ error: 'Failed to get quota states' });
+  }
+});
+
 export default router;
+

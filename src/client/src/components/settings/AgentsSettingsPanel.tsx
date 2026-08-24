@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import * as profilesApi from '../../api/executionProfiles';
+import { type ProviderQuotaState } from '../../api/cli-status';
 
 type Tool = profilesApi.AgentCliTool;
 type Model = {
@@ -36,6 +37,7 @@ export default function AgentsSettingsPanel() {
   const [tab, setTab] = useState<'profiles' | 'models'>('profiles');
   const [models, setModels] = useState<Record<string, Model[]>>({});
   const [savedModels, setSavedModels] = useState<Record<string, Model[]>>({});
+  const [quotas, setQuotas] = useState<Record<string, ProviderQuotaState>>({});
   const [profiles, setProfiles] = useState<profilesApi.ExecutionProfile[]>([]);
   const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
   const [collapsedAgents, setCollapsedAgents] = useState<Record<Tool, boolean>>({ claude: false, codex: false, antigravity: false });
@@ -46,9 +48,20 @@ export default function AgentsSettingsPanel() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([json<Record<string, Model[]>>('/api/models'), profilesApi.getProfiles(true)])
-      .then(([catalog, executionProfiles]) => {
-        setModels(catalog); setSavedModels(catalog); setProfiles(executionProfiles);
+    Promise.all([
+      json<Record<string, Model[]>>('/api/models'),
+      profilesApi.getProfiles(true),
+      json<ProviderQuotaState[]>('/api/cli/quota').catch(() => [] as ProviderQuotaState[]),
+    ])
+      .then(([catalog, executionProfiles, quotaList]) => {
+        setModels(catalog);
+        setSavedModels(catalog);
+        setProfiles(executionProfiles);
+        const quotaMap: Record<string, ProviderQuotaState> = {};
+        if (Array.isArray(quotaList)) {
+          for (const q of quotaList) quotaMap[q.tool] = q;
+        }
+        setQuotas(quotaMap);
         setExpandedProfileId(executionProfiles[0]?.id ?? null);
       })
       .catch((e) => setError(String(e))).finally(() => setBusy(false));
@@ -196,7 +209,33 @@ export default function AgentsSettingsPanel() {
         const result = refreshResults[agent.value];
         return <div key={agent.value} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <button className="flex items-center gap-2 text-left" aria-expanded={!collapsed} onClick={() => setCollapsedAgents((current) => ({ ...current, [agent.value]: !current[agent.value] }))}>{collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}<span className="font-semibold">{agent.label}</span><span className="text-xs text-warm-500">{agentModels.length} {t('catalog.models')}</span></button>
+            <button className="flex items-center gap-2 text-left" aria-expanded={!collapsed} onClick={() => setCollapsedAgents((current) => ({ ...current, [agent.value]: !current[agent.value] }))}>
+              {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+              <span className="font-semibold">{agent.label}</span>
+              <span className="text-xs text-warm-500">{agentModels.length} {t('catalog.models')}</span>
+              {(() => {
+                const quota = quotas[agent.value];
+                const quotaState = quota?.state ?? 'unknown';
+                const quotaLabel = quotaState === 'available'
+                  ? t('quota.state.available')
+                  : quotaState === 'exhausted'
+                    ? (quota?.resetAt
+                        ? `${t('quota.state.exhausted')} (${t('quota.resetsAt').replace('{time}', new Date(quota.resetAt).toLocaleTimeString())})`
+                        : t('quota.state.exhausted'))
+                    : t('quota.state.unknown');
+                return (
+                  <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${
+                    quotaState === 'available'
+                      ? 'bg-status-success/10 text-status-success'
+                      : quotaState === 'exhausted'
+                        ? 'bg-status-error/10 text-status-error'
+                        : 'bg-warm-500/10 text-warm-500'
+                  }`}>
+                    {t('quota.title')}: {quotaLabel}
+                  </span>
+                );
+              })()}
+            </button>
             <div className="flex gap-2"><button className="btn-secondary flex items-center gap-1 text-xs" disabled={!!refreshing} onClick={() => refresh(agent.value)}><RefreshCw size={13} className={refreshing === agent.value ? 'animate-spin' : ''} />{t('catalog.refresh')}</button><button className="btn-secondary flex items-center gap-1 text-xs" onClick={() => addModel(agent.value)}><Plus size={13} />{t('catalog.addManual')}</button><button className="btn-secondary flex items-center gap-1 text-xs" disabled={!dirtyIds[agent.value].size || saving === agent.value} onClick={() => saveAgentModels(agent.value)}><Save size={13} />{t('common.save')}</button></div>
           </div>
           {result && <p className={`mt-2 text-xs ${result === 'failed' || !result.authoritative ? 'text-status-warning' : 'text-status-success'}`}>{result === 'failed' ? t('catalog.refreshFailed') : `${t('catalog.updated')}: ${result.updated} · ${t('catalog.added')}: ${result.added} · ${t('catalog.missingCount')}: ${result.markedMissing} · ${t('catalog.source')}: ${result.source} · ${result.authoritative ? t('catalog.authoritative') : t('catalog.partial')}`}</p>}

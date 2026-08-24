@@ -364,6 +364,16 @@ export function initDatabase(db: Database.Database): void {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS provider_quota_state (
+      tool TEXT PRIMARY KEY CHECK (tool IN ('claude', 'codex', 'antigravity')),
+      state TEXT NOT NULL CHECK (state IN ('available', 'exhausted', 'unknown')),
+      source TEXT NOT NULL,
+      reason TEXT,
+      observed_at DATETIME NOT NULL,
+      reset_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Backwards-compatible migration: add new columns to existing DBs
