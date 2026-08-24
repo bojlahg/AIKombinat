@@ -22,6 +22,7 @@ import type { ResolvedExecutionConfig } from './execution-config.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parseStoredResourceRequirements } from './resource-catalog.js';
 import { resourceManager } from './resource-manager.js';
+import { reviewPipeline, type AdvanceRoundResult } from './review-pipeline.js';
 import * as queries from '../db/queries.js';
 
 const MAX_CONTEXT_SWITCHES = 3;
@@ -361,6 +362,12 @@ export class Orchestrator {
     const isContinue = !!continueOptions;
     const roundNumber = continueOptions?.roundNumber ?? (todo.round_count ?? 1);
 
+    let currentRound: queries.TodoExecutionRound | undefined = undefined;
+    if (todo.review_enabled) {
+      reviewPipeline.ensureInitialRound(todoId);
+      currentRound = queries.getActiveExecutionRound(todoId) || queries.getLatestExecutionRound(todoId);
+    }
+
     const taskContent = (isContinue
       ? continueOptions!.followUpPrompt
       : (todo.description || todo.title || '')
@@ -392,10 +399,41 @@ export class Orchestrator {
     let executionConfig: ResolvedExecutionConfig | null = null;
     let resolvedCliTool: CliTool;
 
-    if (todo.execution_profile_id) {
+    let effectiveProfileId = todo.execution_profile_id;
+    if (todo.review_enabled && currentRound) {
+      if (currentRound.phase === 'implementation') {
+        effectiveProfileId = todo.execution_profile_id;
+      } else if (currentRound.phase === 'review') {
+        effectiveProfileId = todo.review_profile_id ?? project.default_review_profile_id;
+        if (!effectiveProfileId) {
+          queries.updateTodoStatus(todoId, 'failed');
+          queries.updateTodo(todoId, { execution_mode: null, process_pid: 0, pipeline_phase: 'review' });
+          queries.createTaskLog(
+            todoId,
+            'error',
+            'Configuration error: Review profile is not configured (todo.review_profile_id is null and project has no default_review_profile_id).',
+            currentRound.round_index
+          );
+          queries.updateExecutionRound(currentRound.id, {
+            status: 'failed',
+            error_message: 'Review profile is not configured.',
+            finished_at: new Date().toISOString(),
+          });
+          const updated = queries.getExecutionRoundById(currentRound.id);
+          if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+          broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+          this.broadcastProjectStatus(projectId);
+          return;
+        }
+      } else if (currentRound.phase === 'rework') {
+        effectiveProfileId = todo.rework_profile_id ?? todo.execution_profile_id;
+      }
+    }
+
+    if (effectiveProfileId) {
       try {
         const selection = await executorPool.selectExecutor({
-          executionProfileId: todo.execution_profile_id,
+          executionProfileId: effectiveProfileId,
           interactive: mode === 'interactive',
           excludeTodoId: todoId,
           reserveOwnerId: todoId,

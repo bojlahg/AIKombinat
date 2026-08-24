@@ -3,6 +3,7 @@ import Modal from './Modal';
 import type { Project, Todo, Session } from '../types';
 import * as projectsApi from '../api/projects';
 import * as pluginsApi from '../api/plugins';
+import { getProfiles, type ExecutionProfile } from '../api/executionProfiles';
 import { getCliStatus, refreshCliStatus, type CliToolStatus } from '../api/cli-status';
 import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool, getToolConfig } from '../cli-tools';
@@ -41,6 +42,13 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
   // presence (a folder can be both), or when SVN is already enabled so the
   // user can always reach the off switch.
   const [svnDetected, setSvnDetected] = useState(false);
+  const [defaultReviewProfileId, setDefaultReviewProfileId] = useState<string>(project.default_review_profile_id ?? '');
+  const [defaultMaxReviewRounds, setDefaultMaxReviewRounds] = useState<number>(project.default_max_review_rounds ?? 3);
+  const [availableProfiles, setAvailableProfiles] = useState<ExecutionProfile[]>([]);
+
+  useEffect(() => {
+    getProfiles(false).then(setAvailableProfiles).catch(() => {});
+  }, []);
   const [showSandboxWarning, setShowSandboxWarning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checkingGit, setCheckingGit] = useState(false);
@@ -139,6 +147,8 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
         svn_enabled: svnEnabled ? 1 : 0,
         show_token_usage: showTokenUsage ? 1 : 0,
         claude_options: claudeOptions || null,
+        default_review_profile_id: defaultReviewProfileId || null,
+        default_max_review_rounds: defaultMaxReviewRounds,
         cli_fallback_chain: fallbackChain.length > 0 ? JSON.stringify(fallbackChain) : null,
         auto_delegate: autoDelegate ? JSON.stringify(autoDelegate) : null,
       });
@@ -402,6 +412,47 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                 onChange={(e) => setClaudeOptions(e.target.value)}
                 placeholder="--verbose"
                 className="input-field"
+              />
+            </div>
+          </div>
+
+          {/* Default Review Settings */}
+          <div className="mt-5 p-4 border border-warm-200 rounded-xl space-y-3">
+            <h3 className="text-xs font-semibold text-warm-700 uppercase tracking-wider">
+              {t('review.pipeline.title')}
+            </h3>
+            <div>
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                {t('review.pipeline.projectDefaultProfile')}
+              </label>
+              <select
+                value={defaultReviewProfileId}
+                onChange={(e) => setDefaultReviewProfileId(e.target.value)}
+                className="input-field"
+              >
+                <option value="">{t('todoForm.noDependency')}</option>
+                {availableProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-2xs text-warm-400 mt-1">
+                {t('review.pipeline.projectDefaultProfileHelp')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                {t('review.pipeline.projectDefaultMaxRounds')}
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={defaultMaxReviewRounds}
+                onChange={(e) => setDefaultMaxReviewRounds(Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
+                className="input-field w-24"
               />
             </div>
           </div>

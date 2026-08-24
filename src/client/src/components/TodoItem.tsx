@@ -7,6 +7,8 @@ import * as projectsApi from '../api/projects';
 import StatusBadge from './StatusBadge';
 import LogViewer from './LogViewer';
 import TodoForm from './TodoForm';
+import ReviewTimeline from './ReviewTimeline';
+import type { TodoExecutionRound } from '../types';
 import { useI18n } from '../i18n';
 import { getToolConfig, type CliTool } from '../cli-tools';
 import {
@@ -139,7 +141,7 @@ interface TodoItemProps {
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[], reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
   onCleanup: (id: string, deleteBranch: boolean) => Promise<void>;
   onRetry: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -206,6 +208,9 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
     return `${y}-${mo}-${d}T${h}:${mi}`;
   });
   const [scheduling, setScheduling] = useState(false);
+  const [rounds, setRounds] = useState<TodoExecutionRound[]>([]);
+  const [roundsLoaded, setRoundsLoaded] = useState(false);
+  const [reviewActionLoading, setReviewActionLoading] = useState<'approve' | 'rework' | 'stop' | null>(null);
   // Right-click menu offering the same actions as the buttons/MoreMenu.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const { t } = useI18n();
@@ -446,6 +451,10 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         initialMemoryInjectMode={todo.memory_inject_mode ?? 'none'}
         initialMemoryRawFilePaths={todo.memory_raw_file_paths ?? null}
         initialResourceRequirements={todo.resource_requirements ?? null}
+        initialReviewEnabled={todo.review_enabled}
+        initialReviewProfileId={todo.review_profile_id}
+        initialReworkProfileId={todo.rework_profile_id}
+        initialMaxReviewRounds={todo.max_review_rounds}
         projectId={todo.project_id}
         projectIsGitRepo={projectIsGitRepo}
         projectUseWorktree={projectUseWorktree}
@@ -455,8 +464,8 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         onDeleteImage={async (imageId) => {
           await todosApi.deleteTodoImage(todo.id, imageId);
         }}
-        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements) => {
-          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements);
+        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds) => {
+          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds);
           if (newImages && newImages.length > 0) {
             await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
           }
@@ -578,6 +587,27 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         )}
 
         <StatusBadge status={todo.status} />
+        {todo.review_enabled ? (
+          <span
+            className={`hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+              todo.pipeline_phase === 'review' && todo.status === 'running'
+                ? 'bg-blue-900/40 text-blue-300 border border-blue-700/50'
+                : todo.pipeline_phase === 'rework' && todo.status === 'running'
+                ? 'bg-amber-900/40 text-amber-300 border border-amber-700/50'
+                : todo.status === 'completed'
+                ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50'
+                : todo.status === 'failed'
+                ? 'bg-red-900/40 text-red-300 border border-red-700/50'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}
+          >
+            {todo.pipeline_phase === 'review'
+              ? t('review.pipeline.phase.review')
+              : todo.pipeline_phase === 'rework'
+              ? t('review.pipeline.phase.rework')
+              : 'Review'}
+          </span>
+        ) : null}
 
         {/* Actions */}
         <div className="flex items-center gap-0.5 ml-auto md:ml-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>

@@ -142,6 +142,10 @@ export class Scheduler {
       schedule.cli_effort,
       schedule.cli_model_id,
       schedule.resource_requirements,
+      schedule.review_enabled ?? 0,
+      schedule.review_profile_id,
+      schedule.rework_profile_id,
+      schedule.max_review_rounds ?? 3,
     );
 
     // Create run record

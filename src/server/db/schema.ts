@@ -390,6 +390,26 @@ export function initDatabase(db: Database.Database): void {
       reset_at DATETIME,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS todo_execution_rounds (
+      id TEXT PRIMARY KEY,
+      todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+      round_index INTEGER NOT NULL,
+      phase TEXT NOT NULL CHECK (phase IN ('implementation', 'review', 'rework')),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running', 'completed', 'failed', 'stopped')),
+      run_token TEXT NOT NULL,
+      execution_snapshot TEXT,
+      input_payload TEXT,
+      result_payload TEXT,
+      error_message TEXT,
+      started_at DATETIME,
+      finished_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_todo ON todo_execution_rounds(todo_id, round_index);
+    CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_run_token ON todo_execution_rounds(run_token);
   `);
 
   // Backwards-compatible migration: add new columns to existing DBs
@@ -506,6 +526,17 @@ export function initDatabase(db: Database.Database): void {
     { table: 'todos', column: 'resource_requirements', definition: 'TEXT' },
     { table: 'sessions', column: 'resource_requirements', definition: 'TEXT' },
     { table: 'schedules', column: 'resource_requirements', definition: 'TEXT' },
+    { table: 'todos', column: 'review_enabled', definition: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'todos', column: 'review_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'todos', column: 'rework_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'todos', column: 'max_review_rounds', definition: 'INTEGER NOT NULL DEFAULT 3' },
+    { table: 'todos', column: 'pipeline_phase', definition: 'TEXT' },
+    { table: 'projects', column: 'default_review_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'projects', column: 'default_max_review_rounds', definition: 'INTEGER' },
+    { table: 'schedules', column: 'review_enabled', definition: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'schedules', column: 'review_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'schedules', column: 'rework_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
+    { table: 'schedules', column: 'max_review_rounds', definition: 'INTEGER' },
   ];
 
   for (const { table, column, definition } of migrations) {

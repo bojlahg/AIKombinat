@@ -1,4 +1,4 @@
-import type { Todo } from '../db/queries.js';
+import type { Todo, TodoExecutionRound } from '../db/queries.js';
 import type { ResourceKey } from '../services/resource-catalog.js';
 
 export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
@@ -7,6 +7,8 @@ export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
 export type WSEvent =
   | { type: 'todo:status-changed'; todoId: string; status: string; mode?: string; worktree_path?: string | null; branch_name?: string | null }
   | { type: 'todo:created'; todo: Todo }
+  | { type: 'todo:round-created'; todoId: string; round: TodoExecutionRound }
+  | { type: 'todo:round-updated'; todoId: string; round: TodoExecutionRound }
   | { type: 'todo:log'; todoId: string; message: string; logType: string }
   | { type: 'project:status-changed'; projectId: string; running: number; completed: number; total: number; running_sessions?: number; running_discussions?: number }
   | { type: 'todo:commit'; todoId: string; commitHash: string; message: string }

@@ -24,6 +24,8 @@ export interface Project {
   npm_auto_install: number;
   memory_auto_ingest: number;
   auto_delegate: string | null;
+  default_review_profile_id: string | null;
+  default_max_review_rounds: number | null;
   color: string | null;
   sort_order: number;
   created_at: string;
@@ -67,7 +69,7 @@ export function getProjectById(id: string): Project | undefined {
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | undefined;
 }
 
-export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'color'>>): Project | undefined {
+export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'default_review_profile_id' | 'default_max_review_rounds' | 'color'>>): Project | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -91,6 +93,8 @@ export function updateProject(id: string, updates: Partial<Pick<Project, 'name' 
   if (updates.npm_auto_install !== undefined) { fields.push('npm_auto_install = ?'); values.push(updates.npm_auto_install); }
   if (updates.memory_auto_ingest !== undefined) { fields.push('memory_auto_ingest = ?'); values.push(updates.memory_auto_ingest); }
   if (updates.auto_delegate !== undefined) { fields.push('auto_delegate = ?'); values.push(updates.auto_delegate); }
+  if (updates.default_review_profile_id !== undefined) { fields.push('default_review_profile_id = ?'); values.push(updates.default_review_profile_id); }
+  if (updates.default_max_review_rounds !== undefined) { fields.push('default_max_review_rounds = ?'); values.push(updates.default_max_review_rounds); }
   if (updates.color !== undefined) { fields.push('color = ?'); values.push(updates.color); }
 
   if (fields.length === 0) return getProjectById(id);
@@ -182,19 +186,75 @@ export interface Todo {
   memory_raw_file_paths: string | null;
   delegated_from: string | null;
   resource_requirements: string | null;
+  review_enabled: number;
+  review_profile_id: string | null;
+  rework_profile_id: string | null;
+  max_review_rounds: number;
+  pipeline_phase: 'implementation' | 'review' | 'rework' | null;
   created_at: string;
   updated_at: string;
 }
 
-export function createTodo(projectId: string, title: string, description?: string, priority = 0, cliTool?: string, cliModel?: string, scheduleId?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: string, memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, delegatedFrom?: string, executionProfileId?: string | null, cliEffort?: string | null, cliModelId?: string | null, resourceRequirements?: string | null): Todo {
+export function createTodo(
+  projectId: string,
+  title: string,
+  description?: string,
+  priority = 0,
+  cliTool?: string,
+  cliModel?: string,
+  scheduleId?: string,
+  dependsOn?: string,
+  maxTurns?: number,
+  useWorktree?: number | null,
+  memoryInjectMode?: string,
+  memoryNodeIds?: string | null,
+  memoryRawFilePaths?: string | null,
+  delegatedFrom?: string,
+  executionProfileId?: string | null,
+  cliEffort?: string | null,
+  cliModelId?: string | null,
+  resourceRequirements?: string | null,
+  reviewEnabled = 0,
+  reviewProfileId?: string | null,
+  reworkProfileId?: string | null,
+  maxReviewRounds = 3,
+  pipelinePhase?: string | null,
+): Todo {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   const normalizedUseWorktree = useWorktree === 0 || useWorktree === 1 ? useWorktree : null;
   db.prepare(
-    `INSERT INTO todos (id, project_id, title, description, priority, cli_tool, cli_model, cli_model_id, schedule_id, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, delegated_from, execution_profile_id, cli_effort, resource_requirements, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, priority, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, scheduleId ?? null, dependsOn ?? null, maxTurns ?? null, normalizedUseWorktree, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, delegatedFrom ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, resourceRequirements ?? null, now, now);
+    `INSERT INTO todos (id, project_id, title, description, priority, cli_tool, cli_model, cli_model_id, schedule_id, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, delegated_from, execution_profile_id, cli_effort, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, pipeline_phase, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    projectId,
+    title,
+    description ?? null,
+    priority,
+    executionProfileId ? null : cliTool ?? null,
+    executionProfileId ? null : cliModel ?? null,
+    executionProfileId ? null : cliModelId ?? null,
+    scheduleId ?? null,
+    dependsOn ?? null,
+    maxTurns ?? null,
+    normalizedUseWorktree,
+    memoryInjectMode ?? 'none',
+    memoryNodeIds ?? null,
+    memoryRawFilePaths ?? null,
+    delegatedFrom ?? null,
+    executionProfileId ?? null,
+    executionProfileId ? null : cliEffort ?? null,
+    resourceRequirements ?? null,
+    reviewEnabled ? 1 : 0,
+    reviewProfileId ?? null,
+    reworkProfileId ?? null,
+    maxReviewRounds ?? 3,
+    pipelinePhase ?? null,
+    now,
+    now,
+  );
   return getTodoById(id)!;
 }
 
@@ -208,7 +268,7 @@ export function getTodoById(id: string): Todo | undefined {
   return db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements'>>): Todo | undefined {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase'>>): Todo | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -249,6 +309,11 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
   if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
+  if (updates.review_enabled !== undefined) { fields.push('review_enabled = ?'); values.push(updates.review_enabled ? 1 : 0); }
+  if (updates.review_profile_id !== undefined) { fields.push('review_profile_id = ?'); values.push(updates.review_profile_id); }
+  if (updates.rework_profile_id !== undefined) { fields.push('rework_profile_id = ?'); values.push(updates.rework_profile_id); }
+  if (updates.max_review_rounds !== undefined) { fields.push('max_review_rounds = ?'); values.push(updates.max_review_rounds); }
+  if (updates.pipeline_phase !== undefined) { fields.push('pipeline_phase = ?'); values.push(updates.pipeline_phase); }
 
   if (fields.length === 0) return getTodoById(id);
 
@@ -341,6 +406,128 @@ export function getRecentTaskLogText(todoId: string, minRowid?: number, maxBytes
   return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
 }
 
+// ── Todo Execution Rounds ──
+
+export type RoundPhase = 'implementation' | 'review' | 'rework';
+export type RoundStatus = 'pending' | 'waiting_executor' | 'waiting_quota' | 'waiting_resource' | 'running' | 'completed' | 'failed' | 'stopped';
+
+export interface TodoExecutionRound {
+  id: string;
+  todo_id: string;
+  round_index: number;
+  phase: RoundPhase;
+  status: RoundStatus;
+  run_token: string;
+  execution_snapshot: string | null;
+  input_payload: string | null;
+  result_payload: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function createExecutionRound(
+  todoId: string,
+  phase: RoundPhase,
+  roundIndex: number,
+  runToken: string,
+  options: {
+    status?: RoundStatus;
+    executionSnapshot?: string | null;
+    inputPayload?: string | null;
+    resultPayload?: string | null;
+    errorMessage?: string | null;
+    startedAt?: string | null;
+  } = {}
+): TodoExecutionRound {
+  const db = getDatabase();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, execution_snapshot, input_payload, result_payload, error_message, started_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    todoId,
+    roundIndex,
+    phase,
+    options.status ?? 'pending',
+    runToken,
+    options.executionSnapshot ?? null,
+    options.inputPayload ?? null,
+    options.resultPayload ?? null,
+    options.errorMessage ?? null,
+    options.startedAt ?? null,
+    now,
+    now
+  );
+  return getExecutionRoundById(id)!;
+}
+
+export function getExecutionRoundsByTodoId(todoId: string): TodoExecutionRound[] {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM todo_execution_rounds WHERE todo_id = ? ORDER BY round_index ASC').all(todoId) as TodoExecutionRound[];
+}
+
+export function getExecutionRoundById(id: string): TodoExecutionRound | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM todo_execution_rounds WHERE id = ?').get(id) as TodoExecutionRound | undefined;
+}
+
+export function getExecutionRoundByRunToken(runToken: string): TodoExecutionRound | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM todo_execution_rounds WHERE run_token = ?').get(runToken) as TodoExecutionRound | undefined;
+}
+
+export function getActiveExecutionRound(todoId: string): TodoExecutionRound | undefined {
+  const db = getDatabase();
+  return db.prepare(
+    `SELECT * FROM todo_execution_rounds
+     WHERE todo_id = ? AND status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running')
+     ORDER BY round_index DESC LIMIT 1`
+  ).get(todoId) as TodoExecutionRound | undefined;
+}
+
+export function getLatestExecutionRound(todoId: string): TodoExecutionRound | undefined {
+  const db = getDatabase();
+  return db.prepare(
+    `SELECT * FROM todo_execution_rounds WHERE todo_id = ? ORDER BY round_index DESC LIMIT 1`
+  ).get(todoId) as TodoExecutionRound | undefined;
+}
+
+export function updateExecutionRound(
+  id: string,
+  updates: Partial<Pick<TodoExecutionRound, 'status' | 'execution_snapshot' | 'input_payload' | 'result_payload' | 'error_message' | 'started_at' | 'finished_at'>>
+): TodoExecutionRound | undefined {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+  if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
+  if (updates.input_payload !== undefined) { fields.push('input_payload = ?'); values.push(updates.input_payload); }
+  if (updates.result_payload !== undefined) { fields.push('result_payload = ?'); values.push(updates.result_payload); }
+  if (updates.error_message !== undefined) { fields.push('error_message = ?'); values.push(updates.error_message); }
+  if (updates.started_at !== undefined) { fields.push('started_at = ?'); values.push(updates.started_at); }
+  if (updates.finished_at !== undefined) { fields.push('finished_at = ?'); values.push(updates.finished_at); }
+
+  if (fields.length === 0) return getExecutionRoundById(id);
+
+  fields.push('updated_at = ?');
+  values.push(new Date().toISOString());
+  values.push(id);
+
+  db.prepare(`UPDATE todo_execution_rounds SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  return getExecutionRoundById(id);
+}
+
+export function deleteExecutionRoundsByTodoId(todoId: string): number {
+  const db = getDatabase();
+  return db.prepare('DELETE FROM todo_execution_rounds WHERE todo_id = ?').run(todoId).changes;
+}
+
 // ── Schedules ──
 
 export interface Schedule {
@@ -360,6 +547,10 @@ export interface Schedule {
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
   resource_requirements: string | null;
+  review_enabled: number;
+  review_profile_id: string | null;
+  rework_profile_id: string | null;
+  max_review_rounds: number | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;
@@ -376,14 +567,15 @@ export function createSchedule(
   scheduleType = 'recurring', runAt?: string,
   maxTurns?: number | null, useWorktree?: number | null, memoryInjectMode?: string | null,
   memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, executionProfileId?: string | null, cliEffort?: string | null, cliModelId?: string | null, resourceRequirements?: string | null,
+  reviewEnabled = 0, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number | null,
 ): Schedule {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, cli_model_id, skip_if_running, schedule_type, run_at, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, execution_profile_id, cli_effort, resource_requirements, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, cronExpression, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, skipIfRunning, scheduleType, runAt ?? null, maxTurns ?? null, useWorktree ?? null, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, resourceRequirements ?? null, now, now);
+    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, cli_model_id, skip_if_running, schedule_type, run_at, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, execution_profile_id, cli_effort, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, title, description ?? null, cronExpression, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, skipIfRunning, scheduleType, runAt ?? null, maxTurns ?? null, useWorktree ?? null, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, resourceRequirements ?? null, reviewEnabled ? 1 : 0, reviewProfileId ?? null, reworkProfileId ?? null, maxReviewRounds ?? null, now, now);
   return getScheduleById(id)!;
 }
 
@@ -407,7 +599,7 @@ export function getActiveOnceSchedules(): Schedule[] {
   return db.prepare("SELECT * FROM schedules WHERE is_active = 1 AND schedule_type = 'once'").all() as Schedule[];
 }
 
-export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
+export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -426,6 +618,10 @@ export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'titl
   if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
   if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
+  if (updates.review_enabled !== undefined) { fields.push('review_enabled = ?'); values.push(updates.review_enabled ? 1 : 0); }
+  if (updates.review_profile_id !== undefined) { fields.push('review_profile_id = ?'); values.push(updates.review_profile_id); }
+  if (updates.rework_profile_id !== undefined) { fields.push('rework_profile_id = ?'); values.push(updates.rework_profile_id); }
+  if (updates.max_review_rounds !== undefined) { fields.push('max_review_rounds = ?'); values.push(updates.max_review_rounds); }
   if (updates.skip_if_running !== undefined) { fields.push('skip_if_running = ?'); values.push(updates.skip_if_running); }
   if (updates.schedule_type !== undefined) { fields.push('schedule_type = ?'); values.push(updates.schedule_type); }
   if (updates.run_at !== undefined) { fields.push('run_at = ?'); values.push(updates.run_at); }

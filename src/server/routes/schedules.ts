@@ -18,7 +18,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at, resource_requirements } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds } = req.body;
     const isOnce = schedule_type === 'once';
 
     if (!title) {
@@ -53,6 +53,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       isOnce ? run_at : undefined,
       undefined, undefined, undefined, undefined, undefined,
       execution.executionProfileId, execution.cliEffort, execution.cliModelId, normalizedResources,
+      review_enabled ? 1 : 0, review_profile_id ?? null, rework_profile_id ?? null, max_review_rounds != null ? parseInt(max_review_rounds, 10) : null,
     );
 
     // Auto-register the job since new schedules are active by default
@@ -110,7 +111,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at, resource_requirements } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds } = req.body;
     const effectiveType = schedule_type ?? existing.schedule_type;
     const isOnce = effectiveType === 'once';
 
@@ -141,6 +142,10 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
     }
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
     if (resource_requirements !== undefined) updates.resource_requirements = serializeResourceRequirements(normalizeResourceKeys(resource_requirements));
+    if (review_enabled !== undefined) updates.review_enabled = review_enabled ? 1 : 0;
+    if (review_profile_id !== undefined) updates.review_profile_id = review_profile_id;
+    if (rework_profile_id !== undefined) updates.rework_profile_id = rework_profile_id;
+    if (max_review_rounds !== undefined) updates.max_review_rounds = max_review_rounds != null ? parseInt(max_review_rounds, 10) : null;
 
     const schedule = queries.updateSchedule(req.params.id, updates);
 

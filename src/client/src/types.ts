@@ -19,6 +19,8 @@ export interface Project {
   npm_auto_install: number;
   memory_auto_ingest: number;
   auto_delegate: string | null;
+  default_review_profile_id?: string | null;
+  default_max_review_rounds?: number | null;
   color: string | null;
   sort_order: number;
   path_exists?: boolean;
@@ -31,6 +33,41 @@ export interface ImageMeta {
   filename: string;
   originalName: string;
   size: number;
+}
+
+export type ReviewVerdict = 'approved' | 'needs_changes';
+export type ReviewIssueSeverity = 'blocking' | 'major' | 'minor';
+
+export interface ReviewIssue {
+  severity: ReviewIssueSeverity;
+  description: string;
+  files?: string[];
+}
+
+export interface ReviewResult {
+  verdict: ReviewVerdict;
+  summary: string;
+  issues: ReviewIssue[];
+}
+
+export type RoundPhase = 'implementation' | 'review' | 'rework';
+export type RoundStatus = 'pending' | 'waiting_executor' | 'waiting_quota' | 'waiting_resource' | 'running' | 'completed' | 'failed' | 'stopped';
+
+export interface TodoExecutionRound {
+  id: string;
+  todo_id: string;
+  round_index: number;
+  phase: RoundPhase;
+  status: RoundStatus;
+  run_token: string;
+  execution_snapshot: string | null;
+  input_payload: string | null;
+  result_payload: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Todo {
@@ -68,6 +105,11 @@ export interface Todo {
   memory_raw_file_paths?: string | null;
   delegated_from?: string | null;
   resource_requirements?: string | null;
+  review_enabled?: number;
+  review_profile_id?: string | null;
+  rework_profile_id?: string | null;
+  max_review_rounds?: number;
+  pipeline_phase?: 'implementation' | 'review' | 'rework' | null;
   created_at: string;
   updated_at: string;
 }
@@ -121,6 +163,10 @@ export interface Schedule {
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
   resource_requirements: string | null;
+  review_enabled?: number;
+  review_profile_id?: string | null;
+  rework_profile_id?: string | null;
+  max_review_rounds?: number | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;

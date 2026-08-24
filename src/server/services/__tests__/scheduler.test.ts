@@ -108,6 +108,10 @@ describe('Scheduler execution', () => {
       'high',
       'model-1',
       '["android.emulator"]',
+      0,
+      undefined,
+      undefined,
+      3,
     );
     expect(mocks.createScheduleRun).toHaveBeenCalledOnce();
     expect(mocks.startTodo).toHaveBeenCalledWith('todo-1');

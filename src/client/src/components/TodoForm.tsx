@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Image as ImageIcon, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { CliTool } from '../cli-tools';
 import type { ImageMeta, MemoryInjectMode, Todo } from '../types';
 import type { VaultInjectMode } from '../api/vault';
 import { getTodoImageUrl } from '../api/todos';
+import { getProfiles, type ExecutionProfile } from '../api/executionProfiles';
 import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
 import ResourceRequirementPicker from './ResourceRequirementPicker';
 
@@ -27,7 +28,7 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[], reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
@@ -41,6 +42,10 @@ interface TodoFormProps {
   initialMemoryInjectMode?: MemoryInjectMode;
   initialMemoryRawFilePaths?: string | null;
   initialResourceRequirements?: string | null;
+  initialReviewEnabled?: number;
+  initialReviewProfileId?: string | null;
+  initialReworkProfileId?: string | null;
+  initialMaxReviewRounds?: number;
   projectId?: string;
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
@@ -68,6 +73,10 @@ export default function TodoForm({
   initialMemoryInjectMode = 'none',
   initialMemoryRawFilePaths = null,
   initialResourceRequirements = null,
+  initialReviewEnabled = 0,
+  initialReviewProfileId = null,
+  initialReworkProfileId = null,
+  initialMaxReviewRounds = 3,
   projectId,
   projectCliTool = 'claude',
   projectIsGitRepo = false,
@@ -91,6 +100,15 @@ export default function TodoForm({
   const [memoryInjectMode, setMemoryInjectMode] = useState<MemoryInjectMode>(initialMemoryInjectMode);
   const [vaultPaths, setVaultPaths] = useState<string[]>(parseRawFilePaths(initialMemoryRawFilePaths));
   const [resourceRequirements, setResourceRequirements] = useState<string[]>(parseRawFilePaths(initialResourceRequirements));
+  const [reviewEnabled, setReviewEnabled] = useState<boolean>(initialReviewEnabled === 1);
+  const [reviewProfileId, setReviewProfileId] = useState<string>(initialReviewProfileId ?? '');
+  const [reworkProfileId, setReworkProfileId] = useState<string>(initialReworkProfileId ?? '');
+  const [maxReviewRounds, setMaxReviewRounds] = useState<number>(initialMaxReviewRounds ?? 3);
+  const [availableProfiles, setAvailableProfiles] = useState<ExecutionProfile[]>([]);
+
+  useEffect(() => {
+    getProfiles(false).then(setAvailableProfiles).catch(() => {});
+  }, []);
   const [includeLinked, setIncludeLinked] = useState<boolean>(false);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [existingImgs, setExistingImgs] = useState<ImageMeta[]>(existingImages);
@@ -167,7 +185,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds);
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -403,6 +421,85 @@ export default function TodoForm({
           />
         </div>
       )}
+
+      {/* Review & Rework Pipeline Configuration */}
+      <div className="mb-4 p-3 rounded-lg border border-theme-border bg-theme-card/30">
+        <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-warm-700">
+          <input
+            type="checkbox"
+            checked={reviewEnabled}
+            onChange={(e) => setReviewEnabled(e.target.checked)}
+            className="rounded border-warm-300 text-accent focus:ring-accent"
+          />
+          <span>{t('review.pipeline.enable')}</span>
+        </label>
+        <p className="text-2xs text-warm-400 mt-1 pl-6">
+          {t('review.pipeline.enableHelp')}
+        </p>
+
+        {reviewEnabled && (
+          <div className="mt-3 pl-6 space-y-3 pt-2 border-t border-theme-border/60">
+            <div>
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                {t('review.pipeline.reviewProfile')}
+              </label>
+              <select
+                value={reviewProfileId}
+                onChange={(e) => setReviewProfileId(e.target.value)}
+                className="input-field text-sm w-full"
+              >
+                <option value="">{t('todoForm.worktreeInherit')} ({t('review.pipeline.projectDefaultProfile')})</option>
+                {availableProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-2xs text-warm-400 mt-0.5">
+                {t('review.pipeline.reviewProfileHelp')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                {t('review.pipeline.reworkProfile')}
+              </label>
+              <select
+                value={reworkProfileId}
+                onChange={(e) => setReworkProfileId(e.target.value)}
+                className="input-field text-sm w-full"
+              >
+                <option value="">{t('todoForm.worktreeInherit')} ({t('review.pipeline.phase.implementation')})</option>
+                {availableProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-2xs text-warm-400 mt-0.5">
+                {t('review.pipeline.reworkProfileHelp')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                {t('review.pipeline.maxRounds')}
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={maxReviewRounds}
+                onChange={(e) => setMaxReviewRounds(Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
+                className="input-field text-sm w-24"
+              />
+              <p className="text-2xs text-warm-400 mt-0.5">
+                {t('review.pipeline.maxRoundsHelp')}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="flex gap-3 justify-end">
         <button

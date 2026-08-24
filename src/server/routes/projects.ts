@@ -367,7 +367,7 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, svn_enabled, color } = req.body;
+    const { name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, svn_enabled, color, default_review_profile_id, default_max_review_rounds } = req.body;
 
     if (auto_delegate !== undefined && auto_delegate !== null && parseAutoDelegate(auto_delegate) === null) {
       res.status(400).json({ error: 'auto_delegate must be JSON like {"from":"claude","to":"codex"} with valid CLI tools' });
@@ -393,6 +393,8 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
 
     const project = updateProject(req.params.id, {
       name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, color,
+      ...(default_review_profile_id !== undefined ? { default_review_profile_id } : {}),
+      ...(default_max_review_rounds !== undefined ? { default_max_review_rounds: default_max_review_rounds != null ? parseInt(default_max_review_rounds, 10) : null } : {}),
       ...(svn_enabled !== undefined ? { svn_enabled: Number(svn_enabled) } : {}),
       ...(vcsTypePatch !== undefined ? { vcs_type: vcsTypePatch } : {}),
     });

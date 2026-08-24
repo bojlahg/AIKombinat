@@ -1,5 +1,5 @@
 import { get, post, put, del } from './client';
-import type { Todo, TaskLog, DiffResult, TaskResult, ImageMeta } from '../types';
+import type { Todo, TaskLog, DiffResult, TaskResult, ImageMeta, TodoExecutionRound } from '../types';
 
 export function getTodos(projectId: string): Promise<Todo[]> {
   return get(`/api/projects/${projectId}/todos`);
@@ -7,14 +7,59 @@ export function getTodos(projectId: string): Promise<Todo[]> {
 
 export function createTodo(
   projectId: string,
-  data: { title: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; execution_profile?: string; depends_on?: string; max_turns?: number | null; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; resource_requirements?: string[] }
+  data: {
+    title: string;
+    description?: string;
+    priority?: number;
+    cli_tool?: string;
+    cli_model?: string;
+    cli_model_id?: string | null;
+    cli_effort?: string | null;
+    execution_profile_id?: string | null;
+    execution_profile?: string;
+    depends_on?: string;
+    max_turns?: number | null;
+    use_worktree?: number | null;
+    memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto';
+    memory_node_ids?: string[];
+    memory_raw_file_paths?: string[];
+    resource_requirements?: string[];
+    review_enabled?: number;
+    review_profile_id?: string | null;
+    rework_profile_id?: string | null;
+    max_review_rounds?: number;
+  }
 ): Promise<Todo> {
   return post(`/api/projects/${projectId}/todos`, data);
 }
 
 export function updateTodo(
   id: string,
-  data: { title?: string; description?: string; priority?: number; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; execution_profile?: string; depends_on?: string | null; max_turns?: number | null; position_x?: number; position_y?: number; use_worktree?: number | null; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; resource_requirements?: string[] }
+  data: {
+    title?: string;
+    description?: string;
+    priority?: number;
+    cli_tool?: string;
+    cli_model?: string;
+    cli_model_id?: string | null;
+    cli_effort?: string | null;
+    execution_profile_id?: string | null;
+    execution_profile?: string;
+    depends_on?: string | null;
+    max_turns?: number | null;
+    position_x?: number;
+    position_y?: number;
+    use_worktree?: number | null;
+    memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto';
+    memory_node_ids?: string[];
+    memory_raw_file_paths?: string[];
+    resource_requirements?: string[];
+    review_enabled?: number;
+    review_profile_id?: string | null;
+    rework_profile_id?: string | null;
+    max_review_rounds?: number;
+    pipeline_phase?: 'implementation' | 'review' | 'rework' | null;
+  }
 ): Promise<Todo> {
   return put(`/api/todos/${id}`, data);
 }
@@ -73,4 +118,20 @@ export function deleteTodoImage(todoId: string, imageId: string): Promise<void> 
 
 export function getTodoImageUrl(todoId: string, imageId: string): string {
   return `/api/todos/${todoId}/images/${imageId}`;
+}
+
+export function getTodoRounds(todoId: string): Promise<TodoExecutionRound[]> {
+  return get(`/api/todos/${todoId}/rounds`);
+}
+
+export function approveReview(todoId: string): Promise<Todo> {
+  return post(`/api/todos/${todoId}/review/approve`);
+}
+
+export function requestRework(todoId: string): Promise<{ todo: Todo; round: TodoExecutionRound }> {
+  return post(`/api/todos/${todoId}/review/rework`);
+}
+
+export function stopReviewLoop(todoId: string): Promise<Todo> {
+  return post(`/api/todos/${todoId}/review/stop`);
 }

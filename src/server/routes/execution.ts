@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { createGit } from '../lib/git.js';
-import { getTodosByProjectId, getTodoById, updateTodoStatus, updateTodo, deleteTaskLogsByTodoId } from '../db/queries.js';
+import { getTodosByProjectId, getTodoById, updateTodoStatus, updateTodo, deleteTaskLogsByTodoId, getExecutionRoundsByTodoId } from '../db/queries.js';
 import { getProjectById } from '../db/queries.js';
 import { orchestrator } from '../services/orchestrator.js';
+import { reviewPipeline } from '../services/review-pipeline.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { supportsInteractiveMode, type CliTool } from '../services/cli-adapters.js';
 
@@ -452,6 +453,78 @@ router.post('/todos/:id/continue', async (req: Request<{ id: string }>, res: Res
     await orchestrator.continueTodo(todo.id, prompt, mode);
 
     const updated = getTodoById(todo.id);
+    res.json(updated);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: message });
+  }
+});
+
+// GET /api/todos/:id/rounds - list all execution rounds for todo
+router.get('/todos/:id/rounds', (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const todo = getTodoById(req.params.id);
+    if (!todo) {
+      res.status(404).json({ error: 'Todo not found' });
+      return;
+    }
+
+    const rounds = getExecutionRoundsByTodoId(req.params.id);
+    res.json(rounds);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: message });
+  }
+});
+
+// POST /api/todos/:id/review/approve - manually approve review
+router.post('/todos/:id/review/approve', (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const todo = getTodoById(req.params.id);
+    if (!todo) {
+      res.status(404).json({ error: 'Todo not found' });
+      return;
+    }
+
+    const updated = reviewPipeline.manualApprove(req.params.id);
+    res.json(updated);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
+  }
+});
+
+// POST /api/todos/:id/review/rework - manually request rework
+router.post('/todos/:id/review/rework', async (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const todo = getTodoById(req.params.id);
+    if (!todo) {
+      res.status(404).json({ error: 'Todo not found' });
+      return;
+    }
+
+    const result = reviewPipeline.manualRework(req.params.id);
+    // Start orchestrator execution for the rework round
+    await orchestrator.startTodo(req.params.id);
+
+    res.json(result);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
+  }
+});
+
+// POST /api/todos/:id/review/stop - stop review loop
+router.post('/todos/:id/review/stop', async (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const todo = getTodoById(req.params.id);
+    if (!todo) {
+      res.status(404).json({ error: 'Todo not found' });
+      return;
+    }
+
+    await orchestrator.stopTodo(req.params.id);
+    const updated = getTodoById(req.params.id);
     res.json(updated);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

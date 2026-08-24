@@ -36,7 +36,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       return;
     }
 
-    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements } = req.body;
+    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds } = req.body;
     if (!title) {
       res.status(400).json({ error: 'title is required' });
       return;
@@ -67,7 +67,31 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
     const normalizedResources = serializeResourceRequirements(normalizeResourceKeys(resource_requirements ?? []));
     const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
-    const todo = createTodo(projectId, title, description, priority, execution.cliTool ?? undefined, execution.cliModel ?? undefined, undefined, depends_on, parsedMaxTurns || undefined, normalizedUseWorktree, normalizedMemMode, normalizedMemIds, normalizedRawFilePaths === undefined ? null : normalizedRawFilePaths, undefined, execution.executionProfileId, execution.cliEffort, execution.cliModelId, normalizedResources);
+    const parsedMaxReviewRounds = max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3;
+    const todo = createTodo(
+      projectId,
+      title,
+      description,
+      priority,
+      execution.cliTool ?? undefined,
+      execution.cliModel ?? undefined,
+      undefined,
+      depends_on,
+      parsedMaxTurns || undefined,
+      normalizedUseWorktree,
+      normalizedMemMode,
+      normalizedMemIds,
+      normalizedRawFilePaths === undefined ? null : normalizedRawFilePaths,
+      undefined,
+      execution.executionProfileId,
+      execution.cliEffort,
+      execution.cliModelId,
+      normalizedResources,
+      review_enabled ? 1 : 0,
+      review_profile_id ?? null,
+      rework_profile_id ?? null,
+      parsedMaxReviewRounds,
+    );
     res.status(201).json(todo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -102,7 +126,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements } = req.body;
+    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, pipeline_phase } = req.body;
     const hasExecutionField = cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined;
     const execution = hasExecutionField
       ? normalizeExecutionSelection({
@@ -141,6 +165,11 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       ...(normalizedMemIds !== undefined ? { memory_node_ids: normalizedMemIds } : {}),
       ...(normalizedRawFilePaths !== undefined ? { memory_raw_file_paths: normalizedRawFilePaths } : {}),
       ...(normalizedResources !== undefined ? { resource_requirements: normalizedResources } : {}),
+      ...(review_enabled !== undefined ? { review_enabled: review_enabled ? 1 : 0 } : {}),
+      ...(review_profile_id !== undefined ? { review_profile_id } : {}),
+      ...(rework_profile_id !== undefined ? { rework_profile_id } : {}),
+      ...(max_review_rounds !== undefined ? { max_review_rounds: max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3 } : {}),
+      ...(pipeline_phase !== undefined ? { pipeline_phase } : {}),
     });
     res.json(todo);
   } catch (err: unknown) {
