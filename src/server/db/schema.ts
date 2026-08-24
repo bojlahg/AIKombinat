@@ -405,14 +405,11 @@ export function initDatabase(db: Database.Database): void {
       started_at DATETIME,
       finished_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(todo_id, round_index)
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_todo ON todo_execution_rounds(todo_id, round_index);
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_run_token ON todo_execution_rounds(run_token);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_unique_index ON todo_execution_rounds(todo_id, round_index);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_active_unique ON todo_execution_rounds(todo_id) WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
   `);
 
   // Backwards-compatible migration: add new columns to existing DBs
@@ -633,6 +630,17 @@ export function initDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_cli_models_tool_status
       ON cli_models(cli_tool, status);
   `);
+
+  // Safely reconcile legacy duplicate rounds before enforcing unique indexes
+  dedupeLegacyExecutionRounds(db);
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_unique_index ON todo_execution_rounds(todo_id, round_index);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_active_unique ON todo_execution_rounds(todo_id) WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
+    `);
+  } catch {
+    // Unique index creation fallback: table remains functional even if an unexpected legacy constraint occurs
+  }
 
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
@@ -912,16 +920,18 @@ export function dedupeLegacyExecutionRounds(db: Database.Database): void {
           `).all(todo_id, round_index) as Array<{ id: string; status: string }>;
 
           const duplicates = rows.slice(1);
+          const maxRow = db.prepare(`SELECT MAX(round_index) as max_idx FROM todo_execution_rounds WHERE todo_id = ?`).get(todo_id) as { max_idx: number };
+          let nextIdx = (maxRow?.max_idx ?? 100) + 1;
           for (let i = 0; i < duplicates.length; i++) {
             db.prepare(`
               UPDATE todo_execution_rounds
-              SET round_index = round_index + 1000 + ?,
+              SET round_index = ?,
                   status = 'failed',
                   error_message = 'Superseded legacy duplicate round during schema migration',
                   finished_at = COALESCE(finished_at, ?),
                   updated_at = ?
               WHERE id = ?
-            `).run(i + 1, now, now, duplicates[i].id);
+            `).run(nextIdx++, now, now, duplicates[i].id);
           }
         }
       });

@@ -1043,7 +1043,7 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     expect(stoppedTodo.status).toBe('stopped');
   });
 
-  it('18. Race 3: Async diff transition vs stopTodo race aborts transition with superseded state', async () => {
+  it('18. Race 3: Diff resolves while stopTodo is still pending -> aborts transition with superseded state and prevents resurrection', async () => {
     const todo = queries.createTodo(
       project.id,
       'Async Diff Race Task',
@@ -1078,28 +1078,107 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     await orchestrator.startTodo(todo.id);
     const round1 = queries.getActiveExecutionRound(todo.id)!;
 
-    // Process exits, triggering advanceRoundOnSuccess which blocks on git diff
+    // 1. Implementation process exits, triggering advanceRoundOnSuccess which blocks on collectDiffSummary
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // User stops todo while diff is still calculating
-    await orchestrator.stopTodo(todo.id);
-    expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
-    expect(queries.getExecutionRoundById(round1.id)!.status).toBe('stopped');
+    // 2. Configure stopClaude to return an unresolved promise
+    let stopClaudeResolver: () => void;
+    const stopClaudePromise = new Promise<boolean>((resolve) => {
+      stopClaudeResolver = () => resolve(true);
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockImplementationOnce(() => stopClaudePromise);
 
-    // Now diff calculation finishes
-    diffResolver!('diff --git a/file.ts b/file.ts');
+    // 3. User calls stopTodo() WITHOUT awaiting completion
+    const stopPromise = orchestrator.stopTodo(todo.id);
+
+    // 4. Diff resolves WHILE stopClaude is still pending
+    diffResolver!('diff --git a/file.ts b/file.ts\n+ new code');
     await new Promise((r) => setTimeout(r, 60));
 
-    // Compare-and-set prevented resurrection!
-    const allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    // Assert at this point: No review round created, no CLI launched, todo not changed back to pending
+    let allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(allRounds).toHaveLength(1);
+    expect(mockClaudeStarts).toHaveLength(1);
+    expect(queries.getTodoById(todo.id)!.status).not.toBe('pending');
+
+    // 5. Complete stopClaude
+    stopClaudeResolver!();
+    await stopPromise;
+
+    // Final state: Todo stopped, round stopped, no next round
+    allRounds = queries.getExecutionRoundsByTodoId(todo.id);
     expect(allRounds).toHaveLength(1);
     expect(allRounds[0].status).toBe('stopped');
     expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
-    expect(mockClaudeStarts).toHaveLength(1); // No review started
   });
 
-  it('19. Race 4: Recovered live Review process later dies during periodic stale recovery', async () => {
+  it('19. Race 4: Periodic stale recovery ignores task during intentional Stop', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Stale Stop Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '["unity.editor"]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    await orchestrator.startTodo(todo.id);
+    const round = queries.getActiveExecutionRound(todo.id)!;
+    expect(round.status).toBe('running');
+
+    // Configure stopClaude to remain pending
+    let stopClaudeResolver: () => void;
+    const stopClaudePromise = new Promise<boolean>((resolve) => {
+      stopClaudeResolver = () => resolve(true);
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockImplementationOnce(() => stopClaudePromise);
+
+    // Call stopTodo without awaiting
+    const stopPromise = orchestrator.stopTodo(todo.id);
+
+    // Process is no longer alive
+    vi.spyOn(orchestrator, 'isProcessAlive').mockReturnValue(false);
+
+    // Stale recovery runs while stop is in-flight
+    orchestrator.recoverStaleTasks();
+
+    // Assert: Not marked failed by stale recovery
+    const currentTodo = queries.getTodoById(todo.id)!;
+    expect(currentTodo.status).not.toBe('failed');
+
+    const currentRound = queries.getExecutionRoundById(round.id)!;
+    expect(currentRound.status).not.toBe('failed');
+    expect(currentRound.error_message).toBeNull();
+
+    // Now resolve stopClaude
+    stopClaudeResolver!();
+    await stopPromise;
+
+    // Final state: stopped cleanly by stopTodo
+    expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
+    expect(queries.getExecutionRoundById(round.id)!.status).toBe('stopped');
+    const resStatus = resourceManager.getStatus().find((s) => s.key === 'unity.editor');
+    expect(resStatus?.used).toBe(0);
+  });
+
+  it('19b. Race 4b: Recovered live Review process later dies during periodic stale recovery', async () => {
     const todo = queries.createTodo(
       project.id,
       'Stale Review Task',
@@ -1334,9 +1413,17 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     expect(queries.getTodoById(todo.id)!.status).toBe('running');
   });
 
-  it('24. Migration 9: Startup migration safely reconciles legacy duplicate active rounds without deleting history', () => {
+  it('24. Migration 9: Production initDatabase() reconciles legacy duplicate active & index rounds safely and creates unique indexes', () => {
     const migrationDb = new Database(':memory:');
+    // Create legacy table structure without unique indexes
     migrationDb.exec(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
       CREATE TABLE IF NOT EXISTS todos (
         id TEXT PRIMARY KEY,
         project_id TEXT,
@@ -1362,34 +1449,59 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
       );
     `);
 
-    // Insert duplicate active rounds for the same todo
+    // Insert duplicate active rounds and duplicate round_index rows
     migrationDb.prepare(`
       INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, created_at)
       VALUES
         ('round-1', 'todo-1', 1, 'implementation', 'running', 'token-1', '2026-08-01T00:00:00.000Z'),
-        ('round-2', 'todo-1', 2, 'review', 'running', 'token-2', '2026-08-02T00:00:00.000Z')
+        ('round-2', 'todo-1', 1, 'review', 'running', 'token-2', '2026-08-02T00:00:00.000Z'),
+        ('round-3', 'todo-1', 2, 'review', 'running', 'token-3', '2026-08-03T00:00:00.000Z')
     `).run();
 
-    // Run safe dedupe migration
-    dedupeLegacyExecutionRounds(migrationDb);
+    // Call production initDatabase() directly
+    expect(() => initDatabase(migrationDb)).not.toThrow();
 
-    // Now creating unique active index succeeds!
+    // History is preserved (all 3 records still exist)
+    const allRounds = migrationDb.prepare('SELECT * FROM todo_execution_rounds WHERE todo_id = ? ORDER BY id').all('todo-1') as any[];
+    expect(allRounds).toHaveLength(3);
+
+    // Exactly one active round remains (round-3, the newest)
+    const activeRounds = migrationDb.prepare(`
+      SELECT * FROM todo_execution_rounds
+      WHERE todo_id = ? AND status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running')
+    `).all('todo-1') as any[];
+    expect(activeRounds).toHaveLength(1);
+    expect(activeRounds[0].id).toBe('round-3');
+    expect(activeRounds[0].status).toBe('running');
+
+    // Older conflicting rounds are failed with diagnostic error metadata
+    const failedRounds = migrationDb.prepare(`
+      SELECT * FROM todo_execution_rounds
+      WHERE todo_id = ? AND status = 'failed'
+    `).all('todo-1') as any[];
+    expect(failedRounds).toHaveLength(2);
+    for (const r of failedRounds) {
+      expect(r.error_message).toContain('Superseded legacy');
+    }
+
+    // Both unique indexes exist
+    const indexes = migrationDb.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'todo_execution_rounds'
+    `).all() as any[];
+    const indexNames = indexes.map((i) => i.name);
+    expect(indexNames).toContain('idx_todo_execution_rounds_unique_index');
+    expect(indexNames).toContain('idx_todo_execution_rounds_active_unique');
+
+    // Subsequent duplicate active round insertion is rejected by unique index
     expect(() => {
-      migrationDb.exec(`
-        CREATE UNIQUE INDEX idx_todo_execution_rounds_active_unique
-        ON todo_execution_rounds(todo_id)
-        WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
-      `);
-    }).not.toThrow();
+      migrationDb.prepare(`
+        INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token)
+        VALUES ('round-4', 'todo-1', 4, 'rework', 'running', 'token-4')
+      `).run();
+    }).toThrow();
 
-    // The newer active round (round-2) remains running
-    const round2 = migrationDb.prepare('SELECT * FROM todo_execution_rounds WHERE id = ?').get('round-2') as any;
-    expect(round2.status).toBe('running');
-
-    // The older active round (round-1) was superseded and marked failed without deleting
-    const round1 = migrationDb.prepare('SELECT * FROM todo_execution_rounds WHERE id = ?').get('round-1') as any;
-    expect(round1.status).toBe('failed');
-    expect(round1.error_message).toContain('Superseded legacy active round');
+    // Second call to initDatabase() is idempotent and does not throw
+    expect(() => initDatabase(migrationDb)).not.toThrow();
 
     migrationDb.close();
   });

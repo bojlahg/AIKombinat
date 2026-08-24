@@ -201,8 +201,12 @@ When done, ensure all tests pass.`);
   async advanceRoundOnSuccess(
     todoId: string,
     currentRoundId: string,
-    processOutput = ''
+    processOutput = '',
+    options?: { isCancelled?: () => boolean }
   ): Promise<AdvanceRoundResult> {
+    if (options?.isCancelled?.()) {
+      return { action: 'superseded', reason: 'cancelled_or_stopped' };
+    }
     const todo = getTodoById(todoId);
     if (!todo) return { action: 'failed', reason: 'todo_not_found' };
 
@@ -236,7 +240,9 @@ When done, ensure all tests pass.`);
         return { action: 'failed', reason: 'review_profile_missing' };
       }
 
+      if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const diffSummary = await this.collectDiffSummary(todo, project);
+      if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const reviewPrompt = this.buildReviewPrompt({
         todo,
         project,
@@ -308,6 +314,7 @@ When done, ensure all tests pass.`);
           const freshRound = getExecutionRoundById(currentRoundId);
           const activeRound = getActiveExecutionRound(todoId);
           if (
+            options?.isCancelled?.() ||
             !freshTodo ||
             freshTodo.status === 'stopped' ||
             freshTodo.status === 'failed' ||
@@ -351,6 +358,7 @@ When done, ensure all tests pass.`);
           const freshRound = getExecutionRoundById(currentRoundId);
           const activeRound = getActiveExecutionRound(todoId);
           if (
+            options?.isCancelled?.() ||
             !freshTodo ||
             freshTodo.status === 'stopped' ||
             freshTodo.status === 'failed' ||
@@ -394,6 +402,7 @@ When done, ensure all tests pass.`);
           const freshRound = getExecutionRoundById(currentRoundId);
           const activeRound = getActiveExecutionRound(todoId);
           if (
+            options?.isCancelled?.() ||
             !freshTodo ||
             freshTodo.status === 'stopped' ||
             freshTodo.status === 'failed' ||

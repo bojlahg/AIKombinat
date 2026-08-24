@@ -58,6 +58,8 @@ export class Orchestrator {
     const runningTodos = queries.getTodosByStatus('running');
     let recoveredCount = 0;
     for (const todo of runningTodos) {
+      if (this.stoppingTodoIds.has(todo.id)) continue;
+      if (this.isStoppingProjects.has(todo.project_id)) continue;
       if (!todo.process_pid || todo.process_pid === 0) continue;
       if (!this.isProcessAlive(todo.process_pid)) {
         try {
@@ -1139,7 +1141,16 @@ export class Orchestrator {
 
           if (todo.review_enabled && currentRound) {
             const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
-            const advanceResult = await reviewPipeline.advanceRoundOnSuccess(todoId, currentRound.id, combinedOutput);
+            const advanceResult = await reviewPipeline.advanceRoundOnSuccess(
+              todoId,
+              currentRound.id,
+              combinedOutput,
+              {
+                isCancelled: () =>
+                  this.stoppingTodoIds.has(todoId) ||
+                  this.isStoppingProjects.has(projectId),
+              }
+            );
 
             queries.updateTodo(todoId, {
               process_pid: 0,
