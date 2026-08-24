@@ -1113,6 +1113,103 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
   });
 
+  it('18b. Race 3b: Rework -> Review diff resolves while stopTodo is pending -> aborts transition with superseded state and prevents resurrection', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Rework Stop Race Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    // 1. Implementation starts and completes
+    await orchestrator.startTodo(todo.id);
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // 2. Review 1 starts and outputs needs_changes -> Rework 1 starts
+    expect(mockClaudeStarts).toHaveLength(2);
+    queries.createTaskLog(
+      todo.id,
+      'output',
+      JSON.stringify({
+        verdict: 'needs_changes',
+        summary: 'Fix security flaw',
+        issues: [{ severity: 'blocking', description: 'Fix SQL injection', files: ['db.ts'] }],
+      })
+    );
+    nextExitResolvers[1](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(mockClaudeStarts).toHaveLength(3);
+    const reworkRound = queries.getActiveExecutionRound(todo.id)!;
+    expect(reworkRound.phase).toBe('rework');
+    expect(reworkRound.status).toBe('running');
+
+    // 3. Configure mockGitDiff to block on a promise for Rework -> Review transition
+    let diffResolver: (val: string) => void;
+    const diffBlockedPromise = new Promise<string>((resolve) => {
+      diffResolver = resolve;
+    });
+    mockGitDiff.mockImplementationOnce(() => diffBlockedPromise);
+
+    // 4. Rework process exits 0, triggering advanceRoundOnSuccess which blocks on collectDiffSummary
+    nextExitResolvers[2](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // 5. Configure stopClaude to return an unresolved promise
+    let stopClaudeResolver: () => void;
+    const stopClaudePromise = new Promise<boolean>((resolve) => {
+      stopClaudeResolver = () => resolve(true);
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockImplementationOnce(() => stopClaudePromise);
+
+    // 6. User calls stopTodo() WITHOUT awaiting completion
+    const stopPromise = orchestrator.stopTodo(todo.id);
+
+    // 7. Diff resolves WHILE stopClaude is still pending
+    diffResolver!('diff --git a/db.ts b/db.ts\n+ fixed code');
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Assert before resolving stopClaude:
+    // - No Review 2 round created
+    // - No additional CLI process launched
+    // - Todo was not changed back to pending
+    // - Rework round was not marked completed by pipeline
+    let allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(allRounds).toHaveLength(3); // Impl (1), Review (2), Rework (3) - no Review (4)!
+    expect(mockClaudeStarts).toHaveLength(3);
+    expect(queries.getTodoById(todo.id)!.status).not.toBe('pending');
+    expect(queries.getExecutionRoundById(reworkRound.id)!.status).not.toBe('completed');
+
+    // 8. Resolve stopClaude
+    stopClaudeResolver!();
+    await stopPromise;
+
+    // Final state: Todo is stopped, Rework round is stopped, no next round
+    allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(allRounds).toHaveLength(3);
+    expect(allRounds[2].status).toBe('stopped');
+    expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
+  });
+
   it('19. Race 4: Periodic stale recovery ignores task during intentional Stop', async () => {
     const todo = queries.createTodo(
       project.id,
@@ -1504,5 +1601,53 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     expect(() => initDatabase(migrationDb)).not.toThrow();
 
     migrationDb.close();
+  });
+
+  it('24b. Migration 9b: initDatabase() throws descriptive error if execution-round unique invariants cannot be established', () => {
+    const corruptDb = new Database(':memory:');
+    corruptDb.exec(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS todos (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT,
+        status TEXT,
+        review_enabled INTEGER DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS todo_execution_rounds (
+        id TEXT PRIMARY KEY,
+        todo_id TEXT,
+        round_index INTEGER,
+        phase TEXT,
+        status TEXT,
+        run_token TEXT,
+        execution_snapshot TEXT,
+        input_payload TEXT,
+        result_payload TEXT,
+        error_message TEXT,
+        started_at DATETIME,
+        finished_at DATETIME,
+        created_at DATETIME,
+        updated_at DATETIME
+      );
+      INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token)
+      VALUES ('r1', 't1', 1, 'review', 'running', 'tok1');
+      INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token)
+      VALUES ('r2', 't1', 1, 'review', 'running', 'tok2');
+
+      -- Create trigger preventing updates so dedupe throws
+      CREATE TRIGGER prevent_updates BEFORE UPDATE ON todo_execution_rounds BEGIN
+        SELECT RAISE(FAIL, 'Updates forbidden on this table');
+      END;
+    `);
+
+    expect(() => initDatabase(corruptDb)).toThrow(/Failed to (enforce|reconcile).*todo execution round/i);
+    corruptDb.close();
   });
 });

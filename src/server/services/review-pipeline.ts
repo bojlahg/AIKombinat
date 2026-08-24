@@ -261,6 +261,7 @@ When done, ensure all tests pass.`);
         const freshRound = getExecutionRoundById(currentRoundId);
         const activeRound = getActiveExecutionRound(todoId);
         if (
+          options?.isCancelled?.() ||
           !freshTodo ||
           freshTodo.status === 'stopped' ||
           freshTodo.status === 'failed' ||
@@ -506,6 +507,9 @@ When done, ensure all tests pass.`);
     }
 
     if (currentRound.phase === 'rework') {
+      if (options?.isCancelled?.()) {
+        return { action: 'superseded', reason: 'cancelled_or_stopped' };
+      }
       const reviewProfileId = todo.review_profile_id ?? project.default_review_profile_id;
       if (!reviewProfileId) {
         const errorMsg = 'Configuration error: Review profile is not configured (todo.review_profile_id is null and project has no default_review_profile_id).';
@@ -541,7 +545,9 @@ When done, ensure all tests pass.`);
         }
       }
 
+      if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const diffSummary = await this.collectDiffSummary(todo, project);
+      if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const reviewPrompt = this.buildReviewPrompt({
         todo,
         project,

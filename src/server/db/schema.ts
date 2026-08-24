@@ -895,11 +895,12 @@ export function normalizeAntigravityCatalogAndExecutors(db: Database.Database): 
  * without deleting historical records.
  */
 export function dedupeLegacyExecutionRounds(db: Database.Database): void {
+  const roundsTableExists = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='todo_execution_rounds'`
+  ).get();
+  if (!roundsTableExists) return;
+
   try {
-    const roundsTableExists = db.prepare(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='todo_execution_rounds'`
-    ).get();
-    if (!roundsTableExists) return;
 
     // 1. Reconcile duplicate (todo_id, round_index) rows if any
     const duplicateIndexRows = db.prepare(`
@@ -974,7 +975,8 @@ export function dedupeLegacyExecutionRounds(db: Database.Database): void {
       });
       reconcileActiveTx();
     }
-  } catch {
-    // Defensive ignore if database is in transition
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to reconcile legacy todo execution rounds during schema migration: ${message}`);
   }
 }
