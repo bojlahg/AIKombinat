@@ -1,5 +1,8 @@
 import type { Todo } from '../db/queries.js';
 
+export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
+export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
+
 export type WSEvent =
   | { type: 'todo:status-changed'; todoId: string; status: string; mode?: string; worktree_path?: string | null; branch_name?: string | null }
   | { type: 'todo:created'; todo: Todo }
@@ -44,5 +47,12 @@ export type WSEvent =
       };
       error?: string;
     }
-  | { type: 'quota:updated'; tool: string; state: string; source?: string | null; reason?: string | null; resetAt?: string | null };
+  | {
+      type: 'quota:updated';
+      tool: SupportedProviderTool;
+      state: ProviderQuotaStateValue;
+      source?: string | null;
+      reason?: string | null;
+      resetAt?: string | null;
+    };
 

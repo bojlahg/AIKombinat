@@ -1489,5 +1489,201 @@ describe('Quota Awareness V1', () => {
 
     vi.useRealTimers();
   });
+
+  it('28. Todo final stderr output without trailing newline is fully drained before quota classification', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Todo Drain Proj', 'C:/todo-drain-proj');
+    const todo = queries.createTodo(
+      project.id,
+      'Todo Drain Task',
+      'Task description',
+      0,
+      'claude',
+      'claude-3.7-sonnet',
+      undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, undefined,
+      'high',
+      claude.id,
+    );
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let resolveExit: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      // Fast exit where stderr write happens without newline
+      // and child exits immediately (stream ends after data write)
+      setTimeout(() => {
+        stderr.write('Error: usage limit reached');
+        stderr.end();
+        stdout.end();
+        resolveExit(1);
+      }, 10);
+
+      return {
+        pid: 2801,
+        stdout,
+        stderr,
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    await orchestrator.startTodo(todo.id, 'headless');
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+    expect(providerQuotaService.getQuotaState('claude').reason).toContain('usage limit reached');
+  });
+
+  it('29. Todo prompt containing quota keywords does not trigger false quota classification on unrelated failure', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Todo Prompt Boundary Proj', 'C:/todo-prompt-proj');
+    // Prompt contains quota error keywords
+    const todo = queries.createTodo(
+      project.id,
+      'Investigate why Claude says "usage limit reached"',
+      undefined,
+      0,
+      'claude',
+      'claude-3.7-sonnet',
+      undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, undefined,
+      'high',
+      claude.id,
+    );
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let resolveExit: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      setTimeout(() => {
+        stderr.write('sh: claude: command not found\n');
+        stderr.end();
+        stdout.end();
+        resolveExit(127);
+      }, 10);
+
+      return {
+        pid: 2901,
+        stdout,
+        stderr,
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    await orchestrator.startTodo(todo.id, 'headless');
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Must NOT be marked exhausted because "usage limit reached" was in setup prompt logs, not runtime output
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+  });
+
+  it('30. Session stop and immediate restart isolates transient state and quota classification between Run A and Run B', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Session Cross-Run Proj', 'C:/session-cross-proj');
+    const session = queries.createSession(
+      project.id,
+      'Session Cross-Run Title',
+      'Initial Run A prompt',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null, null, null, null, null,
+      'high',
+      claude.id,
+    );
+
+    const pidA = 3001;
+    let resolveExitA: (code: number) => void = () => {};
+
+    // Run A start mock
+    vi.spyOn(claudeManager, 'startClaude').mockImplementationOnce(async () => ({
+      pid: pidA,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitA = resolve; }),
+      command: 'claude',
+      args: [],
+    }));
+
+    await sessionManager.startSession(session.id);
+    expect(queries.getSessionById(session.id)?.process_pid).toBe(pidA);
+
+    // Stop Run A without resolving exitPromiseA
+    vi.spyOn(claudeManager, 'stopClaude').mockResolvedValueOnce(undefined);
+    await sessionManager.stopSession(session.id);
+    expect(queries.getSessionById(session.id)?.status).toBe('stopped');
+
+    // Immediately start Run B for the same session with a new description
+    queries.updateSession(session.id, { description: 'Run B initial prompt' });
+    const pidB = 3002;
+    let resolveExitB: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude').mockImplementationOnce(async () => ({
+      pid: pidB,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExitB = resolve; }),
+      command: 'claude',
+      args: [],
+    }));
+
+    await sessionManager.startSession(session.id);
+    expect(queries.getSessionById(session.id)?.status).toBe('running');
+    expect(queries.getSessionById(session.id)?.process_pid).toBe(pidB);
+
+    // Verify Run B has pending prompt and startup state
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(true);
+    expect(sessionManager.getPendingPrompt(session.id)).toBe('Run B initial prompt');
+
+    // Emit late quota-exhaustion output from Run A via Run A's raw subscriber
+    const subsA = (claudeManager as any).rawSubscribers.get(pidA);
+    if (subsA) {
+      for (const cb of subsA) cb('Error: 429 You have exceeded your current quota.\n');
+    }
+
+    // Run A finally exits with non-zero exit code
+    resolveExitA(1);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Verify Run B state was NOT clobbered by Run A's exit:
+    // 1. Run B is still running with pidB
+    const sessionAfterExitA = queries.getSessionById(session.id);
+    expect(sessionAfterExitA?.status).toBe('running');
+    expect(sessionAfterExitA?.process_pid).toBe(pidB);
+
+    // 2. Run B pending prompt is still intact
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(true);
+    expect(sessionManager.getPendingPrompt(session.id)).toBe('Run B initial prompt');
+
+    // 3. Provider quota state was NOT marked exhausted by Run A's late output
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    // 4. Submit Run B's pending prompt and write Run B PTY output
+    vi.spyOn(claudeManager, 'writeToStdin').mockReturnValue(true);
+    sessionManager.submitInitialPrompt(session.id);
+    expect(sessionManager.hasPendingPrompt(session.id)).toBe(false);
+
+    const subsB = (claudeManager as any).rawSubscribers.get(pidB);
+    if (subsB) {
+      for (const cb of subsB) cb('Normal Run B output line\n');
+    }
+
+    // 5. Run B exits successfully
+    resolveExitB(0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    const finalSession = queries.getSessionById(session.id);
+    expect(finalSession?.status).toBe('completed');
+    expect(finalSession?.process_pid).toBe(0);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('available');
+  });
 });
 

@@ -224,6 +224,7 @@ describe('Agents settings model catalog and profiles UX', () => {
       tool: 'claude',
       state: 'exhausted',
       reason: 'Usage limit reached',
+      resetAt: '2026-08-24T12:00:00.000Z',
     });
 
     // Claude badge updates to Exhausted
@@ -238,6 +239,64 @@ describe('Agents settings model catalog and profiles UX', () => {
 
     // No extra fetch calls made
     expect(fetchMock.mock.calls.length).toBe(initialFetchCount);
+
+    // Transition exhausted -> available: clears reason and resetAt
+    wsCallback!({
+      type: 'quota:updated',
+      tool: 'claude',
+      state: 'available',
+    });
+
+    await waitFor(() => {
+      const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+      expect(within(claudeSection).getByText(/Available/)).toBeInTheDocument();
+      expect(within(claudeSection).queryByText(/Exhausted/)).not.toBeInTheDocument();
+      expect(within(claudeSection).queryByText(/resets/i)).not.toBeInTheDocument();
+    });
+
+    // Re-exhaust Claude with reason and resetAt
+    wsCallback!({
+      type: 'quota:updated',
+      tool: 'claude',
+      state: 'exhausted',
+      reason: 'Monthly limit reached',
+      resetAt: '2026-08-24T15:00:00.000Z',
+    });
+
+    await waitFor(() => {
+      const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+      expect(within(claudeSection).getByText(/Exhausted/)).toBeInTheDocument();
+    });
+
+    // Transition exhausted -> unknown: clears resetAt, updates reason
+    wsCallback!({
+      type: 'quota:updated',
+      tool: 'claude',
+      state: 'unknown',
+      reason: 'Cooldown expired',
+    });
+
+    await waitFor(() => {
+      const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+      expect(within(claudeSection).getByText(/Unknown/)).toBeInTheDocument();
+      expect(within(claudeSection).queryByText(/resets/i)).not.toBeInTheDocument();
+    });
+
+    // Ignore invalid tool or invalid state WebSocket events
+    wsCallback!({
+      type: 'quota:updated',
+      tool: 'invalid-tool',
+      state: 'exhausted',
+    });
+    wsCallback!({
+      type: 'quota:updated',
+      tool: 'claude',
+      state: 'invalid-state',
+    });
+
+    // Claude badge remains Unknown
+    const claudeSection = screen.getByText('Claude Code').closest('.rounded-xl') as HTMLElement;
+    expect(within(claudeSection).getByText(/Unknown/)).toBeInTheDocument();
 
     // Unmount triggers unsubscribe
     unmount();

@@ -215,6 +215,8 @@ export class ProviderQuotaService {
         type: 'quota:updated',
         tool,
         state: 'available',
+        reason: null,
+        resetAt: null,
       });
     } catch { /* ignore */ }
 
@@ -253,6 +255,7 @@ export class ProviderQuotaService {
         tool,
         state: 'unknown',
         reason: record.reason,
+        resetAt: null,
       });
     } catch { /* ignore */ }
 

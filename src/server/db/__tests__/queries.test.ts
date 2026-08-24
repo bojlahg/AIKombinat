@@ -296,6 +296,41 @@ describe('Database Queries', () => {
       expect(smallTail).toContain('chunk-0499');
       expect(smallTail).not.toContain('chunk-0450');
     });
+
+    it('bounds eligible chunks by maxChunks and retains newest in chronological order', () => {
+      // Append 300 chunks (all eligible with minSeq = 0 or minSeq omitted)
+      for (let i = 0; i < 300; i++) {
+        queries.appendSessionRawChunk(sessionId, Buffer.from(`chunk-${i.toString().padStart(4, '0')}\n`));
+      }
+
+      // Default maxChunks is 200, large maxBytes allows full 200 chunks (each is ~11 bytes)
+      const text = queries.getRecentSessionRawText(sessionId, 64 * 1024, 0, 200);
+
+      // Chunks 0..99 must be excluded because maxChunks = 200 retains newest (100..299)
+      expect(text).not.toContain('chunk-0000');
+      expect(text).not.toContain('chunk-0099');
+      expect(text).toContain('chunk-0100');
+      expect(text).toContain('chunk-0299');
+
+      // Verify chronological order
+      const idx100 = text.indexOf('chunk-0100');
+      const idx200 = text.indexOf('chunk-0200');
+      const idx299 = text.indexOf('chunk-0299');
+      expect(idx100).toBeLessThan(idx200);
+      expect(idx200).toBeLessThan(idx299);
+    });
+
+    it('bounds single chunk larger than maxBytes to requested tail', () => {
+      const largeContent = 'PREFIX_HEADER_' + 'x'.repeat(1000) + '_TAIL_SUFFIX';
+      queries.appendSessionRawChunk(sessionId, Buffer.from(largeContent));
+
+      const maxBytes = 50;
+      const text = queries.getRecentSessionRawText(sessionId, maxBytes);
+      expect(text.length).toBe(maxBytes);
+      expect(text).toContain('_TAIL_SUFFIX');
+      expect(text).not.toContain('PREFIX_HEADER_');
+      expect(text).toBe(largeContent.slice(largeContent.length - maxBytes));
+    });
   });
 
   describe('getRecentTaskLogText', () => {
@@ -317,6 +352,33 @@ describe('Database Queries', () => {
       expect(currentRunOutput).toContain('Run 2: normal line 1');
       expect(currentRunOutput).toContain('Run 2: git command not found');
       expect(currentRunOutput).not.toContain('quota limit reached');
+    });
+
+    it('retains newest task logs under maxRows and maxBytes limits in chronological order', () => {
+      // Insert 250 log rows
+      for (let i = 0; i < 250; i++) {
+        queries.createTaskLog(todoId, 'output', `log-row-${i.toString().padStart(4, '0')}`);
+      }
+
+      // Request maxRows = 50 with large maxBytes
+      const textLimitedRows = queries.getRecentTaskLogText(todoId, undefined, 64 * 1024, 50);
+      expect(textLimitedRows).not.toContain('log-row-0000');
+      expect(textLimitedRows).not.toContain('log-row-0199');
+      expect(textLimitedRows).toContain('log-row-0200');
+      expect(textLimitedRows).toContain('log-row-0249');
+
+      // Verify chronological reconstruction
+      const idx200 = textLimitedRows.indexOf('log-row-0200');
+      const idx225 = textLimitedRows.indexOf('log-row-0225');
+      const idx249 = textLimitedRows.indexOf('log-row-0249');
+      expect(idx200).toBeLessThan(idx225);
+      expect(idx225).toBeLessThan(idx249);
+
+      // Request with tight maxBytes
+      const textLimitedBytes = queries.getRecentTaskLogText(todoId, undefined, 60, 200);
+      expect(textLimitedBytes.length).toBeLessThanOrEqual(60);
+      expect(textLimitedBytes).toContain('log-row-0249');
+      expect(textLimitedBytes).not.toContain('log-row-0200');
     });
   });
 });

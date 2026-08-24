@@ -72,120 +72,151 @@ export class LogStreamer {
    * stderr -> log_type: 'error'
    * Also detects git commit messages in output -> log_type: 'commit'
    */
-  streamToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream): void {
+  /**
+   * Attach to a CLI process stdout/stderr and save logs to DB.
+   * Used for Antigravity/Codex (plain text output).
+   * stdout -> log_type: 'output'
+   * stderr -> log_type: 'error'
+   * Also detects git commit messages in output -> log_type: 'commit'
+   * Returns a promise that resolves when both streams have drained and
+   * all trailing buffer content has been written to the DB.
+   */
+  streamToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream): Promise<void> {
     const commitPattern = /commit\s+[0-9a-f]{7,40}/i;
     const noiseState = this.getNoiseFilter(todoId);
 
     stdout.setEncoding('utf8' as BufferEncoding);
     stderr.setEncoding('utf8' as BufferEncoding);
 
-    let stdoutBuffer = '';
-    stdout.on('data', (chunk: string) => {
-      stdoutBuffer += chunk;
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() || '';
+    const handleStdout = new Promise<void>((resolve) => {
+      let stdoutBuffer = '';
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (stdoutBuffer.trim() && !isPlainTextNoise(stdoutBuffer, noiseState)) {
+          try {
+            if (commitPattern.test(stdoutBuffer)) {
+              this.log(todoId, 'commit', stdoutBuffer.trim());
+              const hashMatch = stdoutBuffer.match(/[0-9a-f]{7,40}/i);
+              broadcaster.broadcast({
+                type: 'todo:commit',
+                todoId,
+                commitHash: hashMatch ? hashMatch[0] : '',
+                message: stdoutBuffer.trim(),
+              });
+            } else {
+              this.log(todoId, 'output', stdoutBuffer.trim());
+              broadcaster.broadcast({
+                type: 'todo:log',
+                todoId,
+                message: stdoutBuffer.trim(),
+                logType: 'output',
+              });
+            }
+          } catch {
+            // Todo may have been deleted — skip log but don't crash
+          }
+        }
+        resolve();
+      };
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        if (isPlainTextNoise(line, noiseState)) continue;
-        try {
-          if (commitPattern.test(line)) {
-            this.log(todoId, 'commit', line.trim());
-            const hashMatch = line.match(/[0-9a-f]{7,40}/i);
+      stdout.on('data', (chunk: string) => {
+        stdoutBuffer += chunk;
+        const lines = stdoutBuffer.split('\n');
+        stdoutBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          if (isPlainTextNoise(line, noiseState)) continue;
+          try {
+            if (commitPattern.test(line)) {
+              this.log(todoId, 'commit', line.trim());
+              const hashMatch = line.match(/[0-9a-f]{7,40}/i);
+              broadcaster.broadcast({
+                type: 'todo:commit',
+                todoId,
+                commitHash: hashMatch ? hashMatch[0] : '',
+                message: line.trim(),
+              });
+            } else {
+              this.log(todoId, 'output', line.trim());
+              broadcaster.broadcast({
+                type: 'todo:log',
+                todoId,
+                message: line.trim(),
+                logType: 'output',
+              });
+            }
+          } catch {
+            // Todo may have been deleted — skip log but don't crash
+          }
+        }
+      });
+
+      stdout.once('end', finish);
+      stdout.once('close', finish);
+      stdout.once('error', finish);
+    });
+
+    const handleStderr = new Promise<void>((resolve) => {
+      let stderrBuffer = '';
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (stderrBuffer.trim() && !isPlainTextNoise(stderrBuffer, noiseState)) {
+          if (CONTEXT_EXHAUSTION_PATTERN.test(stderrBuffer)) {
+            this.contextExhaustedMap.set(todoId, true);
+          }
+          const logType = classifyStderrLine(stderrBuffer.trim());
+          try {
+            this.log(todoId, logType, stderrBuffer.trim());
             broadcaster.broadcast({
-              type: 'todo:commit',
+              type: 'todo:log',
               todoId,
-              commitHash: hashMatch ? hashMatch[0] : '',
-              message: line.trim(),
+              message: stderrBuffer.trim(),
+              logType,
             });
-          } else {
-            this.log(todoId, 'output', line.trim());
+          } catch {
+            // Todo may have been deleted — skip log but don't crash
+          }
+        }
+        resolve();
+      };
+
+      stderr.on('data', (chunk: string) => {
+        stderrBuffer += chunk;
+        const lines = stderrBuffer.split('\n');
+        stderrBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          if (CONTEXT_EXHAUSTION_PATTERN.test(line)) {
+            this.contextExhaustedMap.set(todoId, true);
+          }
+          if (isPlainTextNoise(line, noiseState)) continue;
+          const logType = classifyStderrLine(line.trim());
+          try {
+            this.log(todoId, logType, line.trim());
             broadcaster.broadcast({
               type: 'todo:log',
               todoId,
               message: line.trim(),
-              logType: 'output',
+              logType,
             });
+          } catch {
+            // Todo may have been deleted — skip log but don't crash
           }
-        } catch {
-          // Todo may have been deleted — skip log but don't crash
         }
-      }
+      });
+
+      stderr.once('end', finish);
+      stderr.once('close', finish);
+      stderr.once('error', finish);
     });
 
-    stdout.on('end', () => {
-      if (stdoutBuffer.trim() && !isPlainTextNoise(stdoutBuffer, noiseState)) {
-        try {
-          if (commitPattern.test(stdoutBuffer)) {
-            this.log(todoId, 'commit', stdoutBuffer.trim());
-            const hashMatch = stdoutBuffer.match(/[0-9a-f]{7,40}/i);
-            broadcaster.broadcast({
-              type: 'todo:commit',
-              todoId,
-              commitHash: hashMatch ? hashMatch[0] : '',
-              message: stdoutBuffer.trim(),
-            });
-          } else {
-            this.log(todoId, 'output', stdoutBuffer.trim());
-            broadcaster.broadcast({
-              type: 'todo:log',
-              todoId,
-              message: stdoutBuffer.trim(),
-              logType: 'output',
-            });
-          }
-        } catch {
-          // Todo may have been deleted — skip log but don't crash
-        }
-      }
-    });
-
-    let stderrBuffer = '';
-    stderr.on('data', (chunk: string) => {
-      stderrBuffer += chunk;
-      const lines = stderrBuffer.split('\n');
-      stderrBuffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        if (CONTEXT_EXHAUSTION_PATTERN.test(line)) {
-          this.contextExhaustedMap.set(todoId, true);
-        }
-        if (isPlainTextNoise(line, noiseState)) continue;
-        const logType = classifyStderrLine(line.trim());
-        try {
-          this.log(todoId, logType, line.trim());
-          broadcaster.broadcast({
-            type: 'todo:log',
-            todoId,
-            message: line.trim(),
-            logType,
-          });
-        } catch {
-          // Todo may have been deleted — skip log but don't crash
-        }
-      }
-    });
-
-    stderr.on('end', () => {
-      if (stderrBuffer.trim() && !isPlainTextNoise(stderrBuffer, noiseState)) {
-        if (CONTEXT_EXHAUSTION_PATTERN.test(stderrBuffer)) {
-          this.contextExhaustedMap.set(todoId, true);
-        }
-        const logType = classifyStderrLine(stderrBuffer.trim());
-        try {
-          this.log(todoId, logType, stderrBuffer.trim());
-          broadcaster.broadcast({
-            type: 'todo:log',
-            todoId,
-            message: stderrBuffer.trim(),
-            logType,
-          });
-        } catch {
-          // Todo may have been deleted — skip log but don't crash
-        }
-      }
-    });
+    return Promise.all([handleStdout, handleStderr]).then(() => undefined);
   }
 
   /**
@@ -193,8 +224,10 @@ export class LogStreamer {
    * JSON lines may come via stdout or stderr depending on environment
    * (shell: true on Windows can redirect stderr to stdout).
    * Both streams are parsed as JSON lines.
+   * Returns a promise that resolves when both streams have drained and
+   * all trailing buffer content has been processed and written to the DB.
    */
-  streamJsonToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream, verbose: boolean = false): void {
+  streamJsonToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream, verbose: boolean = false): Promise<void> {
     const commitPattern = /commit\s+[0-9a-f]{7,40}/i;
 
     // Initialize token usage accumulator
@@ -209,26 +242,36 @@ export class LogStreamer {
     stderr.setEncoding('utf8' as BufferEncoding);
 
     // Helper to wire up JSON line parsing on a stream
-    const attachJsonParser = (stream: NodeJS.ReadableStream) => {
-      let buffer = '';
-      stream.on('data', (chunk: string) => {
-        buffer += chunk;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          this.processJsonLine(todoId, line.trim(), commitPattern, verbose);
-        }
-      });
-      stream.on('end', () => {
-        if (buffer.trim()) {
-          this.processJsonLine(todoId, buffer.trim(), commitPattern, verbose);
-        }
+    const attachJsonParser = (stream: NodeJS.ReadableStream): Promise<void> => {
+      return new Promise<void>((resolve) => {
+        let buffer = '';
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          if (buffer.trim()) {
+            this.processJsonLine(todoId, buffer.trim(), commitPattern, verbose);
+          }
+          resolve();
+        };
+
+        stream.on('data', (chunk: string) => {
+          buffer += chunk;
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            this.processJsonLine(todoId, line.trim(), commitPattern, verbose);
+          }
+        });
+
+        stream.once('end', finish);
+        stream.once('close', finish);
+        stream.once('error', finish);
       });
     };
 
-    attachJsonParser(stdout);
-    attachJsonParser(stderr);
+    return Promise.all([attachJsonParser(stdout), attachJsonParser(stderr)]).then(() => undefined);
   }
 
   /**

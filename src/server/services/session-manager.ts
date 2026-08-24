@@ -24,18 +24,26 @@ const RAW_DB_CAP_BYTES = 2 * 1024 * 1024;
 const RAW_TRIM_EVERY_BYTES = 256 * 1024;
 
 export class SessionManager {
-  // Per-session pending-flush callback so we can drain the byte buffer when
-  // the PTY exits or the user stops the session.
-  private pendingFlushers: Map<string, () => void> = new Map();
+  // Monotonically increasing run generation per session to isolate transient state across runs
+  private sessionRunGenerations: Map<string, number> = new Map();
+  // sessionId -> currently active execution run token
+  private activeRunTokens: Map<string, number> = new Map();
 
-  // Initial prompts (description + optional injected wiki) that have NOT been
+  // runToken -> pending-flush callback so we can drain the byte buffer when
+  // the PTY exits or the user stops the session.
+  private runFlushers: Map<number, () => void> = new Map();
+
+  // runToken -> raw PTY unsubscribe callback
+  private runRawUnsubscribes: Map<number, () => void> = new Map();
+
+  // Initial prompts (description + optional injected wiki) keyed by runToken that have NOT been
   // submitted to the PTY yet. We hold them so the user gets to review the
   // payload — including any auto-retrieved wiki nodes — and explicitly hit
   // Send (or Skip) instead of having the prompt fire the moment the CLI
   // emits its ready indicator.
-  private pendingInitialPrompts: Map<string, string> = new Map();
+  private runInitialPrompts: Map<number, string> = new Map();
 
-  // Per-session type-ahead queue. While the session has status='running'
+  // Per-run type-ahead queue. While the session has status='running'
   // but the PTY hasn't spawned yet (process_pid still 0), every
   // terminal-input WS message is appended here instead of being dropped
   // or written to a non-existent PTY. A buffer presence is the gate —
@@ -43,7 +51,7 @@ export class SessionManager {
   // the end of `startSession` deletes the entry atomically with the
   // process_pid DB update so subsequent input goes straight to the PTY
   // without any reordering window.
-  private startupInputBuffer: Map<string, string[]> = new Map();
+  private runStartupBuffers: Map<number, string[]> = new Map();
 
   // sessionId → live PTY pid. Keystroke routing hot path: writeTerminalInput
   // fires on every WS terminal-input message, and looking the pid up in the
@@ -71,7 +79,7 @@ export class SessionManager {
    * Memory-bounded by the upstream ring buffer in claudeManager and by
    * `trimSessionRawChunks` (~2MB rolling) on the DB side.
    */
-  private subscribeRawForSession(sessionId: string, pid: number): void {
+  private subscribeRawForSession(sessionId: string, pid: number, runToken: number): void {
     let pending: Buffer[] = [];
     let pendingBytes = 0;
     let bytesSinceTrim = 0;
@@ -80,6 +88,11 @@ export class SessionManager {
     const flush = (): void => {
       if (timer) { clearTimeout(timer); timer = null; }
       if (pending.length === 0) return;
+      if (this.activeRunTokens.get(sessionId) !== runToken) {
+        pending = [];
+        pendingBytes = 0;
+        return;
+      }
       const buf = Buffer.concat(pending);
       pending = [];
       pendingBytes = 0;
@@ -93,7 +106,15 @@ export class SessionManager {
       } catch { /* DB may be locked or session deleted; drop chunk */ }
     };
 
-    claudeManager.subscribeRaw(pid, (chunk) => {
+    const unsub = claudeManager.subscribeRaw(pid, (chunk) => {
+      // Guard: if run was superseded or stopped, drop chunk immediately
+      if (this.activeRunTokens.get(sessionId) !== runToken) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        pending = [];
+        pendingBytes = 0;
+        return;
+      }
+
       const buf = Buffer.from(chunk, 'utf8');
       pending.push(buf);
       pendingBytes += buf.length;
@@ -110,14 +131,20 @@ export class SessionManager {
       }
     }, true);
 
-    this.pendingFlushers.set(sessionId, flush);
+    this.runFlushers.set(runToken, flush);
+    this.runRawUnsubscribes.set(runToken, unsub);
   }
 
-  private flushAndForgetRaw(sessionId: string): void {
-    const flusher = this.pendingFlushers.get(sessionId);
+  private flushAndForgetRaw(runToken: number): void {
+    const flusher = this.runFlushers.get(runToken);
     if (flusher) {
       try { flusher(); } catch { /* ignore */ }
-      this.pendingFlushers.delete(sessionId);
+      this.runFlushers.delete(runToken);
+    }
+    const unsub = this.runRawUnsubscribes.get(runToken);
+    if (unsub) {
+      try { unsub(); } catch { /* ignore */ }
+      this.runRawUnsubscribes.delete(runToken);
     }
   }
 
@@ -129,7 +156,9 @@ export class SessionManager {
    * the most recent ~100ms of bytes and replaying both would duplicate.
    */
   flushPendingRaw(sessionId: string): void {
-    const flusher = this.pendingFlushers.get(sessionId);
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken === undefined) return;
+    const flusher = this.runFlushers.get(runToken);
     if (!flusher) return;
     try { flusher(); } catch { /* ignore */ }
   }
@@ -150,6 +179,10 @@ export class SessionManager {
 
     const project = queries.getProjectById(session.project_id);
     if (!project) throw new Error('Project not found');
+
+    const runToken = (this.sessionRunGenerations.get(sessionId) ?? 0) + 1;
+    this.sessionRunGenerations.set(sessionId, runToken);
+    this.activeRunTokens.set(sessionId, runToken);
 
     let hasReservation = false;
     let isRunningPersisted = false;
@@ -264,12 +297,12 @@ export class SessionManager {
       const willHaveInitialPrompt = !isRawShell && !resume && (!!session.description?.trim() || memMode !== 'none' || rawFilePaths.length > 0);
 
       if (willHaveInitialPrompt) {
-        this.pendingInitialPrompts.set(sessionId, session.description || '');
+        this.runInitialPrompts.set(runToken, session.description || '');
       } else {
-        this.pendingInitialPrompts.delete(sessionId);
+        this.runInitialPrompts.delete(runToken);
       }
 
-      this.startupInputBuffer.set(sessionId, []);
+      this.runStartupBuffers.set(runToken, []);
 
       let prompt = session.description || '';
 
@@ -297,11 +330,11 @@ export class SessionManager {
         }
       }
 
-      // Update final prepared prompt in pendingInitialPrompts
+      // Update final prepared prompt in runInitialPrompts
       if (!isRawShell && !resume && prompt.trim()) {
-        this.pendingInitialPrompts.set(sessionId, prompt);
+        this.runInitialPrompts.set(runToken, prompt);
       } else {
-        this.pendingInitialPrompts.delete(sessionId);
+        this.runInitialPrompts.delete(runToken);
       }
 
       // Worktree setup
@@ -341,6 +374,12 @@ export class SessionManager {
         : executionConfig?.effort.nativeEffort;
       const startRawSeq = queries.getMaxSessionRawSeq(sessionId) + 1;
       const startLogRowid = queries.getMaxSessionLogRowid(sessionId);
+
+      // Check if session was stopped/superseded during async setup
+      if (this.activeRunTokens.get(sessionId) !== runToken) {
+        return;
+      }
+
       const result = await claudeManager.startClaude(
         workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
@@ -349,7 +388,14 @@ export class SessionManager {
       );
       const pid = result.pid;
       const exitPromise = result.exitPromise;
-      this.subscribeRawForSession(sessionId, pid);
+
+      if (this.activeRunTokens.get(sessionId) !== runToken) {
+        // Run superseded while spawning
+        try { await claudeManager.stopClaude(pid); } catch { /* ignore */ }
+        return;
+      }
+
+      this.subscribeRawForSession(sessionId, pid, runToken);
 
       // Atomic drain: persist process_pid, remove the buffer, replay queued
       // bytes — all in a single synchronous block. JS being single-threaded
@@ -362,8 +408,8 @@ export class SessionManager {
       // could overwrite a snapshot that already landed.
       queries.updateSession(sessionId, { process_pid: pid, branch_name: branchName, worktree_path: worktreePath });
       this.livePids.set(sessionId, pid);
-      const queued = this.startupInputBuffer.get(sessionId);
-      this.startupInputBuffer.delete(sessionId);
+      const queued = this.runStartupBuffers.get(runToken);
+      this.runStartupBuffers.delete(runToken);
       if (queued && queued.length > 0) {
         for (const input of queued) {
           try { claudeManager.writeStdinRaw(pid, input); } catch { /* ignore */ }
@@ -386,17 +432,23 @@ export class SessionManager {
 
       // Handle process exit
       exitPromise.then((exitCode) => {
-        // Flush any pending raw bytes before status update so re-opening the
-        // session immediately shows the final output.
-        this.flushAndForgetRaw(sessionId);
-        // Guard: a stop-then-restart may have already mapped a NEW pid.
+        // Flush and clean up resources owned by this runToken only
+        this.flushAndForgetRaw(runToken);
+        this.runInitialPrompts.delete(runToken);
+        this.runStartupBuffers.delete(runToken);
         if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
-        this.pendingInitialPrompts.delete(sessionId);
-        this.startupInputBuffer.delete(sessionId);
+
+        // Guard: if run was superseded by a newer run or stopped, do not mutate newer execution state
+        if (this.activeRunTokens.get(sessionId) !== runToken) {
+          return;
+        }
+
         const current = queries.getSessionById(sessionId);
         // pid guard: a session stopped-then-restarted during the kill window has
         // a new process_pid — the old process's exit must not clobber it.
         if (current && current.status === 'running' && current.process_pid === pid) {
+          this.activeRunTokens.delete(sessionId);
+
           if (exitCode === 0) {
             if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
               providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
@@ -434,17 +486,20 @@ export class SessionManager {
           orchestrator.wakeWaitingExecutors().catch(() => {});
         }
       }).catch(() => {
-        this.flushAndForgetRaw(sessionId);
+        this.flushAndForgetRaw(runToken);
+        this.runInitialPrompts.delete(runToken);
+        this.runStartupBuffers.delete(runToken);
         if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
-        this.pendingInitialPrompts.delete(sessionId);
-        this.startupInputBuffer.delete(sessionId);
-        try {
-          queries.updateSessionStatus(sessionId, 'failed');
-          queries.updateSession(sessionId, { process_pid: 0 });
-        } catch { /* ignore */ }
-        broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
-        broadcastProjectStatus(session.project_id);
-        orchestrator.wakeWaitingExecutors().catch(() => {});
+        if (this.activeRunTokens.get(sessionId) === runToken) {
+          this.activeRunTokens.delete(sessionId);
+          try {
+            queries.updateSessionStatus(sessionId, 'failed');
+            queries.updateSession(sessionId, { process_pid: 0 });
+          } catch { /* ignore */ }
+          broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
+          broadcastProjectStatus(session.project_id);
+          orchestrator.wakeWaitingExecutors().catch(() => {});
+        }
       });
     } catch (err) {
       if (hasReservation) {
@@ -452,18 +507,22 @@ export class SessionManager {
         hasReservation = false;
       }
       const message = err instanceof Error ? err.message : String(err);
-      if (isRunningPersisted) {
-        this.startupInputBuffer.delete(sessionId);
-        this.pendingInitialPrompts.delete(sessionId);
-        queries.updateSessionStatus(sessionId, 'failed');
-        queries.updateSession(sessionId, { process_pid: 0, execution_snapshot: null });
-        queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter?.displayName || 'session'}: ${message}`);
-        if (useWorktree && worktreePath && !session.worktree_path) {
-          try { await worktreeManager.removeWorktree(project.path, worktreePath); } catch { /* ignore */ }
+      if (this.activeRunTokens.get(sessionId) === runToken) {
+        this.activeRunTokens.delete(sessionId);
+        this.flushAndForgetRaw(runToken);
+        this.runInitialPrompts.delete(runToken);
+        this.runStartupBuffers.delete(runToken);
+        if (isRunningPersisted) {
+          queries.updateSessionStatus(sessionId, 'failed');
+          queries.updateSession(sessionId, { process_pid: 0, execution_snapshot: null });
+          queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter?.displayName || 'session'}: ${message}`);
+          if (useWorktree && worktreePath && !session.worktree_path) {
+            try { await worktreeManager.removeWorktree(project.path, worktreePath); } catch { /* ignore */ }
+          }
+          broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
+          broadcastProjectStatus(session.project_id);
+          orchestrator.wakeWaitingExecutors().catch(() => {});
         }
-        broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'failed' });
-        broadcastProjectStatus(session.project_id);
-        orchestrator.wakeWaitingExecutors().catch(() => {});
       }
       throw err;
     } finally {
@@ -481,6 +540,14 @@ export class SessionManager {
     if (!session) throw new Error('Session not found');
     const pid = session.process_pid;
 
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken !== undefined) {
+      this.activeRunTokens.delete(sessionId);
+      this.flushAndForgetRaw(runToken);
+      this.runInitialPrompts.delete(runToken);
+      this.runStartupBuffers.delete(runToken);
+    }
+
     // Mark stopped + broadcast BEFORE the (up to 7s) graceful kill so the UI
     // updates immediately; the exit handler's guards then skip this session.
     this.livePids.delete(sessionId);
@@ -493,9 +560,6 @@ export class SessionManager {
     if (pid) {
       await claudeManager.stopClaude(pid);
     }
-    this.flushAndForgetRaw(sessionId);
-    this.pendingInitialPrompts.delete(sessionId);
-    this.startupInputBuffer.delete(sessionId);
     orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 
@@ -513,10 +577,13 @@ export class SessionManager {
    */
   writeTerminalInput(sessionId: string, input: string): void {
     if (this.hasPendingPrompt(sessionId)) return;
-    const buf = this.startupInputBuffer.get(sessionId);
-    if (buf) {
-      buf.push(input);
-      return;
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken !== undefined) {
+      const buf = this.runStartupBuffers.get(runToken);
+      if (buf) {
+        buf.push(input);
+        return;
+      }
     }
     // Hot path: avoid a synchronous DB read per keystroke.
     const pid = this.livePids.get(sessionId);
@@ -536,7 +603,9 @@ export class SessionManager {
    * Returns false if there's no pending prompt or the PTY is gone.
    */
   submitInitialPrompt(sessionId: string): boolean {
-    const prompt = this.pendingInitialPrompts.get(sessionId);
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken === undefined) return false;
+    const prompt = this.runInitialPrompts.get(runToken);
     if (!prompt) return false;
 
     const session = queries.getSessionById(sessionId);
@@ -545,7 +614,7 @@ export class SessionManager {
     const payload = prompt.endsWith('\n') ? prompt : `${prompt}\n`;
     const ok = claudeManager.writeToStdin(session.process_pid, payload);
     if (ok) {
-      this.pendingInitialPrompts.delete(sessionId);
+      this.runInitialPrompts.delete(runToken);
       queries.createSessionLog(
         sessionId,
         'output',
@@ -557,19 +626,24 @@ export class SessionManager {
 
   /** Discard the held initial prompt without sending anything to the PTY. */
   skipInitialPrompt(sessionId: string): void {
-    if (this.pendingInitialPrompts.has(sessionId)) {
-      this.pendingInitialPrompts.delete(sessionId);
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken !== undefined && this.runInitialPrompts.has(runToken)) {
+      this.runInitialPrompts.delete(runToken);
       queries.createSessionLog(sessionId, 'output', '[memory] initial prompt skipped by user');
     }
   }
 
   /** Full body of the held initial prompt, or null if none. */
   getPendingPrompt(sessionId: string): string | null {
-    return this.pendingInitialPrompts.get(sessionId) ?? null;
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken === undefined) return null;
+    return this.runInitialPrompts.get(runToken) ?? null;
   }
 
   hasPendingPrompt(sessionId: string): boolean {
-    return this.pendingInitialPrompts.has(sessionId);
+    const runToken = this.activeRunTokens.get(sessionId);
+    if (runToken === undefined) return false;
+    return this.runInitialPrompts.has(runToken);
   }
 
   /**

@@ -489,6 +489,7 @@ export class Orchestrator {
     let exitPromise: Promise<number>;
     let debugSession: DebugSession | null = null;
     let executionStartRowid = 0;
+    let streamDrainPromise: Promise<void> | null = null;
 
     // Mark as running synchronously and release reservation immediately (no await in between)
     queries.updateTodoStatus(todoId, 'running');
@@ -544,8 +545,6 @@ export class Orchestrator {
         workDir = projectPath;
         prompt = isContinue ? continueOptions!.followUpPrompt : (todo.description || todo.title);
       }
-
-      executionStartRowid = queries.getMaxTaskLogRowid(todoId);
 
       // Handle attached reference images: copy them into the task's worktree/dir
       if (todo.images) {
@@ -656,6 +655,10 @@ export class Orchestrator {
       const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
         ? undefined
         : executionConfig?.effort.nativeEffort;
+
+      // Establish the current-run classification boundary immediately before starting provider process
+      executionStartRowid = queries.getMaxTaskLogRowid(todoId);
+
       const result = await claudeManager.startClaude(workDir, prompt, launchModel, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launchEffort);
       pid = result.pid;
       exitPromise = result.exitPromise;
@@ -677,9 +680,9 @@ export class Orchestrator {
       // Start streaming logs to DB (Claude uses structured JSON, others use plain text)
       // Interactive mode outputs TUI text (not JSON), so always use plain text streaming
       if (resolvedCliTool === 'claude' && mode !== 'interactive') {
-        logStreamer.streamJsonToDb(todoId, stdout, stderr, mode === 'verbose');
+        streamDrainPromise = logStreamer.streamJsonToDb(todoId, stdout, stderr, mode === 'verbose');
       } else {
-        logStreamer.streamToDb(todoId, stdout, stderr);
+        streamDrainPromise = logStreamer.streamToDb(todoId, stdout, stderr);
       }
 
       // Update todo with process info (status already set to 'running' above)
@@ -705,11 +708,22 @@ export class Orchestrator {
     }
 
     // Handle process exit asynchronously
-    exitPromise.then((exitCode) => {
+    exitPromise.then(async (exitCode) => {
       // Finalize debug log file
       if (debugSession) {
         try { debugSession.finalize(exitCode); } catch { /* ignore */ }
       }
+
+      // Ensure log streamer has fully drained streams and flushed all trailing lines before log inspection
+      if (streamDrainPromise) {
+        try {
+          await Promise.race([
+            streamDrainPromise,
+            new Promise((resolve) => setTimeout(resolve, 20)),
+          ]);
+        } catch { /* ignore */ }
+      }
+
       let delegated: queries.Todo | null = null;
       const currentTodo = queries.getTodoById(todoId);
       // Only update if still in running state (not manually stopped)
@@ -858,7 +872,7 @@ export class Orchestrator {
           captureReviewMetadata(todoId).catch(() => { /* ignore */ });
           broadcaster.broadcast({ type: 'todo:log', todoId, message: doneMsg, logType: 'output' });
           broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
-          this.broadcastProjectStatus(projectId);
+          try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
 
           try {
             delegated = maybeCreateReviewTodo(projectId, todoId);
@@ -866,7 +880,7 @@ export class Orchestrator {
           if (delegated) {
             queries.createTaskLog(todoId, 'output', `Auto-delegation: created review task "${delegated.title}" (${delegated.cli_tool}).`, roundNumber);
             broadcaster.broadcast({ type: 'todo:created', todo: delegated });
-            this.broadcastProjectStatus(projectId);
+            try { this.broadcastProjectStatus(projectId); } catch { /* ignore */ }
           }
         }
       }
@@ -887,8 +901,12 @@ export class Orchestrator {
         queries.updateTodoStatus(todoId, 'failed');
         queries.updateTodo(todoId, { process_pid: 0 });
       } catch { /* ignore */ }
-      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-      this.broadcastProjectStatus(projectId);
+      try {
+        broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+      } catch { /* ignore */ }
+      try {
+        this.broadcastProjectStatus(projectId);
+      } catch { /* ignore */ }
       this.wakeWaitingExecutors().catch(() => { /* ignore */ });
     });
   }

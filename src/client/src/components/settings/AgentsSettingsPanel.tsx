@@ -34,6 +34,9 @@ const sameModelDraft = (left: Model, right?: Model) => !!right
   && JSON.stringify(left.supportedEfforts) === JSON.stringify(right.supportedEfforts)
   && left.sortOrder === right.sortOrder;
 
+const VALID_TOOLS: ReadonlySet<string> = new Set<Tool>(['claude', 'codex', 'antigravity']);
+const VALID_STATES: ReadonlySet<string> = new Set(['available', 'exhausted', 'unknown']);
+
 export interface AgentsSettingsPanelProps {
   onEvent?: (cb: (event: WsEvent) => void) => () => void;
 }
@@ -56,20 +59,43 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
   useEffect(() => {
     if (!onEvent) return;
     return onEvent((event) => {
-      if (event.type === 'quota:updated' && event.tool) {
+      if (event.type === 'quota:updated') {
+        const tool = event.tool;
+        const state = event.state;
+        if (!tool || !VALID_TOOLS.has(tool) || !state || !VALID_STATES.has(state)) {
+          return;
+        }
+
+        const validTool = tool as Tool;
+        const validState = state as ProviderQuotaState['state'];
+
         setQuotas((prev) => {
-          const existing = prev[event.tool!];
+          const existing = prev[validTool];
+          let reason: string | null = null;
+          let resetAt: string | null = null;
+
+          if (validState === 'exhausted') {
+            reason = event.reason !== undefined ? (event.reason ?? null) : (existing?.reason ?? null);
+            resetAt = event.resetAt !== undefined ? (event.resetAt ?? null) : (existing?.resetAt ?? null);
+          } else if (validState === 'unknown') {
+            reason = event.reason !== undefined ? (event.reason ?? null) : null;
+            resetAt = null;
+          } else if (validState === 'available') {
+            reason = null;
+            resetAt = null;
+          }
+
           const updated: ProviderQuotaState = {
-            tool: event.tool as ProviderQuotaState['tool'],
-            state: (event.state as ProviderQuotaState['state']) ?? existing?.state ?? 'unknown',
-            source: existing?.source ?? 'websocket',
+            tool: validTool,
+            state: validState,
+            source: event.source ?? existing?.source ?? 'websocket',
             observedAt: new Date().toISOString(),
-            reason: event.reason !== undefined ? (event.reason ?? null) : (existing?.reason ?? null),
-            resetAt: event.resetAt !== undefined ? (event.resetAt ?? null) : (existing?.resetAt ?? null),
+            reason,
+            resetAt,
           };
           return {
             ...prev,
-            [event.tool!]: updated,
+            [validTool]: updated,
           };
         });
       }
