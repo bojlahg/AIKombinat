@@ -118,6 +118,18 @@ export class ProviderQuotaService {
           reset_at: null,
         });
       } catch { /* ignore */ }
+
+      try {
+        broadcaster.broadcast({
+          type: 'quota:updated',
+          tool,
+          state: 'unknown',
+          source: 'cooldown_expired',
+          reason: null,
+          resetAt: null,
+        });
+      } catch { /* ignore */ }
+
       return expiredRecord;
     }
 

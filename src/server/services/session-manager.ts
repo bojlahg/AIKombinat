@@ -108,7 +108,7 @@ export class SessionManager {
       } else if (!timer) {
         timer = setTimeout(flush, RAW_FLUSH_MS);
       }
-    });
+    }, true);
 
     this.pendingFlushers.set(sessionId, flush);
   }

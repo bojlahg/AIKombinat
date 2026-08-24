@@ -1065,5 +1065,429 @@ describe('Quota Awareness V1', () => {
 
     vi.useRealTimers();
   });
+
+  it('20. profile Todo Claude emits repeated quota errors -> marks Claude exhausted and falls back via ExecutorPool without legacy getNextFallbackCli', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const codex = queries.addModel('codex', 'gpt-5-codex', 'GPT 5 Codex', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'multi-candidate-profile',
+      name: 'Multi Candidate',
+      description: 'Fallback profile',
+      executors: [
+        { cli_model_id: claude.id, effort_value: 'high', priority: 1 },
+        { cli_model_id: codex.id, effort_value: 'high', priority: 2 },
+      ],
+    });
+
+    const project = queries.createProject('Profile Quota Proj', 'C:/prof-proj');
+    queries.updateProject(project.id, { fallback_cli: 'raw-shell' });
+    const todo = queries.createTodo(
+      project.id,
+      'Profile Quota Task',
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+    );
+
+    let resolveExit1: (code: number) => void = () => {};
+    let resolveExit2: (code: number) => void = () => {};
+
+    const stdout1 = new PassThrough();
+    const stderr1 = new PassThrough();
+
+    const startClaudeSpy = vi.spyOn(claudeManager, 'startClaude')
+      .mockImplementationOnce(async () => ({
+        pid: 2001,
+        stdout: stdout1,
+        stderr: stderr1,
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit1 = resolve; }),
+        command: 'claude',
+        args: [],
+      }))
+      .mockImplementationOnce(async () => ({
+        pid: 2002,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit2 = resolve; }),
+        command: 'codex',
+        args: [],
+      }));
+
+    await orchestrator.startTodo(todo.id);
+
+    // Stream repeated quota errors
+    queries.createTaskLog(todo.id, 'error', 'Error: You have exhausted your capacity on Claude.');
+    queries.createTaskLog(todo.id, 'error', 'Error: 429 quota exceeded.');
+    resolveExit1(1);
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Claude is marked exhausted
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // Switched to Codex (candidate 2 in profile), NOT raw-shell (project fallback_cli)
+    const refreshed = queries.getTodoById(todo.id);
+    expect(refreshed?.status).toBe('running');
+    expect(refreshed?.process_pid).toBe(2002);
+    expect(startClaudeSpy).toHaveBeenCalledTimes(2);
+
+    resolveExit2(0);
+  });
+
+  it('21. manual Todo emits repeated quota errors -> fails clearly and does not silently change cli_tool', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('Manual Quota Proj', 'C:/man-proj');
+    queries.updateProject(project.id, { fallback_cli: 'codex' });
+    const todo = queries.createTodo(
+      project.id,
+      'Manual Quota Task',
+      undefined,
+      0,
+      'claude',
+      'claude-3.7-sonnet',
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      'high',
+      claude.id,
+    );
+
+    let resolveExit: (code: number) => void = () => {};
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid: 2101,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    await orchestrator.startTodo(todo.id);
+
+    queries.createTaskLog(todo.id, 'error', 'Error: You have exhausted your capacity on Claude.');
+    resolveExit(1);
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    const refreshed = queries.getTodoById(todo.id);
+    expect(refreshed?.status).toBe('failed');
+    expect(refreshed?.cli_tool).toBe('claude'); // NOT changed to codex
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+  });
+
+  it('22. genuine context-window exhaustion still triggers context fallback and does not mark quota exhausted', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const codex = queries.addModel('codex', 'gpt-5-codex', 'GPT 5 Codex', ['high']);
+    const project = queries.createProject('Context Fallback Proj', 'C:/ctx-proj');
+    queries.updateProject(project.id, { cli_fallback_chain: JSON.stringify(['claude', 'codex']) });
+    const todo = queries.createTodo(
+      project.id,
+      'Context Fallback Task',
+      undefined,
+      0,
+      'claude',
+      'claude-3.7-sonnet',
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      'high',
+      claude.id,
+    );
+
+    const restartSpy = vi.spyOn(orchestrator as any, 'restartWithNextCli').mockResolvedValue(undefined);
+
+    let resolveExit: (code: number) => void = () => {};
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid: 2201,
+      stdout,
+      stderr,
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    await orchestrator.startTodo(todo.id);
+
+    // Stream genuine context exhaustion error
+    stderr.emit('data', 'Error: Conversation is too long and exceeds the maximum context length.\n');
+    resolveExit(1);
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Context restart triggered with next CLI fallback in chain
+    expect(restartSpy).toHaveBeenCalledWith(
+      todo.id,
+      project.id,
+      'claude',
+      { cliTool: 'codex', cliModel: null },
+      true,
+    );
+
+    // Quota remains unknown (genuine context exhaustion does not mark quota exhausted)
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+  });
+
+  it('23. PTY emits quota error before SessionManager installs subscriber -> quota is detected on exit', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('PTY Early Quota Proj', 'C:/pty-early-proj');
+    const session = queries.createSession(
+      project.id,
+      'PTY Early Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    const pid = 2301;
+    let resolveExit: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      // Simulate PTY emitting bytes BEFORE startClaude resolves/SessionManager subscribes
+      (claudeManager as any).rawRingBuffers.set(pid, {
+        chunks: ['\x1b[31mError: 429 Too Many Requests: usage limit reached\x1b[0m\r\n'],
+        bytes: 60,
+        max: 256 * 1024,
+      });
+
+      return {
+        pid,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    await sessionManager.startSession(session.id);
+    resolveExit(1);
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+    expect(providerQuotaService.getQuotaState('claude').source).toBe('runtime_rejection');
+  });
+
+  it('24. output emitted around replay/subscription boundary is persisted exactly once without duplicates', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('PTY Boundary Proj', 'C:/pty-bound-proj');
+    const session = queries.createSession(
+      project.id,
+      'PTY Boundary Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    const pid = 2401;
+    let resolveExit: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      (claudeManager as any).rawRingBuffers.set(pid, {
+        chunks: ['initial banner\n'],
+        bytes: 15,
+        max: 256 * 1024,
+      });
+
+      return {
+        pid,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    await sessionManager.startSession(session.id);
+
+    // Later chunk emitted after subscription
+    const subs = (claudeManager as any).rawSubscribers.get(pid);
+    if (subs) {
+      for (const cb of subs) cb('second chunk\n');
+    }
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    const chunks = queries.getSessionRawChunks(session.id);
+    const text = chunks.map((c) => c.bytes.toString('utf8')).join('');
+    expect(text).toBe('initial banner\nsecond chunk\n');
+  });
+
+  it('25. normal later PTY output is still persisted correctly', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('PTY Normal Proj', 'C:/pty-norm-proj');
+    const session = queries.createSession(
+      project.id,
+      'PTY Normal Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    const pid = 2501;
+    let resolveExit: (code: number) => void = () => {};
+
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce({
+      pid,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitPromise: new Promise<number>((resolve) => { resolveExit = resolve; }),
+      command: 'claude',
+      args: [],
+    });
+
+    await sessionManager.startSession(session.id);
+
+    const subs = (claudeManager as any).rawSubscribers.get(pid);
+    if (subs) {
+      for (const cb of subs) cb('hello from pty\n');
+    }
+
+    resolveExit(0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    const text = queries.getRecentSessionRawText(session.id, 1024);
+    expect(text).toContain('hello from pty');
+  });
+
+  it('26. very fast process exit does not lose the quota message', async () => {
+    const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
+    const project = queries.createProject('PTY Fast Exit Proj', 'C:/pty-fast-proj');
+    const session = queries.createSession(
+      project.id,
+      'PTY Fast Exit Session',
+      'Session description',
+      'claude',
+      'claude-3.7-sonnet',
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'high',
+      claude.id,
+    );
+
+    const pid = 2601;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      // Fast exit: ring buffer populated and exitPromise already resolved
+      (claudeManager as any).rawRingBuffers.set(pid, {
+        chunks: ['Error: 429 You have exceeded your current quota.\n'],
+        bytes: 50,
+        max: 256 * 1024,
+      });
+
+      return {
+        pid,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: null,
+        exitPromise: Promise.resolve(1),
+        command: 'claude',
+        args: [],
+      };
+    });
+
+    await sessionManager.startSession(session.id);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+  });
+
+  it('27. lazy quota expiry broadcasts quota:updated once when transitioning exhausted -> unknown', () => {
+    providerQuotaService.setCooldownMs(50);
+    providerQuotaService.markExhausted('claude', { source: 'runtime_rejection' });
+
+    const broadcastSpy = vi.spyOn(broadcaster, 'broadcast');
+    broadcastSpy.mockClear();
+
+    // Before cooldown expires: remains exhausted, no extra broadcast
+    const state1 = providerQuotaService.getQuotaState('claude');
+    expect(state1.state).toBe('exhausted');
+    expect(broadcastSpy).not.toHaveBeenCalled();
+
+    // Advance time past cooldown
+    vi.setSystemTime(Date.now() + 100);
+
+    // First call after expiration: transitions exhausted -> unknown and broadcasts
+    const state2 = providerQuotaService.getQuotaState('claude');
+    expect(state2.state).toBe('unknown');
+    expect(broadcastSpy).toHaveBeenCalledTimes(1);
+    expect(broadcastSpy).toHaveBeenCalledWith({
+      type: 'quota:updated',
+      tool: 'claude',
+      state: 'unknown',
+      source: 'cooldown_expired',
+      reason: null,
+      resetAt: null,
+    });
+
+    // Subsequent calls: already unknown, no duplicate broadcast
+    broadcastSpy.mockClear();
+    const state3 = providerQuotaService.getQuotaState('claude');
+    expect(state3.state).toBe('unknown');
+    expect(broadcastSpy).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
 });
 

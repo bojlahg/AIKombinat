@@ -57,6 +57,7 @@ export interface WsEvent {
   // Quota events
   tool?: string;
   state?: string;
+  source?: string | null;
   resetAt?: string | null;
   error?: string;
 }

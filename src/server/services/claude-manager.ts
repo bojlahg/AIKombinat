@@ -82,13 +82,24 @@ export class ClaudeManager {
   }
 
   /** Subscribe to the raw (un-stripped, un-filtered) PTY output for a pid. */
-  subscribeRaw(pid: number, cb: (chunk: string) => void): () => void {
+  subscribeRaw(pid: number, cb: (chunk: string) => void, replayHistory: boolean = false): () => void {
     let set = this.rawSubscribers.get(pid);
     if (!set) {
       set = new Set();
       this.rawSubscribers.set(pid, set);
     }
     set.add(cb);
+
+    if (replayHistory) {
+      const ring = this.rawRingBuffers.get(pid);
+      if (ring && ring.chunks.length > 0) {
+        const buffered = [...ring.chunks];
+        for (const chunk of buffered) {
+          try { cb(chunk); } catch { /* ignore */ }
+        }
+      }
+    }
+
     return () => this.unsubscribeRaw(pid, cb);
   }
 
@@ -330,9 +341,11 @@ export class ClaudeManager {
           stdoutStream.push(null);
           this.processes.delete(pid);
           this.stdinStreams.delete(pid);
-          this.rawSubscribers.delete(pid);
-          this.rawRingBuffers.delete(pid);
           this.ptyHandles.delete(pid);
+          setTimeout(() => {
+            this.rawSubscribers.delete(pid);
+            this.rawRingBuffers.delete(pid);
+          }, 10_000);
           resolveExit(exitCode);
         });
       });

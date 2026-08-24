@@ -44,5 +44,5 @@ export type WSEvent =
       };
       error?: string;
     }
-  | { type: 'quota:updated'; tool: string; state: string; reason?: string | null; resetAt?: string | null };
+  | { type: 'quota:updated'; tool: string; state: string; source?: string | null; reason?: string | null; resetAt?: string | null };
 
