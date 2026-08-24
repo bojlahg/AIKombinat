@@ -80,6 +80,13 @@ The UI supports English, Korean, and Russian. Add new UI strings through the exi
 
 ## Task Execution Guidelines
 
+### Repository sync before every task
+- Before reading implementation details for a new task or modifying any repository file, check the working tree for unresolved conflicts and then run `git pull --ff-only` for the current branch.
+- If the repository already contains unmerged/conflicted paths, **stop immediately**. Do not edit files, stage changes, commit, reset, stash, merge, rebase, or attempt to resolve the conflict.
+- If `git pull --ff-only` does not complete successfully for any reason, **stop the task and report the Git state/error**. Do not continue on a stale checkout.
+- Never use automatic conflict resolution, `git reset --hard`, force checkout, force push, or destructive cleanup to make the pull succeed.
+- Only begin task implementation after the pull completed successfully and the repository has no unresolved conflicts.
+
 ### Efficiency
 - Use grep/glob to find relevant files FIRST. Do NOT read files one by one to explore.
 - Only read files you intend to modify or that are directly needed.
