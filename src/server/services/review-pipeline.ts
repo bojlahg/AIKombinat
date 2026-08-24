@@ -30,7 +30,7 @@ export class InvalidTransitionError extends Error {
 }
 
 export interface AdvanceRoundResult {
-  action: 'start_review' | 'start_rework' | 'completed' | 'failed' | 'max_rounds_reached';
+  action: 'start_review' | 'start_rework' | 'completed' | 'failed' | 'max_rounds_reached' | 'superseded';
   nextRound?: TodoExecutionRound;
   reviewResult?: ReviewResult;
   reason?: string;
@@ -249,7 +249,24 @@ When done, ensure all tests pass.`);
       const nextRunToken = uuidv4();
       let nextRound: TodoExecutionRound | undefined;
 
+      let aborted = false;
       db.transaction(() => {
+        const freshTodo = getTodoById(todoId);
+        const freshRound = getExecutionRoundById(currentRoundId);
+        const activeRound = getActiveExecutionRound(todoId);
+        if (
+          !freshTodo ||
+          freshTodo.status === 'stopped' ||
+          freshTodo.status === 'failed' ||
+          !freshRound ||
+          freshRound.status === 'stopped' ||
+          freshRound.status === 'failed' ||
+          activeRound?.id !== currentRoundId
+        ) {
+          aborted = true;
+          return;
+        }
+
         updateExecutionRound(currentRoundId, {
           status: 'completed',
           finished_at: now,
@@ -270,6 +287,10 @@ When done, ensure all tests pass.`);
         createTaskLog(todoId, 'info', `Implementation phase completed. Starting Review Round 1 of ${todo.max_review_rounds}.`, nextRound.round_index);
       })();
 
+      if (aborted) {
+        return { action: 'superseded', reason: 'cancelled_or_stopped' };
+      }
+
       const updatedCurrent = getExecutionRoundById(currentRoundId)!;
       broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
       if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
@@ -281,7 +302,24 @@ When done, ensure all tests pass.`);
       const parseResult = parseReviewResult(processOutput);
 
       if (!parseResult.ok) {
+        let aborted = false;
         db.transaction(() => {
+          const freshTodo = getTodoById(todoId);
+          const freshRound = getExecutionRoundById(currentRoundId);
+          const activeRound = getActiveExecutionRound(todoId);
+          if (
+            !freshTodo ||
+            freshTodo.status === 'stopped' ||
+            freshTodo.status === 'failed' ||
+            !freshRound ||
+            freshRound.status === 'stopped' ||
+            freshRound.status === 'failed' ||
+            activeRound?.id !== currentRoundId
+          ) {
+            aborted = true;
+            return;
+          }
+
           updateExecutionRound(currentRoundId, {
             status: 'failed',
             result_payload: parseResult.rawText,
@@ -293,6 +331,10 @@ When done, ensure all tests pass.`);
           createTaskLog(todoId, 'error', `Review failed: ${parseResult.error}`, currentRound.round_index);
         })();
 
+        if (aborted) {
+          return { action: 'superseded', reason: 'cancelled_or_stopped' };
+        }
+
         const updatedCurrent = getExecutionRoundById(currentRoundId)!;
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
@@ -303,7 +345,24 @@ When done, ensure all tests pass.`);
       const reviewData = parseResult.data;
 
       if (reviewData.verdict === 'approved') {
+        let aborted = false;
         db.transaction(() => {
+          const freshTodo = getTodoById(todoId);
+          const freshRound = getExecutionRoundById(currentRoundId);
+          const activeRound = getActiveExecutionRound(todoId);
+          if (
+            !freshTodo ||
+            freshTodo.status === 'stopped' ||
+            freshTodo.status === 'failed' ||
+            !freshRound ||
+            freshRound.status === 'stopped' ||
+            freshRound.status === 'failed' ||
+            activeRound?.id !== currentRoundId
+          ) {
+            aborted = true;
+            return;
+          }
+
           updateExecutionRound(currentRoundId, {
             status: 'completed',
             result_payload: JSON.stringify(reviewData),
@@ -313,6 +372,10 @@ When done, ensure all tests pass.`);
           updateTodoStatus(todoId, 'completed');
           createTaskLog(todoId, 'info', `Review approved: ${reviewData.summary}`, currentRound.round_index);
         })();
+
+        if (aborted) {
+          return { action: 'superseded', reason: 'cancelled_or_stopped' };
+        }
 
         const updatedCurrent = getExecutionRoundById(currentRoundId)!;
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
@@ -325,7 +388,24 @@ When done, ensure all tests pass.`);
       const completedReviewRounds = allRounds.filter((r) => r.phase === 'review' && (r.status === 'completed' || r.id === currentRoundId));
 
       if (completedReviewRounds.length >= todo.max_review_rounds) {
+        let aborted = false;
         db.transaction(() => {
+          const freshTodo = getTodoById(todoId);
+          const freshRound = getExecutionRoundById(currentRoundId);
+          const activeRound = getActiveExecutionRound(todoId);
+          if (
+            !freshTodo ||
+            freshTodo.status === 'stopped' ||
+            freshTodo.status === 'failed' ||
+            !freshRound ||
+            freshRound.status === 'stopped' ||
+            freshRound.status === 'failed' ||
+            activeRound?.id !== currentRoundId
+          ) {
+            aborted = true;
+            return;
+          }
+
           updateExecutionRound(currentRoundId, {
             status: 'completed',
             result_payload: JSON.stringify(reviewData),
@@ -340,6 +420,10 @@ When done, ensure all tests pass.`);
             currentRound.round_index
           );
         })();
+
+        if (aborted) {
+          return { action: 'superseded', reason: 'cancelled_or_stopped' };
+        }
 
         const updatedCurrent = getExecutionRoundById(currentRoundId)!;
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
@@ -357,7 +441,24 @@ When done, ensure all tests pass.`);
       const nextRunToken = uuidv4();
       let nextRound: TodoExecutionRound | undefined;
 
+      let aborted = false;
       db.transaction(() => {
+        const freshTodo = getTodoById(todoId);
+        const freshRound = getExecutionRoundById(currentRoundId);
+        const activeRound = getActiveExecutionRound(todoId);
+        if (
+          !freshTodo ||
+          freshTodo.status === 'stopped' ||
+          freshTodo.status === 'failed' ||
+          !freshRound ||
+          freshRound.status === 'stopped' ||
+          freshRound.status === 'failed' ||
+          activeRound?.id !== currentRoundId
+        ) {
+          aborted = true;
+          return;
+        }
+
         updateExecutionRound(currentRoundId, {
           status: 'completed',
           result_payload: JSON.stringify(reviewData),
@@ -383,6 +484,10 @@ When done, ensure all tests pass.`);
           nextRound.round_index
         );
       })();
+
+      if (aborted) {
+        return { action: 'superseded', reason: 'cancelled_or_stopped' };
+      }
 
       const updatedCurrent = getExecutionRoundById(currentRoundId)!;
       broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
@@ -441,7 +546,24 @@ When done, ensure all tests pass.`);
       const nextRunToken = uuidv4();
       let nextRound: TodoExecutionRound | undefined;
 
+      let aborted = false;
       db.transaction(() => {
+        const freshTodo = getTodoById(todoId);
+        const freshRound = getExecutionRoundById(currentRoundId);
+        const activeRound = getActiveExecutionRound(todoId);
+        if (
+          !freshTodo ||
+          freshTodo.status === 'stopped' ||
+          freshTodo.status === 'failed' ||
+          !freshRound ||
+          freshRound.status === 'stopped' ||
+          freshRound.status === 'failed' ||
+          activeRound?.id !== currentRoundId
+        ) {
+          aborted = true;
+          return;
+        }
+
         updateExecutionRound(currentRoundId, {
           status: 'completed',
           finished_at: now,
@@ -466,6 +588,10 @@ When done, ensure all tests pass.`);
           nextRound.round_index
         );
       })();
+
+      if (aborted) {
+        return { action: 'superseded', reason: 'cancelled_or_stopped' };
+      }
 
       const updatedCurrent = getExecutionRoundById(currentRoundId)!;
       broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });

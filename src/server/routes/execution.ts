@@ -419,6 +419,11 @@ router.post('/todos/:id/continue', async (req: Request<{ id: string }>, res: Res
       return;
     }
 
+    if (todo.review_enabled) {
+      res.status(409).json({ error: 'Continue is not supported for reviewed pipeline tasks in Review/Rework V1. Create a new Todo or use an explicit review/rework action.' });
+      return;
+    }
+
     if (todo.status !== 'completed') {
       res.status(400).json({ error: 'Only completed todos can be continued' });
       return;

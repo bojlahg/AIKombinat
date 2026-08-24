@@ -283,6 +283,10 @@ resourceManager.setAvailabilityCallback(() => {
 });
 resourceManager.initialize();
 reviewPipeline.reconcileOnStartup();
+setImmediate(() => {
+  orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
+  orchestrator.wakeWaitingResources().catch(() => { /* ignore */ });
+});
 
 // MCP endpoint (bearer-auth, not under /api). Mount before static/SPA serving
 // so the catch-all does not swallow /mcp.

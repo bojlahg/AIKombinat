@@ -879,3 +879,92 @@ export function normalizeAntigravityCatalogAndExecutors(db: Database.Database): 
   tx();
 }
 
+
+/**
+ * Deterministically reconciles legacy duplicate execution rounds from prior versions
+ * before creating unique indexes. Older conflicting active rounds are marked 'failed'
+ * with diagnostic metadata so that unique active-round index can be created safely
+ * without deleting historical records.
+ */
+export function dedupeLegacyExecutionRounds(db: Database.Database): void {
+  try {
+    const roundsTableExists = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='todo_execution_rounds'`
+    ).get();
+    if (!roundsTableExists) return;
+
+    // 1. Reconcile duplicate (todo_id, round_index) rows if any
+    const duplicateIndexRows = db.prepare(`
+      SELECT todo_id, round_index
+      FROM todo_execution_rounds
+      GROUP BY todo_id, round_index
+      HAVING COUNT(*) > 1
+    `).all() as Array<{ todo_id: string; round_index: number }>;
+
+    if (duplicateIndexRows.length > 0) {
+      const now = new Date().toISOString();
+      const reconcileIndexTx = db.transaction(() => {
+        for (const { todo_id, round_index } of duplicateIndexRows) {
+          const rows = db.prepare(`
+            SELECT id, status FROM todo_execution_rounds
+            WHERE todo_id = ? AND round_index = ?
+            ORDER BY created_at DESC, id DESC
+          `).all(todo_id, round_index) as Array<{ id: string; status: string }>;
+
+          const duplicates = rows.slice(1);
+          for (let i = 0; i < duplicates.length; i++) {
+            db.prepare(`
+              UPDATE todo_execution_rounds
+              SET round_index = round_index + 1000 + ?,
+                  status = 'failed',
+                  error_message = 'Superseded legacy duplicate round during schema migration',
+                  finished_at = COALESCE(finished_at, ?),
+                  updated_at = ?
+              WHERE id = ?
+            `).run(i + 1, now, now, duplicates[i].id);
+          }
+        }
+      });
+      reconcileIndexTx();
+    }
+
+    // 2. Reconcile duplicate active rounds for the same todo_id
+    const duplicateActiveRows = db.prepare(`
+      SELECT todo_id
+      FROM todo_execution_rounds
+      WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running')
+      GROUP BY todo_id
+      HAVING COUNT(*) > 1
+    `).all() as Array<{ todo_id: string }>;
+
+    if (duplicateActiveRows.length > 0) {
+      const now = new Date().toISOString();
+      const reconcileActiveTx = db.transaction(() => {
+        for (const { todo_id } of duplicateActiveRows) {
+          const activeRounds = db.prepare(`
+            SELECT id, round_index
+            FROM todo_execution_rounds
+            WHERE todo_id = ? AND status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running')
+            ORDER BY round_index DESC, created_at DESC
+          `).all(todo_id) as Array<{ id: string; round_index: number }>;
+
+          // Keep the newest active round, mark older active rounds as failed
+          const olderRounds = activeRounds.slice(1);
+          for (const round of olderRounds) {
+            db.prepare(`
+              UPDATE todo_execution_rounds
+              SET status = 'failed',
+                  error_message = 'Superseded legacy active round during schema migration',
+                  finished_at = COALESCE(finished_at, ?),
+                  updated_at = ?
+              WHERE id = ?
+            `).run(now, now, round.id);
+          }
+        }
+      });
+      reconcileActiveTx();
+    }
+  } catch {
+    // Defensive ignore if database is in transition
+  }
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassThrough } from 'stream';
 import Database from 'better-sqlite3';
-import { initDatabase } from '../../db/schema.js';
+import { initDatabase, dedupeLegacyExecutionRounds } from '../../db/schema.js';
 
 let testDb: Database.Database;
 
@@ -30,6 +30,8 @@ let mockClaudeStarts: Array<{
 }> = [];
 
 let nextExitResolvers: Array<(code: number) => void> = [];
+
+const mockGitDiff = vi.fn().mockResolvedValue('diff --git a/index.ts b/index.ts\n+ console.log("reviewed");');
 
 vi.mock('../claude-manager.js', () => ({
   claudeManager: {
@@ -60,7 +62,7 @@ vi.mock('../claude-manager.js', () => ({
         args: [],
       });
     }),
-    stopClaude: vi.fn().mockResolvedValue(true),
+    stopClaude: vi.fn().mockImplementation(() => Promise.resolve(true)),
     killAll: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -79,7 +81,7 @@ vi.mock('../worktree-manager.js', () => ({
 
 vi.mock('../../lib/git.js', () => ({
   createGit: () => ({
-    diff: vi.fn().mockResolvedValue('diff --git a/index.ts b/index.ts\n+ console.log("reviewed");'),
+    diff: (...args: any[]) => mockGitDiff(...args),
     status: vi.fn().mockResolvedValue({
       modified: ['index.ts'],
       not_added: [],
@@ -107,8 +109,9 @@ const { reviewPipeline, InvalidTransitionError } = await import('../review-pipel
 const { executorPool } = await import('../executor-pool.js');
 const { resourceManager } = await import('../resource-manager.js');
 const { providerQuotaService } = await import('../provider-quota.js');
+const { claudeManager } = await import('../claude-manager.js');
 
-describe('Review / Rework Orchestrator Integration', () => {
+describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
   let project: queries.Project;
   let claudeModel: queries.CliModel;
   let claudeHaiku: queries.CliModel;
@@ -118,6 +121,7 @@ describe('Review / Rework Orchestrator Integration', () => {
   beforeEach(() => {
     mockClaudeStarts = [];
     nextExitResolvers = [];
+    mockGitDiff.mockReset().mockResolvedValue('diff --git a/index.ts b/index.ts\n+ console.log("reviewed");');
 
     testDb = new Database(':memory:');
     testDb.pragma('journal_mode = WAL');
@@ -163,6 +167,7 @@ describe('Review / Rework Orchestrator Integration', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     resourceManager.shutdown();
     resourceManager.setAvailabilityCallback(null);
     executorPool.resetLimits();
@@ -191,16 +196,14 @@ describe('Review / Rework Orchestrator Integration', () => {
       null,
       null,
       '[]',
-      1, // review_enabled
+      1,
       reviewProfile.id,
       reworkProfile.id,
       3
     );
 
-    // Start Todo
     await orchestrator.startTodo(todo.id);
 
-    // Launch 1: Implementation
     expect(mockClaudeStarts).toHaveLength(1);
     expect(mockClaudeStarts[0].prompt).toContain('Implement JWT token handling');
 
@@ -209,13 +212,9 @@ describe('Review / Rework Orchestrator Integration', () => {
     expect(rounds[0].phase).toBe('implementation');
     expect(rounds[0].status).toBe('running');
 
-    // Implementation finishes successfully
     nextExitResolvers[0](0);
-
-    // Allow microtasks to resolve
     await new Promise((r) => setTimeout(r, 60));
 
-    // Launch 2: Review should have started automatically!
     expect(mockClaudeStarts).toHaveLength(2);
     expect(mockClaudeStarts[1].prompt).toContain('# Automated Code Review Request');
     expect(mockClaudeStarts[1].prompt).toContain('Build Auth Module');
@@ -231,7 +230,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     expect(currentTodo.status).toBe('running');
     expect(currentTodo.pipeline_phase).toBe('review');
 
-    // Reviewer logs structured output and exits 0
     queries.createTaskLog(
       todo.id,
       'output',
@@ -243,10 +241,8 @@ describe('Review / Rework Orchestrator Integration', () => {
     );
 
     nextExitResolvers[1](0);
-
     await new Promise((r) => setTimeout(r, 60));
 
-    // Todo is now completed! No third launch.
     expect(mockClaudeStarts).toHaveLength(2);
     rounds = queries.getExecutionRoundsByTodoId(todo.id);
     expect(rounds).toHaveLength(2);
@@ -284,17 +280,13 @@ describe('Review / Rework Orchestrator Integration', () => {
     );
 
     await orchestrator.startTodo(todo.id);
-
-    // 1. Implementation
     expect(mockClaudeStarts).toHaveLength(1);
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // 2. Review 1
     expect(mockClaudeStarts).toHaveLength(2);
     expect(mockClaudeStarts[1].prompt).toContain('Review Round 1 of 3');
 
-    // Reviewer returns needs_changes
     queries.createTaskLog(
       todo.id,
       'output',
@@ -314,7 +306,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     nextExitResolvers[1](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // 3. Rework 1 starts automatically!
     expect(mockClaudeStarts).toHaveLength(3);
     expect(mockClaudeStarts[2].prompt).toContain('# Rework Request — Code Review Feedback');
     expect(mockClaudeStarts[2].prompt).toContain('Avatar image size is not validated.');
@@ -325,11 +316,9 @@ describe('Review / Rework Orchestrator Integration', () => {
     expect(rounds[2].phase).toBe('rework');
     expect(rounds[2].status).toBe('running');
 
-    // Rework completes
     nextExitResolvers[2](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // 4. Review 2 starts automatically with previous issues in prompt!
     expect(mockClaudeStarts).toHaveLength(4);
     expect(mockClaudeStarts[3].prompt).toContain('Review Round 2 of 3');
     expect(mockClaudeStarts[3].prompt).toContain('Validate avatar file size <= 5MB before upload.');
@@ -339,7 +328,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     expect(rounds[3].phase).toBe('review');
     expect(rounds[3].round_index).toBe(4);
 
-    // Review 2 passes
     queries.createTaskLog(
       todo.id,
       'output',
@@ -391,7 +379,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     expect(round.execution_snapshot).toBeTruthy();
     expect(round.finished_at).toBeNull();
 
-    // Finish
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
@@ -429,8 +416,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     await orchestrator.startTodo(todo.id);
     expect(mockClaudeStarts).toHaveLength(1);
 
-    // Mock executor pool to return waiting_executor on next select
-    const origSelect = executorPool.selectExecutor;
     vi.spyOn(executorPool, 'selectExecutor').mockResolvedValueOnce({
       status: 'waiting_executor',
       profileName: 'Review Profile',
@@ -440,7 +425,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // Todo and review round should both be waiting_executor
     const currentTodo = queries.getTodoById(todo.id)!;
     expect(currentTodo.status).toBe('waiting_executor');
 
@@ -448,7 +432,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     expect(reviewRound.phase).toBe('review');
     expect(reviewRound.status).toBe('waiting_executor');
 
-    // Restore and wake
     vi.restoreAllMocks();
     await orchestrator.wakeWaitingExecutors();
     await new Promise((r) => setTimeout(r, 60));
@@ -483,7 +466,6 @@ describe('Review / Rework Orchestrator Integration', () => {
       3
     );
 
-    // Lock unity.editor by another run
     resourceManager.acquireAtomic({
       ownerType: 'todo',
       ownerId: 'other-todo',
@@ -493,14 +475,12 @@ describe('Review / Rework Orchestrator Integration', () => {
 
     await orchestrator.startTodo(todo.id);
 
-    // Todo is waiting_resource
     const currentTodo = queries.getTodoById(todo.id)!;
     expect(currentTodo.status).toBe('waiting_resource');
 
     const round = queries.getActiveExecutionRound(todo.id)!;
     expect(round.status).toBe('waiting_resource');
 
-    // Release resource
     resourceManager.releaseRun('other-token');
     await orchestrator.wakeWaitingResources();
     await new Promise((r) => setTimeout(r, 60));
@@ -511,7 +491,6 @@ describe('Review / Rework Orchestrator Integration', () => {
 
   it('6. Runtime quota rejection in Review profile switches to next candidate', async () => {
     const codexModel = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
-    // Multi-candidate review profile
     const multiProfile = queries.createExecutionProfile({
       slug: 'multi-review',
       name: 'Multi Candidate Profile',
@@ -550,19 +529,15 @@ describe('Review / Rework Orchestrator Integration', () => {
     );
 
     await orchestrator.startTodo(todo.id);
-    // Implementation finishes
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // Review launch 1 starts
     expect(mockClaudeStarts).toHaveLength(2);
 
-    // Review returns quota error (rate_limit)
     queries.createTaskLog(todo.id, 'output', '429 Rate limit exceeded for claude-3-7-sonnet');
     nextExitResolvers[1](1);
     await new Promise((r) => setTimeout(r, 80));
 
-    // Review launch 2 retried with candidate in profile
     expect(mockClaudeStarts).toHaveLength(3);
     const round = queries.getActiveExecutionRound(todo.id)!;
     expect(round.phase).toBe('review');
@@ -598,11 +573,9 @@ describe('Review / Rework Orchestrator Integration', () => {
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // Now in review
     const reviewRound = queries.getActiveExecutionRound(todo.id)!;
     expect(reviewRound.phase).toBe('review');
 
-    // Stop todo
     await orchestrator.stopTodo(todo.id);
 
     const stoppedRound = queries.getExecutionRoundById(reviewRound.id)!;
@@ -638,7 +611,6 @@ describe('Review / Rework Orchestrator Integration', () => {
       3
     );
 
-    // Hold resource
     resourceManager.acquireAtomic({
       ownerType: 'todo', ownerId: 'other', runToken: 'tok1', resources: ['unity.editor'],
     });
@@ -646,15 +618,12 @@ describe('Review / Rework Orchestrator Integration', () => {
     await orchestrator.startTodo(todo.id);
     expect(queries.getTodoById(todo.id)!.status).toBe('waiting_resource');
 
-    // Stop while waiting
     await orchestrator.stopTodo(todo.id);
     expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
 
-    // Release resource and wake
     resourceManager.releaseRun('tok1');
     await orchestrator.wakeWaitingResources();
 
-    // Must remain stopped!
     expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
   });
 
@@ -688,15 +657,12 @@ describe('Review / Rework Orchestrator Integration', () => {
     const round1 = queries.getActiveExecutionRound(todo.id)!;
     const oldResolver = nextExitResolvers[0];
 
-    // Simulate stopping / superseding round 1 and starting round 2
     queries.updateExecutionRound(round1.id, { status: 'stopped' });
     queries.createExecutionRound(todo.id, 'rework', 2, 'new-run-token', { status: 'running' });
 
-    // Now late callback from round 1 fires
     oldResolver(0);
     await new Promise((r) => setTimeout(r, 60));
 
-    // Round 2 must not be modified by round 1's callback
     const round2 = queries.getExecutionRoundByRunToken('new-run-token')!;
     expect(round2.status).toBe('running');
   });
@@ -731,11 +697,9 @@ describe('Review / Rework Orchestrator Integration', () => {
     const round1 = queries.getActiveExecutionRound(todo.id)!;
     expect(round1).toBeTruthy();
 
-    // Second call is idempotent
     const sameRound = reviewPipeline.ensureInitialRound(todo.id);
     expect(sameRound?.id).toBe(round1.id);
 
-    // Attempting to create duplicate active round via raw query throws UNIQUE constraint
     expect(() => {
       queries.createExecutionRound(todo.id, 'review', 2, 'dup-token', { status: 'pending' });
     }).toThrow();
@@ -771,7 +735,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     const round = queries.getActiveExecutionRound(todo.id)!;
     queries.updateExecutionRound(round.id, { status: 'running' });
     queries.updateTodoStatus(todo.id, 'running');
-    // Set PID to current active Node process PID (which is live!)
     queries.updateTodo(todo.id, { process_pid: process.pid });
 
     reviewPipeline.reconcileOnStartup();
@@ -813,7 +776,6 @@ describe('Review / Rework Orchestrator Integration', () => {
     const round = queries.getActiveExecutionRound(todo.id)!;
     queries.updateExecutionRound(round.id, { status: 'running' });
     queries.updateTodoStatus(todo.id, 'running');
-    // Set PID to non-existent PID
     queries.updateTodo(todo.id, { process_pid: 99999999 });
 
     reviewPipeline.reconcileOnStartup();
@@ -855,10 +817,8 @@ describe('Review / Rework Orchestrator Integration', () => {
 
     reviewPipeline.ensureInitialRound(todo.id);
 
-    // 1. Pending implementation cannot be approved
     expect(() => reviewPipeline.manualApprove(todo.id)).toThrowError(InvalidTransitionError);
 
-    // 2. Setup completed review with needs_changes
     const round1 = queries.getActiveExecutionRound(todo.id)!;
     queries.updateExecutionRound(round1.id, { status: 'completed' });
     queries.createExecutionRound(todo.id, 'review', 2, 'rev-token', {
@@ -868,11 +828,9 @@ describe('Review / Rework Orchestrator Integration', () => {
     queries.updateTodo(todo.id, { pipeline_phase: 'review' });
     queries.updateTodoStatus(todo.id, 'stopped');
 
-    // 3. Now manual approve succeeds
     const approved = reviewPipeline.manualApprove(todo.id);
     expect(approved.status).toBe('completed');
 
-    // 4. Duplicate manual approve throws (already completed)
     expect(() => reviewPipeline.manualApprove(todo.id)).toThrowError(InvalidTransitionError);
   });
 
@@ -902,7 +860,6 @@ describe('Review / Rework Orchestrator Integration', () => {
       3
     );
 
-    // Setup completed review with needs_changes
     queries.createExecutionRound(todo.id, 'review', 1, 'rev-token', {
       status: 'completed',
       result_payload: JSON.stringify({ verdict: 'needs_changes', summary: 'Need changes', issues: [] }),
@@ -910,12 +867,10 @@ describe('Review / Rework Orchestrator Integration', () => {
     queries.updateTodo(todo.id, { pipeline_phase: 'review' });
     queries.updateTodoStatus(todo.id, 'stopped');
 
-    // Call 1: succeeds
     const { round } = reviewPipeline.manualRework(todo.id);
     expect(round.phase).toBe('rework');
     expect(round.status).toBe('pending');
 
-    // Call 2: throws InvalidTransitionError because a round is already active
     expect(() => reviewPipeline.manualRework(todo.id)).toThrowError(InvalidTransitionError);
   });
 
@@ -939,7 +894,7 @@ describe('Review / Rework Orchestrator Integration', () => {
       null,
       null,
       '[]',
-      0 // review_enabled = 0
+      0
     );
 
     await orchestrator.startTodo(todo.id);
@@ -950,11 +905,492 @@ describe('Review / Rework Orchestrator Integration', () => {
     const rounds = queries.getExecutionRoundsByTodoId(todo.id);
     expect(rounds).toHaveLength(0);
 
-    // Finish process
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));
 
     const completed = queries.getTodoById(todo.id)!;
     expect(completed.status).toBe('completed');
+  });
+
+  it('16. Race 1: stopTodo exitPromise race prevents premature round completion and rework auto-chaining', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Stop Race Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '["unity.editor"]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    await orchestrator.startTodo(todo.id);
+    expect(mockClaudeStarts).toHaveLength(1);
+
+    // Implementation completes, review starts
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(mockClaudeStarts).toHaveLength(2);
+    const reviewRound = queries.getActiveExecutionRound(todo.id)!;
+    expect(reviewRound.phase).toBe('review');
+    expect(reviewRound.status).toBe('running');
+
+    // Create review output log that would otherwise trigger rework
+    queries.createTaskLog(
+      todo.id,
+      'output',
+      JSON.stringify({
+        verdict: 'needs_changes',
+        summary: 'Changes requested',
+        issues: [{ severity: 'blocking', description: 'Fix this', files: ['a.ts'] }],
+      })
+    );
+
+    // Setup mock stopClaude that resolves only after exitPromise fires
+    let stopClaudeResolver: () => void;
+    const stopClaudePromise = new Promise<boolean>((resolve) => {
+      stopClaudeResolver = () => resolve(true);
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockImplementationOnce(() => stopClaudePromise);
+
+    // 1. User requests stop
+    const stopPromise = orchestrator.stopTodo(todo.id);
+
+    // 2. Child process exits while stopTodo is waiting for stopClaude
+    nextExitResolvers[1](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // 3. Complete stopClaude
+    stopClaudeResolver!();
+    await stopPromise;
+
+    // Assert: No rework round created! Todo and round are stopped!
+    const allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(allRounds).toHaveLength(2); // Only impl + review, no rework!
+    expect(allRounds[1].status).toBe('stopped');
+
+    const stoppedTodo = queries.getTodoById(todo.id)!;
+    expect(stoppedTodo.status).toBe('stopped');
+
+    // Resources released
+    const available = resourceManager.getStatus().find((s) => s.key === 'unity.editor');
+    expect(available?.used).toBe(0);
+  });
+
+  it('17. Race 2: stopProject exitPromise race keeps todos and rounds stopped', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Stop Project Race Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    await orchestrator.startTodo(todo.id);
+
+    let stopClaudeResolver: () => void;
+    const stopClaudePromise = new Promise<boolean>((resolve) => {
+      stopClaudeResolver = () => resolve(true);
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockImplementationOnce(() => stopClaudePromise);
+
+    const stopProjectPromise = orchestrator.stopProject(project.id);
+
+    // Process exits during stopProject
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    stopClaudeResolver!();
+    await stopProjectPromise;
+
+    const allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(allRounds).toHaveLength(1);
+    expect(allRounds[0].status).toBe('stopped');
+
+    const stoppedTodo = queries.getTodoById(todo.id)!;
+    expect(stoppedTodo.status).toBe('stopped');
+  });
+
+  it('18. Race 3: Async diff transition vs stopTodo race aborts transition with superseded state', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Async Diff Race Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    let diffResolver: (val: string) => void;
+    const diffBlockedPromise = new Promise<string>((resolve) => {
+      diffResolver = resolve;
+    });
+    mockGitDiff.mockImplementationOnce(() => diffBlockedPromise);
+
+    await orchestrator.startTodo(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+
+    // Process exits, triggering advanceRoundOnSuccess which blocks on git diff
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // User stops todo while diff is still calculating
+    await orchestrator.stopTodo(todo.id);
+    expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
+    expect(queries.getExecutionRoundById(round1.id)!.status).toBe('stopped');
+
+    // Now diff calculation finishes
+    diffResolver!('diff --git a/file.ts b/file.ts');
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Compare-and-set prevented resurrection!
+    const allRounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(allRounds).toHaveLength(1);
+    expect(allRounds[0].status).toBe('stopped');
+    expect(queries.getTodoById(todo.id)!.status).toBe('stopped');
+    expect(mockClaudeStarts).toHaveLength(1); // No review started
+  });
+
+  it('19. Race 4: Recovered live Review process later dies during periodic stale recovery', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Stale Review Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '["unity.editor"]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round.id, { status: 'running' });
+    queries.updateTodoStatus(todo.id, 'running');
+    queries.updateTodo(todo.id, { process_pid: 88888 });
+
+    resourceManager.acquireAtomic({
+      ownerType: 'todo', ownerId: todo.id, runToken: round.run_token, resources: ['unity.editor'],
+    });
+
+    // 1. Startup reconciliation: process PID 88888 is reported live
+    const isAliveSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+    reviewPipeline.reconcileOnStartup();
+
+    expect(queries.getTodoById(todo.id)!.status).toBe('running');
+    expect(queries.getExecutionRoundById(round.id)!.status).toBe('running');
+
+    // 2. Later PID dies and periodic stale recovery runs
+    isAliveSpy.mockImplementation(() => { throw new Error('ESRCH'); });
+    orchestrator.recoverStaleTasks();
+
+    const failedTodo = queries.getTodoById(todo.id)!;
+    expect(failedTodo.status).toBe('failed');
+    expect(failedTodo.process_pid).toBe(0);
+
+    const failedRound = queries.getExecutionRoundById(round.id)!;
+    expect(failedRound.status).toBe('failed');
+    expect(failedRound.finished_at).toBeTruthy();
+    expect(failedRound.error_message).toContain('Process exited unexpectedly');
+
+    // No active round remains
+    expect(queries.getActiveExecutionRound(todo.id)).toBeUndefined();
+
+    // Resource lease released
+    const status = resourceManager.getStatus().find((s) => s.key === 'unity.editor');
+    expect(status?.used).toBe(0);
+  });
+
+  it('20. Race 5: Continue on review_enabled completed Todo is rejected without mutating history', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Completed Pipeline Task',
+      'Implement feature',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    // Complete pipeline
+    await orchestrator.startTodo(todo.id);
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    queries.createTaskLog(
+      todo.id,
+      'output',
+      JSON.stringify({ verdict: 'approved', summary: 'All good', issues: [] })
+    );
+    nextExitResolvers[1](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(queries.getTodoById(todo.id)!.status).toBe('completed');
+    const roundsBefore = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(roundsBefore).toHaveLength(2);
+
+    // Continue call must throw
+    await expect(orchestrator.continueTodo(todo.id, 'One more change')).rejects.toThrow(
+      'Continue is not supported for reviewed pipeline tasks in Review/Rework V1.'
+    );
+
+    // History is completely unchanged
+    const roundsAfter = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(roundsAfter).toHaveLength(2);
+    expect(roundsAfter[1].status).toBe('completed');
+    expect(mockClaudeStarts).toHaveLength(2);
+  });
+
+  it('21. Failure 6: Manual execution config failure marks Round failed and sets error_message', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Config Fail Task',
+      'Task',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      'unsupported-effort',
+      claudeModel.id,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    await orchestrator.startTodo(todo.id);
+
+    const failedTodo = queries.getTodoById(todo.id)!;
+    expect(failedTodo.status).toBe('failed');
+
+    const round = queries.getLatestExecutionRound(todo.id)!;
+    expect(round.status).toBe('failed');
+    expect(round.error_message).toContain('Configuration error');
+    expect(round.finished_at).toBeTruthy();
+    expect(queries.getActiveExecutionRound(todo.id)).toBeUndefined();
+  });
+
+  it('22. Failure 7: Resource configuration failure marks Round failed and sets error_message', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Resource Parse Fail Task',
+      'Task',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '{invalid json}',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    await orchestrator.startTodo(todo.id);
+
+    const failedTodo = queries.getTodoById(todo.id)!;
+    expect(failedTodo.status).toBe('failed');
+
+    const round = queries.getLatestExecutionRound(todo.id)!;
+    expect(round.status).toBe('failed');
+    expect(round.error_message).toBeTruthy();
+    expect(round.finished_at).toBeTruthy();
+    expect(queries.getActiveExecutionRound(todo.id)).toBeUndefined();
+  });
+
+  it('23. Wake 8: Server startup wake resumes waiting_executor and waiting_resource pipeline rounds', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Waiting Startup Wake Task',
+      'Task',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round.id, { status: 'waiting_executor' });
+    queries.updateTodoStatus(todo.id, 'waiting_executor');
+
+    // Trigger startup wake
+    await orchestrator.wakeWaitingExecutors();
+    await new Promise((r) => setTimeout(r, 60));
+
+    const runningRound = queries.getExecutionRoundById(round.id)!;
+    expect(runningRound.status).toBe('running');
+    expect(queries.getTodoById(todo.id)!.status).toBe('running');
+  });
+
+  it('24. Migration 9: Startup migration safely reconciles legacy duplicate active rounds without deleting history', () => {
+    const migrationDb = new Database(':memory:');
+    migrationDb.exec(`
+      CREATE TABLE IF NOT EXISTS todos (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT,
+        status TEXT,
+        review_enabled INTEGER DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS todo_execution_rounds (
+        id TEXT PRIMARY KEY,
+        todo_id TEXT,
+        round_index INTEGER,
+        phase TEXT,
+        status TEXT,
+        run_token TEXT,
+        execution_snapshot TEXT,
+        input_payload TEXT,
+        result_payload TEXT,
+        error_message TEXT,
+        started_at DATETIME,
+        finished_at DATETIME,
+        created_at DATETIME,
+        updated_at DATETIME
+      );
+    `);
+
+    // Insert duplicate active rounds for the same todo
+    migrationDb.prepare(`
+      INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, created_at)
+      VALUES
+        ('round-1', 'todo-1', 1, 'implementation', 'running', 'token-1', '2026-08-01T00:00:00.000Z'),
+        ('round-2', 'todo-1', 2, 'review', 'running', 'token-2', '2026-08-02T00:00:00.000Z')
+    `).run();
+
+    // Run safe dedupe migration
+    dedupeLegacyExecutionRounds(migrationDb);
+
+    // Now creating unique active index succeeds!
+    expect(() => {
+      migrationDb.exec(`
+        CREATE UNIQUE INDEX idx_todo_execution_rounds_active_unique
+        ON todo_execution_rounds(todo_id)
+        WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
+      `);
+    }).not.toThrow();
+
+    // The newer active round (round-2) remains running
+    const round2 = migrationDb.prepare('SELECT * FROM todo_execution_rounds WHERE id = ?').get('round-2') as any;
+    expect(round2.status).toBe('running');
+
+    // The older active round (round-1) was superseded and marked failed without deleting
+    const round1 = migrationDb.prepare('SELECT * FROM todo_execution_rounds WHERE id = ?').get('round-1') as any;
+    expect(round1.status).toBe('failed');
+    expect(round1.error_message).toContain('Superseded legacy active round');
+
+    migrationDb.close();
   });
 });

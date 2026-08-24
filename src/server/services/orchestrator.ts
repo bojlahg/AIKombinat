@@ -32,6 +32,8 @@ const STALE_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 export class Orchestrator {
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private activeResourceRuns = new Map<string, string>();
+  private isStoppingProjects = new Set<string>();
+  private stoppingTodoIds = new Set<string>();
 
   /**
    * Start periodic process liveness check.
@@ -52,23 +54,35 @@ export class Orchestrator {
   /**
    * Find tasks marked 'running' whose process is no longer alive, and mark them as failed.
    */
-  private recoverStaleTasks(): void {
+  public recoverStaleTasks(): void {
     const runningTodos = queries.getTodosByStatus('running');
     let recoveredCount = 0;
     for (const todo of runningTodos) {
       if (!todo.process_pid || todo.process_pid === 0) continue;
       if (!this.isProcessAlive(todo.process_pid)) {
         try {
+          if (todo.review_enabled) {
+            const activeRound = queries.getActiveExecutionRound(todo.id);
+            if (activeRound) {
+              queries.updateExecutionRound(activeRound.id, {
+                status: 'failed',
+                error_message: 'Process exited unexpectedly (detected by liveness check).',
+                finished_at: new Date().toISOString(),
+              });
+              const updated = queries.getExecutionRoundById(activeRound.id);
+              if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId: todo.id, round: updated });
+            }
+          }
           queries.updateTodoStatus(todo.id, 'failed');
           queries.createTaskLog(todo.id, 'error', 'Process exited unexpectedly (detected by liveness check).');
-        queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
-        const runToken = this.activeResourceRuns.get(todo.id);
-        if (runToken) {
-          resourceManager.releaseRun(runToken);
-          this.activeResourceRuns.delete(todo.id);
-        } else {
-          resourceManager.releaseOwner('todo', todo.id);
-        }
+          queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
+          const runToken = this.activeResourceRuns.get(todo.id);
+          if (runToken) {
+            resourceManager.releaseRun(runToken);
+            this.activeResourceRuns.delete(todo.id);
+          } else {
+            resourceManager.releaseOwner('todo', todo.id);
+          }
         } catch { /* ignore */ }
         broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'failed' });
         this.broadcastProjectStatus(todo.project_id);
@@ -77,10 +91,11 @@ export class Orchestrator {
     }
     if (recoveredCount > 0) {
       this.wakeWaitingExecutors().catch(() => { /* ignore */ });
+      this.wakeWaitingResources().catch(() => { /* ignore */ });
     }
   }
 
-  private isProcessAlive(pid: number): boolean {
+  public isProcessAlive(pid: number): boolean {
     try {
       process.kill(pid, 0);
       return true;
@@ -179,7 +194,6 @@ export class Orchestrator {
     }
   }
 
-  private isStoppingProjects: Set<string> = new Set();
   private wakeRunning = false;
   private wakeRequested = false;
   private resourceWakeRunning = false;
@@ -191,14 +205,27 @@ export class Orchestrator {
    */
   async stopProject(projectId: string): Promise<void> {
     this.isStoppingProjects.add(projectId);
-    try {
-      const todos = queries.getTodosByProjectId(projectId);
-      const running = todos.filter((t) => t.status === 'running');
-      const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_resource');
+    const todos = queries.getTodosByProjectId(projectId);
+    const running = todos.filter((t) => t.status === 'running');
+    const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_resource');
+    running.forEach((t) => this.stoppingTodoIds.add(t.id));
+    waiting.forEach((t) => this.stoppingTodoIds.add(t.id));
 
+    try {
       for (const todo of running) {
         if (todo.process_pid) {
           await claudeManager.stopClaude(todo.process_pid).catch(() => { /* ignore */ });
+        }
+        if (todo.review_enabled) {
+          const activeRound = queries.getActiveExecutionRound(todo.id);
+          if (activeRound) {
+            queries.updateExecutionRound(activeRound.id, {
+              status: 'stopped',
+              finished_at: new Date().toISOString(),
+            });
+            const updatedRound = queries.getExecutionRoundById(activeRound.id);
+            if (updatedRound) broadcaster.broadcast({ type: 'todo:round-updated', todoId: todo.id, round: updatedRound });
+          }
         }
         const runToken = this.activeResourceRuns.get(todo.id);
         if (runToken) resourceManager.releaseRun(runToken);
@@ -211,6 +238,17 @@ export class Orchestrator {
       }
 
       for (const todo of waiting) {
+        if (todo.review_enabled) {
+          const activeRound = queries.getActiveExecutionRound(todo.id);
+          if (activeRound) {
+            queries.updateExecutionRound(activeRound.id, {
+              status: 'stopped',
+              finished_at: new Date().toISOString(),
+            });
+            const updatedRound = queries.getExecutionRoundById(activeRound.id);
+            if (updatedRound) broadcaster.broadcast({ type: 'todo:round-updated', todoId: todo.id, round: updatedRound });
+          }
+        }
         queries.updateTodoStatus(todo.id, 'stopped');
         queries.updateTodo(todo.id, { process_pid: 0, execution_mode: null });
         queries.createTaskLog(todo.id, 'output', 'Task stopped by user (Stop All).');
@@ -219,6 +257,8 @@ export class Orchestrator {
 
       this.broadcastProjectStatus(projectId);
     } finally {
+      running.forEach((t) => this.stoppingTodoIds.delete(t.id));
+      waiting.forEach((t) => this.stoppingTodoIds.delete(t.id));
       this.isStoppingProjects.delete(projectId);
     }
   }
@@ -275,6 +315,9 @@ export class Orchestrator {
     if (!todo) {
       throw new Error('Todo not found');
     }
+    if (todo.review_enabled) {
+      throw new Error('Continue is not supported for reviewed pipeline tasks in Review/Rework V1. Create a new Todo or use an explicit review/rework action.');
+    }
     if (todo.status !== 'completed') {
       throw new Error('Only completed todos can be continued');
     }
@@ -320,35 +363,40 @@ export class Orchestrator {
       throw new Error('Todo not found');
     }
 
-    if (todo.process_pid) {
-      await claudeManager.stopClaude(todo.process_pid);
-    }
-
-    if (todo.review_enabled) {
-      const activeRound = queries.getActiveExecutionRound(todoId);
-      if (activeRound) {
-        queries.updateExecutionRound(activeRound.id, {
-          status: 'stopped',
-          finished_at: new Date().toISOString(),
-        });
-        const updatedRound = queries.getExecutionRoundById(activeRound.id);
-        if (updatedRound) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedRound });
+    this.stoppingTodoIds.add(todoId);
+    try {
+      if (todo.process_pid) {
+        await claudeManager.stopClaude(todo.process_pid);
       }
-    }
 
-    const runToken = this.activeResourceRuns.get(todoId);
-    if (runToken) resourceManager.releaseRun(runToken);
-    else resourceManager.releaseOwner('todo', todoId);
-    this.activeResourceRuns.delete(todoId);
+      if (todo.review_enabled) {
+        const activeRound = queries.getActiveExecutionRound(todoId);
+        if (activeRound) {
+          queries.updateExecutionRound(activeRound.id, {
+            status: 'stopped',
+            finished_at: new Date().toISOString(),
+          });
+          const updatedRound = queries.getExecutionRoundById(activeRound.id);
+          if (updatedRound) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedRound });
+        }
+      }
 
-    queries.updateTodoStatus(todoId, 'stopped');
-    queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
-    queries.createTaskLog(todoId, 'output', 'Task stopped by user.');
+      const runToken = this.activeResourceRuns.get(todoId);
+      if (runToken) resourceManager.releaseRun(runToken);
+      else resourceManager.releaseOwner('todo', todoId);
+      this.activeResourceRuns.delete(todoId);
 
-    broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'stopped' });
-    this.broadcastProjectStatus(todo.project_id);
-    if (!this.isStoppingProjects.has(todo.project_id)) {
-      this.wakeWaitingExecutors().catch(() => { /* ignore */ });
+      queries.updateTodoStatus(todoId, 'stopped');
+      queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
+      queries.createTaskLog(todoId, 'output', 'Task stopped by user.');
+
+      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'stopped' });
+      this.broadcastProjectStatus(todo.project_id);
+      if (!this.isStoppingProjects.has(todo.project_id)) {
+        this.wakeWaitingExecutors().catch(() => { /* ignore */ });
+      }
+    } finally {
+      this.stoppingTodoIds.delete(todoId);
     }
   }
 
@@ -357,6 +405,40 @@ export class Orchestrator {
    * When continueOptions is provided, reuses the existing worktree and runs a
    * follow-up prompt (no new worktree, no squash merge, CLI session continued).
    */
+  private failCurrentRoundAndTodo(
+    todoId: string,
+    projectId: string,
+    currentRound: queries.TodoExecutionRound | undefined,
+    errorMessage: string,
+    roundNumber: number,
+    adapterDisplayName?: string,
+  ): void {
+    executorPool.releaseReservation(todoId);
+    const runToken = this.activeResourceRuns.get(todoId);
+    if (runToken) {
+      resourceManager.releaseRun(runToken);
+      this.activeResourceRuns.delete(todoId);
+    } else {
+      resourceManager.releaseOwner('todo', todoId);
+    }
+    queries.updateTodoStatus(todoId, 'failed');
+    queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
+    if (currentRound) {
+      queries.updateExecutionRound(currentRound.id, {
+        status: 'failed',
+        error_message: errorMessage,
+        finished_at: new Date().toISOString(),
+      });
+      const updated = queries.getExecutionRoundById(currentRound.id);
+      if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+    }
+    const logMsg = adapterDisplayName ? `Failed to start ${adapterDisplayName}: ${errorMessage}` : errorMessage;
+    queries.createTaskLog(todoId, 'error', logMsg, roundNumber);
+    broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+    this.broadcastProjectStatus(projectId);
+    this.wakeWaitingExecutors().catch(() => {});
+  }
+
   private async startSingleTodo(
     todoId: string,
     projectPath: string,
@@ -582,18 +664,13 @@ export class Orchestrator {
           return;
         }
       } catch (err) {
-        executorPool.releaseReservation(todoId);
         const message = err instanceof Error ? err.message : String(err);
-        queries.updateTodoStatus(todoId, 'failed');
-        queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
-        queries.createTaskLog(todoId, 'error', `Configuration error: ${message}`, roundNumber);
-        broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-        this.broadcastProjectStatus(projectId);
+        this.failCurrentRoundAndTodo(todoId, projectId, currentRound, `Configuration error: ${message}`, roundNumber);
         return;
       }
     }
 
-    const adapter = getAdapter(resolvedCliTool);
+    let adapter: ReturnType<typeof getAdapter>;
     let resourceRunToken: string | null = null;
     let pid: number;
     let exitPromise: Promise<number>;
@@ -602,6 +679,7 @@ export class Orchestrator {
     let streamDrainPromise: Promise<void> | null = null;
 
     try {
+      adapter = getAdapter(resolvedCliTool);
       const requirements = parseStoredResourceRequirements(todo.resource_requirements);
       resourceRunToken = currentRound ? currentRound.run_token : uuidv4();
       const acquisition = resourceManager.acquireAtomic({
@@ -654,15 +732,8 @@ export class Orchestrator {
       }
       executorPool.releaseReservation(todoId);
     } catch (err) {
-      executorPool.releaseReservation(todoId);
-      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
-      this.activeResourceRuns.delete(todoId);
       const message = err instanceof Error ? err.message : String(err);
-      queries.updateTodoStatus(todoId, 'failed');
-      queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
-      queries.createTaskLog(todoId, 'error', `Resource configuration error: ${message}`, roundNumber);
-      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-      this.broadcastProjectStatus(projectId);
+      this.failCurrentRoundAndTodo(todoId, projectId, currentRound, `Resource configuration error: ${message}`, roundNumber);
       return;
     }
     logStreamer.setRound(todoId, roundNumber);
@@ -874,24 +945,8 @@ export class Orchestrator {
       broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'running', mode, worktree_path: worktreePath, branch_name: branchName });
       this.broadcastProjectStatus(projectId);
     } catch (err) {
-      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
-      if (this.activeResourceRuns.get(todoId) === resourceRunToken) this.activeResourceRuns.delete(todoId);
       const message = err instanceof Error ? err.message : String(err);
-      queries.updateTodoStatus(todoId, 'failed');
-      queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
-      if (currentRound) {
-        queries.updateExecutionRound(currentRound.id, {
-          status: 'failed',
-          error_message: `Failed to start ${adapter.displayName}: ${message}`,
-          finished_at: new Date().toISOString(),
-        });
-        const updated = queries.getExecutionRoundById(currentRound.id);
-        if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
-      }
-      queries.createTaskLog(todoId, 'error', `Failed to start ${adapter.displayName}: ${message}`, roundNumber);
-      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-      this.broadcastProjectStatus(projectId);
-      this.wakeWaitingExecutors().catch(() => {});
+      this.failCurrentRoundAndTodo(todoId, projectId, currentRound, message, roundNumber, adapter.displayName);
       return;
     }
 
@@ -909,11 +964,17 @@ export class Orchestrator {
         } catch { /* ignore */ }
       }
 
+      // Check if todo is intentionally stopping (or project is stopping)
+      const currentTodo = queries.getTodoById(todoId);
+      const isStopping = this.stoppingTodoIds.has(todoId) || (currentTodo && this.isStoppingProjects.has(currentTodo.project_id));
+      if (isStopping) {
+        return;
+      }
+
       if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
       if (this.activeResourceRuns.get(todoId) === resourceRunToken) this.activeResourceRuns.delete(todoId);
 
       let delegated: queries.Todo | null = null;
-      const currentTodo = queries.getTodoById(todoId);
       // Only update if still in running state (not manually stopped or superseded)
       if (currentTodo && currentTodo.status === 'running') {
         if (todo.review_enabled && currentRound) {
@@ -1089,7 +1150,9 @@ export class Orchestrator {
               } : {}),
             });
 
-            if (advanceResult.action === 'start_review' || advanceResult.action === 'start_rework') {
+            if (advanceResult.action === 'superseded') {
+              return;
+            } else if (advanceResult.action === 'start_review' || advanceResult.action === 'start_rework') {
               // Auto-chain next round in pipeline!
               await this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain);
               return;
