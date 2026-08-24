@@ -1,4 +1,5 @@
 import type { Todo } from '../db/queries.js';
+import type { ResourceKey } from '../services/resource-catalog.js';
 
 export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
 export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
@@ -21,6 +22,7 @@ export type WSEvent =
   | { type: 'session:log'; sessionId: string; message: string; logType: string }
   | { type: 'session:replay-end'; sessionId: string }
   | { type: 'rate-limit:updated'; resetsAt: number; status: string | null }
+  | { type: 'resource:updated'; resourceKeys: ResourceKey[] }
   | { type: 'vault:changed'; projectId: string }
   | { type: 'git:changed'; projectId: string }
   | {

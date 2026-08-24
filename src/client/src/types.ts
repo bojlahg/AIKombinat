@@ -38,7 +38,7 @@ export interface Todo {
   project_id: string;
   title: string;
   description: string | null;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'merged' | 'waiting_executor';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'merged' | 'waiting_executor' | 'waiting_resource';
   priority: number;
   branch_name: string | null;
   worktree_path: string | null;
@@ -67,6 +67,7 @@ export interface Todo {
   memory_node_ids?: string | null;
   memory_raw_file_paths?: string | null;
   delegated_from?: string | null;
+  resource_requirements?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,6 +120,7 @@ export interface Schedule {
   memory_inject_mode: string | null;
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
+  resource_requirements: string | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;
@@ -282,9 +284,29 @@ export interface Session {
   memory_node_ids?: string | null;
   memory_raw_file_paths?: string | null;
   tag_id?: string | null;
+  resource_requirements?: string | null;
   created_at: string;
   updated_at: string;
   is_git_repo?: number; // joined from the owning project (read-only)
+}
+
+export type ResourceKey = string;
+
+export interface ResourceStatus {
+  key: ResourceKey;
+  label: string;
+  capacity: number;
+  used: number;
+  available: number;
+  leases: Array<{
+    resourceKey: ResourceKey;
+    ownerType: 'todo' | 'session';
+    ownerId: string;
+    runToken: string;
+    acquiredAt: string;
+    heartbeatAt: string;
+    expiresAt: string;
+  }>;
 }
 
 export interface SessionTag {

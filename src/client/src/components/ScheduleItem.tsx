@@ -9,7 +9,7 @@ interface ScheduleItemProps {
   schedule: Schedule;
   onToggle: (id: string, activate: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string }) => Promise<void>;
+  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: string[] }) => Promise<void>;
   onTrigger: (id: string) => Promise<void>;
   onMergeRun?: (todoId: string) => Promise<void>;
   onCleanupRun?: (todoId: string) => Promise<void>;
@@ -97,6 +97,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
         initialSkipIfRunning={!!schedule.skip_if_running}
         initialScheduleType={schedule.schedule_type}
         initialRunAt={schedule.run_at ?? undefined}
+        initialResourceRequirements={schedule.resource_requirements}
         onSave={async (data) => {
           await onEdit(schedule.id, {
             title: data.title,
@@ -109,6 +110,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
             skip_if_running: data.skipIfRunning,
             schedule_type: data.scheduleType,
             run_at: data.runAt,
+            resource_requirements: data.resourceRequirements ?? [],
           });
           setEditing(false);
         }}

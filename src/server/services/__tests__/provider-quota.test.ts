@@ -1015,6 +1015,9 @@ describe('Quota Awareness V1', () => {
   });
 
   it('20. profile Todo Claude emits repeated quota errors -> marks Claude exhausted and falls back via ExecutorPool without legacy getNextFallbackCli', async () => {
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async (tool) => ({
+      tool, installed: true, version: '1.0.0',
+    }));
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     const codex = queries.addModel('codex', 'gpt-5-codex', 'GPT 5 Codex', ['high']);
     const profile = queries.createExecutionProfile({
@@ -1766,4 +1769,3 @@ describe('Quota Awareness V1', () => {
     resolveExit(0);
   });
 });
-

@@ -646,6 +646,10 @@ export const en = {
     'status.stopped': 'Stopped',
     'status.merged': 'Merged',
     'status.waiting_executor': 'Waiting for Executor',
+    'status.waiting_resource': 'Waiting: Resource',
+    'resources.label': 'Resources',
+    'resources.busy': '(busy)',
+    'resources.unknown': 'unknown',
 
     // Progress
     'progress.complete': 'complete',

@@ -28,6 +28,7 @@ const todo = {
   id: 'todo-1', project_id: 'project-1', title: 'Preserve me', description: 'Details', status: 'pending',
   cli_tool: 'codex', cli_model: 'gpt-5.1', cli_model_id: 'model-1', cli_effort: 'high', execution_profile_id: null, max_turns: 23, use_worktree: 0,
   memory_inject_mode: 'selected', memory_node_ids: '["node-1"]', memory_raw_file_paths: '["guide.md"]',
+  resource_requirements: '["gpu.0"]',
 };
 
 beforeAll(async () => {
@@ -59,7 +60,7 @@ describe('todo scheduling conversion', () => {
     expect(response.status).toBe(201);
     expect(mocks.createSchedule).toHaveBeenCalledWith(
       'project-1', 'Preserve me', 'Details', '* * * * *', 'codex', 'gpt-5.1', 1, 'once',
-      '2027-01-02T03:04:05.000Z', 23, 0, 'selected', '["node-1"]', '["guide.md"]', null, 'high', 'model-1',
+      '2027-01-02T03:04:05.000Z', 23, 0, 'selected', '["node-1"]', '["guide.md"]', null, 'high', 'model-1', '["gpu.0"]',
     );
   });
 
@@ -71,7 +72,7 @@ describe('todo scheduling conversion', () => {
     expect(response.status).toBe(201);
     expect(mocks.createSchedule).toHaveBeenCalledWith(
       'project-1', '[Reset] Continue after reset', 'Continue after reset', '* * * * *', 'codex', 'gpt-5.1', 1, 'once',
-      new Date(1_800_000_000 * 1000).toISOString(), 23, 0, 'selected', '["node-1"]', '["guide.md"]', null, 'high', 'model-1',
+      new Date(1_800_000_000 * 1000).toISOString(), 23, 0, 'selected', '["node-1"]', '["guide.md"]', null, 'high', 'model-1', '["gpu.0"]',
     );
   });
 });

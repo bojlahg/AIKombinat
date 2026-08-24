@@ -11,6 +11,7 @@ import * as settingsApi from '../api/sessionSettings';
 import { forceImeHandoff } from '../ime-handoff';
 import type { ExecutionProfile } from '../api/executionProfiles';
 import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
+import ResourceRequirementPicker from './ResourceRequirementPicker';
 
 export interface SessionFormInitial {
   title: string;
@@ -24,6 +25,7 @@ export interface SessionFormInitial {
   memoryNodeIds: string[];
   memoryRawFilePaths?: string[];
   tagId?: string | null;
+  resourceRequirements?: string[];
 }
 
 interface SessionFormProps {
@@ -42,6 +44,7 @@ interface SessionFormProps {
     cliModel?: string,
     cliEffort?: string | null,
     executionProfileId?: string | null,
+    resourceRequirements?: string[],
   ) => void;
   onCancel: () => void;
   projectCliTool?: string;
@@ -64,6 +67,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [vaultPaths, setVaultPaths] = useState<string[]>(initial?.memoryRawFilePaths ?? []);
   const [includeLinked, setIncludeLinked] = useState<boolean>(false);
   const [tagId, setTagId] = useState<string | null>(initial?.tagId ?? null);
+  const [resourceRequirements, setResourceRequirements] = useState<string[]>(initial?.resourceRequirements ?? []);
   const [tags, setTags] = useState<SessionTag[]>([]);
   const [cliStatuses, setCliStatuses] = useState<CliToolStatus[]>([]);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -152,6 +156,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
       executionProfileId ? undefined : cliModel || undefined,
       executionProfileId ? null : cliEffort || null,
       executionProfileId || null,
+      resourceRequirements,
     );
   };
 
@@ -170,6 +175,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
         placeholder={t('session.title')}
         className="input-field text-sm"
       />
+      <ResourceRequirementPicker value={resourceRequirements} onChange={setResourceRequirements} />
       {!isRawShell && (
         <textarea
           value={description}

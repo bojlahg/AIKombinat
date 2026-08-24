@@ -15,7 +15,7 @@ export default function ProgressBar({ todos }: ProgressBarProps) {
     running: todos.filter((t) => t.status === 'running').length,
     failed: todos.filter((t) => t.status === 'failed').length,
     stopped: todos.filter((t) => t.status === 'stopped').length,
-    pending: todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor').length,
+    pending: todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_resource').length,
     merged: todos.filter((t) => t.status === 'merged').length,
   };
 

@@ -45,6 +45,7 @@ import vaultRouter from './routes/vault.js';
 import reviewRouter from './routes/review.js';
 import personalRouter from './routes/personal.js';
 import favoritesRouter from './routes/favorites.js';
+import resourcesRouter from './routes/resources.js';
 import { scheduler } from './services/scheduler.js';
 import { debugLogger } from './services/debug-logger.js';
 import { logStreamer } from './services/log-streamer.js';
@@ -52,6 +53,7 @@ import { checkAllTools } from './services/cli-status.js';
 import { registerPlugin, mountPluginRoutes } from './plugins/registry.js';
 import { harnessPlugin } from './plugins/harness/index.js';
 import { resolveBindHost } from './utils/bind-host.js';
+import { resourceManager } from './services/resource-manager.js';
 
 const app = express();
 const server = createServer(app);
@@ -117,12 +119,18 @@ checkAllTools().then(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
 }).catch(() => { /* ignore */ });
 
-// Startup recovery: reset stale 'running' todos to 'failed'
-// (processes are dead after server restart)
+const isProcessAlive = (pid: number | null): boolean => {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+};
+
+// Startup recovery: reset stale 'running' todos to 'failed'. A still-live
+// child keeps its persisted state and resource lease even though output is not reattached.
 const staleTodos = getTodosByStatus('running');
 if (staleTodos.length > 0) {
   console.log(`Recovering ${staleTodos.length} stale running task(s)...`);
   for (const todo of staleTodos) {
+    if (isProcessAlive(todo.process_pid)) continue;
     updateTodoStatus(todo.id, 'failed');
     updateTodo(todo.id, { process_pid: 0 });
     console.log(`  Reset todo "${todo.title}" (${todo.id}) from running to failed`);
@@ -145,6 +153,7 @@ const staleSessions = getSessionsByStatus('running');
 if (staleSessions.length > 0) {
   console.log(`Recovering ${staleSessions.length} stale running session(s)...`);
   for (const session of staleSessions) {
+    if (isProcessAlive(session.process_pid)) continue;
     updateSessionStatus(session.id, 'failed');
     updateSession(session.id, { process_pid: 0 });
     console.log(`  Reset session "${session.title}" (${session.id}) from running to failed`);
@@ -263,8 +272,14 @@ app.use('/api', vaultRouter);
 app.use('/api/review', reviewRouter);
 app.use('/api', personalRouter);
 app.use('/api', favoritesRouter);
+app.use('/api', resourcesRouter);
 app.use('/api', mcpRouter);
 mountPluginRoutes(app);
+
+resourceManager.setAvailabilityCallback(() => {
+  setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
+});
+resourceManager.initialize();
 
 // MCP endpoint (bearer-auth, not under /api). Mount before static/SPA serving
 // so the catch-all does not swallow /mcp.
@@ -329,6 +344,7 @@ app.get('/api/health', (_req, res) => {
 function cleanup() {
   console.log('Shutting down: killing all Claude CLI processes, scheduler, and tunnel...');
   orchestrator.stopStaleProcessChecker();
+  resourceManager.shutdown();
   scheduler.stopAll();
   Promise.all([
     claudeManager.killAll(),

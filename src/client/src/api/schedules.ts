@@ -12,14 +12,14 @@ export function getSchedules(projectId: string): Promise<Schedule[]> {
 
 export function createSchedule(
   projectId: string,
-  data: { title: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string }
+  data: { title: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: string[] }
 ): Promise<Schedule> {
   return post(`/api/projects/${projectId}/schedules`, data);
 }
 
 export function updateSchedule(
   id: string,
-  data: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string }
+  data: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: string[] }
 ): Promise<Schedule> {
   return put(`/api/schedules/${id}`, data);
 }

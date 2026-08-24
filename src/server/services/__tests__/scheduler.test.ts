@@ -61,6 +61,7 @@ const pausedSchedule: Schedule = {
   memory_inject_mode: 'selected',
   memory_node_ids: '["node-1"]',
   memory_raw_file_paths: '["notes.md"]',
+  resource_requirements: '["android.emulator"]',
   is_active: 0,
   skip_if_running: 0,
   last_run_at: null,
@@ -106,9 +107,23 @@ describe('Scheduler execution', () => {
       null,
       'high',
       'model-1',
+      '["android.emulator"]',
     );
     expect(mocks.createScheduleRun).toHaveBeenCalledOnce();
     expect(mocks.startTodo).toHaveBeenCalledWith('todo-1');
+  });
+
+  it('skip_if_running treats waiting_resource as an active prior run', async () => {
+    mocks.getScheduleById.mockReturnValue({ ...pausedSchedule, skip_if_running: 1 });
+    mocks.getTodosByScheduleId.mockReturnValue([{ status: 'waiting_resource' }]);
+    const scheduler = new Scheduler();
+
+    await scheduler.triggerSchedule(pausedSchedule.id);
+
+    expect(mocks.createTodo).not.toHaveBeenCalled();
+    expect(mocks.createScheduleRun).toHaveBeenCalledWith(
+      pausedSchedule.id, null, 'skipped', 'previous_run_still_active',
+    );
   });
 
   it('does not run a paused schedule from the scheduler callback', async () => {

@@ -181,19 +181,20 @@ export interface Todo {
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
   delegated_from: string | null;
+  resource_requirements: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export function createTodo(projectId: string, title: string, description?: string, priority = 0, cliTool?: string, cliModel?: string, scheduleId?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: string, memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, delegatedFrom?: string, executionProfileId?: string | null, cliEffort?: string | null, cliModelId?: string | null): Todo {
+export function createTodo(projectId: string, title: string, description?: string, priority = 0, cliTool?: string, cliModel?: string, scheduleId?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: string, memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, delegatedFrom?: string, executionProfileId?: string | null, cliEffort?: string | null, cliModelId?: string | null, resourceRequirements?: string | null): Todo {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   const normalizedUseWorktree = useWorktree === 0 || useWorktree === 1 ? useWorktree : null;
   db.prepare(
-    `INSERT INTO todos (id, project_id, title, description, priority, cli_tool, cli_model, cli_model_id, schedule_id, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, delegated_from, execution_profile_id, cli_effort, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, priority, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, scheduleId ?? null, dependsOn ?? null, maxTurns ?? null, normalizedUseWorktree, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, delegatedFrom ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, now, now);
+    `INSERT INTO todos (id, project_id, title, description, priority, cli_tool, cli_model, cli_model_id, schedule_id, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, delegated_from, execution_profile_id, cli_effort, resource_requirements, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, title, description ?? null, priority, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, scheduleId ?? null, dependsOn ?? null, maxTurns ?? null, normalizedUseWorktree, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, delegatedFrom ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, resourceRequirements ?? null, now, now);
   return getTodoById(id)!;
 }
 
@@ -207,7 +208,7 @@ export function getTodoById(id: string): Todo | undefined {
   return db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths'>>): Todo | undefined {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements'>>): Todo | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -247,6 +248,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.memory_inject_mode !== undefined) { fields.push('memory_inject_mode = ?'); values.push(updates.memory_inject_mode); }
   if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
+  if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
 
   if (fields.length === 0) return getTodoById(id);
 
@@ -357,6 +359,7 @@ export interface Schedule {
   memory_inject_mode: string | null;
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
+  resource_requirements: string | null;
   is_active: number;
   skip_if_running: number;
   last_run_at: string | null;
@@ -372,15 +375,15 @@ export function createSchedule(
   cronExpression: string, cliTool?: string, cliModel?: string, skipIfRunning = 1,
   scheduleType = 'recurring', runAt?: string,
   maxTurns?: number | null, useWorktree?: number | null, memoryInjectMode?: string | null,
-  memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, executionProfileId?: string | null, cliEffort?: string | null, cliModelId?: string | null,
+  memoryNodeIds?: string | null, memoryRawFilePaths?: string | null, executionProfileId?: string | null, cliEffort?: string | null, cliModelId?: string | null, resourceRequirements?: string | null,
 ): Schedule {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, cli_model_id, skip_if_running, schedule_type, run_at, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, execution_profile_id, cli_effort, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, projectId, title, description ?? null, cronExpression, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, skipIfRunning, scheduleType, runAt ?? null, maxTurns ?? null, useWorktree ?? null, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, now, now);
+    `INSERT INTO schedules (id, project_id, title, description, cron_expression, cli_tool, cli_model, cli_model_id, skip_if_running, schedule_type, run_at, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, execution_profile_id, cli_effort, resource_requirements, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, projectId, title, description ?? null, cronExpression, executionProfileId ? null : cliTool ?? null, executionProfileId ? null : cliModel ?? null, executionProfileId ? null : cliModelId ?? null, skipIfRunning, scheduleType, runAt ?? null, maxTurns ?? null, useWorktree ?? null, memoryInjectMode ?? 'none', memoryNodeIds ?? null, memoryRawFilePaths ?? null, executionProfileId ?? null, executionProfileId ? null : cliEffort ?? null, resourceRequirements ?? null, now, now);
   return getScheduleById(id)!;
 }
 
@@ -404,7 +407,7 @@ export function getActiveOnceSchedules(): Schedule[] {
   return db.prepare("SELECT * FROM schedules WHERE is_active = 1 AND schedule_type = 'once'").all() as Schedule[];
 }
 
-export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
+export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -422,6 +425,7 @@ export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'titl
   if (updates.memory_inject_mode !== undefined) { fields.push('memory_inject_mode = ?'); values.push(updates.memory_inject_mode); }
   if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
+  if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
   if (updates.skip_if_running !== undefined) { fields.push('skip_if_running = ?'); values.push(updates.skip_if_running); }
   if (updates.schedule_type !== undefined) { fields.push('schedule_type = ?'); values.push(updates.schedule_type); }
   if (updates.run_at !== undefined) { fields.push('run_at = ?'); values.push(updates.run_at); }
@@ -1200,6 +1204,7 @@ export interface Session {
   memory_node_ids: string | null;
   memory_raw_file_paths: string | null;
   tag_id: string | null;
+  resource_requirements: string | null;
   created_at: string;
   updated_at: string;
   is_git_repo?: number; // joined from projects (read-only); not a sessions column
@@ -1219,13 +1224,14 @@ export function createSession(
   executionProfileId?: string | null,
   cliEffort?: string | null,
   cliModelId?: string | null,
+  resourceRequirements?: string | null,
 ): Session {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO sessions (id, project_id, title, description, cli_tool, cli_model, cli_model_id, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id, execution_profile_id, cli_effort, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (id, project_id, title, description, cli_tool, cli_model, cli_model_id, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, tag_id, execution_profile_id, cli_effort, resource_requirements, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     projectId,
@@ -1241,6 +1247,7 @@ export function createSession(
     tagId ?? null,
     executionProfileId ?? null,
     executionProfileId ? null : cliEffort ?? null,
+    resourceRequirements ?? null,
     now,
     now,
   );
@@ -1257,7 +1264,7 @@ export function getSessionById(id: string): Session | undefined {
   return db.prepare('SELECT s.*, p.is_git_repo FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = ?').get(id) as Session | undefined;
 }
 
-export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id'>>): Session | undefined {
+export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements'>>): Session | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1283,6 +1290,7 @@ export function updateSession(id: string, updates: Partial<Pick<Session, 'title'
   if (updates.memory_node_ids !== undefined) { fields.push('memory_node_ids = ?'); values.push(updates.memory_node_ids); }
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
   if (updates.tag_id !== undefined) { fields.push('tag_id = ?'); values.push(updates.tag_id); }
+  if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
 
   if (fields.length === 0) return getSessionById(id);
 

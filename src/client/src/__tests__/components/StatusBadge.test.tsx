@@ -47,6 +47,11 @@ describe('StatusBadge', () => {
     expect(screen.getByText('Waiting for Executor')).toBeInTheDocument();
   });
 
+  it('should render Waiting: Resource for waiting_resource status', () => {
+    renderWithProviders(<StatusBadge status="waiting_resource" />);
+    expect(screen.getByText('Waiting: Resource')).toBeInTheDocument();
+  });
+
   it('should show spin animation for running status', () => {
     const { container } = renderWithProviders(<StatusBadge status="running" />);
     const spinElement = container.querySelector('.animate-spin');

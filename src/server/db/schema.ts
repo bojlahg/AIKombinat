@@ -223,6 +223,22 @@ export function initDatabase(db: Database.Database): void {
     -- doubled index-write cost on the PTY streaming insert path.
     DROP INDEX IF EXISTS idx_session_raw_chunks_session;
 
+    CREATE TABLE IF NOT EXISTS resource_leases (
+      id TEXT PRIMARY KEY,
+      resource_key TEXT NOT NULL,
+      amount INTEGER NOT NULL DEFAULT 1,
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo', 'session')),
+      owner_id TEXT NOT NULL,
+      run_token TEXT NOT NULL,
+      acquired_at DATETIME NOT NULL,
+      heartbeat_at DATETIME NOT NULL,
+      expires_at DATETIME NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_resource_leases_resource ON resource_leases(resource_key, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_resource_leases_run ON resource_leases(run_token);
+    CREATE INDEX IF NOT EXISTS idx_resource_leases_owner ON resource_leases(owner_type, owner_id);
+
     CREATE TABLE IF NOT EXISTS planner_items (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -487,6 +503,9 @@ export function initDatabase(db: Database.Database): void {
     { table: 'projects', column: 'auto_delegate', definition: 'TEXT' },
     // Parent todo id when this todo was auto-created as a delegated review task.
     { table: 'todos', column: 'delegated_from', definition: 'TEXT' },
+    { table: 'todos', column: 'resource_requirements', definition: 'TEXT' },
+    { table: 'sessions', column: 'resource_requirements', definition: 'TEXT' },
+    { table: 'schedules', column: 'resource_requirements', definition: 'TEXT' },
   ];
 
   for (const { table, column, definition } of migrations) {

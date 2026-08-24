@@ -648,6 +648,10 @@ export const ru = {
     'status.stopped': 'Остановлено',
     'status.merged': 'Слито',
     'status.waiting_executor': 'Ожидание исполнителя',
+    'status.waiting_resource': 'Ожидание ресурса',
+    'resources.label': 'Ресурсы',
+    'resources.busy': '(занят)',
+    'resources.unknown': 'неизвестно',
 
     // Progress
     'progress.complete': 'готово',

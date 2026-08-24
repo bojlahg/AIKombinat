@@ -139,7 +139,7 @@ interface TodoItemProps {
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
   onCleanup: (id: string, deleteBranch: boolean) => Promise<void>;
   onRetry: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -210,15 +210,15 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const { t } = useI18n();
 
-  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'failed' || todo.status === 'stopped';
-  const canSchedule = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
-  const canScheduleOnReset = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped') && !!onScheduleOnReset && !!resetsAt && resetsAt > Math.floor(Date.now() / 1000);
-  const canStop = todo.status === 'running' || todo.status === 'waiting_executor';
+  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped';
+  const canSchedule = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
+  const canScheduleOnReset = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped') && !!onScheduleOnReset && !!resetsAt && resetsAt > Math.floor(Date.now() / 1000);
+  const canStop = todo.status === 'running' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource';
   const canViewDiff = todo.status === 'completed' || todo.status === 'stopped' || todo.status === 'merged';
   const canMerge = todo.status === 'completed' && !isChainMember && !!todo.branch_name;
   const canRetry = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped';
   const canContinue = !!onContinue && todo.status === 'completed' && !!todo.worktree_path;
-  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && !!todo.worktree_path && !isChainMember;
+  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && todo.status !== 'waiting_resource' && !!todo.worktree_path && !isChainMember;
 
   const hasResult = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped' || todo.status === 'merged';
 
@@ -445,6 +445,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         initialUseWorktree={todo.use_worktree ?? null}
         initialMemoryInjectMode={todo.memory_inject_mode ?? 'none'}
         initialMemoryRawFilePaths={todo.memory_raw_file_paths ?? null}
+        initialResourceRequirements={todo.resource_requirements ?? null}
         projectId={todo.project_id}
         projectIsGitRepo={projectIsGitRepo}
         projectUseWorktree={projectUseWorktree}
@@ -454,8 +455,8 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         onDeleteImage={async (imageId) => {
           await todosApi.deleteTodoImage(todo.id, imageId);
         }}
-        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId) => {
-          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId);
+        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements) => {
+          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements);
           if (newImages && newImages.length > 0) {
             await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
           }

@@ -13,6 +13,8 @@ import { orchestrator } from './orchestrator.js';
 import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
+import { parseStoredResourceRequirements, RESOURCE_CATALOG } from './resource-catalog.js';
+import { resourceManager } from './resource-manager.js';
 import * as queries from '../db/queries.js';
 
 const RAW_FLUSH_BYTES = 4 * 1024;
@@ -188,6 +190,7 @@ export class SessionManager {
     this.activeRunTokens.set(sessionId, runToken);
 
     let hasReservation = false;
+    let hasResources = false;
     let isRunningPersisted = false;
     let executionConfig: ResolvedExecutionConfig | null = null;
     let resolvedCliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
@@ -258,6 +261,20 @@ export class SessionManager {
         throw new Error(`${resolvedCliTool} does not support interactive mode`);
       }
       const isRawShell = resolvedCliTool === 'raw-shell';
+
+      const requirements = parseStoredResourceRequirements(session.resource_requirements);
+      const acquisition = resourceManager.acquireAtomic({
+        ownerType: 'session', ownerId: sessionId, runToken, resources: requirements,
+      });
+      if (acquisition.status === 'busy') {
+        const busyLabels = acquisition.busy.map((busy) => {
+          const definition = RESOURCE_CATALOG.find((resource) => resource.key === busy.key)!;
+          return `${definition.label} (${definition.key})`;
+        });
+        throw new Error(`Required resources are busy: ${busyLabels.join(', ')}`);
+      }
+      hasResources = requirements.length > 0;
+      if (hasResources) queries.createSessionLog(sessionId, 'output', `[resource-manager] Acquired resources: ${requirements.join(', ')}`);
 
       useWorktree = !!session.use_worktree && !!project.is_git_repo;
       const resume = !!opts?.continueSession;
@@ -380,6 +397,8 @@ export class SessionManager {
 
       // Check if session was stopped/superseded during async setup
       if (this.activeRunTokens.get(sessionId) !== runToken) {
+        if (hasResources) resourceManager.releaseRun(runToken);
+        hasResources = false;
         return;
       }
 
@@ -395,6 +414,8 @@ export class SessionManager {
       if (this.activeRunTokens.get(sessionId) !== runToken) {
         // Run superseded while spawning
         try { await claudeManager.stopClaude(pid); } catch { /* ignore */ }
+        if (hasResources) resourceManager.releaseRun(runToken);
+        hasResources = false;
         return;
       }
 
@@ -440,6 +461,8 @@ export class SessionManager {
         this.runInitialPrompts.delete(runToken);
         this.runStartupBuffers.delete(runToken);
         if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
+        if (hasResources) resourceManager.releaseRun(runToken);
+        hasResources = false;
 
         // Guard: if run was superseded by a newer run or stopped, do not mutate newer execution state
         if (this.activeRunTokens.get(sessionId) !== runToken) {
@@ -493,6 +516,8 @@ export class SessionManager {
         this.runInitialPrompts.delete(runToken);
         this.runStartupBuffers.delete(runToken);
         if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
+        if (hasResources) resourceManager.releaseRun(runToken);
+        hasResources = false;
         if (this.activeRunTokens.get(sessionId) === runToken) {
           this.activeRunTokens.delete(sessionId);
           try {
@@ -508,6 +533,10 @@ export class SessionManager {
       if (hasReservation) {
         executorPool.releaseReservation(sessionId);
         hasReservation = false;
+      }
+      if (hasResources) {
+        resourceManager.releaseRun(runToken);
+        hasResources = false;
       }
       const message = err instanceof Error ? err.message : String(err);
       if (this.activeRunTokens.get(sessionId) === runToken) {
@@ -563,6 +592,8 @@ export class SessionManager {
     if (pid) {
       await claudeManager.stopClaude(pid);
     }
+    if (runToken !== undefined) resourceManager.releaseRun(runToken);
+    else resourceManager.releaseOwner('session', sessionId);
     orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 

@@ -5,6 +5,7 @@ import CronBuilder from './CronBuilder';
 import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
 import type { ExecutionProfile } from '../api/executionProfiles';
 import type { CatalogModel } from '../execution-options';
+import ResourceRequirementPicker from './ResourceRequirementPicker';
 
 type ScheduleType = 'recurring' | 'once';
 
@@ -20,6 +21,7 @@ interface ScheduleFormProps {
     skipIfRunning?: boolean;
     scheduleType: ScheduleType;
     runAt?: string;
+    resourceRequirements?: string[];
   }) => void;
   onCancel: () => void;
   initialTitle?: string;
@@ -32,6 +34,7 @@ interface ScheduleFormProps {
   initialSkipIfRunning?: boolean;
   initialScheduleType?: ScheduleType;
   initialRunAt?: string;
+  initialResourceRequirements?: string | null;
   projectCliTool?: string;
 }
 
@@ -71,6 +74,7 @@ export default function ScheduleForm({
   initialSkipIfRunning = true,
   initialScheduleType = 'recurring',
   initialRunAt,
+  initialResourceRequirements = null,
   projectCliTool = 'claude',
 }: ScheduleFormProps) {
   const [title, setTitle] = useState(initialTitle);
@@ -83,6 +87,10 @@ export default function ScheduleForm({
   const [skipIfRunning, setSkipIfRunning] = useState(initialSkipIfRunning);
   const [scheduleType, setScheduleType] = useState<ScheduleType>(initialScheduleType);
   const [runAt, setRunAt] = useState(initialRunAt ? toLocalDatetimeValue(initialRunAt) : getDefaultRunAt());
+  const [resourceRequirements, setResourceRequirements] = useState<string[]>(() => {
+    if (!initialResourceRequirements) return [];
+    try { const parsed = JSON.parse(initialResourceRequirements); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
+  });
   const { t } = useI18n();
 
   const isOnce = scheduleType === 'once';
@@ -102,6 +110,7 @@ export default function ScheduleForm({
       skipIfRunning,
       scheduleType,
       runAt: isOnce ? new Date(runAt).toISOString() : undefined,
+      resourceRequirements,
     });
   };
 
@@ -195,6 +204,8 @@ export default function ScheduleForm({
         }}
         className="mb-3"
       />
+
+      <ResourceRequirementPicker value={resourceRequirements} onChange={setResourceRequirements} className="mb-3" />
 
       {/* Skip if Running (only for recurring) */}
       {!isOnce && (

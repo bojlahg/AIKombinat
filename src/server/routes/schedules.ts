@@ -5,6 +5,7 @@ import { scheduler } from '../services/scheduler.js';
 import { logStreamer } from '../services/log-streamer.js';
 import { cleanupTodoImages } from './images.js';
 import { ExecutionSelectionError, normalizeExecutionSelection } from '../services/execution-selection.js';
+import { normalizeResourceKeys, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
 
 const router = Router();
 
@@ -17,7 +18,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at, resource_requirements } = req.body;
     const isOnce = schedule_type === 'once';
 
     if (!title) {
@@ -42,6 +43,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
     }
 
     const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
+    const normalizedResources = serializeResourceRequirements(normalizeResourceKeys(resource_requirements ?? []));
     const schedule = queries.createSchedule(
       req.params.id, title, description,
       isOnce ? '* * * * *' : cron_expression,
@@ -50,7 +52,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       isOnce ? 'once' : 'recurring',
       isOnce ? run_at : undefined,
       undefined, undefined, undefined, undefined, undefined,
-      execution.executionProfileId, execution.cliEffort, execution.cliModelId,
+      execution.executionProfileId, execution.cliEffort, execution.cliModelId, normalizedResources,
     );
 
     // Auto-register the job since new schedules are active by default
@@ -63,7 +65,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
     res.status(201).json(schedule);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -108,7 +110,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at } = req.body;
+    const { title, description, cron_expression, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, skip_if_running, schedule_type, run_at, resource_requirements } = req.body;
     const effectiveType = schedule_type ?? existing.schedule_type;
     const isOnce = effectiveType === 'once';
 
@@ -138,6 +140,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_model_id = execution.cliModelId; updates.cli_effort = execution.cliEffort; updates.execution_profile_id = execution.executionProfileId;
     }
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
+    if (resource_requirements !== undefined) updates.resource_requirements = serializeResourceRequirements(normalizeResourceKeys(resource_requirements));
 
     const schedule = queries.updateSchedule(req.params.id, updates);
 
@@ -153,7 +156,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
     res.json(schedule);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(err instanceof ExecutionSelectionError ? 400 : 500).json({ error: message });
+    res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -277,6 +280,7 @@ router.post('/todos/:id/schedule', (req: Request<{ id: string }>, res: Response)
       todo.execution_profile_id,
       todo.cli_effort,
       todo.cli_model_id,
+      todo.resource_requirements,
     );
 
     let originalDeleted = false;
@@ -343,6 +347,7 @@ router.post('/todos/:id/schedule-on-reset', (req: Request<{ id: string }>, res: 
       todo.execution_profile_id,
       todo.cli_effort,
       todo.cli_model_id,
+      todo.resource_requirements,
     );
 
     scheduler.registerOnceJob(schedule);

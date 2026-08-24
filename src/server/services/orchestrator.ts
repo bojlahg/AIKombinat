@@ -19,6 +19,9 @@ import { executorPool } from './executor-pool.js';
 import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
+import { v4 as uuidv4 } from 'uuid';
+import { parseStoredResourceRequirements } from './resource-catalog.js';
+import { resourceManager } from './resource-manager.js';
 import * as queries from '../db/queries.js';
 
 const MAX_CONTEXT_SWITCHES = 3;
@@ -27,6 +30,7 @@ const STALE_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 
 export class Orchestrator {
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private activeResourceRuns = new Map<string, string>();
 
   /**
    * Start periodic process liveness check.
@@ -56,7 +60,14 @@ export class Orchestrator {
         try {
           queries.updateTodoStatus(todo.id, 'failed');
           queries.createTaskLog(todo.id, 'error', 'Process exited unexpectedly (detected by liveness check).');
-          queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
+        queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
+        const runToken = this.activeResourceRuns.get(todo.id);
+        if (runToken) {
+          resourceManager.releaseRun(runToken);
+          this.activeResourceRuns.delete(todo.id);
+        } else {
+          resourceManager.releaseOwner('todo', todo.id);
+        }
         } catch { /* ignore */ }
         broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'failed' });
         this.broadcastProjectStatus(todo.project_id);
@@ -147,7 +158,7 @@ export class Orchestrator {
     }
 
     const todos = queries.getTodosByProjectId(projectId);
-    const pending = todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor');
+    const pending = todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_resource');
     const running = todos.filter((t) => t.status === 'running');
     const maxConcurrent = this.getMaxConcurrent(projectId);
 
@@ -170,6 +181,8 @@ export class Orchestrator {
   private isStoppingProjects: Set<string> = new Set();
   private wakeRunning = false;
   private wakeRequested = false;
+  private resourceWakeRunning = false;
+  private resourceWakeRequested = false;
 
   /**
    * Stop all running and waiting todos for a project.
@@ -180,12 +193,16 @@ export class Orchestrator {
     try {
       const todos = queries.getTodosByProjectId(projectId);
       const running = todos.filter((t) => t.status === 'running');
-      const waiting = todos.filter((t) => t.status === 'waiting_executor');
+      const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_resource');
 
       for (const todo of running) {
         if (todo.process_pid) {
           await claudeManager.stopClaude(todo.process_pid).catch(() => { /* ignore */ });
         }
+        const runToken = this.activeResourceRuns.get(todo.id);
+        if (runToken) resourceManager.releaseRun(runToken);
+        else resourceManager.releaseOwner('todo', todo.id);
+        this.activeResourceRuns.delete(todo.id);
         queries.updateTodoStatus(todo.id, 'stopped');
         queries.updateTodo(todo.id, { process_pid: 0, execution_mode: null });
         queries.createTaskLog(todo.id, 'output', 'Task stopped by user (Stop All).');
@@ -305,6 +322,11 @@ export class Orchestrator {
     if (todo.process_pid) {
       await claudeManager.stopClaude(todo.process_pid);
     }
+
+    const runToken = this.activeResourceRuns.get(todoId);
+    if (runToken) resourceManager.releaseRun(runToken);
+    else resourceManager.releaseOwner('todo', todoId);
+    this.activeResourceRuns.delete(todoId);
 
     queries.updateTodoStatus(todoId, 'stopped');
     queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
@@ -485,21 +507,62 @@ export class Orchestrator {
     }
 
     const adapter = getAdapter(resolvedCliTool);
+    let resourceRunToken: string | null = null;
     let pid: number;
     let exitPromise: Promise<number>;
     let debugSession: DebugSession | null = null;
     let executionStartRowid = 0;
     let streamDrainPromise: Promise<void> | null = null;
 
-    // Mark as running synchronously and release reservation immediately (no await in between)
-    queries.updateTodoStatus(todoId, 'running');
-    queries.updateTodo(todoId, {
-      execution_mode: mode,
-      ...(executionConfig
-        ? { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) }
-        : { execution_snapshot: JSON.stringify({ configuration: 'manual', agent: resolvedCliTool }) }),
-    });
-    executorPool.releaseReservation(todoId);
+    try {
+      const requirements = parseStoredResourceRequirements(todo.resource_requirements);
+      resourceRunToken = uuidv4();
+      const acquisition = resourceManager.acquireAtomic({
+        ownerType: 'todo', ownerId: todoId, runToken: resourceRunToken, resources: requirements,
+      });
+      if (acquisition.status === 'busy') {
+        executorPool.releaseReservation(todoId);
+        resourceRunToken = null;
+        queries.updateTodoStatus(todoId, 'waiting_resource');
+        queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+        const details = acquisition.busy.map((busy) => {
+          const holders = busy.holders.map((holder) => `${holder.ownerType === 'todo' ? 'Todo' : 'Session'} ${holder.ownerId}`).join(', ');
+          return `- ${busy.key}: busy, held by ${holders}`;
+        }).join('\n');
+        const message = `[resource-manager] Waiting for resources:\n${details}`;
+        const recentLogs = queries.getTaskLogsByTodoId(todoId);
+        const lastOutput = [...recentLogs].reverse().find((log) => log.log_type === 'output');
+        if (!lastOutput || lastOutput.message !== message) queries.createTaskLog(todoId, 'output', message, roundNumber);
+        broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'waiting_resource' });
+        this.broadcastProjectStatus(projectId);
+        return;
+      }
+      if (requirements.length > 0) {
+        this.activeResourceRuns.set(todoId, resourceRunToken);
+        queries.createTaskLog(todoId, 'output', `[resource-manager] Acquired resources: ${requirements.join(', ')}`, roundNumber);
+      }
+
+      // Persist running provider usage, then release the temporary provider reservation.
+      queries.updateTodoStatus(todoId, 'running');
+      queries.updateTodo(todoId, {
+        execution_mode: mode,
+        ...(executionConfig
+          ? { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) }
+          : { execution_snapshot: JSON.stringify({ configuration: 'manual', agent: resolvedCliTool }) }),
+      });
+      executorPool.releaseReservation(todoId);
+    } catch (err) {
+      executorPool.releaseReservation(todoId);
+      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+      this.activeResourceRuns.delete(todoId);
+      const message = err instanceof Error ? err.message : String(err);
+      queries.updateTodoStatus(todoId, 'failed');
+      queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+      queries.createTaskLog(todoId, 'error', `Resource configuration error: ${message}`, roundNumber);
+      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+      this.broadcastProjectStatus(projectId);
+      return;
+    }
     logStreamer.setRound(todoId, roundNumber);
 
     try {
@@ -697,6 +760,8 @@ export class Orchestrator {
       broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'running', mode, worktree_path: worktreePath, branch_name: branchName });
       this.broadcastProjectStatus(projectId);
     } catch (err) {
+      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+      if (this.activeResourceRuns.get(todoId) === resourceRunToken) this.activeResourceRuns.delete(todoId);
       const message = err instanceof Error ? err.message : String(err);
       queries.updateTodoStatus(todoId, 'failed');
       queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
@@ -720,6 +785,9 @@ export class Orchestrator {
           await streamDrainPromise;
         } catch { /* ignore */ }
       }
+
+      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+      if (this.activeResourceRuns.get(todoId) === resourceRunToken) this.activeResourceRuns.delete(todoId);
 
       let delegated: queries.Todo | null = null;
       const currentTodo = queries.getTodoById(todoId);
@@ -893,6 +961,8 @@ export class Orchestrator {
         // Ignore errors
       });
     }).catch(() => {
+      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+      if (this.activeResourceRuns.get(todoId) === resourceRunToken) this.activeResourceRuns.delete(todoId);
       // Fallback: ensure status is updated if exitPromise handler fails
       try {
         queries.updateTodoStatus(todoId, 'failed');
@@ -1018,7 +1088,7 @@ export class Orchestrator {
 
     // Only start children that depend on the just-completed parent
     const dependentChildren = todos.filter(
-      (t) => (t.status === 'pending' || t.status === 'waiting_executor') && t.depends_on === parentTodoId
+      (t) => (t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_resource') && t.depends_on === parentTodoId
     );
 
     const slotsAvailable = Math.max(0, maxConcurrent - running.length);
@@ -1047,6 +1117,40 @@ export class Orchestrator {
       }
     } finally {
       this.wakeRunning = false;
+    }
+  }
+
+  async wakeWaitingResources(): Promise<void> {
+    this.resourceWakeRequested = true;
+    if (this.resourceWakeRunning) return;
+    this.resourceWakeRunning = true;
+    try {
+      while (this.resourceWakeRequested) {
+        this.resourceWakeRequested = false;
+        await this.processWaitingResources();
+      }
+    } finally {
+      this.resourceWakeRunning = false;
+    }
+  }
+
+  private async processWaitingResources(): Promise<void> {
+    const waitingTodos = queries.getTodosByStatus('waiting_resource');
+    const sortedWaiting = [...waitingTodos].sort(
+      (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+    );
+    for (const todo of sortedWaiting) {
+      if (this.isStoppingProjects.has(todo.project_id)) continue;
+      const freshTodo = queries.getTodoById(todo.id);
+      if (!freshTodo || freshTodo.status !== 'waiting_resource') continue;
+      const project = queries.getProjectById(todo.project_id);
+      if (!project) continue;
+      const projectTodos = queries.getTodosByProjectId(todo.project_id);
+      const running = projectTodos.filter((candidate) => candidate.status === 'running');
+      if (running.length >= this.getMaxConcurrent(todo.project_id)) continue;
+      if (!this.canStartNow(project, freshTodo, running).ok) continue;
+      if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
+      await this.startSingleTodo(freshTodo.id, project.path, project.id, 'headless', true);
     }
   }
 
@@ -1082,7 +1186,7 @@ export class Orchestrator {
   }
 
   async resumeWaitingTasks(projectId: string): Promise<void> {
-    return this.wakeWaitingExecutors();
+    await Promise.all([this.wakeWaitingExecutors(), this.wakeWaitingResources()]);
   }
 }
 

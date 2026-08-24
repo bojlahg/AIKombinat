@@ -16,7 +16,7 @@ type StatusFilter = 'all' | 'active' | 'completed' | 'cancelled';
 
 const FILTER_STATUSES: Record<StatusFilter, Todo['status'][] | null> = {
   all: null,
-  active: ['pending', 'running', 'waiting_executor'],
+  active: ['pending', 'running', 'waiting_executor', 'waiting_resource'],
   completed: ['completed', 'merged'],
   cancelled: ['stopped', 'failed'],
 };
@@ -27,7 +27,7 @@ interface TodoListProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null) => Promise<void>;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => Promise<void>;
   onStartAll: () => void;
   onStopAll: () => void;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -348,7 +348,7 @@ export default function TodoList({
   }, [dragSourceId, onReorderTodos]);
 
   const hasStartable = todos.some(
-    (t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'failed' || t.status === 'stopped'
+    (t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_resource' || t.status === 'failed' || t.status === 'stopped'
   );
   const hasRunning = todos.some((t) => t.status === 'running');
   const runStopButtons = (
@@ -500,8 +500,8 @@ export default function TodoList({
             projectIsGitRepo={projectIsGitRepo}
             projectUseWorktree={projectUseWorktree}
             availableTodos={todos}
-            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId) => {
-              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId);
+            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements) => {
+              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements);
               setShowForm(false);
             }}
             onCancel={() => setShowForm(false)}

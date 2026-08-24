@@ -6,6 +6,7 @@ import type { ImageMeta, MemoryInjectMode, Todo } from '../types';
 import type { VaultInjectMode } from '../api/vault';
 import { getTodoImageUrl } from '../api/todos';
 import ExecutionConfigurationPicker from './ExecutionConfigurationPicker';
+import ResourceRequirementPicker from './ResourceRequirementPicker';
 
 function parseRawFilePaths(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -26,7 +27,7 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
@@ -39,6 +40,7 @@ interface TodoFormProps {
   initialUseWorktree?: number | null;
   initialMemoryInjectMode?: MemoryInjectMode;
   initialMemoryRawFilePaths?: string | null;
+  initialResourceRequirements?: string | null;
   projectId?: string;
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
@@ -65,6 +67,7 @@ export default function TodoForm({
   initialUseWorktree = null,
   initialMemoryInjectMode = 'none',
   initialMemoryRawFilePaths = null,
+  initialResourceRequirements = null,
   projectId,
   projectCliTool = 'claude',
   projectIsGitRepo = false,
@@ -87,6 +90,7 @@ export default function TodoForm({
   );
   const [memoryInjectMode, setMemoryInjectMode] = useState<MemoryInjectMode>(initialMemoryInjectMode);
   const [vaultPaths, setVaultPaths] = useState<string[]>(parseRawFilePaths(initialMemoryRawFilePaths));
+  const [resourceRequirements, setResourceRequirements] = useState<string[]>(parseRawFilePaths(initialResourceRequirements));
   const [includeLinked, setIncludeLinked] = useState<boolean>(false);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [existingImgs, setExistingImgs] = useState<ImageMeta[]>(existingImages);
@@ -163,7 +167,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements);
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -286,6 +290,8 @@ export default function TodoForm({
         }}
         className="mb-4"
       />
+
+      <ResourceRequirementPicker value={resourceRequirements} onChange={setResourceRequirements} className="mb-4" />
 
       {/* Max Turns */}
       {!executionProfileId && cliTool === 'claude' && (

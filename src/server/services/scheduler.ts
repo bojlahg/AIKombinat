@@ -107,7 +107,7 @@ export class Scheduler {
     // Check skip-if-running condition
     if (schedule.skip_if_running) {
       const scheduleTodos = queries.getTodosByScheduleId(scheduleId);
-      const hasRunning = scheduleTodos.some((t) => t.status === 'running');
+      const hasRunning = scheduleTodos.some((t) => ['running', 'waiting_executor', 'waiting_resource'].includes(t.status));
       if (hasRunning) {
         const run = queries.createScheduleRun(scheduleId, null, 'skipped', 'previous_run_still_active');
         broadcaster.broadcast({
@@ -141,6 +141,7 @@ export class Scheduler {
       schedule.execution_profile_id,
       schedule.cli_effort,
       schedule.cli_model_id,
+      schedule.resource_requirements,
     );
 
     // Create run record

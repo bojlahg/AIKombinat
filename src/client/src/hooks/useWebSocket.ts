@@ -59,6 +59,7 @@ export interface WsEvent {
   state?: string;
   source?: string | null;
   resetAt?: string | null;
+  resourceKeys?: string[];
   error?: string;
 }
 
