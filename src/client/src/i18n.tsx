@@ -254,6 +254,16 @@ const translations = {
     'sessionSettings.tags.save': 'Save',
     'sessionSettings.tags.cancel': 'Cancel',
     'sessionSettings.tags.deleteConfirm': 'Delete tag "{name}"? Terminals tagged with it will become untagged.',
+    'sessionSettings.aliases.title': 'Terminal aliases',
+    'sessionSettings.aliases.description': "Saved command snippets. Click the ⌘ icon in a terminal window's titlebar to insert one as input; Enter is yours to press.",
+    'sessionSettings.aliases.namePlaceholder': 'Name (e.g. WSL Ubuntu)',
+    'sessionSettings.aliases.commandPlaceholder': 'Command (e.g. wsl -d Ubuntu)',
+    'sessionSettings.aliases.add': 'Add',
+    'sessionSettings.aliases.empty': 'No aliases yet.',
+    'sessionSettings.aliases.deleteConfirm': 'Delete alias "{name}"? Sessions using it will fall back to the OS default shell.',
+    'common.save': 'Save',
+    'common.edit': 'Edit',
+    'common.delete': 'Delete',
 
     // Session form tag selector
     'session.tag.none': 'No tag',
@@ -1678,6 +1688,16 @@ const translations = {
     'sessionSettings.tags.save': '저장',
     'sessionSettings.tags.cancel': '취소',
     'sessionSettings.tags.deleteConfirm': '"{name}" 태그를 삭제할까요? 이 태그를 쓰던 터미널은 태그가 비워집니다.',
+    'sessionSettings.aliases.title': '터미널 별칭',
+    'sessionSettings.aliases.description': '저장해 둔 명령 스니펫입니다. 터미널 창 타이틀바의 ⌘ 아이콘을 누르면 입력창에 삽입되고, Enter는 직접 누릅니다.',
+    'sessionSettings.aliases.namePlaceholder': '이름 (예: WSL Ubuntu)',
+    'sessionSettings.aliases.commandPlaceholder': '명령 (예: wsl -d Ubuntu)',
+    'sessionSettings.aliases.add': '추가',
+    'sessionSettings.aliases.empty': '아직 별칭이 없습니다.',
+    'sessionSettings.aliases.deleteConfirm': '"{name}" 별칭을 삭제할까요? 이 별칭을 쓰던 세션은 OS 기본 셸로 대체됩니다.',
+    'common.save': '저장',
+    'common.edit': '수정',
+    'common.delete': '삭제',
 
     // Session form tag selector
     'session.tag.none': '태그 없음',

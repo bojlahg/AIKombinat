@@ -5,6 +5,7 @@ import type { PlannerPage } from '../types';
 import type { CalView } from './calendar/calendarShared';
 import * as plannerApi from '../api/planner';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import PlannerList, { type PlannerItemsProps } from './PlannerList';
 import PlannerPageView from './PlannerPageView';
 import { PAGE_TEMPLATES, type PageTemplate } from './planner/pageTemplates';
@@ -22,6 +23,7 @@ type Selection = { kind: 'work' } | { kind: 'page'; id: string };
 
 export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWorkspaceProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [pages, setPages] = useState<PlannerPage[]>([]);
   const [selection, setSelection] = useState<Selection>({ kind: 'work' });
   const [workView, setWorkView] = useState<CalView>('table');
@@ -94,7 +96,7 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
   };
 
   const handleDeletePage = async (id: string) => {
-    if (!confirm(t('planner.pages.deleteConfirm'))) return;
+    if (!(await confirm({ message: t('planner.pages.deleteConfirm'), danger: true }))) return;
     await plannerApi.deletePlannerPage(id);
     setPages((list) => list.filter((p) => p.id !== id));
     setSelection((cur) => (cur.kind === 'page' && cur.id === id ? { kind: 'work' } : cur));

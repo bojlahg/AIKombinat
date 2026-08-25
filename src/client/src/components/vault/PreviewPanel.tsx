@@ -14,6 +14,7 @@ import {
 import { FindReplaceBar, type FindOptions } from './FindReplaceBar';
 import { AnnotationOverlay, type AnnotationOverlayHandle, type AnnotationOverlayState, type AnnotationTool } from './AnnotationOverlay';
 import { useI18n } from '../../i18n';
+import { useDialog } from '../../hooks/useDialog';
 import { getFileContent, getBinaryFileUrl, openFile, saveFileContent } from '../../api/files';
 import type { FileEntry } from '../../api/files';
 import { ApiError } from '../../api/client';
@@ -65,6 +66,7 @@ export function PreviewPanel({
   const { t } = useI18n();
   const { theme } = useTheme();
   const { error: toastError } = useToast();
+  const { confirm } = useDialog();
   const [zoom] = useVaultZoom(projectId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -238,13 +240,13 @@ export function PreviewPanel({
     setEditMode(true);
   }, [editable]);
 
-  const handleCancelEdit = useCallback(() => {
-    if (dirty && !window.confirm(t('files.editor.discardConfirm'))) return;
+  const handleCancelEdit = useCallback(async () => {
+    if (dirty && !(await confirm({ message: t('files.editor.discardConfirm'), danger: true }))) return;
     setEditorValue(savedValue);
     setEditMode(false);
     setDraftRestored(false);
     if (path) clearDraft(projectId, path);
-  }, [dirty, savedValue, t, path, projectId]);
+  }, [dirty, savedValue, t, path, projectId, confirm]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     if (!editable) return;

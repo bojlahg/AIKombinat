@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Plus, MoreVertical, ArrowRight, Clock, Terminal, Trash2 } from 'lucide-react';
 import type { PlannerItem as PlannerItemType } from '../types';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import { getTagStyle, PLANNER_STATUS_STYLES } from './plannerTagColors';
 import CalendarGrid from './calendar/CalendarGrid';
 import CursorContextMenu, { ctxMenuItemClass } from './CursorContextMenu';
@@ -247,6 +248,7 @@ function PlannerCalendarCard({ item, tagColors, onEdit, onConvert, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [menuOpen, setMenuOpen] = useState(false);
   const [positioned, setPositioned] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -332,7 +334,7 @@ function PlannerCalendarCard({ item, tagColors, onEdit, onConvert, onDelete }: {
                 </button>
               </>
             )}
-            <button onClick={() => { if (confirm(t('planner.deleteConfirm'))) onDelete(item.id); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
+            <button onClick={async () => { if (await confirm({ message: t('planner.deleteConfirm'), danger: true })) onDelete(item.id); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
               <Trash2 size={12} /> {t('planner.delete')}
             </button>
           </div>,

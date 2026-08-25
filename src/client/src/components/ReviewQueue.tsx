@@ -4,6 +4,7 @@ import type { ReviewItem, ReviewSummary, TaskLog } from '../types';
 import * as reviewApi from '../api/review';
 import * as todosApi from '../api/todos';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import type { WsEvent } from '../hooks/useWebSocket';
 import LogViewer from './LogViewer';
 import { Skeleton } from './Skeleton';
@@ -51,6 +52,7 @@ function applyFilter(items: ReviewItem[], filter: FilterMode): ReviewItem[] {
 
 export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [hours, setHours] = useState<WindowHours>(24);
   const [filter, setFilter] = useState<FilterMode>('all');
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -145,7 +147,7 @@ export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
   }, [t]);
 
   const handleDiscard = useCallback(async (item: ReviewItem) => {
-    if (!confirm(t('review.discardConfirm'))) return;
+    if (!(await confirm({ message: t('review.discardConfirm'), danger: true }))) return;
     setBusy(item.id, true);
     try {
       // Discard = scrap the todo: clean its worktree/branch, then delete the
@@ -160,7 +162,7 @@ export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
     } finally {
       setBusy(item.id, false);
     }
-  }, [t]);
+  }, [t, confirm]);
 
   const handleOpen = useCallback(async (item: ReviewItem) => {
     setOpenItem(item);

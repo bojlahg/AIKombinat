@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useI18n } from '../../i18n';
+import { useDialog } from '../../hooks/useDialog';
 import McpServerForm from './McpServerForm';
 import type { McpServer } from './types';
 
@@ -25,6 +26,7 @@ function summarize(server: McpServer): string {
 
 export default function McpServerList({ servers, saving, onUpsert, onRemove }: McpServerListProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [editing, setEditing] = useState<McpServer | null>(null);
   const [open, setOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export default function McpServerList({ servers, saving, onUpsert, onRemove }: M
   };
 
   const handleRemove = async (alias: string) => {
-    if (!confirm(t('harness.mcp.confirmRemove').replace('{alias}', alias))) return;
+    if (!(await confirm({ message: t('harness.mcp.confirmRemove').replace('{alias}', alias), danger: true }))) return;
     setRemoving(alias);
     try {
       await onRemove(alias);

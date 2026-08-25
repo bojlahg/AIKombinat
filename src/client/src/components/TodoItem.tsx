@@ -8,6 +8,7 @@ import StatusBadge from './StatusBadge';
 import LogViewer from './LogViewer';
 import TodoForm from './TodoForm';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import { getToolConfig, type CliTool } from '../cli-tools';
 import {
   MoreVertical,
@@ -209,6 +210,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
   // Right-click menu offering the same actions as the buttons/MoreMenu.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const { t } = useI18n();
+  const { confirm } = useDialog();
 
   const canStart = todo.status === 'pending' || todo.status === 'failed' || todo.status === 'stopped';
   const canSchedule = (todo.status === 'pending' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
@@ -319,7 +321,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
   const handleCleanup = async () => {
     const deleteBranch = todo.branch_name
-      ? confirm(t('cleanup.confirmDeleteBranch').replace('{name}', todo.branch_name))
+      ? await confirm({ message: t('cleanup.confirmDeleteBranch').replace('{name}', todo.branch_name), danger: true })
       : false;
     setCleaning(true);
     setCleanError(null);

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { MoreVertical, ArrowRight, Clock, Terminal, Trash2, ChevronRight, X, Image as ImageIcon, MessagesSquare } from 'lucide-react';
 import type { PlannerItem as PlannerItemType, ImageMeta } from '../types';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import { getTagStyle, TAG_COLOR_MAP, TAG_COLOR_KEYS, PLANNER_STATUS_STYLES } from './plannerTagColors';
 import { uploadPlannerImages, deletePlannerImage, getPlannerImageUrl } from '../api/planner';
 import ImageLightbox from './ImageLightbox';
@@ -30,6 +31,7 @@ interface PlannerItemProps {
 
 export default function PlannerItem({ item, tagColors, existingTags, onSave, onDelete, onConvertToTodo, onConvertToSchedule, onConvertToSession, onUpdateTag }: PlannerItemProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [menuOpen, setMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [positioned, setPositioned] = useState(false);
@@ -317,7 +319,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                   </button>
                 </>
               )}
-              <button onClick={() => { if (confirm(t('planner.deleteConfirm'))) onDelete(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
+              <button onClick={async () => { if (await confirm({ message: t('planner.deleteConfirm'), danger: true })) onDelete(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
                 <Trash2 size={12} /> {t('planner.delete')}
               </button>
             </div>,

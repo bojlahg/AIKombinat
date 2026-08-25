@@ -11,6 +11,7 @@ import { useI18n } from '../i18n';
 import { resolveProjectColor } from '../lib/projectColor';
 import type { WsEvent } from '../hooks/useWebSocket';
 import { useToast } from '../hooks/useToast';
+import { useDialog } from '../hooks/useDialog';
 import { getErrorMessage } from '../lib/errors';
 import IconButton from './IconButton';
 
@@ -35,6 +36,7 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
   const navigate = useNavigate();
   const { t } = useI18n();
   const { error: toastError } = useToast();
+  const { confirm } = useDialog();
 
   useEffect(() => {
     projectsApi.getProjects()
@@ -112,7 +114,7 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
   const handleDeleteProject = async (id: string, e: React.MouseEvent, skipConfirm = false) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!skipConfirm && !confirm(t('projects.deleteConfirm'))) return;
+    if (!skipConfirm && !(await confirm({ message: t('projects.deleteConfirm'), danger: true }))) return;
     try {
       await projectsApi.deleteProject(id);
       setProjects((prev) => prev.filter((p) => p.id !== id));
@@ -199,8 +201,8 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
             const CardWrapper = pathMissing ? 'div' : Link;
             const cardProps = pathMissing
               ? {
-                  onClick: (e: React.MouseEvent) => {
-                    if (confirm(t('projects.pathMissingConfirm'))) {
+                  onClick: async (e: React.MouseEvent) => {
+                    if (await confirm({ message: t('projects.pathMissingConfirm'), danger: true })) {
                       handleDeleteProject(project.id, e, true);
                     }
                   },

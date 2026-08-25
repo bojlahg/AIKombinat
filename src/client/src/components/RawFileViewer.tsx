@@ -3,6 +3,7 @@ import { ArrowRight, ExternalLink, FileText, FolderOpen, Loader2, Trash2 } from 
 import type { MemoryNode } from '../types';
 import { type RawFileEntry, getRawFileByPath, openRawFileExternal, parseMemoryTags, deleteWikiRawFile } from '../api/memory';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 
 interface RawFileViewerProps {
   projectId: string;
@@ -29,6 +30,7 @@ function formatMtime(iso: string): string {
 
 export default function RawFileViewer({ projectId, file, allNodes, onSelectNode, onDeleted }: RawFileViewerProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,7 @@ export default function RawFileViewer({ projectId, file, allNodes, onSelectNode,
     const msg = n > 0
       ? t('wiki.rawFile.deleteConfirmDerived').replace('{n}', String(n))
       : t('wiki.rawFile.deleteConfirm');
-    if (!window.confirm(msg)) return;
+    if (!(await confirm({ message: msg, danger: true }))) return;
     setDeleting(true);
     try {
       await deleteWikiRawFile(projectId, file.relative_path);

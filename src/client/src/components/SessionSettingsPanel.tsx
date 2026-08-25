@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Check, X, GitBranch, Type, Bug } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import { useToast } from '../hooks/useToast';
 import * as tagsApi from '../api/sessionTags';
 import * as aliasesApi from '../api/sessionAliases';
@@ -27,6 +28,7 @@ function pickPaletteColor(existing: SessionTag[]): string {
 
 export default function SessionSettingsPanel({ onClose }: PanelProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const { error: toastError, success: toastSuccess } = useToast();
 
   const [tags, setTags] = useState<SessionTag[]>([]);
@@ -176,7 +178,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
   };
 
   const handleDelete = async (tag: SessionTag) => {
-    if (!confirm(t('sessionSettings.tags.deleteConfirm').replace('{name}', tag.name))) return;
+    if (!(await confirm({ message: t('sessionSettings.tags.deleteConfirm').replace('{name}', tag.name), danger: true }))) return;
     try {
       await tagsApi.deleteSessionTag(tag.id);
       setTags((prev) => prev.filter((x) => x.id !== tag.id));
@@ -235,7 +237,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
   };
 
   const handleDeleteAlias = async (alias: SessionAlias) => {
-    if (!confirm(`Delete alias "${alias.name}"? Sessions using it will fall back to OS default shell.`)) return;
+    if (!(await confirm({ message: t('sessionSettings.aliases.deleteConfirm').replace('{name}', alias.name), danger: true }))) return;
     try {
       await aliasesApi.deleteSessionAlias(alias.id);
       setAliases((prev) => prev.filter((x) => x.id !== alias.id));
@@ -418,9 +420,9 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
       </section>
 
       <section className="mt-7">
-        <h3 className="text-sm font-semibold text-warm-700 mb-2">Terminal aliases</h3>
+        <h3 className="text-sm font-semibold text-warm-700 mb-2">{t('sessionSettings.aliases.title')}</h3>
         <p className="text-xs text-warm-400 mb-3">
-          Saved command snippets. Click the ⌘ icon in any terminal window's titlebar to insert one as input — Enter is yours to press.
+          {t('sessionSettings.aliases.description')}
         </p>
 
         <div className="flex items-center gap-2 mb-3">
@@ -428,7 +430,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             type="text"
             value={newAliasName}
             onChange={(e) => setNewAliasName(e.target.value)}
-            placeholder="Name (e.g. WSL Ubuntu)"
+            placeholder={t('sessionSettings.aliases.namePlaceholder')}
             className="input text-sm w-44"
             maxLength={64}
           />
@@ -437,7 +439,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             value={newAliasCmd}
             onChange={(e) => setNewAliasCmd(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateAlias(); } }}
-            placeholder="Command (e.g. wsl -d Ubuntu)"
+            placeholder={t('sessionSettings.aliases.commandPlaceholder')}
             className="input text-sm flex-1 font-mono"
             maxLength={1024}
           />
@@ -448,12 +450,12 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             className="btn-primary text-sm py-1.5 px-3 inline-flex items-center gap-1"
           >
             <Plus size={14} />
-            Add
+            {t('sessionSettings.aliases.add')}
           </button>
         </div>
 
         {sortedAliases.length === 0 ? (
-          <p className="text-xs text-warm-400 italic py-3">No aliases yet.</p>
+          <p className="text-xs text-warm-400 italic py-3">{t('sessionSettings.aliases.empty')}</p>
         ) : (
           <ul className="space-y-1.5">
             {sortedAliases.map((alias) => {
@@ -490,7 +492,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         onClick={handleSaveAliasEdit}
                         disabled={savingAliasEdit || !editAliasName.trim() || !editAliasCmd.trim()}
                         className="p-1.5 text-status-success hover:bg-status-success/10 rounded"
-                        title="Save"
+                        title={t('common.save')}
                       >
                         <Check size={14} />
                       </button>
@@ -498,7 +500,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         type="button"
                         onClick={cancelEditAlias}
                         className="p-1.5 text-warm-400 hover:bg-warm-100 rounded"
-                        title="Cancel"
+                        title={t('common.cancel')}
                       >
                         <X size={14} />
                       </button>
@@ -511,7 +513,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         type="button"
                         onClick={() => startEditAlias(alias)}
                         className="p-1.5 text-warm-400 hover:text-warm-700 hover:bg-warm-100 rounded"
-                        title="Edit"
+                        title={t('common.edit')}
                       >
                         <Pencil size={14} />
                       </button>
@@ -519,7 +521,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         type="button"
                         onClick={() => handleDeleteAlias(alias)}
                         className="p-1.5 text-warm-400 hover:text-status-error hover:bg-warm-100 rounded"
-                        title="Delete"
+                        title={t('common.delete')}
                       >
                         <Trash2 size={14} />
                       </button>

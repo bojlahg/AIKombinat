@@ -8,6 +8,7 @@ import HoverHelp from './HoverHelp';
 import ImageLightbox from './ImageLightbox';
 import MoveToPlannerButton from './MoveToPlannerButton';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import CalendarGrid from './calendar/CalendarGrid';
 import CursorContextMenu, { ctxMenuItemClass, ctxMenuDangerItemClass, isNativeContextMenuTarget } from './CursorContextMenu';
 import {
@@ -74,6 +75,7 @@ let imageCounter = 0;
 
 export default function PersonalAgenda() {
   const { t, lang } = useI18n();
+  const { confirm } = useDialog();
   const navigate = useNavigate();
   const [view, setView] = useState<CalView>('month');
   const [sort, setSort] = useState<{ key: 'date' | 'kind' | 'status'; dir: 'asc' | 'desc' }>({ key: 'date', dir: 'asc' });
@@ -520,7 +522,7 @@ export default function PersonalAgenda() {
     personalApi.updatePersonalItem(id, { start_at: start, end_at: end }).then(load);
   };
   const remove = async (p: PersonalItem) => {
-    if (!window.confirm(t('agenda.confirmDelete') || 'Delete this item?')) return false;
+    if (!(await confirm({ message: t('agenda.confirmDelete'), danger: true }))) return false;
     await personalApi.deletePersonalItem(p.id);
     load();
     return true;

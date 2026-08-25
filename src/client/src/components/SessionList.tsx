@@ -9,6 +9,7 @@ import CursorContextMenu, {
 import EmptyState from './EmptyState';
 import type { Session, MemoryInjectMode, SessionTag } from '../types';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import * as sessionsApi from '../api/sessions';
 import * as projectsApi from '../api/projects';
 import * as tagsApi from '../api/sessionTags';
@@ -65,6 +66,7 @@ export default function SessionList({
   onCleanupSession,
 }: SessionListProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const { openOrFocus, recallPopout } = useSessionWindows();
   const windowStates = useSessionWindowStates();
   const [showForm, setShowForm] = useState(false);
@@ -388,9 +390,9 @@ export default function SessionList({
                       )}
                       {session.status !== 'running' && (!!session.worktree_path || !!session.branch_name) && (
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const deleteBranch = session.branch_name
-                              ? confirm(t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name))
+                              ? await confirm({ message: t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name), danger: true })
                               : false;
                             onCleanupSession(session.id, deleteBranch);
                           }}
@@ -507,9 +509,9 @@ export default function SessionList({
             {canCleanup && (
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const deleteBranch = session.branch_name
-                    ? confirm(t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name))
+                    ? await confirm({ message: t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name), danger: true })
                     : false;
                   onCleanupSession(session.id, deleteBranch);
                 }}

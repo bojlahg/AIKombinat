@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import { useDialog } from '../../hooks/useDialog';
 import * as harnessApi from '../../api/harness';
 import SettingsForm from './SettingsForm';
 import MemoryEditor from './MemoryEditor';
@@ -18,6 +19,7 @@ interface CliTabProps {
 
 export default function CliTab({ projectId, cli, snapshot, onChange }: CliTabProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingMemory, setSavingMemory] = useState(false);
   const [savingLocalMemory, setSavingLocalMemory] = useState(false);
@@ -98,7 +100,7 @@ export default function CliTab({ projectId, cli, snapshot, onChange }: CliTabPro
   };
 
   const handlePortFromClaude = async () => {
-    if (!confirm(t('harness.port.confirm'))) return;
+    if (!(await confirm(t('harness.port.confirm')))) return;
     setPorting(true);
     setError(null);
     try {

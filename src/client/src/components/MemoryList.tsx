@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { MemoryNode, MemoryEdge, MemoryRelationType, Todo, Discussion } from '../types';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import {
   getMemoryGraph,
   updateMemoryNode,
@@ -57,6 +58,7 @@ interface MemoryListProps {
 
 export default function MemoryList({ projectId }: MemoryListProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [nodes, setNodes] = useState<MemoryNode[]>([]);
   const [edges, setEdges] = useState<MemoryEdge[]>([]);
   const [rawFiles, setRawFiles] = useState<RawFileEntry[]>([]);
@@ -146,7 +148,7 @@ export default function MemoryList({ projectId }: MemoryListProps) {
   };
 
   const handleDelete = async (node: MemoryNode) => {
-    if (!window.confirm(t('wiki.deleteConfirm'))) return;
+    if (!(await confirm({ message: t('wiki.deleteConfirm'), danger: true }))) return;
     await deleteMemoryNode(node.id);
     setNodes(prev => prev.filter(n => n.id !== node.id));
     setEdges(prev => prev.filter(e => e.from_node_id !== node.id && e.to_node_id !== node.id));
@@ -936,6 +938,7 @@ interface EdgeEditModalProps {
 
 function EdgeEditModal({ edge, onClose, onSave, onDelete }: EdgeEditModalProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [relation, setRelation] = useState<MemoryRelationType>(edge.relation_type);
   const [label, setLabel] = useState(edge.label ?? '');
   const [saving, setSaving] = useState(false);
@@ -960,7 +963,7 @@ function EdgeEditModal({ edge, onClose, onSave, onDelete }: EdgeEditModalProps) 
             {t('wiki.save')}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100">{t('wiki.cancel')}</button>
-          <button onClick={async () => { if (window.confirm(t('wiki.edge.deleteConfirm'))) await onDelete(edge.id); }} className="ml-auto px-4 py-2 rounded-lg text-red-600 text-sm hover:bg-red-50 dark:hover:bg-red-900/20">{t('wiki.delete')}</button>
+          <button onClick={async () => { if (await confirm({ message: t('wiki.edge.deleteConfirm'), danger: true })) await onDelete(edge.id); }} className="ml-auto px-4 py-2 rounded-lg text-red-600 text-sm hover:bg-red-50 dark:hover:bg-red-900/20">{t('wiki.delete')}</button>
         </div>
       </div>
     </Modal>
@@ -1136,6 +1139,7 @@ const ISSUE_COLORS: Record<string, string> = {
 
 function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [running, setRunning] = useState(true);
   const [issues, setIssues] = useState<LintIssue[]>([]);
   const [error, setError] = useState('');
@@ -1164,7 +1168,7 @@ function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
   const handleDelete = async (idx: number, title: string) => {
     const node = findNode(title);
     if (!node) return;
-    if (!window.confirm(t('wiki.deleteConfirm'))) return;
+    if (!(await confirm({ message: t('wiki.deleteConfirm'), danger: true }))) return;
     setBusyIdx(idx);
     try {
       await deleteMemoryNode(node.id);
@@ -1184,7 +1188,7 @@ function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
     const confirmMsg = t('wiki.lint.mergeConfirm')
       .replace('{keep}', keep.title)
       .replace('{absorb}', absorb.title);
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm({ message: confirmMsg, danger: true }))) return;
     setBusyIdx(idx);
     try {
       await mergeMemoryNodes(keep.id, absorb.id);
@@ -1408,6 +1412,7 @@ const DIFF_COLORS: Record<WikiDiskDiffEntry['type'], string> = {
 
 function DiskDiffModal({ projectId, onClose, onRebuilt }: { projectId: string; onClose: () => void; onRebuilt: () => void; }) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const [running, setRunning] = useState(true);
   const [diff, setDiff] = useState<WikiDiskDiffEntry[]>([]);
   const [error, setError] = useState('');
@@ -1426,7 +1431,7 @@ function DiskDiffModal({ projectId, onClose, onRebuilt }: { projectId: string; o
   useEffect(() => { runDiff(); }, [runDiff]);
 
   const handleRebuild = async () => {
-    if (!window.confirm(t('wiki.diskDiff.rebuildConfirm'))) return;
+    if (!(await confirm(t('wiki.diskDiff.rebuildConfirm')))) return;
     setRebuilding(true);
     setRebuildResult(null);
     try {

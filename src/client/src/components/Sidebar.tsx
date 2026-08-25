@@ -12,6 +12,7 @@ import { useI18n } from '../i18n';
 import { useTheme } from '../hooks/useTheme';
 import { useNotification } from '../hooks/useNotification';
 import { useToast } from '../hooks/useToast';
+import { useDialog } from '../hooks/useDialog';
 import type { WsEvent } from '../hooks/useWebSocket';
 import ProjectForm from './ProjectForm';
 import FavoriteForm from './FavoriteForm';
@@ -65,6 +66,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   const { theme, toggleTheme } = useTheme();
   const { enabled: notifEnabled, supported: notifSupported, toggleNotification } = useNotification();
   const { error: toastError, success: toastSuccess, info: toastInfo, warning: toastWarning } = useToast();
+  const { confirm } = useDialog();
 
   // Extract active project ID from URL
   const activeProjectId = location.pathname.match(/^\/projects\/([^/]+)/)?.[1] || null;
@@ -135,7 +137,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   const handleDeleteFavorite = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm(t('favorites.deleteConfirm'))) return;
+    if (!(await confirm({ message: t('favorites.deleteConfirm'), danger: true }))) return;
     try {
       await favoritesApi.deleteFavorite(id);
       setFavorites((prev) => prev.filter((f) => f.id !== id));
@@ -371,7 +373,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm(t('projects.deleteConfirm'))) return;
+    if (!(await confirm({ message: t('projects.deleteConfirm'), danger: true }))) return;
     try {
       await projectsApi.deleteProject(id);
       setProjects((prev) => prev.filter((p) => p.id !== id));
