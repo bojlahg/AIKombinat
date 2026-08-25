@@ -507,36 +507,49 @@ export class Orchestrator {
     autoChain: boolean = false,
     continueOptions?: { followUpPrompt: string; roundNumber: number },
   ): Promise<void> {
-    if (this.isStoppingProjects.has(projectId) || this.stoppingTodoIds.has(todoId)) {
-      return;
-    }
-
-    const inFlight = this.activeStartPromises.get(todoId);
-    if (inFlight) {
-      return inFlight;
-    }
-
-    const startToken = uuidv4();
-    this.activeStartTokens.set(todoId, startToken);
-    const generation = (this.startGenerations.get(todoId) ?? 0) + 1;
-    this.startGenerations.set(todoId, generation);
-
-    let startPromise: Promise<void> | null = null;
-    startPromise = (async () => {
-      try {
-        await this.executeStartSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions, startToken);
-      } finally {
-        if (this.activeStartTokens.get(todoId) === startToken) {
-          this.activeStartTokens.delete(todoId);
-        }
-        if (this.activeStartPromises.get(todoId) === startPromise) {
-          this.activeStartPromises.delete(todoId);
-        }
+    while (true) {
+      if (this.isStoppingProjects.has(projectId) || this.stoppingTodoIds.has(todoId)) {
+        return;
       }
-    })();
 
-    this.activeStartPromises.set(todoId, startPromise);
-    return startPromise;
+      const inFlight = this.activeStartPromises.get(todoId);
+      const activeToken = this.activeStartTokens.get(todoId);
+
+      if (inFlight) {
+        if (activeToken) {
+          // In-flight startup is valid and actively owned. Join it.
+          return inFlight;
+        }
+        // In-flight startup is cancelled/stale and only draining cleanup.
+        // Wait for it to drain before claiming a fresh startup token.
+        try {
+          await inFlight;
+        } catch { /* ignore */ }
+        continue;
+      }
+
+      const startToken = uuidv4();
+      this.activeStartTokens.set(todoId, startToken);
+      const generation = (this.startGenerations.get(todoId) ?? 0) + 1;
+      this.startGenerations.set(todoId, generation);
+
+      let startPromise: Promise<void> | null = null;
+      startPromise = (async () => {
+        try {
+          await this.executeStartSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions, startToken);
+        } finally {
+          if (this.activeStartTokens.get(todoId) === startToken) {
+            this.activeStartTokens.delete(todoId);
+          }
+          if (this.activeStartPromises.get(todoId) === startPromise) {
+            this.activeStartPromises.delete(todoId);
+          }
+        }
+      })();
+
+      this.activeStartPromises.set(todoId, startPromise);
+      return startPromise;
+    }
   }
 
   private async executeStartSingleTodo(
@@ -902,20 +915,27 @@ export class Orchestrator {
 
       if (useWorktree) {
         let inheritedFromBranch: string | null = null;
+        let isReused = false;
 
         // Reuse existing worktree if available (context switch restart OR continue scenario)
         // Validates that the worktree is a real git checkout, not just an empty directory
-        if (todo.worktree_path && todo.branch_name && isGitRepo && (await worktreeManager.isValidWorktree(todo.worktree_path))) {
+        if (todo.worktree_path && todo.branch_name && isGitRepo) {
+          const isValid = await worktreeManager.isValidWorktree(todo.worktree_path);
           if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
             if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
             else resourceManager.releaseOwner('todo', todoId);
             this.activeResourceRuns.delete(todoId);
             return;
           }
-          worktreePath = todo.worktree_path;
-          branchName = todo.branch_name;
-          queries.createTaskLog(todoId, 'output', `Reusing existing worktree at ${worktreePath} (branch: ${branchName})`, roundNumber);
-        } else {
+          if (isValid) {
+            worktreePath = todo.worktree_path;
+            branchName = todo.branch_name;
+            queries.createTaskLog(todoId, 'output', `Reusing existing worktree at ${worktreePath} (branch: ${branchName})`, roundNumber);
+            isReused = true;
+          }
+        }
+
+        if (!isReused) {
           // If this task depends on a parent that completed on a branch, branch from that parent's branch
           if (todo.depends_on) {
             const parentTodo = queries.getTodoById(todo.depends_on);
@@ -941,7 +961,7 @@ export class Orchestrator {
             branchName = null;
           }
         }
-        workDir = worktreePath;
+        workDir = worktreePath ?? projectPath;
         if (isContinue) {
           prompt = continueOptions!.followUpPrompt;
         } else if (todo.review_enabled && currentRound?.input_payload) {

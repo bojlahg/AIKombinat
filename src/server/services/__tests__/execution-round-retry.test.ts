@@ -2059,5 +2059,190 @@ describe('Execution Round Retry & Recovery V1', () => {
 
     startClaudeSpy.mockRestore();
   });
+
+  it('43. Immediate Retry while cancelled startup is draining waits and launches successfully', async () => {
+    const testProject = queries.createProject('DrainRetry Project', '/tmp/drainretry-proj', undefined, undefined, 1);
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-drainretry', 'Claude 3.7 Sonnet DrainRetry');
+    const profile = queries.createExecutionProfile({
+      name: 'DrainRetry Profile',
+      slug: 'drainretry-profile',
+      description: 'DrainRetry profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+      ],
+    });
+
+    const todo = queries.createTodo(
+      testProject.id,
+      'Task Drain Retry',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      profile.id,
+      'high',
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    // Initial round created and failed
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, {
+      status: 'failed',
+      error_message: 'Failure 1',
+      finished_at: new Date().toISOString(),
+    });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    // Create a controllable delay for worktree creation
+    let resolveWorktree1: () => void;
+    const worktreePromise1 = new Promise<void>((resolve) => {
+      resolveWorktree1 = resolve;
+    });
+
+    let createCallCount = 0;
+    const createWorktreeSpy = vi.spyOn(worktreeManager, 'createWorktree').mockImplementation(async () => {
+      createCallCount++;
+      if (createCallCount === 1) {
+        await worktreePromise1;
+      }
+      return {
+        worktreePath: `/tmp/worktree-drain-${createCallCount}`,
+        branchName: `task-drain-${createCallCount}`,
+      };
+    });
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // Retry attempt #1: creates round #2
+    const retry1Promise = executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Confirm round #2 was created
+    const roundsAfterRetry1 = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(roundsAfterRetry1).toHaveLength(2);
+    const round2 = roundsAfterRetry1[1];
+
+    // User calls stopTodo(todo.id) while worktree creation in retry #1 is still delayed
+    await orchestrator.stopTodo(todo.id);
+
+    // Confirm Todo and round #2 are stopped
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+    expect(queries.getExecutionRoundById(round2.id)?.status).toBe('stopped');
+
+    // WITHOUT resolving old delayed startup yet, invoke explicit Retry Phase again for round #2!
+    const retry2Promise = executionRoundRetryService.retryExecutionRound(todo.id, round2.id);
+
+    // A new retry round #3 should be created with status 'pending'
+    const roundsAfterRetry2 = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(roundsAfterRetry2).toHaveLength(3);
+    const round3 = roundsAfterRetry2[2];
+    expect(round3.status).toBe('pending');
+    expect(queries.getTodoById(todo.id)?.status).toBe('pending');
+
+    // Now resolve the old delayed startup from retry #1
+    resolveWorktree1!();
+
+    // Await retry promises
+    await retry1Promise.catch(() => {});
+    await retry2Promise;
+
+    // Assertions:
+    // 1. Exactly one provider process spawned for retry #3 (overall starts count increases by 1)
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    // 2. Todo is running
+    const finalTodo = queries.getTodoById(todo.id)!;
+    expect(finalTodo.status).toBe('running');
+
+    // 3. Round #2 remains stopped forever
+    expect(queries.getExecutionRoundById(round2.id)?.status).toBe('stopped');
+
+    // 4. Round #3 is running
+    expect(queries.getExecutionRoundById(round3.id)?.status).toBe('running');
+
+    // 5. No stale reservation remains
+    expect(executorPool.getReservations().find((r) => r.ownerId === todo.id)).toBeUndefined();
+
+    // Clean up process
+    nextExitResolvers[initialStartsCount](0);
+    createWorktreeSpy.mockRestore();
+  });
+
+  it('44. Stop during isValidWorktree(false) cancels startup and does not call createWorktree', async () => {
+    const testProject = queries.createProject('ValidWTCancel Project', '/tmp/validwt-proj', undefined, 1);
+    const todo = queries.createTodo(
+      testProject.id,
+      'Task ValidWT Cancel',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+    );
+    queries.updateTodo(todo.id, {
+      branch_name: 'branch-existing',
+      worktree_path: '/tmp/existing-worktree',
+      review_enabled: 1,
+      review_profile_id: reviewProfile.id,
+      rework_profile_id: reworkProfile.id,
+    });
+    reviewPipeline.ensureInitialRound(todo.id);
+
+    let resolveIsValid: (val: boolean) => void;
+    const isValidPromise = new Promise<boolean>((resolve) => {
+      resolveIsValid = resolve;
+    });
+
+    vi.mocked(worktreeManager.createWorktree).mockClear();
+    const isValidWorktreeSpy = vi.spyOn(worktreeManager, 'isValidWorktree').mockImplementation(async () => {
+      return isValidPromise;
+    });
+    const createWorktreeSpy = vi.spyOn(worktreeManager, 'createWorktree');
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    const startPromise = orchestrator.startTodo(todo.id);
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Call stopTodo while isValidWorktree is pending
+    await orchestrator.stopTodo(todo.id);
+
+    // Now resolve isValidWorktree as false (invalid worktree)
+    resolveIsValid!(false);
+
+    await startPromise.catch(() => {});
+
+    // Assertions:
+    // 1. createWorktree was NEVER called
+    expect(createWorktreeSpy).not.toHaveBeenCalled();
+
+    // 2. No CLI process spawned
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    // 3. Todo and round remain stopped
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+    const round = queries.getExecutionRoundsByTodoId(todo.id)[0];
+    expect(round.status).toBe('stopped');
+
+    isValidWorktreeSpy.mockRestore();
+    createWorktreeSpy.mockRestore();
+  });
 });
 
