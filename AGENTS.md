@@ -95,6 +95,8 @@ The UI supports English, Korean, and Russian. Add new UI strings through the exi
 - Aim for under 15 tool calls for simple tasks, under 30 for complex ones.
 
 ### Completion
-- Once done, commit and stop immediately.
-- Do not perform additional refactoring, optimization, or testing beyond what was requested.
+- Once the requested work and validation are complete, commit the changes and then immediately run a normal `git push` for the current branch.
+- A task is not complete until the commit has been pushed successfully to the configured remote branch.
+- If `git push` fails for any reason, **stop and report the exact Git error/state**. Do not claim completion and do not use force push, rebase, reset, or other destructive/history-rewriting commands to make the push succeed.
+- After a successful push, stop immediately. Do not perform additional refactoring, optimization, or testing beyond what was requested.
 - Do not add comments, docstrings, or type annotations to unchanged code.
