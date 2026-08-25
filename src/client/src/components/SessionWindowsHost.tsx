@@ -44,6 +44,7 @@ import * as sessionsApi from '../api/sessions';
 import { ApiError } from '../api/client';
 import { useI18n } from '../i18n';
 import { useToast } from '../hooks/useToast';
+import { useDialog } from '../hooks/useDialog';
 import type { Session } from '../types';
 import type { WsEvent } from '../hooks/useWebSocket';
 import {
@@ -329,6 +330,7 @@ export default function SessionWindowsHost({
 }: HostProps) {
   const { t } = useI18n();
   const { warning: toastWarning } = useToast();
+  const { confirm } = useDialog();
   // Read persisted state synchronously on the very first render. Previously
   // we left `groups` empty until a separate hydrate effect could run after
   // `sessions` arrived, but the persist effect (below) fires on the same
@@ -664,20 +666,20 @@ export default function SessionWindowsHost({
   }, []);
 
   // SessionPane's auto-close only fires when status≠running, so it bypasses this confirm naturally.
-  const confirmRunningStop = useCallback((sessionIds: string[]): boolean => {
+  const confirmRunningStop = useCallback(async (sessionIds: string[]): Promise<boolean> => {
     const running = sessionIds
       .map(id => sessionsRef.current.find(s => s.id === id) || foreignSessionsRef.current[id])
       .filter((s): s is Session => !!s && s.status === 'running');
     if (running.length === 0) return true;
-    if (!window.confirm(t('session.confirmStop'))) return false;
+    if (!(await confirm({ message: t('session.confirmStop'), danger: true }))) return false;
     for (const s of running) {
       sessionsApi.stopSession(s.id).catch(() => { /* swallow — UI tear-down proceeds */ });
     }
     return true;
-  }, [t]);
+  }, [t, confirm]);
 
-  const close = useCallback((sessionId: string) => {
-    if (!confirmRunningStop([sessionId])) return;
+  const close = useCallback(async (sessionId: string) => {
+    if (!(await confirmRunningStop([sessionId]))) return;
     setGroups((prev) => {
       const target = findGroupBySessionId(prev, sessionId);
       if (!target) return prev;
@@ -714,9 +716,9 @@ export default function SessionWindowsHost({
 
   // ── Group-level API ──────────────────────────────────────────────────────
 
-  const closeGroup = useCallback((groupId: string) => {
+  const closeGroup = useCallback(async (groupId: string) => {
     const group = groupsRef.current.find(g => g.id === groupId);
-    if (group && !confirmRunningStop(allSessionIds(group.root))) return;
+    if (group && !(await confirmRunningStop(allSessionIds(group.root)))) return;
     setGroups((prev) => prev.filter(g => g.id !== groupId));
   }, [confirmRunningStop]);
 
@@ -742,12 +744,12 @@ export default function SessionWindowsHost({
         return prev.map(g => g.id === detail.groupId ? { ...g, minimized: false, z } : g);
       });
     };
-    const onCloseEvent = (e: Event) => {
+    const onCloseEvent = async (e: Event) => {
       const detail = (e as CustomEvent).detail as { projectId?: string; groupId?: string } | undefined;
       if (!detail?.projectId || !detail.groupId) return;
       if (detail.projectId !== projectId) return;
       const group = groupsRef.current.find(g => g.id === detail.groupId);
-      if (group && !confirmRunningStop(allSessionIds(group.root))) return;
+      if (group && !(await confirmRunningStop(allSessionIds(group.root)))) return;
       // If a separate OS window owns this group, tell it to stop and close so
       // we don't leave an orphaned popout running its terminals.
       const owner = group?.ownerWindowId || MAIN_WINDOW_ID;

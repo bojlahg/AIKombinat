@@ -25,6 +25,7 @@ import { assignColor } from '../group/colors';
 import { CMD, CMD_FONT } from '../terminal-theme';
 import * as sessionsApi from '../../api/sessions';
 import { useI18n } from '../../i18n';
+import { useDialog } from '../../hooks/useDialog';
 import {
   openBus,
   holdPopoutLock,
@@ -78,6 +79,7 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
   const [searchParams] = useSearchParams();
   const popoutId = searchParams.get('wid') || '';
   const { t } = useI18n();
+  const { confirm } = useDialog();
 
   const [group, setGroup] = useState<PopoutGroup | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -329,14 +331,14 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
     });
   }, [postUpdate, popoutId]);
 
-  const handleTabClose = useCallback((sid: string) => {
+  const handleTabClose = useCallback(async (sid: string) => {
     const session = sessions.find(s => s.id === sid);
     if (session?.status === 'running') {
-      if (!window.confirm(t('session.confirmStop') || 'Stop this running session?')) return;
+      if (!(await confirm({ message: t('session.confirmStop'), danger: true }))) return;
       sessionsApi.stopSession(sid).catch(() => { /* swallow */ });
     }
     removeTabFromGroup(sid);
-  }, [sessions, t, removeTabFromGroup]);
+  }, [sessions, t, removeTabFromGroup, confirm]);
 
   // ── In-popout tab drag → dock ────────────────────────────────────────────
   //
@@ -636,17 +638,17 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
   // Close (X): terminate this window's sessions and close, rather than docking
   // the group back to main (that's Re-dock's job). Confirms first if anything
   // is still running, mirroring handleTabClose / the main window's close.
-  const handleCloseWindow = useCallback(() => {
+  const handleCloseWindow = useCallback(async () => {
     const g = groupRef.current;
     if (!g || !busRef.current) { window.close(); return; }
     const ids = allSessionIds(g.root);
     const running = ids.filter(id => sessions.find(s => s.id === id)?.status === 'running');
-    if (running.length && !window.confirm(t('session.confirmStop') || 'Stop this running session?')) return;
+    if (running.length && !(await confirm({ message: t('session.confirmStop'), danger: true }))) return;
     running.forEach(id => sessionsApi.stopSession(id).catch(() => { /* swallow */ }));
     intentionalCloseRef.current = true;
     busRef.current.post({ t: 'group-close', from: popoutId, groupId: g.id });
     setTimeout(() => window.close(), 50);
-  }, [sessions, t, popoutId]);
+  }, [sessions, t, popoutId, confirm]);
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, Session>();
