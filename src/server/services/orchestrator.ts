@@ -210,12 +210,10 @@ export class Orchestrator {
     }
   }
 
-  private wakeRunning = false;
-  private wakeRequested = false;
+  private admissionWakeRunning = false;
+  private admissionWakeRequested = false;
   private resourceWakeRunning = false;
   private resourceWakeRequested = false;
-  private quotaWakeRunning = false;
-  private quotaWakeRequested = false;
 
   /**
    * Stop all running and waiting todos for a project.
@@ -1445,32 +1443,34 @@ export class Orchestrator {
    * Global wake mechanism: resume waiting_executor and waiting_quota tasks across any project when executor capacity is freed.
    * Uses coalescing / loop semantics so that wake requests arriving during an active pass are never dropped.
    */
-  async wakeWaitingExecutors(): Promise<void> {
-    this.wakeRequested = true;
-    if (this.wakeRunning) return;
-    this.wakeRunning = true;
+  private async wakeAdmissionWaiters(): Promise<void> {
+    this.admissionWakeRequested = true;
+    if (this.admissionWakeRunning) return;
+    this.admissionWakeRunning = true;
     try {
-      while (this.wakeRequested) {
-        this.wakeRequested = false;
+      while (this.admissionWakeRequested) {
+        this.admissionWakeRequested = false;
         await this.processAdmissionWaitTasks();
       }
     } finally {
-      this.wakeRunning = false;
+      this.admissionWakeRunning = false;
     }
   }
 
+  /**
+   * Global wake mechanism: resume waiting_executor and waiting_quota tasks across any project when executor capacity is freed.
+   * Serializes through the shared admission wake loop so concurrent quota/capacity events do not race.
+   */
+  async wakeWaitingExecutors(): Promise<void> {
+    return this.wakeAdmissionWaiters();
+  }
+
+  /**
+   * Global wake mechanism: resume waiting_executor and waiting_quota tasks across any project when provider quota becomes available.
+   * Serializes through the shared admission wake loop so concurrent quota/capacity events do not race.
+   */
   async wakeWaitingQuota(): Promise<void> {
-    this.quotaWakeRequested = true;
-    if (this.quotaWakeRunning) return;
-    this.quotaWakeRunning = true;
-    try {
-      while (this.quotaWakeRequested) {
-        this.quotaWakeRequested = false;
-        await this.processAdmissionWaitTasks();
-      }
-    } finally {
-      this.quotaWakeRunning = false;
-    }
+    return this.wakeAdmissionWaiters();
   }
 
   private async processAdmissionWaitTasks(): Promise<void> {
@@ -1527,7 +1527,7 @@ export class Orchestrator {
   }
 
   async resumeWaitingTasks(projectId: string): Promise<void> {
-    await Promise.all([this.wakeWaitingExecutors(), this.wakeWaitingResources(), this.wakeWaitingQuota()]);
+    await Promise.all([this.wakeAdmissionWaiters(), this.wakeWaitingResources()]);
   }
 }
 

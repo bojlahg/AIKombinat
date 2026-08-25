@@ -1579,5 +1579,129 @@ describe('Execution Round Retry & Recovery V1', () => {
     nextExitResolvers[initialStartsCount](0);
     executorPool.resetLimits();
   });
+
+  it('35. Concurrent wakeWaitingExecutors() and wakeWaitingQuota() process waiting todo exactly once', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-race', 'Claude 3.7 Sonnet Race');
+    const profile = queries.createExecutionProfile({
+      name: 'Concurrent Wake Race Profile',
+      slug: 'concurrent-wake-race',
+      description: 'Concurrent wake profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+      ],
+    });
+
+    // 1. Quota is exhausted initially -> todo goes to waiting_quota
+    providerQuotaService.markExhausted('claude', { source: 'test', reason: 'temporary exhaustion' });
+
+    const todo = queries.createTodo(
+      project.id,
+      'Task Concurrent Wake Race',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+      'high',
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    await orchestrator.startTodo(todo.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_quota');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    // 2. Provider quota becomes available
+    providerQuotaService.markUnknown('claude');
+
+    // 3. Fire wakeWaitingExecutors and wakeWaitingQuota concurrently
+    await Promise.all([
+      orchestrator.wakeWaitingExecutors(),
+      orchestrator.wakeWaitingQuota(),
+    ]);
+
+    // 4. Verify exactly ONE process was launched
+    const updatedTodo = queries.getTodoById(todo.id)!;
+    expect(updatedTodo.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    const expectedPid = 2000 + initialStartsCount + 1;
+    expect(updatedTodo.process_pid).toBe(expectedPid);
+
+    // Verify execution rounds
+    const rounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].status).toBe('running');
+
+    nextExitResolvers[initialStartsCount](0);
+  });
+
+  it('36. Startup-style concurrent admission wake requests in the same tick serialize safely', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-tick', 'Claude 3.7 Sonnet Tick');
+    const profile = queries.createExecutionProfile({
+      name: 'Startup Tick Profile',
+      slug: 'startup-tick-profile',
+      description: 'Startup tick profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+      ],
+    });
+
+    executorPool.setLimit('claude', 0);
+
+    const todo = queries.createTodo(
+      project.id,
+      'Task Startup Tick Race',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    await orchestrator.startTodo(todo.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_executor');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    executorPool.setLimit('claude', 5);
+
+    // Issue multiple admission wakes in the same tick
+    const p1 = orchestrator.wakeWaitingExecutors();
+    const p2 = orchestrator.wakeWaitingQuota();
+    const p3 = orchestrator.wakeWaitingExecutors();
+
+    await Promise.all([p1, p2, p3]);
+
+    const updatedTodo = queries.getTodoById(todo.id)!;
+    expect(updatedTodo.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    nextExitResolvers[initialStartsCount](0);
+    executorPool.resetLimits();
+  });
 });
 
