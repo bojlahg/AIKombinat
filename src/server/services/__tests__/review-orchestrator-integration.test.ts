@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassThrough } from 'stream';
 import Database from 'better-sqlite3';
-import { initDatabase, dedupeLegacyExecutionRounds } from '../../db/schema.js';
+import { initDatabase, dedupeLegacyExecutionRounds, enforceExecutionRoundUniqueIndexes } from '../../db/schema.js';
 
 let testDb: Database.Database;
 
@@ -1649,5 +1649,58 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
 
     expect(() => initDatabase(corruptDb)).toThrow(/Failed to (enforce|reconcile).*todo execution round/i);
     corruptDb.close();
+  });
+
+  it('24c. Migration 9c: initDatabase() throws when dedupe succeeds but unique index creation fails', () => {
+    const failingDb = new Database(':memory:');
+    failingDb.exec(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS todos (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT,
+        status TEXT,
+        review_enabled INTEGER DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS todo_execution_rounds (
+        id TEXT PRIMARY KEY,
+        todo_id TEXT,
+        round_index INTEGER,
+        phase TEXT,
+        status TEXT,
+        run_token TEXT,
+        execution_snapshot TEXT,
+        input_payload TEXT,
+        result_payload TEXT,
+        error_message TEXT,
+        started_at DATETIME,
+        finished_at DATETIME,
+        created_at DATETIME,
+        updated_at DATETIME
+      );
+      -- Insert normal rows without collision so dedupeLegacyExecutionRounds succeeds cleanly
+      INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token)
+      VALUES ('r1', 't1', 1, 'review', 'completed', 'tok1');
+
+      -- Pre-create a conflicting table with the index name so CREATE UNIQUE INDEX fails in SQLite
+      CREATE TABLE idx_todo_execution_rounds_unique_index (id TEXT);
+    `);
+
+    // Verify dedupe alone succeeds without throwing
+    expect(() => dedupeLegacyExecutionRounds(failingDb)).not.toThrow();
+
+    // Verify initDatabase throws because unique index creation fails after dedupe
+    expect(() => initDatabase(failingDb)).toThrow(/Failed to enforce todo execution round uniqueness after legacy reconciliation:/);
+
+    // Verify direct enforceExecutionRoundUniqueIndexes call also throws descriptive error
+    expect(() => enforceExecutionRoundUniqueIndexes(failingDb)).toThrow(/Failed to enforce todo execution round uniqueness after legacy reconciliation:/);
+
+    failingDb.close();
   });
 });

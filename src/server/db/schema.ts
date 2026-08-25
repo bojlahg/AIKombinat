@@ -631,16 +631,8 @@ export function initDatabase(db: Database.Database): void {
       ON cli_models(cli_tool, status);
   `);
 
-  // Safely reconcile legacy duplicate rounds before enforcing unique indexes
-  dedupeLegacyExecutionRounds(db);
-  try {
-    db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_unique_index ON todo_execution_rounds(todo_id, round_index);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_active_unique ON todo_execution_rounds(todo_id) WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
-    `);
-  } catch {
-    // Unique index creation fallback: table remains functional even if an unexpected legacy constraint occurs
-  }
+  // Safely reconcile legacy duplicate rounds and enforce unique indexes
+  enforceExecutionRoundUniqueIndexes(db);
 
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
@@ -978,5 +970,38 @@ export function dedupeLegacyExecutionRounds(db: Database.Database): void {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to reconcile legacy todo execution rounds during schema migration: ${message}`);
+  }
+}
+
+/**
+ * Enforces the two critical Review/Rework V1 invariants on todo_execution_rounds:
+ * 1. UNIQUE(todo_id, round_index)
+ * 2. At most one active execution round per Todo
+ *
+ * Runs deterministic legacy deduplication first, then creates both unique indexes.
+ * Throws a descriptive startup error if either invariant cannot be enforced.
+ */
+export function enforceExecutionRoundUniqueIndexes(db: Database.Database): void {
+  const roundsTableExists = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='todo_execution_rounds'`
+  ).get();
+  if (!roundsTableExists) return;
+
+  dedupeLegacyExecutionRounds(db);
+
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_unique_index
+        ON todo_execution_rounds(todo_id, round_index);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_execution_rounds_active_unique
+        ON todo_execution_rounds(todo_id)
+        WHERE status IN ('pending', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'running');
+    `);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Failed to enforce todo execution round uniqueness after legacy reconciliation: ${message}`
+    );
   }
 }
