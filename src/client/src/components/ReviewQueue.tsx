@@ -5,6 +5,7 @@ import * as reviewApi from '../api/review';
 import * as todosApi from '../api/todos';
 import { useI18n } from '../i18n';
 import { useDialog } from '../hooks/useDialog';
+import { useToast } from '../hooks/useToast';
 import type { WsEvent } from '../hooks/useWebSocket';
 import LogViewer from './LogViewer';
 import { Skeleton } from './Skeleton';
@@ -53,6 +54,7 @@ function applyFilter(items: ReviewItem[], filter: FilterMode): ReviewItem[] {
 export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
   const { t } = useI18n();
   const { confirm } = useDialog();
+  const { error: toastError } = useToast();
   const [hours, setHours] = useState<WindowHours>(24);
   const [filter, setFilter] = useState<FilterMode>('all');
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -127,11 +129,11 @@ export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
       removeFromQueue(item.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`${t('review.mergeFailed')}: ${msg}`);
+      toastError(`${t('review.mergeFailed')}: ${msg}`);
     } finally {
       setBusy(item.id, false);
     }
-  }, [t]);
+  }, [t, toastError]);
 
   const handleContinue = useCallback(async (item: ReviewItem, prompt: string) => {
     setBusy(item.id, true);
@@ -140,11 +142,11 @@ export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
       // It re-enters running state; status-changed event will refresh.
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`${t('review.continueFailed')}: ${msg}`);
+      toastError(`${t('review.continueFailed')}: ${msg}`);
     } finally {
       setBusy(item.id, false);
     }
-  }, [t]);
+  }, [t, toastError]);
 
   const handleDiscard = useCallback(async (item: ReviewItem) => {
     if (!(await confirm({ message: t('review.discardConfirm'), danger: true }))) return;
@@ -158,11 +160,11 @@ export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
       removeFromQueue(item.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`${t('review.discardFailed')}: ${msg}`);
+      toastError(`${t('review.discardFailed')}: ${msg}`);
     } finally {
       setBusy(item.id, false);
     }
-  }, [t, confirm]);
+  }, [t, confirm, toastError]);
 
   const handleOpen = useCallback(async (item: ReviewItem) => {
     setOpenItem(item);

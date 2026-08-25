@@ -43,6 +43,7 @@ import DockOverlay, {
 import * as sessionsApi from '../api/sessions';
 import { ApiError } from '../api/client';
 import { useI18n } from '../i18n';
+import { useToast } from '../hooks/useToast';
 import type { Session } from '../types';
 import type { WsEvent } from '../hooks/useWebSocket';
 import {
@@ -327,6 +328,7 @@ export default function SessionWindowsHost({
   children,
 }: HostProps) {
   const { t } = useI18n();
+  const { warning: toastWarning } = useToast();
   // Read persisted state synchronously on the very first render. Previously
   // we left `groups` empty until a separate hydrate effect could run after
   // `sessions` arrived, but the persist effect (below) fires on the same
@@ -1275,13 +1277,13 @@ export default function SessionWindowsHost({
       handoffCacheRef.current.delete(groupId);
       alivePopoutsRef.current.delete(popoutId);
       setGroups((prev) => prev.map(g => g.id === groupId ? { ...g, ownerWindowId: MAIN_WINDOW_ID } : g));
-      window.alert(t('session.popout.blocked') || 'Popup blocked. Allow popups for this site to use Pop Out.');
+      toastWarning(t('session.popout.blocked'));
       return;
     }
     // Keep the proxy so a later user click in main (dock chip) can raise the
     // popout via proxy.focus() — the popout can't raise itself on the web.
     registerPopoutWindow(popoutId, w);
-  }, [projectId, t]);
+  }, [projectId, t, toastWarning]);
   // Keep the forward ref pointed at the latest popOutGroup callback so
   // beginTabDrag (defined earlier) can invoke it for tear-out → OS window.
   popOutGroupRef.current = popOutGroup;

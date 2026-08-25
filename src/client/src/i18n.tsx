@@ -41,6 +41,7 @@ const translations = {
     'errors.projectsLoad': 'Failed to load projects.',
     'errors.projectCreate': 'Failed to create the project.',
     'errors.projectDelete': 'Failed to delete the project.',
+    'projects.cleanupPartialFailed': 'Cleanup partially failed: {details}',
 
     // Shared dialog labels
     'common.ok': 'OK',
@@ -1173,6 +1174,7 @@ const translations = {
     'session.stopping': 'stopping…',
     'session.startFailed': 'Failed to start',
     'session.confirmStop': 'End this terminal? The running task will be terminated.',
+    'session.popout.blocked': 'Popup blocked. Allow popups for this site to use Pop Out.',
     'session.diff.capture': 'Capture snapshot',
     'session.diff.pageStart': 'From start',
     'session.minimize': 'Minimize',
@@ -1475,6 +1477,7 @@ const translations = {
     'errors.projectsLoad': '\uD504\uB85C\uC81D\uD2B8\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
     'errors.projectCreate': '\uD504\uB85C\uC81D\uD2B8\uB97C \uC0DD\uC131\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
     'errors.projectDelete': '\uD504\uB85C\uC81D\uD2B8\uB97C \uC0AD\uC81C\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
+    'projects.cleanupPartialFailed': '\uC815\uB9AC\uAC00 \uC77C\uBD80 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: {details}',
 
     // Shared dialog labels
     'common.ok': '\uD655\uC778',
@@ -2607,6 +2610,7 @@ const translations = {
     'session.stopping': '중지하는 중…',
     'session.startFailed': '시작 실패',
     'session.confirmStop': '이 터미널을 종료할까요? 진행 중인 작업이 종료됩니다.',
+    'session.popout.blocked': '팝업이 차단되었습니다. 팝아웃을 쓰려면 이 사이트의 팝업을 허용하세요.',
     'session.diff.capture': '스냅샷 캡처',
     'session.diff.pageStart': '시작부터',
     'session.minimize': '최소화',

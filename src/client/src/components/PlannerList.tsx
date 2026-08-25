@@ -8,6 +8,7 @@ import PlannerCalendar from './PlannerCalendar';
 import EmptyState from './EmptyState';
 import CursorContextMenu, { ctxMenuItemClass, isNativeContextMenuTarget } from './CursorContextMenu';
 import { useI18n } from '../i18n';
+import { useToast } from '../hooks/useToast';
 import type { CalView } from './calendar/calendarShared';
 
 type SortField = 'title' | 'tags' | 'priority' | 'due_date' | 'status' | 'created_at';
@@ -44,6 +45,7 @@ export default function PlannerList({
   view, onChangeView,
 }: PlannerListProps) {
   const { t } = useI18n();
+  const { warning: toastWarning } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<PlannerItemType | null>(null);
   const [addDueDate, setAddDueDate] = useState<string | undefined>(undefined);
@@ -120,7 +122,7 @@ export default function PlannerList({
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
     if (!isMarkdownFile(file)) {
-      window.alert(t('planner.dropInvalidFile'));
+      toastWarning(t('planner.dropInvalidFile'));
       return;
     }
     setIoBusy(true);

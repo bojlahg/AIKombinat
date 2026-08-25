@@ -14,6 +14,7 @@ import ProjectHeader from './ProjectHeader';
 import TodoList from './TodoList';
 import ProgressBar from './ProgressBar';
 import { useI18n } from '../i18n';
+import { useToast } from '../hooks/useToast';
 import { useNotification } from '../hooks/useNotification';
 import ScheduleList from './ScheduleList';
 import GitStatusPanel from './GitStatusPanel';
@@ -76,6 +77,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
   const [interactiveTodos, setInteractiveTodos] = useState<Set<string>>(new Set());
   const [gitRefreshTrigger, setGitRefreshTrigger] = useState(0);
   const { t } = useI18n();
+  const { success: toastSuccess, error: toastError, info: toastInfo } = useToast();
   const { sendNotification } = useNotification();
   const discussionsRef = useRef<Discussion[]>([]);
   useEffect(() => { discussionsRef.current = discussions; }, [discussions]);
@@ -550,13 +552,13 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
       URL.revokeObjectURL(url);
       const hasImages = plannerItems.some((i) => i.images);
       if (hasImages) {
-        window.alert(t('planner.importNoImages'));
+        toastInfo(t('planner.importNoImages'));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      window.alert(`${t('planner.exportError')}: ${msg}`);
+      toastError(`${t('planner.exportError')}: ${msg}`);
     }
-  }, [id, plannerItems, t]);
+  }, [id, plannerItems, t, toastInfo, toastError]);
 
   const handleImportPlanner = useCallback(async (file: File) => {
     if (!id) return;
@@ -569,12 +571,12 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
       const [tags, items] = await Promise.all([plannerApi.getPlannerTags(id), plannerApi.getPlannerItems(id)]);
       setPlannerTags(tags);
       setPlannerItems(items);
-      window.alert(t('planner.importSuccess').replace('{items}', String(result.imported_items)).replace('{tags}', String(result.imported_tags)));
+      toastSuccess(t('planner.importSuccess').replace('{items}', String(result.imported_items)).replace('{tags}', String(result.imported_tags)));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      window.alert(`${t('planner.importError')}: ${msg}`);
+      toastError(`${t('planner.importError')}: ${msg}`);
     }
-  }, [id, t]);
+  }, [id, t, toastSuccess, toastError]);
 
   // Discussion handlers
   const handleAddDiscussion = useCallback((discussion: Discussion) => {
@@ -643,9 +645,9 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     if (!res.worktreeRemoved) failures.push(`worktree: ${res.worktreeError || 'unknown error'}`);
     if (deleteBranch && !res.branchDeleted) failures.push(`branch: ${res.branchError || 'unknown error'}`);
     if (failures.length > 0) {
-      alert(`Cleanup partially failed:\n${failures.join('\n')}`);
+      toastError(t('projects.cleanupPartialFailed').replace('{details}', failures.join('; ')), 7000);
     }
-  }, []);
+  }, [t, toastError]);
 
   const handleStartAll = useCallback(async () => {
     if (!id) return;
