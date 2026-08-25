@@ -107,7 +107,7 @@ export default function MemoryNodeDetail({
           <button onClick={() => onEdit(node)} className="p-1.5 hover:bg-warm-200 rounded" title={t('wiki.edit')}>
             <Edit2 size={14} />
           </button>
-          <button onClick={() => onDelete(node)} className="p-1.5 hover:bg-red-100 text-red-600 rounded" title={t('wiki.delete')}>
+          <button onClick={() => onDelete(node)} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 rounded" title={t('wiki.delete')}>
             <Trash2 size={14} />
           </button>
           <button onClick={onClose} className="p-1.5 hover:bg-warm-200 rounded">

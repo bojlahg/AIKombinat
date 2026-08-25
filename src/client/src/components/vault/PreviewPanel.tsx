@@ -585,7 +585,7 @@ export function PreviewPanel({
           {canAnnotate && (
             <button
               onClick={toggleAnnotate}
-              className={`p-1 rounded inline-flex items-center ${annotateMode ? 'bg-amber-100 text-amber-700' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+              className={`p-1 rounded inline-flex items-center ${annotateMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
               title={`${annotateMode ? t('annotate.stop') : t('annotate.start')} (Ctrl+Shift+D)`}
               aria-pressed={annotateMode}
             >
@@ -623,7 +623,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('select')}
             title={`${t('annotate.select')} (V)`}
             aria-pressed={annotateTool === 'select'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'select' ? 'bg-amber-100 text-amber-700' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'select' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <MousePointer2 className="w-3 h-3" />
             <span>{t('annotate.select')}</span>
@@ -634,7 +634,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('pen')}
             title={`${t('annotate.pen')} (P)`}
             aria-pressed={annotateTool === 'pen'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'pen' ? 'bg-amber-100 text-amber-700' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'pen' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <Pencil className="w-3 h-3" />
             <span>{t('annotate.pen')}</span>
@@ -644,7 +644,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('highlighter')}
             title={`${t('annotate.highlighter')} (H)`}
             aria-pressed={annotateTool === 'highlighter'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'highlighter' ? 'bg-amber-100 text-amber-700' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'highlighter' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <Highlighter className="w-3 h-3" />
             <span>{t('annotate.highlighter')}</span>
@@ -654,7 +654,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('eraser')}
             title={`${t('annotate.eraser')} (E)`}
             aria-pressed={annotateTool === 'eraser'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'eraser' ? 'bg-amber-100 text-amber-700' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'eraser' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <Eraser className="w-3 h-3" />
             <span>{t('annotate.eraser')}</span>

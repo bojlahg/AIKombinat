@@ -380,7 +380,7 @@ export default function SessionList({
                       {canStop && (
                         <button
                           onClick={() => onStopSession(session.id)}
-                          className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                          className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-colors"
                           title={t('session.stop')}
                         >
                           <Square size={16} />

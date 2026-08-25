@@ -155,7 +155,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 <span className="text-sm font-semibold text-warm-700 truncate">{agent.name}</span>
                 {!!agent.can_implement && (
                   <span
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800"
                     title={t('agents.canImplementHelp')}
                   >
                     <Hammer size={10} />
@@ -181,7 +181,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
               </button>
               <button
                 onClick={() => handleDelete(agent.id)}
-                className="p-1.5 text-warm-400 hover:text-status-error hover:bg-red-50 rounded-lg transition-colors"
+                className="p-1.5 text-warm-400 hover:text-status-error hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
               >
                 <Trash2 size={16} />
               </button>

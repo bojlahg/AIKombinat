@@ -4,17 +4,10 @@ import { Link } from 'react-router-dom';
 import { MoreVertical, ArrowRight, Clock, Terminal, Trash2, ChevronRight, X, Image as ImageIcon, MessagesSquare } from 'lucide-react';
 import type { PlannerItem as PlannerItemType, ImageMeta } from '../types';
 import { useI18n } from '../i18n';
-import { getTagStyle, TAG_COLOR_MAP, TAG_COLOR_KEYS } from './plannerTagColors';
+import { getTagStyle, TAG_COLOR_MAP, TAG_COLOR_KEYS, PLANNER_STATUS_STYLES } from './plannerTagColors';
 import { uploadPlannerImages, deletePlannerImage, getPlannerImageUrl } from '../api/planner';
 import ImageLightbox from './ImageLightbox';
 import { AnchoredPopover } from './AnchoredPopover';
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-warm-200 text-warm-500',
-  in_progress: 'bg-blue-500/10 text-blue-600',
-  done: 'bg-emerald-500/10 text-emerald-600',
-  moved: 'bg-purple-500/10 text-purple-600',
-};
 
 const PRIORITY_LABELS: Record<number, { label: string; style: string }> = {
   0: { label: '—', style: 'text-warm-300' },
@@ -296,7 +289,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
 
         {/* Status */}
         <div className="w-16 flex-shrink-0">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-2xs font-semibold ${STATUS_STYLES[item.status] || STATUS_STYLES.pending}`}>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-2xs font-semibold ${PLANNER_STATUS_STYLES[item.status] || PLANNER_STATUS_STYLES.pending}`}>
             {t(`plannerStatus.${item.status}`)}
           </span>
         </div>
@@ -324,7 +317,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                   </button>
                 </>
               )}
-              <button onClick={() => { if (confirm(t('planner.deleteConfirm'))) onDelete(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-md transition-colors text-left">
+              <button onClick={() => { if (confirm(t('planner.deleteConfirm'))) onDelete(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
                 <Trash2 size={12} /> {t('planner.delete')}
               </button>
             </div>,

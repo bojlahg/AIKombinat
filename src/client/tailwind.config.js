@@ -5,6 +5,7 @@ export default {
     extend: {
       colors: {
         warm: {
+          0: 'var(--color-bg-card)',
           50: 'var(--color-bg-secondary)',
           100: 'var(--color-bg-primary)',
           200: 'var(--color-bg-tertiary)',

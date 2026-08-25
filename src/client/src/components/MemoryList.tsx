@@ -515,7 +515,7 @@ function SidebarItem({ node, selected, onClick, onDelete, icon }: {
       {hovered && (
         <button
           onClick={e => { e.stopPropagation(); onDelete(node); }}
-          className="p-0.5 rounded hover:bg-red-100 text-red-400 flex-shrink-0"
+          className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 flex-shrink-0"
         >
           <Trash2 size={10} />
         </button>
@@ -730,7 +730,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
           )}
           <button
             onClick={() => onDelete(node)}
-            className="p-1.5 rounded hover:bg-red-100 text-red-500"
+            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
             title={t('wiki.delete')}
           >
             <Trash2 size={14} />
@@ -769,7 +769,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
 
       {/* Schema banner — when editing the wiki schema node, surface that this is special */}
       {isSchemaNode(node) && (
-        <div className="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+        <div className="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
           <div className="font-semibold">{t('wiki.schemaBannerTitle')}</div>
           <div className="mt-0.5 text-amber-700">{t('wiki.schemaBannerHint')}</div>
         </div>
@@ -777,7 +777,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
 
       {/* Index banner — auto-maintained, manual edits are overwritten */}
       {isIndexNode(node) && (
-        <div className="mx-4 mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
+        <div className="mx-4 mt-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2 text-[11px] text-blue-800 dark:text-blue-300">
           <div className="font-semibold">{t('wiki.indexBannerTitle')}</div>
           <div className="mt-0.5 text-blue-700">{t('wiki.indexBannerHint')}</div>
         </div>
@@ -960,7 +960,7 @@ function EdgeEditModal({ edge, onClose, onSave, onDelete }: EdgeEditModalProps) 
             {t('wiki.save')}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100">{t('wiki.cancel')}</button>
-          <button onClick={async () => { if (window.confirm(t('wiki.edge.deleteConfirm'))) await onDelete(edge.id); }} className="ml-auto px-4 py-2 rounded-lg text-red-600 text-sm hover:bg-red-50">{t('wiki.delete')}</button>
+          <button onClick={async () => { if (window.confirm(t('wiki.edge.deleteConfirm'))) await onDelete(edge.id); }} className="ml-auto px-4 py-2 rounded-lg text-red-600 text-sm hover:bg-red-50 dark:hover:bg-red-900/20">{t('wiki.delete')}</button>
         </div>
       </div>
     </Modal>
@@ -1128,10 +1128,10 @@ interface LintModalProps {
 }
 
 const ISSUE_COLORS: Record<string, string> = {
-  contradiction: 'text-red-600 bg-red-50 border-red-200',
+  contradiction: 'text-red-600 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/20 dark:border-red-800',
   orphan: 'text-warm-500 bg-warm-100 border-warm-200',
-  duplicate: 'text-amber-600 bg-amber-50 border-amber-200',
-  stale: 'text-blue-600 bg-blue-50 border-blue-200',
+  duplicate: 'text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-800',
+  stale: 'text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-900/20 dark:border-blue-800',
 };
 
 function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
@@ -1288,7 +1288,7 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
 
   const btnBase = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-40';
   const btnNeutral = `${btnBase} border-warm-300 bg-warm-50 text-warm-700 hover:bg-warm-100`;
-  const btnDanger = `${btnBase} border-red-200 bg-red-50 text-red-600 hover:bg-red-100`;
+  const btnDanger = `${btnBase} border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40`;
 
   if (issue.type === 'duplicate' && titles.length >= 2) {
     const a = titles[0];
@@ -1401,8 +1401,8 @@ function readNumber(key: string, fallback: number, lo: number, hi: number): numb
 // ── Disk diff modal (read-only comparison of .clitrigger/wiki/ vs DB) ──
 
 const DIFF_COLORS: Record<WikiDiskDiffEntry['type'], string> = {
-  modified: 'text-amber-700 bg-amber-50 border-amber-200',
-  missing: 'text-blue-700 bg-blue-50 border-blue-200',
+  modified: 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-800',
+  missing: 'text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-900/20 dark:border-blue-800',
   untracked: 'text-warm-700 bg-warm-100 border-warm-200',
 };
 
