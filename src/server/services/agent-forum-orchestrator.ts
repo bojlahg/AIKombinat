@@ -14,6 +14,7 @@ import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import { readLines, drainReaders } from '../utils/line-stream.js';
+import * as processTree from '../utils/process-tree.js';
 import { extractStructuredReplies, type AgentForumReply } from './agent-forum-extractor.js';
 
 export interface AvailableTargetInfo {
@@ -40,10 +41,25 @@ const FORUM_SANDBOX_MODE: SandboxMode = 'strict';
 
 /**
  * Upper bound on how long Stop waits for an in-flight turn startup to drain.
- * Reached only when a CLI ignores termination; the cancelled cycle still
- * refuses to mutate forum state afterwards.
+ * Reaching it is a failure, not a successful stop — see `stopForum`.
  */
-const STOP_DRAIN_TIMEOUT_MS = 15_000;
+export const DEFAULT_STOP_DRAIN_TIMEOUT_MS = 15_000;
+
+/** Recorded on turns that were still unfinished when the server went down. */
+export const FORUM_TURN_RESTART_INTERRUPT_MESSAGE =
+  'Turn interrupted by application/server restart before it completed.';
+
+/**
+ * Raised when Stop could not confirm that the cycle is quiescent. The forum is
+ * left in a retryable state: cancellation stays armed, the cycle stays
+ * registered, and the caller must not treat the forum as idle or deletable.
+ */
+export class ForumStopTimeoutError extends Error {
+  constructor(public readonly forumId: string, message: string) {
+    super(message);
+    this.name = 'ForumStopTimeoutError';
+  }
+}
 
 /**
  * Live state for one forum cycle. Each `runCycle` call gets a fresh object and
@@ -56,12 +72,24 @@ interface ForumCycle {
   cancelled: boolean;
   /** PIDs spawned by this cycle that have not been observed exiting yet. */
   activePids: Set<number>;
+  /** Executor-pool reservation owners still held by this cycle's turns. */
+  reservationOwners: Set<string>;
+}
+
+export interface AgentForumOrchestratorOptions {
+  /** Injectable for tests; production uses DEFAULT_STOP_DRAIN_TIMEOUT_MS. */
+  stopDrainTimeoutMs?: number;
 }
 
 export class AgentForumOrchestrator {
   private cycles: Map<string, ForumCycle> = new Map();
   private cycleRuns: Map<string, Promise<void>> = new Map();
   private generationCounters: Map<string, number> = new Map();
+  private readonly stopDrainTimeoutMs: number;
+
+  constructor(options: AgentForumOrchestratorOptions = {}) {
+    this.stopDrainTimeoutMs = options.stopDrainTimeoutMs ?? DEFAULT_STOP_DRAIN_TIMEOUT_MS;
+  }
 
   /**
    * User posts a message and starts a sequential cycle.
@@ -126,6 +154,18 @@ export class AgentForumOrchestrator {
    * admission and spawn to finish its startup, then kill whatever won that race.
    * A turn that observes the cancellation refuses to accept CLI output, so no
    * replies are created after Stop returns.
+   *
+   * Returning normally is a guarantee, not a best effort: the startup drained,
+   * every known and late-spawned process was terminated, reservations were
+   * released, no in-flight cycle remains, and the forum is safe to leave idle or
+   * delete.
+   *
+   * If the drain deadline expires that guarantee does not hold — a PID may still
+   * appear afterwards — so this throws `ForumStopTimeoutError` instead of
+   * reporting success. The forum is parked in `error`, the cycle stays
+   * registered (blocking delete and mutation) and cancellation stays armed so a
+   * late startup still kills its process and creates no replies. Calling Stop
+   * again after the run finally settles completes the transition to idle.
    */
   async stopForum(forumId: string): Promise<void> {
     const forum = queries.getAgentForumById(forumId);
@@ -142,10 +182,34 @@ export class AgentForumOrchestrator {
       //    selection or the spawn itself; it must reach its own cleanup before
       //    Stop can claim the forum is quiescent.
       const run = this.cycleRuns.get(forumId);
-      if (run) await this.drain(run);
+      const drained = run ? await this.drain(run) : true;
 
       // 3. Terminate anything that was spawned during the drain window.
       await this.terminateCyclePids(cycle);
+
+      if (!drained) {
+        // Fail closed. Release the reservations this cycle still owns so a hung
+        // startup cannot leak provider capacity permanently; the turn's own
+        // cleanup releases idempotently, and any process it still manages to
+        // spawn is killed immediately by the cancellation check.
+        this.releaseCycleReservations(cycle);
+
+        queries.updateAgentForum(forumId, { status: 'error', current_member_id: null });
+        broadcaster.broadcast({
+          type: 'forum:status-changed',
+          forumId,
+          status: 'error',
+          currentCycle: queries.getAgentForumById(forumId)?.current_cycle ?? forum.current_cycle,
+          currentMemberId: null,
+        });
+        orchestrator.wakeWaitingExecutors().catch(() => {});
+
+        throw new ForumStopTimeoutError(
+          forumId,
+          `Stop could not confirm the forum cycle is quiescent within ${this.stopDrainTimeoutMs}ms. `
+          + 'The cycle is still cancelling — retry Stop once it finishes draining.',
+        );
+      }
     }
 
     queries.updateAgentForum(forumId, {
@@ -191,7 +255,7 @@ export class AgentForumOrchestrator {
 
     const generation = (this.generationCounters.get(forumId) ?? 0) + 1;
     this.generationCounters.set(forumId, generation);
-    const cycle: ForumCycle = { generation, cancelled: false, activePids: new Set() };
+    const cycle: ForumCycle = { generation, cancelled: false, activePids: new Set(), reservationOwners: new Set() };
 
     const nextCycleNumber = forum.current_cycle + 1;
 
@@ -365,7 +429,10 @@ export class AgentForumOrchestrator {
           executionProfileId: member.execution_profile_id,
           reserveOwnerId: reservationOwner,
         });
-        if (selection.status === 'selected') reservationHeld = true;
+        if (selection.status === 'selected') {
+          reservationHeld = true;
+          cycle.reservationOwners.add(reservationOwner);
+        }
 
         // Async boundary crossed — the cycle may have been stopped or superseded.
         if (!this.isCycleActive(forumId, cycle)) {
@@ -413,6 +480,7 @@ export class AgentForumOrchestrator {
         }
 
         reservationHeld = executorPool.reserveSlot(reservationOwner, resolvedCliTool);
+        if (reservationHeld) cycle.reservationOwners.add(reservationOwner);
         if (!reservationHeld) {
           const adapter = getAdapter(resolvedCliTool);
           this.markTurnSkipped(forumId, turn.id, member,
@@ -468,6 +536,9 @@ export class AgentForumOrchestrator {
 
       pid = result.pid;
       cycle.activePids.add(pid);
+      // Persist process identity immediately: if the server dies right here,
+      // startup recovery needs the PID to find and terminate the orphan.
+      queries.updateAgentForumTurn(turn.id, { process_pid: pid });
 
       // Post-spawn race: Stop may have completed its PID sweep before this
       // process existed. Terminate it and refuse its output.
@@ -527,6 +598,7 @@ export class AgentForumOrchestrator {
       stderrReader.flush();
 
       cycle.activePids.delete(pid);
+      queries.updateAgentForumTurn(turn.id, { process_pid: null });
       pid = null;
 
       // A stale completion belonging to a cancelled or superseded cycle must
@@ -641,7 +713,10 @@ export class AgentForumOrchestrator {
       if (pid !== null) cycle.activePids.delete(pid);
       // Released only here: after process termination, after a startup failure,
       // and on every stop / cancellation path. Never between admission and spawn.
-      if (reservationHeld) executorPool.releaseReservation(reservationOwner);
+      if (reservationHeld) {
+        executorPool.releaseReservation(reservationOwner);
+        cycle.reservationOwners.delete(reservationOwner);
+      }
       if (workDir) this.cleanupTurnWorkDir(workDir);
     }
   }
@@ -666,16 +741,27 @@ export class AgentForumOrchestrator {
     }
   }
 
-  private async drain(run: Promise<void>): Promise<void> {
+  /** Resolves true when the run settled, false when the drain deadline expired. */
+  private async drain(run: Promise<void>): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, STOP_DRAIN_TIMEOUT_MS);
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.stopDrainTimeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
     });
     try {
-      await Promise.race([run.catch(() => { /* cycle errors surface elsewhere */ }), timeout]);
+      return await Promise.race([
+        run.then(() => true, () => true),
+        timeout,
+      ]);
     } finally {
       if (timer) clearTimeout(timer);
+    }
+  }
+
+  private releaseCycleReservations(cycle: ForumCycle): void {
+    for (const owner of Array.from(cycle.reservationOwners)) {
+      executorPool.releaseReservation(owner);
+      cycle.reservationOwners.delete(owner);
     }
   }
 
@@ -697,6 +783,7 @@ export class AgentForumOrchestrator {
       status: 'skipped',
       error_message: reason,
       completed_at: new Date().toISOString(),
+      process_pid: null,
     });
 
     broadcaster.broadcast({
@@ -721,6 +808,7 @@ export class AgentForumOrchestrator {
       ...(rawOutput !== undefined ? { raw_output: rawOutput } : {}),
       error_message: error,
       completed_at: new Date().toISOString(),
+      process_pid: null,
     });
 
     broadcaster.broadcast({
@@ -741,6 +829,7 @@ export class AgentForumOrchestrator {
       status: 'stopped',
       error_message: 'Turn stopped before completion',
       completed_at: new Date().toISOString(),
+      process_pid: null,
     });
   }
 
@@ -876,3 +965,64 @@ Respond ONLY with the JSON object. Do not include extra conversational filler ou
 }
 
 export const agentForumOrchestrator = new AgentForumOrchestrator();
+
+export interface ForumRecoveryReport {
+  forumsRecovered: number;
+  turnsReconciled: number;
+  orphanProcessesTerminated: number;
+}
+
+/**
+ * Startup recovery for AgentForum.
+ *
+ * A forum left in `running` by a crash or restart has no owning cycle any more:
+ * the orchestrator's in-memory maps are empty and `claudeManager` no longer
+ * knows any of the PIDs it spawned. Resetting only the forum row leaves its
+ * turns stuck in `pending`/`running` forever, and any CLI the old process
+ * started keeps running as an orphan.
+ *
+ * So for each stale forum: terminate the orphan process tree of every unfinished
+ * turn that still has a live PID, reconcile those turns to `stopped`, and return
+ * the forum to `idle`. Completed / passed / failed / skipped / stopped turns,
+ * their snapshots and all messages are left untouched.
+ */
+export async function recoverInterruptedAgentForums(): Promise<ForumRecoveryReport> {
+  const report: ForumRecoveryReport = {
+    forumsRecovered: 0,
+    turnsReconciled: 0,
+    orphanProcessesTerminated: 0,
+  };
+
+  const staleForums = queries.getRunningAgentForums();
+  for (const forum of staleForums) {
+    const unfinished = queries.getUnfinishedAgentForumTurns(forum.id);
+
+    for (const turn of unfinished) {
+      if (!turn.process_pid) continue;
+      // A surviving PID is an orphan, never a healthy running execution:
+      // nothing in this process owns its streams or its exit any more.
+      if (!processTree.isProcessAlive(turn.process_pid)) continue;
+      try {
+        const terminated = await processTree.terminateProcessTree(turn.process_pid);
+        if (terminated) report.orphanProcessesTerminated++;
+      } catch (err) {
+        // Best-effort: a process we cannot signal must not block reconciliation.
+        console.warn(
+          `[agent-forum] Could not terminate orphan process ${turn.process_pid} `
+          + `for turn ${turn.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    report.turnsReconciled += queries.markAgentForumTurnsInterrupted(
+      forum.id,
+      FORUM_TURN_RESTART_INTERRUPT_MESSAGE,
+    );
+    queries.updateAgentForum(forum.id, { status: 'idle', current_member_id: null });
+    report.forumsRecovered++;
+
+    console.log(`  Reset agent forum "${forum.title}" (${forum.id}) from running to idle`);
+  }
+
+  return report;
+}

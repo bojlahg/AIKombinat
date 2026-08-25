@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import crypto from 'crypto';
 import { getDatabase } from './db/connection.js';
-import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession, getRunningAgentForums, updateAgentForum } from './db/queries.js';
+import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession, getRunningAgentForums } from './db/queries.js';
 import { initAuth } from './middleware/auth.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
@@ -36,6 +36,7 @@ import cliStatusRouter from './routes/cli-status.js';
 import debugLogsRouter from './routes/debug-logs.js';
 import discussionsRouter from './routes/discussions.js';
 import agentForumsRouter from './routes/agent-forums.js';
+import { recoverInterruptedAgentForums } from './services/agent-forum-orchestrator.js';
 import analyticsRouter from './routes/analytics.js';
 import sessionsRouter from './routes/sessions.js';
 import sessionTagsRouter from './routes/session-tags.js';
@@ -167,14 +168,21 @@ if (staleSessions.length > 0) {
   }
 }
 
-// Startup recovery: reset stale 'running' agent forums to 'idle'
+// Startup recovery: reset stale 'running' agent forums to 'idle' and reconcile
+// their unfinished turns (plus any orphan CLI process those turns left behind).
 const staleAgentForums = getRunningAgentForums();
 if (staleAgentForums.length > 0) {
   console.log(`Recovering ${staleAgentForums.length} stale running agent forum(s)...`);
-  for (const forum of staleAgentForums) {
-    updateAgentForum(forum.id, { status: 'idle', current_member_id: null });
-    console.log(`  Reset agent forum "${forum.title}" (${forum.id}) from running to idle`);
-  }
+  recoverInterruptedAgentForums()
+    .then((report) => {
+      console.log(
+        `  Reconciled ${report.turnsReconciled} interrupted forum turn(s); `
+        + `terminated ${report.orphanProcessesTerminated} orphan process(es)`,
+      );
+    })
+    .catch((err) => {
+      console.error('Agent forum startup recovery failed:', err);
+    });
 }
 
 // One-shot legacy paste-images cleanup. Older builds saved clipboard

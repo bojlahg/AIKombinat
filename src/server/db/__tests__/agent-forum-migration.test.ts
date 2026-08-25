@@ -175,6 +175,32 @@ describe('AgentForum schema migration on an existing database', () => {
     ).toThrow(/UNIQUE/i);
   });
 
+  it('adds process_pid to existing turns and carries values across the rebuild', () => {
+    db = new Database(':memory:');
+    createLegacyForumSchema(db);
+    db.exec(`
+      INSERT INTO agent_forum_turns (id, forum_id, member_id, cycle_number, turn_order, status, execution_snapshot, created_at) VALUES
+        ('t1', 'f1', 'm1', 1, 0, 'completed', '{"agent":"claude"}', '2026-08-01T00:01:00Z'),
+        ('t2', 'f1', 'm2', 1, 1, 'running', '{"agent":"codex"}', '2026-08-01T00:02:00Z');
+    `);
+
+    // First upgrade: the column is added by the ALTER migration.
+    initDatabase(db);
+    const columns = (db.pragma('table_info(agent_forum_turns)') as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).toContain('process_pid');
+
+    const afterFirst = db.prepare('SELECT id, process_pid, execution_snapshot FROM agent_forum_turns ORDER BY id').all();
+    expect(afterFirst).toEqual([
+      { id: 't1', process_pid: null, execution_snapshot: '{"agent":"claude"}' },
+      { id: 't2', process_pid: null, execution_snapshot: '{"agent":"codex"}' },
+    ]);
+
+    // A recorded PID survives further startups.
+    db.prepare('UPDATE agent_forum_turns SET process_pid = 4242 WHERE id = ?').run('t2');
+    initDatabase(db);
+    expect(db.prepare('SELECT process_pid FROM agent_forum_turns WHERE id = ?').get('t2')).toEqual({ process_pid: 4242 });
+  });
+
   it('does not rebuild agent_forum_turns on a database created by the current schema', () => {
     db = new Database(':memory:');
     initDatabase(db);

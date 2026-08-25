@@ -2722,6 +2722,8 @@ export interface AgentForumTurn {
   turn_order: number;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'passed' | 'skipped' | 'stopped';
   execution_snapshot: string | null;
+  /** PID of the CLI process while the turn is running; cleared once it exits. */
+  process_pid: number | null;
   raw_output: string | null;
   error_message: string | null;
   started_at: string | null;
@@ -3041,9 +3043,43 @@ export function getAgentForumTurns(forumId: string): AgentForumTurn[] {
   return db.prepare('SELECT * FROM agent_forum_turns WHERE forum_id = ? ORDER BY cycle_number ASC, turn_order ASC').all(forumId) as AgentForumTurn[];
 }
 
+/**
+ * Turns of a forum that never reached a terminal state. After an application
+ * restart these are orphans: their process (if any) is no longer owned by this
+ * server, so they must be reconciled rather than left `running` forever.
+ */
+export function getUnfinishedAgentForumTurns(forumId: string): AgentForumTurn[] {
+  const db = getDatabase();
+  return db.prepare(
+    `SELECT * FROM agent_forum_turns
+      WHERE forum_id = ? AND status IN ('pending', 'running')
+      ORDER BY cycle_number ASC, turn_order ASC`
+  ).all(forumId) as AgentForumTurn[];
+}
+
+/**
+ * Marks every unfinished turn of a forum as `stopped`, preserving any output,
+ * execution snapshot and message already recorded. Terminal turns
+ * (completed / passed / failed / skipped / stopped) are never touched.
+ *
+ * Returns the number of turns reconciled.
+ */
+export function markAgentForumTurnsInterrupted(forumId: string, reason: string): number {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  return db.prepare(
+    `UPDATE agent_forum_turns
+        SET status = 'stopped',
+            error_message = ?,
+            completed_at = COALESCE(completed_at, ?),
+            process_pid = NULL
+      WHERE forum_id = ? AND status IN ('pending', 'running')`
+  ).run(reason, now, forumId).changes;
+}
+
 export function updateAgentForumTurn(
   id: string,
-  updates: Partial<Pick<AgentForumTurn, 'status' | 'execution_snapshot' | 'raw_output' | 'error_message' | 'started_at' | 'completed_at'>>,
+  updates: Partial<Pick<AgentForumTurn, 'status' | 'execution_snapshot' | 'process_pid' | 'raw_output' | 'error_message' | 'started_at' | 'completed_at'>>,
 ): AgentForumTurn | undefined {
   const db = getDatabase();
   const fields: string[] = [];
@@ -3051,6 +3087,7 @@ export function updateAgentForumTurn(
 
   if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
   if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
+  if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
   if (updates.raw_output !== undefined) { fields.push('raw_output = ?'); values.push(updates.raw_output); }
   if (updates.error_message !== undefined) { fields.push('error_message = ?'); values.push(updates.error_message); }
   if (updates.started_at !== undefined) { fields.push('started_at = ?'); values.push(updates.started_at); }

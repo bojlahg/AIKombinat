@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as queries from '../db/queries.js';
-import { agentForumOrchestrator } from '../services/agent-forum-orchestrator.js';
+import { agentForumOrchestrator, ForumStopTimeoutError } from '../services/agent-forum-orchestrator.js';
 import { normalizeExecutionSelection, ExecutionSelectionError } from '../services/execution-selection.js';
 
 const router = Router();
@@ -49,11 +49,33 @@ router.post('/agent-forums', (req: Request, res: Response) => {
 
     const maxReplyLength = typeof max_reply_length === 'number' && max_reply_length > 0 ? max_reply_length : 1024;
 
+    if (members !== undefined && !Array.isArray(members)) {
+      res.status(400).json({ error: 'members must be an array' });
+      return;
+    }
+
     // Validate and normalize EVERY initial member before touching the DB. A
-    // member with an invalid execution configuration must abort the whole
-    // create, never leave a half-populated forum behind.
-    const normalizedMembers = (Array.isArray(members) ? members : [])
-      .filter((m) => m && typeof m === 'object' && m.name && m.role)
+    // malformed or misconfigured member must abort the whole create — silently
+    // dropping one would break the all-or-nothing contract by producing a forum
+    // with fewer participants than the caller asked for.
+    const requestedMembers: unknown[] = Array.isArray(members) ? members : [];
+    for (let i = 0; i < requestedMembers.length; i++) {
+      const m = requestedMembers[i] as { name?: unknown; role?: unknown } | null;
+      if (!m || typeof m !== 'object' || Array.isArray(m)) {
+        res.status(400).json({ error: `members[${i}] must be an object` });
+        return;
+      }
+      if (typeof m.name !== 'string' || !m.name.trim()) {
+        res.status(400).json({ error: `members[${i}].name is required` });
+        return;
+      }
+      if (typeof m.role !== 'string' || !m.role.trim()) {
+        res.status(400).json({ error: `members[${i}].role is required` });
+        return;
+      }
+    }
+
+    const normalizedMembers = (requestedMembers as Array<Record<string, unknown>>)
       .map((m) => {
         const execution = normalizeExecutionSelection({
           cliTool: m.cli_tool,
@@ -63,15 +85,15 @@ router.post('/agent-forums', (req: Request, res: Response) => {
           executionProfileId: m.execution_profile_id,
         });
         return {
-          name: String(m.name),
-          role: String(m.role),
-          systemPrompt: m.system_prompt || '',
+          name: String(m.name).trim(),
+          role: String(m.role).trim(),
+          systemPrompt: typeof m.system_prompt === 'string' ? m.system_prompt : '',
           cliTool: execution.cliTool,
           cliModel: execution.cliModel,
           cliModelId: execution.cliModelId,
           executionProfileId: execution.executionProfileId,
           cliEffort: execution.cliEffort,
-          avatarColor: m.avatar_color,
+          avatarColor: typeof m.avatar_color === 'string' ? m.avatar_color : null,
         };
       });
 
@@ -173,9 +195,22 @@ router.delete('/agent-forums/:id', async (req: Request<{ id: string }>, res: Res
 
     // Deleting a live forum is only safe after the full stop/drain lifecycle:
     // `stopForum` cancels the cycle, terminates every spawned CLI and waits for
-    // in-flight turn startup to finish before returning.
+    // in-flight turn startup to finish before returning. If it cannot confirm
+    // that, nothing is deleted — a cycle whose PID may still appear must not
+    // lose the rows that let us find and reconcile it.
     if (forum.status === 'running' || agentForumOrchestrator.isCycleRegistered(forum.id)) {
-      await agentForumOrchestrator.stopForum(forum.id);
+      try {
+        await agentForumOrchestrator.stopForum(forum.id);
+      } catch (stopErr) {
+        if (stopErr instanceof ForumStopTimeoutError) {
+          res.status(409).json({
+            error: `${stopErr.message} The forum was not deleted; retry once the cycle has drained.`,
+            code: 'forum_stop_incomplete',
+          });
+          return;
+        }
+        throw stopErr;
+      }
     }
 
     queries.deleteAgentForum(forum.id);
@@ -223,7 +258,20 @@ router.post('/agent-forums/:id/stop', async (req: Request<{ id: string }>, res: 
       return;
     }
 
-    await agentForumOrchestrator.stopForum(forum.id);
+    try {
+      await agentForumOrchestrator.stopForum(forum.id);
+    } catch (stopErr) {
+      if (stopErr instanceof ForumStopTimeoutError) {
+        res.status(503).json({
+          error: stopErr.message,
+          code: 'forum_stop_incomplete',
+          forum: queries.getAgentForumById(forum.id),
+        });
+        return;
+      }
+      throw stopErr;
+    }
+
     const updated = queries.getAgentForumById(forum.id);
     res.json(updated);
   } catch (err) {

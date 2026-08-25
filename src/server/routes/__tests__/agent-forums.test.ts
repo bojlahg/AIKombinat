@@ -17,9 +17,18 @@ const orchestratorMocks = vi.hoisted(() => ({
   isCycleRegistered: vi.fn(() => false),
 }));
 
-vi.mock('../../services/agent-forum-orchestrator.js', () => ({
-  agentForumOrchestrator: orchestratorMocks,
-}));
+vi.mock('../../services/agent-forum-orchestrator.js', () => {
+  class ForumStopTimeoutError extends Error {
+    constructor(public readonly forumId: string, message: string) {
+      super(message);
+      this.name = 'ForumStopTimeoutError';
+    }
+  }
+  return {
+    agentForumOrchestrator: orchestratorMocks,
+    ForumStopTimeoutError,
+  };
+});
 
 const queries = await import('../../db/queries.js');
 const router = (await import('../agent-forums.js')).default;
@@ -217,6 +226,79 @@ describe('AgentForum routes - forum deletion with history', () => {
   });
 });
 
+describe('AgentForum routes - stop that could not be confirmed', () => {
+  async function stopTimesOut(forumId: string) {
+    const { ForumStopTimeoutError } = await import('../../services/agent-forum-orchestrator.js');
+    orchestratorMocks.isCycleRegistered.mockReturnValue(true);
+    orchestratorMocks.stopForum.mockImplementation(async () => {
+      throw new ForumStopTimeoutError(forumId, 'Stop could not confirm the forum cycle is quiescent within 15000ms.');
+    });
+  }
+
+  it('reports an incomplete Stop explicitly instead of pretending success', async () => {
+    const { forum } = seedForum('running');
+    await stopTimesOut(forum.id);
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/stop`, { method: 'POST' });
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.code).toBe('forum_stop_incomplete');
+    expect(body.error).toMatch(/could not confirm/i);
+    // The forum is not presented as safely idle.
+    expect(queries.getAgentForumById(forum.id)!.status).not.toBe('idle');
+  });
+
+  it('refuses to DELETE a forum whose Stop did not complete, keeping all rows', async () => {
+    const { forum, a } = seedForum('running');
+    const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+    queries.updateAgentForumTurn(turn.id, { status: 'running', process_pid: 4242 });
+    const userMsg = queries.createAgentForumMessage(forum.id, 'user', null, 'User', 'User', 'Q');
+    await stopTimesOut(forum.id);
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.code).toBe('forum_stop_incomplete');
+    expect(body.error).toMatch(/not deleted/i);
+
+    // Nothing was removed — the rows that let us reconcile the cycle survive.
+    expect(queries.getAgentForumById(forum.id)).toBeDefined();
+    expect(queries.getAgentForumTurnById(turn.id)!.process_pid).toBe(4242);
+    expect(queries.getAgentForumMessages(forum.id).map((m) => m.id)).toEqual([userMsg.id]);
+    expect(queries.getAgentForumMembers(forum.id)).toHaveLength(3);
+  });
+
+  it('deletes normally once a retried Stop completes', async () => {
+    const { forum } = seedForum('running');
+    await stopTimesOut(forum.id);
+
+    const blocked = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+    expect(blocked.status).toBe(409);
+    expect(queries.getAgentForumById(forum.id)).toBeDefined();
+
+    // The cycle drained; Stop now succeeds.
+    orchestratorMocks.stopForum.mockImplementation(async () => {
+      queries.updateAgentForum(forum.id, { status: 'idle', current_member_id: null });
+    });
+
+    const retried = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+    expect(retried.status).toBe(204);
+    expect(queries.getAgentForumById(forum.id)).toBeUndefined();
+  });
+
+  it('still surfaces unexpected stop errors as 500', async () => {
+    const { forum } = seedForum('running');
+    orchestratorMocks.stopForum.mockRejectedValue(new Error('boom'));
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/stop`, { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).toBe('boom');
+  });
+});
+
 describe('AgentForum routes - creation atomicity', () => {
   it('creates forum and all members together', async () => {
     const response = await fetch(`${baseUrl}/api/agent-forums`, {
@@ -236,6 +318,53 @@ describe('AgentForum routes - creation atomicity', () => {
     expect(body.members).toHaveLength(2);
     expect(body.members.map((m: { name: string }) => m.name)).toEqual(['AgentA', 'AgentB']);
     expect(queries.listAgentForums()).toHaveLength(1);
+  });
+
+  it('rejects the whole create when any initial member is malformed', async () => {
+    const malformedCases: Array<{ label: string; second: unknown; expected: RegExp }> = [
+      { label: 'missing name', second: { role: 'participant', cli_tool: 'claude' }, expected: /members\[1\]\.name/ },
+      { label: 'blank name', second: { name: '   ', role: 'participant' }, expected: /members\[1\]\.name/ },
+      { label: 'missing role', second: { name: 'AgentB', cli_tool: 'claude' }, expected: /members\[1\]\.role/ },
+      { label: 'blank role', second: { name: 'AgentB', role: '' }, expected: /members\[1\]\.role/ },
+      { label: 'not an object', second: 'AgentB', expected: /members\[1\] must be an object/ },
+      { label: 'null', second: null, expected: /members\[1\] must be an object/ },
+    ];
+
+    for (const { label, second, expected } of malformedCases) {
+      const response = await fetch(`${baseUrl}/api/agent-forums`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Doomed ${label}`,
+          members: [
+            { name: 'AgentA', role: 'participant', cli_tool: 'claude' },
+            second,
+            { name: 'AgentC', role: 'participant', cli_tool: 'claude' },
+          ],
+        }),
+      });
+
+      expect(response.status, label).toBe(400);
+      expect((await response.json()).error, label).toMatch(expected);
+      // A malformed member is never silently dropped, and nothing is persisted.
+      expect(queries.listAgentForums(), label).toHaveLength(0);
+      expect(
+        (testDb.prepare('SELECT COUNT(*) AS n FROM agent_forum_members').get() as { n: number }).n,
+        label,
+      ).toBe(0);
+    }
+  });
+
+  it('rejects a non-array members field', async () => {
+    const response = await fetch(`${baseUrl}/api/agent-forums`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Bad Members', members: { name: 'AgentA', role: 'participant' } }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/members must be an array/);
+    expect(queries.listAgentForums()).toHaveLength(0);
   });
 
   it('leaves no partial forum behind when a member has an invalid execution config', async () => {

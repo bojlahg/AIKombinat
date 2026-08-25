@@ -13,7 +13,7 @@ vi.mock('../../db/connection.js', () => ({
 }));
 
 const queries = await import('../../db/queries.js');
-const { AgentForumOrchestrator, FORUM_TEMP_ROOT } = await import('../agent-forum-orchestrator.js');
+const { AgentForumOrchestrator, FORUM_TEMP_ROOT, ForumStopTimeoutError } = await import('../agent-forum-orchestrator.js');
 const { executorPool } = await import('../executor-pool.js');
 const { claudeManager } = await import('../claude-manager.js');
 const { providerQuotaService } = await import('../provider-quota.js');
@@ -766,5 +766,170 @@ describe('AgentForum lifecycle hardening', () => {
     expect(() => queries.createAgentForumTurn(forum.id, a.id, 1, 0)).toThrow(/UNIQUE/i);
     expect(() => queries.createAgentForumTurn(forum.id, a.id, 1, 1)).not.toThrow();
     expect(() => queries.createAgentForumTurn(forum.id, a.id, 2, 0)).not.toThrow();
+  });
+
+  // ── Stop drain timeout must not be reported as a successful stop ───────────
+
+  describe('Stop drain timeout', () => {
+    /** Short drain deadline so the timeout path is exercised without waiting. */
+    const DRAIN_TIMEOUT_MS = 60;
+
+    it('fails closed when startup outlives the drain deadline, then completes on retry', async () => {
+      executorPool.setLimit('claude', 1);
+      const timeoutOrchestrator = new AgentForumOrchestrator({ stopDrainTimeoutMs: DRAIN_TIMEOUT_MS });
+      const { forum, userMsg } = seedForum();
+
+      const spawnRequested = deferred();
+      const spawnGate = deferred();
+      const processes: ReturnType<typeof createMockProcess>[] = [];
+      const stoppedPids: number[] = [];
+
+      vi.spyOn(claudeManager, 'stopClaude').mockImplementation(async (pid: number) => {
+        stoppedPids.push(pid);
+        processes.find((p) => p.pid === pid)?.resolveExit(143);
+      });
+
+      // Startup stays unresolved well past the drain deadline.
+      vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+        spawnRequested.resolve();
+        await spawnGate.promise;
+        const proc = createMockProcess(9700 + processes.length);
+        processes.push(proc);
+        // Output that would become a reply if the stale turn were accepted.
+        proc.stdout.write(replyPayload(userMsg.id, 'reply that must never land'));
+        return proc as never;
+      });
+
+      const cyclePromise = timeoutOrchestrator.runCycle(forum.id);
+      await spawnRequested.promise;
+
+      // Stop must NOT report success while the startup is still in flight.
+      await expect(timeoutOrchestrator.stopForum(forum.id)).rejects.toBeInstanceOf(ForumStopTimeoutError);
+
+      // The forum is not safely idle, and the cycle is still registered so the
+      // route layer refuses to delete or mutate it.
+      const afterTimeout = queries.getAgentForumById(forum.id)!;
+      expect(afterTimeout.status).not.toBe('idle');
+      expect(afterTimeout.status).toBe('error');
+      expect(timeoutOrchestrator.isCycleRegistered(forum.id)).toBe(true);
+
+      // No provider capacity is leaked while the startup hangs.
+      expect(executorPool.getReservations()).toHaveLength(0);
+      expect(executorPool.getActiveToolUsage('claude')).toBe(0);
+
+      // Now the startup finally resolves with a PID.
+      spawnGate.resolve();
+      await cyclePromise;
+
+      // Cancellation stayed armed: the late process was terminated immediately
+      // and its output was refused.
+      expect(processes).toHaveLength(1);
+      expect(stoppedPids).toContain(processes[0].pid);
+      expect(queries.getAgentForumMessages(forum.id)).toHaveLength(1);
+      expect(queries.getAgentForumTurns(forum.id).some((t) => t.status === 'completed')).toBe(false);
+
+      // Reservation released, nothing left in flight.
+      expect(executorPool.getReservations()).toHaveLength(0);
+      expect(timeoutOrchestrator.isCycleRegistered(forum.id)).toBe(false);
+
+      // Retrying Stop after the drain finishes succeeds and lands on idle.
+      await expect(timeoutOrchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+      expect(queries.getAgentForumById(forum.id)!.current_member_id).toBeNull();
+    });
+
+    it('clears the persisted turn PID once the late process is terminated', async () => {
+      const timeoutOrchestrator = new AgentForumOrchestrator({ stopDrainTimeoutMs: DRAIN_TIMEOUT_MS });
+      const { forum } = seedForum();
+
+      const spawnRequested = deferred();
+      const spawnGate = deferred();
+      const processes: ReturnType<typeof createMockProcess>[] = [];
+
+      vi.spyOn(claudeManager, 'stopClaude').mockImplementation(async (pid: number) => {
+        processes.find((p) => p.pid === pid)?.resolveExit(143);
+      });
+      vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+        spawnRequested.resolve();
+        await spawnGate.promise;
+        const proc = createMockProcess(9750 + processes.length);
+        processes.push(proc);
+        return proc as never;
+      });
+
+      const cyclePromise = timeoutOrchestrator.runCycle(forum.id);
+      await spawnRequested.promise;
+      await expect(timeoutOrchestrator.stopForum(forum.id)).rejects.toBeInstanceOf(ForumStopTimeoutError);
+
+      spawnGate.resolve();
+      await cyclePromise;
+
+      // Nothing is left claiming to own a live process.
+      for (const turn of queries.getAgentForumTurns(forum.id)) {
+        expect(turn.process_pid).toBeNull();
+      }
+    });
+
+    it('reports success normally when the startup drains inside the deadline', async () => {
+      const timeoutOrchestrator = new AgentForumOrchestrator({ stopDrainTimeoutMs: DRAIN_TIMEOUT_MS });
+      const { forum } = seedForum();
+
+      const spawned = deferred();
+      const processes: ReturnType<typeof createMockProcess>[] = [];
+
+      vi.spyOn(claudeManager, 'stopClaude').mockImplementation(async (pid: number) => {
+        processes.find((p) => p.pid === pid)?.resolveExit(143);
+      });
+      vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+        const proc = createMockProcess(9800 + processes.length);
+        processes.push(proc);
+        if (processes.length === 1) spawned.resolve();
+        return proc as never;
+      });
+
+      const cyclePromise = timeoutOrchestrator.runCycle(forum.id);
+      await spawned.promise;
+
+      await expect(timeoutOrchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+      await cyclePromise;
+
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+      expect(timeoutOrchestrator.isCycleRegistered(forum.id)).toBe(false);
+      expect(executorPool.getReservations()).toHaveLength(0);
+    });
+
+    it('persists the PID of a running turn so a crash can find the orphan', async () => {
+      const { forum } = seedForum();
+
+      const spawned = deferred();
+      const processes: ReturnType<typeof createMockProcess>[] = [];
+      vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+        const proc = createMockProcess(9900 + processes.length);
+        processes.push(proc);
+        if (processes.length === 1) spawned.resolve();
+        return proc as never;
+      });
+
+      const cyclePromise = orchestrator.runCycle(forum.id);
+      await spawned.promise;
+      await settle(1);
+
+      const runningTurn = queries.getAgentForumTurns(forum.id).find((t) => t.status === 'running')!;
+      expect(runningTurn.process_pid).toBe(processes[0].pid);
+
+      processes[0].stdout.write(PASS_PAYLOAD);
+      processes[0].resolveExit(0);
+      await settle();
+      if (processes[1]) {
+        processes[1].stdout.write(PASS_PAYLOAD);
+        processes[1].resolveExit(0);
+      }
+      await cyclePromise;
+
+      // Cleared once the process actually terminated.
+      for (const turn of queries.getAgentForumTurns(forum.id)) {
+        expect(turn.process_pid).toBeNull();
+      }
+    });
   });
 });
