@@ -35,8 +35,11 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
   const [findOpen, setFindOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
+  // Custom drag height; null falls back to the h-96 / h-[75vh] classes.
+  const [height, setHeight] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
+  const dragState = useRef<{ startY: number; startHeight: number } | null>(null);
 
   useEffect(() => {
     setDraft(content);
@@ -92,6 +95,26 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
     }
   };
 
+  // Full-width drag handle replacing the native textarea resize grip (tiny,
+  // jerky, and its inline height broke the expand toggle).
+  const handleResizeStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragState.current = { startY: e.clientY, startHeight: el.getBoundingClientRect().height };
+  };
+
+  const handleResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragState.current) return;
+    const next = dragState.current.startHeight + (e.clientY - dragState.current.startY);
+    setHeight(Math.max(120, next));
+  };
+
+  const handleResizeEnd = () => {
+    dragState.current = null;
+  };
+
   const handleFindKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -118,7 +141,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
           </button>
           <button
             type="button"
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => { setExpanded((v) => !v); setHeight(null); }}
             className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded transition-colors flex-shrink-0"
             title={expanded ? (t('harness.memory.collapse') || 'Collapse') : (t('harness.memory.expand') || 'Expand')}
           >
@@ -178,10 +201,23 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
         onChange={(e) => setDraft(e.target.value)}
         placeholder={t('harness.memory.placeholder')}
         spellCheck={false}
-        className={`w-full px-3 py-2 text-xs font-mono leading-relaxed border border-warm-200 rounded-lg bg-warm-50 text-warm-700 focus:ring-1 focus:ring-accent focus:border-accent resize-y ${
+        style={height !== null ? { height } : undefined}
+        className={`w-full px-3 py-2 text-xs font-mono leading-relaxed border border-warm-200 rounded-lg bg-warm-50 text-warm-700 focus:ring-1 focus:ring-accent focus:border-accent resize-none ${
           expanded ? 'h-[75vh]' : 'h-96'
         }`}
       />
+
+      <div
+        onPointerDown={handleResizeStart}
+        onPointerMove={handleResizeMove}
+        onPointerUp={handleResizeEnd}
+        onPointerCancel={handleResizeEnd}
+        onDoubleClick={() => setHeight(null)}
+        className="group flex items-center justify-center h-3 -mt-2 cursor-ns-resize touch-none select-none"
+        title={t('harness.memory.resize')}
+      >
+        <div className="w-12 h-1 rounded-full bg-warm-200 group-hover:bg-warm-400 transition-colors" />
+      </div>
 
       <div className="flex items-center gap-3">
         <button
