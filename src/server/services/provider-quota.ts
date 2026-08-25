@@ -19,6 +19,8 @@ const TRACKED_TOOLS: AgentCliTool[] = ['claude', 'codex', 'antigravity'];
 export class ProviderQuotaService {
   private cache: Map<AgentCliTool, ProviderQuotaStateRecord> = new Map();
   private cooldownMsOverride: number | null = null;
+  private availabilityCallback: (() => void) | null = null;
+  private resetTimers: Map<AgentCliTool, NodeJS.Timeout> = new Map();
 
   getCooldownMs(): number {
     if (this.cooldownMsOverride !== null) return this.cooldownMsOverride;
@@ -38,9 +40,108 @@ export class ProviderQuotaService {
     this.cooldownMsOverride = null;
   }
 
+  setAvailabilityCallback(callback: (() => void) | null): void {
+    this.availabilityCallback = callback;
+  }
+
+  private notifyAvailable(): void {
+    if (this.availabilityCallback) {
+      try {
+        this.availabilityCallback();
+      } catch { /* ignore */ }
+    }
+  }
+
+  private clearTimer(tool: AgentCliTool): void {
+    const timer = this.resetTimers.get(tool);
+    if (timer) {
+      clearTimeout(timer);
+      this.resetTimers.delete(tool);
+    }
+  }
+
+  private clearAllTimers(): void {
+    for (const timer of this.resetTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.resetTimers.clear();
+  }
+
+  private scheduleExhaustionTimer(tool: AgentCliTool, record: ProviderQuotaStateRecord): void {
+    this.clearTimer(tool);
+    if (record.state !== 'exhausted') return;
+
+    let delayMs = this.getCooldownMs();
+    if (record.resetAt) {
+      const resetTime = new Date(record.resetAt).getTime();
+      if (!isNaN(resetTime)) {
+        delayMs = Math.max(0, resetTime - Date.now());
+      }
+    }
+
+    const timer = setTimeout(() => {
+      this.resetTimers.delete(tool);
+      const current = this.cache.get(tool);
+      if (current && current.state === 'exhausted') {
+        const expiredRecord: ProviderQuotaStateRecord = {
+          tool,
+          state: 'unknown',
+          source: 'cooldown_expired',
+          observedAt: new Date().toISOString(),
+          reason: null,
+          resetAt: null,
+        };
+        this.cache.set(tool, expiredRecord);
+        try {
+          queries.upsertProviderQuotaState({
+            tool,
+            state: 'unknown',
+            source: 'cooldown_expired',
+            observed_at: expiredRecord.observedAt,
+            reason: null,
+            reset_at: null,
+          });
+        } catch { /* ignore */ }
+
+        try {
+          broadcaster.broadcast({
+            type: 'quota:updated',
+            tool,
+            state: 'unknown',
+            source: 'cooldown_expired',
+            reason: null,
+            resetAt: null,
+          });
+        } catch { /* ignore */ }
+
+        this.notifyAvailable();
+      }
+    }, Math.max(10, delayMs));
+
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.resetTimers.set(tool, timer);
+  }
+
+  initialize(): void {
+    for (const tool of TRACKED_TOOLS) {
+      const state = this.getQuotaState(tool);
+      if (state.state === 'exhausted') {
+        this.scheduleExhaustionTimer(tool, state);
+      }
+    }
+  }
+
+  shutdown(): void {
+    this.clearAllTimers();
+  }
+
   resetForTesting(): void {
+    this.clearAllTimers();
     this.cache.clear();
     this.cooldownMsOverride = null;
+    this.availabilityCallback = null;
   }
 
   private isExhaustionExpired(record: ProviderQuotaStateRecord): boolean {
@@ -99,6 +200,7 @@ export class ProviderQuotaService {
 
     // Check if exhausted state has expired
     if (this.isExhaustionExpired(record)) {
+      this.clearTimer(tool);
       const expiredRecord: ProviderQuotaStateRecord = {
         tool,
         state: 'unknown',
@@ -130,6 +232,7 @@ export class ProviderQuotaService {
         });
       } catch { /* ignore */ }
 
+      this.notifyAvailable();
       return expiredRecord;
     }
 
@@ -176,6 +279,7 @@ export class ProviderQuotaService {
       });
     } catch { /* ignore */ }
 
+    this.scheduleExhaustionTimer(tool, record);
     return record;
   }
 
@@ -188,6 +292,7 @@ export class ProviderQuotaService {
       return current;
     }
 
+    this.clearTimer(tool);
     const observedAt = new Date().toISOString();
     const record: ProviderQuotaStateRecord = {
       tool,
@@ -220,6 +325,7 @@ export class ProviderQuotaService {
       });
     } catch { /* ignore */ }
 
+    this.notifyAvailable();
     return record;
   }
 
@@ -227,6 +333,8 @@ export class ProviderQuotaService {
     tool: AgentCliTool,
     options: { source?: string; reason?: string | null } = {},
   ): ProviderQuotaStateRecord {
+    const previous = this.cache.get(tool);
+    this.clearTimer(tool);
     const observedAt = new Date().toISOString();
     const record: ProviderQuotaStateRecord = {
       tool,
@@ -258,6 +366,10 @@ export class ProviderQuotaService {
         resetAt: null,
       });
     } catch { /* ignore */ }
+
+    if (previous && previous.state === 'exhausted') {
+      this.notifyAvailable();
+    }
 
     return record;
   }

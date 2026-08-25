@@ -5,6 +5,7 @@ import {
   type TodoExecutionRound,
   getTodoById,
   getExecutionRoundById,
+  getLatestExecutionRound,
   getActiveExecutionRound,
   getNextExecutionRoundIndex,
   createExecutionRound,
@@ -52,6 +53,14 @@ export class ExecutionRoundRetryService {
       throw new TodoNotFoundError('Todo not found');
     }
 
+    if (!todo.review_enabled) {
+      throw new RetryConflictError('Review is not enabled for this task.');
+    }
+
+    if (todo.status !== 'failed' && todo.status !== 'stopped') {
+      throw new RetryConflictError(`Task is not retryable from status ${todo.status}. Only failed or stopped tasks can be retried.`);
+    }
+
     const sourceRound = getExecutionRoundById(roundId);
     if (!sourceRound) {
       throw new RoundNotFoundError('Execution round not found');
@@ -61,15 +70,16 @@ export class ExecutionRoundRetryService {
       throw new RetryConflictError('Execution round does not belong to this task.');
     }
 
-    if (!todo.review_enabled) {
-      throw new RetryConflictError('Review is not enabled for this task.');
-    }
-
     if (sourceRound.status !== 'failed' && sourceRound.status !== 'stopped') {
       throw new RetryConflictError(`Execution round is not retryable from status ${sourceRound.status}.`);
     }
 
-    if (orchestrator.isStopping(todoId) || todo.status === 'stopping') {
+    const latestRound = getLatestExecutionRound(todoId);
+    if (!latestRound || latestRound.id !== roundId) {
+      throw new RetryConflictError('Only the latest failed/stopped execution round can be retried.');
+    }
+
+    if (orchestrator.isStopping(todoId)) {
       throw new RetryConflictError('Task is currently stopping.');
     }
 
@@ -99,11 +109,20 @@ export class ExecutionRoundRetryService {
       const freshTodo = getTodoById(todoId);
       if (!freshTodo) throw new TodoNotFoundError('Todo not found');
 
+      if (freshTodo.status !== 'failed' && freshTodo.status !== 'stopped') {
+        throw new RetryConflictError(`Task is not retryable from status ${freshTodo.status}. Only failed or stopped tasks can be retried.`);
+      }
+
       const freshRound = getExecutionRoundById(roundId);
       if (!freshRound) throw new RoundNotFoundError('Execution round not found');
 
       if (freshRound.status !== 'failed' && freshRound.status !== 'stopped') {
         throw new RetryConflictError(`Execution round is not retryable from status ${freshRound.status}.`);
+      }
+
+      const freshLatest = getLatestExecutionRound(todoId);
+      if (!freshLatest || freshLatest.id !== roundId || (freshLatest.status !== 'failed' && freshLatest.status !== 'stopped')) {
+        throw new RetryConflictError('Only the latest failed/stopped execution round can be retried.');
       }
 
       const freshActive = getActiveExecutionRound(todoId);

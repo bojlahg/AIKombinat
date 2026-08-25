@@ -355,6 +355,13 @@ router.post('/todos/:id/retry', async (req: Request<{ id: string }>, res: Respon
       return;
     }
 
+    if (todo.review_enabled) {
+      res.status(409).json({
+        error: 'Todo-level Retry is not supported for reviewed pipeline tasks. Retry the failed/stopped execution round instead.',
+      });
+      return;
+    }
+
     if (todo.status === 'running') {
       res.status(400).json({ error: 'Cannot retry a running todo. Stop it first.' });
       return;

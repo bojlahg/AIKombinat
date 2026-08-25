@@ -190,7 +190,7 @@ export class Orchestrator {
     }
 
     const todos = queries.getTodosByProjectId(projectId);
-    const pending = todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_resource');
+    const pending = todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource');
     const running = todos.filter((t) => t.status === 'running');
     const maxConcurrent = this.getMaxConcurrent(projectId);
 
@@ -214,6 +214,8 @@ export class Orchestrator {
   private wakeRequested = false;
   private resourceWakeRunning = false;
   private resourceWakeRequested = false;
+  private quotaWakeRunning = false;
+  private quotaWakeRequested = false;
 
   /**
    * Stop all running and waiting todos for a project.
@@ -223,7 +225,7 @@ export class Orchestrator {
     this.isStoppingProjects.add(projectId);
     const todos = queries.getTodosByProjectId(projectId);
     const running = todos.filter((t) => t.status === 'running');
-    const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_resource');
+    const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource');
     running.forEach((t) => this.stoppingTodoIds.add(t.id));
     waiting.forEach((t) => this.stoppingTodoIds.add(t.id));
 
@@ -292,6 +294,16 @@ export class Orchestrator {
     // Prevent starting an already running todo
     if (todo.status === 'running') {
       throw new Error('Todo is already running');
+    }
+
+    if (todo.review_enabled) {
+      const activeRound = queries.getActiveExecutionRound(todoId);
+      if (!activeRound) {
+        const latestRound = queries.getLatestExecutionRound(todoId);
+        if (latestRound && (latestRound.status === 'failed' || latestRound.status === 'stopped' || latestRound.status === 'completed')) {
+          throw new Error('Reviewed pipeline has a terminal execution round. Use Retry Phase instead of Start.');
+        }
+      }
     }
 
     const project = queries.getProjectById(todo.project_id);
@@ -475,7 +487,13 @@ export class Orchestrator {
     let currentRound: queries.TodoExecutionRound | undefined = undefined;
     if (todo.review_enabled) {
       reviewPipeline.ensureInitialRound(todoId);
-      currentRound = queries.getActiveExecutionRound(todoId) || queries.getLatestExecutionRound(todoId);
+      currentRound = queries.getActiveExecutionRound(todoId);
+      if (!currentRound) {
+        const latestRound = queries.getLatestExecutionRound(todoId);
+        if (latestRound && (latestRound.status === 'failed' || latestRound.status === 'stopped' || latestRound.status === 'completed')) {
+          throw new Error('Reviewed pipeline has a terminal execution round. Use Retry Phase instead of Start.');
+        }
+      }
     }
 
     const taskContent = (isContinue
@@ -568,6 +586,26 @@ export class Orchestrator {
           return;
         }
 
+        if (selection.status === 'waiting_quota') {
+          executorPool.releaseReservation(todoId);
+          queries.updateTodoStatus(todoId, 'waiting_quota');
+          queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
+          if (currentRound) {
+            queries.updateExecutionRound(currentRound.id, { status: 'waiting_quota' });
+            const updated = queries.getExecutionRoundById(currentRound.id);
+            if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+          }
+          const message = `[executor-pool] Waiting for provider quota (profile "${selection.profileName}"):\n\n${selection.rejectionSummary}`;
+          const recentLogs = queries.getTaskLogsByTodoId(todoId);
+          const lastOutput = [...recentLogs].reverse().find((l) => l.log_type === 'output');
+          if (!lastOutput || lastOutput.message !== message) {
+            queries.createTaskLog(todoId, 'output', message, roundNumber);
+          }
+          broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'waiting_quota' });
+          this.broadcastProjectStatus(projectId);
+          return;
+        }
+
         if (selection.status === 'no_candidates') {
           queries.updateTodoStatus(todoId, 'failed');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
@@ -636,22 +674,20 @@ export class Orchestrator {
         if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
           const quota = providerQuotaService.getQuotaState(resolvedCliTool);
           if (quota.state === 'exhausted') {
+            executorPool.releaseReservation(todoId);
             const adapter = getAdapter(resolvedCliTool);
-            const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${quota.reason || 'provider quota is currently exhausted'}).`;
-            queries.updateTodoStatus(todoId, 'failed');
+            const quotaMsg = `${adapter.displayName} waiting for provider quota (${quota.reason || 'provider quota is currently exhausted'}).`;
+            queries.updateTodoStatus(todoId, 'waiting_quota');
             queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
             if (currentRound) {
               queries.updateExecutionRound(currentRound.id, {
-                status: 'failed',
-                error_message: failMsg,
-                finished_at: new Date().toISOString(),
+                status: 'waiting_quota',
               });
               const updated = queries.getExecutionRoundById(currentRound.id);
               if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
             }
-            queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
-            broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-            broadcaster.broadcast({ type: 'todo:log', todoId, message: failMsg, logType: 'error' });
+            queries.createTaskLog(todoId, 'output', quotaMsg, roundNumber);
+            broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'waiting_quota' });
             this.broadcastProjectStatus(projectId);
             return;
           }
@@ -1240,7 +1276,9 @@ export class Orchestrator {
         // Ignore errors
       });
     }).catch(() => {
-      if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+      try {
+        if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+      } catch { /* ignore */ }
       if (this.activeResourceRuns.get(todoId) === resourceRunToken) this.activeResourceRuns.delete(todoId);
       // Fallback: ensure status is updated if exitPromise handler fails
       try {
@@ -1367,7 +1405,7 @@ export class Orchestrator {
 
     // Only start children that depend on the just-completed parent
     const dependentChildren = todos.filter(
-      (t) => (t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_resource') && t.depends_on === parentTodoId
+      (t) => (t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource') && t.depends_on === parentTodoId
     );
 
     const slotsAvailable = Math.max(0, maxConcurrent - running.length);
@@ -1413,13 +1451,57 @@ export class Orchestrator {
     }
   }
 
+  async wakeWaitingQuota(): Promise<void> {
+    this.quotaWakeRequested = true;
+    if (this.quotaWakeRunning) return;
+    this.quotaWakeRunning = true;
+    try {
+      while (this.quotaWakeRequested) {
+        this.quotaWakeRequested = false;
+        await this.processWaitingQuota();
+      }
+    } finally {
+      this.quotaWakeRunning = false;
+    }
+  }
+
+  private async processWaitingQuota(): Promise<void> {
+    const waitingTodos = queries.getTodosByStatus('waiting_quota');
+    if (waitingTodos.length === 0) return;
+
+    const sortedWaiting = [...waitingTodos].sort(
+      (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+    );
+
+    for (const todo of sortedWaiting) {
+      if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todo.id)) continue;
+      const freshTodo = queries.getTodoById(todo.id);
+      if (!freshTodo || freshTodo.status !== 'waiting_quota') continue;
+
+      const project = queries.getProjectById(todo.project_id);
+      if (!project) continue;
+
+      const projectTodos = queries.getTodosByProjectId(todo.project_id);
+      const runningInProject = projectTodos.filter((t) => t.status === 'running');
+      const maxConcurrent = this.getMaxConcurrent(todo.project_id);
+      if (runningInProject.length >= maxConcurrent) continue;
+
+      const gate = this.canStartNow(project, freshTodo, runningInProject);
+      if (!gate.ok) continue;
+
+      if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
+
+      await this.startSingleTodo(freshTodo.id, project.path, project.id, 'headless', true);
+    }
+  }
+
   private async processWaitingResources(): Promise<void> {
     const waitingTodos = queries.getTodosByStatus('waiting_resource');
     const sortedWaiting = [...waitingTodos].sort(
       (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
     );
     for (const todo of sortedWaiting) {
-      if (this.isStoppingProjects.has(todo.project_id)) continue;
+      if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todo.id)) continue;
       const freshTodo = queries.getTodoById(todo.id);
       if (!freshTodo || freshTodo.status !== 'waiting_resource') continue;
       const project = queries.getProjectById(todo.project_id);
@@ -1443,7 +1525,7 @@ export class Orchestrator {
     );
 
     for (const todo of sortedWaiting) {
-      if (this.isStoppingProjects.has(todo.project_id)) continue;
+      if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todo.id)) continue;
       const freshTodo = queries.getTodoById(todo.id);
       if (!freshTodo || freshTodo.status !== 'waiting_executor') continue;
 
@@ -1465,7 +1547,7 @@ export class Orchestrator {
   }
 
   async resumeWaitingTasks(projectId: string): Promise<void> {
-    await Promise.all([this.wakeWaitingExecutors(), this.wakeWaitingResources()]);
+    await Promise.all([this.wakeWaitingExecutors(), this.wakeWaitingResources(), this.wakeWaitingQuota()]);
   }
 }
 

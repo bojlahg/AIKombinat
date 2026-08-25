@@ -14,12 +14,12 @@ export interface CandidateEvaluation {
   modelLabel: string;
   effort: string | null;
   priority: number;
-  status: 'available' | 'busy' | 'unavailable' | 'invalid';
+  status: 'available' | 'busy' | 'quota_exhausted' | 'unavailable' | 'invalid';
   reason: string;
 }
 
 export interface PoolSelectionResult {
-  status: 'selected' | 'waiting_executor' | 'no_candidates';
+  status: 'selected' | 'waiting_executor' | 'waiting_quota' | 'no_candidates';
   selectedConfig?: ResolvedExecutionConfig;
   selectedCandidate?: queries.ExecutionProfileExecutor;
   evaluations: CandidateEvaluation[];
@@ -327,7 +327,7 @@ export class ExecutorPool {
         const reasonDetail = quotaState.reason ? `: ${quotaState.reason}` : '';
         return {
           candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-          status: 'unavailable', reason: `provider quota exhausted${reasonDetail}`,
+          status: 'quota_exhausted', reason: `provider quota exhausted${reasonDetail}`,
         };
       }
     }
@@ -479,10 +479,23 @@ export class ExecutorPool {
 
     const rejectionSummary = formatCandidateDiagnostics(evaluations);
     const hasBusyCandidate = evaluations.some((e) => e.status === 'busy');
+    const hasQuotaCandidate = evaluations.some((e) => e.status === 'quota_exhausted');
 
     if (hasBusyCandidate) {
       return {
         status: 'waiting_executor',
+        evaluations,
+        profileId: profile.id,
+        profileSlug: profile.slug,
+        profileName: profile.name,
+        evaluatedAt,
+        rejectionSummary,
+      };
+    }
+
+    if (hasQuotaCandidate) {
+      return {
+        status: 'waiting_quota',
         evaluations,
         profileId: profile.id,
         profileSlug: profile.slug,

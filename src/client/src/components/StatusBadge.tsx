@@ -38,6 +38,10 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
       labelKey: 'status.waiting_executor',
       dotClass: 'bg-amber-400',
     },
+    waiting_quota: {
+      labelKey: 'status.waiting_quota',
+      dotClass: 'bg-yellow-400',
+    },
     waiting_resource: {
       labelKey: 'status.waiting_resource',
       dotClass: 'bg-violet-400',

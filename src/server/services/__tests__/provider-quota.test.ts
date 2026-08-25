@@ -114,8 +114,8 @@ describe('Quota Awareness V1', () => {
     });
 
     const selection = await executorPool.selectExecutor({ executionProfileId: profile.id });
-    expect(selection.status).toBe('no_candidates');
-    expect(selection.evaluations[0].status).toBe('unavailable');
+    expect(selection.status).toBe('waiting_quota');
+    expect(selection.evaluations[0].status).toBe('quota_exhausted');
     expect(selection.evaluations[0].reason).toContain('provider quota exhausted');
   });
 
@@ -150,7 +150,7 @@ describe('Quota Awareness V1', () => {
 
     expect(selection.evaluations[0]).toMatchObject({
       cliTool: 'claude',
-      status: 'unavailable',
+      status: 'quota_exhausted',
     });
     expect(selection.evaluations[0].reason).toContain('provider quota exhausted');
     expect(selection.evaluations[1]).toMatchObject({
@@ -182,7 +182,7 @@ describe('Quota Awareness V1', () => {
     providerQuotaService.markExhausted('codex', { source: 'test', reason: 'Codex 429 quota exceeded' });
 
     const selection = await executorPool.selectExecutor({ executionProfileId: profile.id });
-    expect(selection.status).toBe('no_candidates');
+    expect(selection.status).toBe('waiting_quota');
 
     const project = queries.createProject('Exhausted Project', 'C:/exhausted-project');
     const todo = queries.createTodo(
@@ -206,15 +206,15 @@ describe('Quota Awareness V1', () => {
     await orchestrator.startTodo(todo.id);
 
     const updatedTodo = queries.getTodoById(todo.id);
-    expect(updatedTodo?.status).toBe('failed');
+    expect(updatedTodo?.status).toBe('waiting_quota');
 
     const logs = queries.getTaskLogsByTodoId(todo.id);
-    const errorLog = logs.find((l) => l.log_type === 'error');
-    expect(errorLog?.message).toContain('has no eligible executors');
-    expect(errorLog?.message).toContain('Claude / Claude 3.7 Sonnet / high:');
-    expect(errorLog?.message).toContain('unavailable - provider quota exhausted');
-    expect(errorLog?.message).toContain('Codex / GPT-5 / medium:');
-    expect(errorLog?.message).toContain('unavailable - provider quota exhausted');
+    const quotaLog = logs.find((l) => l.message.includes('Waiting for provider quota'));
+    expect(quotaLog).toBeDefined();
+    expect(quotaLog?.message).toContain('Claude / Claude 3.7 Sonnet / high:');
+    expect(quotaLog?.message).toContain('quota_exhausted - provider quota exhausted');
+    expect(quotaLog?.message).toContain('Codex / GPT-5 / medium:');
+    expect(quotaLog?.message).toContain('quota_exhausted - provider quota exhausted');
   });
 
   it('6. runtime Claude quota rejection marks Claude exhausted and allows Codex fallback', async () => {
@@ -591,13 +591,12 @@ describe('Quota Awareness V1', () => {
     // CLI must NOT have been spawned
     expect(startSpy).not.toHaveBeenCalled();
 
-    const failedTodo = queries.getTodoById(todo.id);
-    expect(failedTodo?.status).toBe('failed');
+    const waitingTodo = queries.getTodoById(todo.id);
+    expect(waitingTodo?.status).toBe('waiting_quota');
 
     const logs = queries.getTaskLogsByTodoId(todo.id);
-    const quotaLog = logs.find((l) => l.message.includes('provider quota exhausted'));
+    const quotaLog = logs.find((l) => l.message.includes('provider quota'));
     expect(quotaLog).toBeDefined();
-    expect(quotaLog?.log_type).toBe('error');
   });
 
   it('12c. manual Session preflight blocks launch of already exhausted provider', async () => {
@@ -736,7 +735,7 @@ describe('Quota Awareness V1', () => {
     const codexEval = selection.evaluations.find((e) => e.cliTool === 'codex');
 
     // Distinct statuses and reasons
-    expect(claudeEval?.status).toBe('unavailable');
+    expect(claudeEval?.status).toBe('quota_exhausted');
     expect(claudeEval?.reason).toContain('provider quota exhausted');
 
     expect(codexEval?.status).toBe('busy');

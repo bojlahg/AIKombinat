@@ -55,6 +55,7 @@ import { registerPlugin, mountPluginRoutes } from './plugins/registry.js';
 import { harnessPlugin } from './plugins/harness/index.js';
 import { resolveBindHost } from './utils/bind-host.js';
 import { resourceManager } from './services/resource-manager.js';
+import { providerQuotaService } from './services/provider-quota.js';
 import { reviewPipeline } from './services/review-pipeline.js';
 
 const app = express();
@@ -282,10 +283,15 @@ resourceManager.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
 });
 resourceManager.initialize();
+providerQuotaService.setAvailabilityCallback(() => {
+  setImmediate(() => orchestrator.wakeWaitingQuota().catch(() => { /* ignore */ }));
+});
+providerQuotaService.initialize();
 reviewPipeline.reconcileOnStartup();
 setImmediate(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
   orchestrator.wakeWaitingResources().catch(() => { /* ignore */ });
+  orchestrator.wakeWaitingQuota().catch(() => { /* ignore */ });
 });
 
 // MCP endpoint (bearer-auth, not under /api). Mount before static/SPA serving

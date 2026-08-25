@@ -574,7 +574,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     nextExitResolvers[1](0);
   });
 
-  it('10. Retry when quota exhausted -> fails with quota error -> retry on available succeeds', async () => {
+  it('10. Retry when quota exhausted -> waiting_quota -> wake -> running on same round and run token', async () => {
     const todo = queries.createTodo(
       project.id,
       'Task',
@@ -611,28 +611,35 @@ describe('Execution Round Retry & Recovery V1', () => {
       resetAt: new Date(Date.now() + 60000).toISOString(),
     });
 
-    await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    const initialStarts = mockClaudeStarts.length;
 
-    const failedQuotaRound = queries.getLatestExecutionRound(todo.id)!;
-    expect(queries.getTodoById(todo.id)?.status).toBe('failed');
-    expect(failedQuotaRound.status).toBe('failed');
-    expect(failedQuotaRound.error_message).toContain('provider quota exhausted');
+    // Retry round 1 -> creates round 2 and attempts start
+    const { round: retryRound } = await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
 
-    // Reset quota to available and retry again
-    queries.upsertProviderQuotaState({
-      tool: 'claude',
-      state: 'available',
-      source: 'test',
-      reason: null,
-      observed_at: new Date().toISOString(),
-      reset_at: null,
-    });
-    providerQuotaService.resetForTesting();
-    await executionRoundRetryService.retryExecutionRound(todo.id, failedQuotaRound.id);
+    // Should transition to waiting_quota without spawning a CLI process
+    expect(mockClaudeStarts.length).toBe(initialStarts);
+    const waitingTodo = queries.getTodoById(todo.id)!;
+    expect(waitingTodo.status).toBe('waiting_quota');
+    const waitingRound = queries.getExecutionRoundById(retryRound.id)!;
+    expect(waitingRound.status).toBe('waiting_quota');
+    expect(waitingRound.run_token).toBe(retryRound.run_token);
 
-    expect(queries.getTodoById(todo.id)?.status).toBe('running');
-    expect(queries.getActiveExecutionRound(todo.id)?.status).toBe('running');
-    nextExitResolvers[0](0);
+    // Reset quota to unknown / available
+    providerQuotaService.markUnknown('claude', { source: 'admin_reset' });
+
+    // Wake waiting quota tasks
+    await orchestrator.wakeWaitingQuota();
+
+    // Now round 2 starts running with the SAME round id and SAME run token (no extra retry round)
+    expect(mockClaudeStarts.length).toBe(initialStarts + 1);
+    const runningTodo = queries.getTodoById(todo.id)!;
+    expect(runningTodo.status).toBe('running');
+    const runningRound = queries.getExecutionRoundById(retryRound.id)!;
+    expect(runningRound.status).toBe('running');
+    expect(runningRound.run_token).toBe(retryRound.run_token);
+    expect(queries.getExecutionRoundsByTodoId(todo.id)).toHaveLength(2);
+
+    nextExitResolvers[initialStarts](0);
   });
 
   it('11. Retry waiting_resource -> wake -> running', async () => {
@@ -758,7 +765,7 @@ describe('Execution Round Retry & Recovery V1', () => {
 
     await expect(
       executionRoundRetryService.retryExecutionRound(todo.id, round1.id)
-    ).rejects.toThrow('Execution round is not retryable from status completed.');
+    ).rejects.toThrow('Task is not retryable from status completed');
   });
 
   it('17. Retry missing input_payload -> rejected without mutation', async () => {
@@ -786,6 +793,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     const rA = queries.getActiveExecutionRound(todoA.id)!;
     queries.updateExecutionRound(rA.id, { status: 'failed', finished_at: new Date().toISOString() });
     queries.updateTodoStatus(todoA.id, 'failed');
+    queries.updateTodoStatus(todoB.id, 'failed');
 
     await expect(
       executionRoundRetryService.retryExecutionRound(todoB.id, rA.id)
@@ -972,4 +980,379 @@ describe('Execution Round Retry & Recovery V1', () => {
 
     expect(queries.getTodoById(todo.id)?.status).toBe('completed');
   });
+
+  it('23. Generic Start cannot resurrect or mutate terminal reviewed round (failed, stopped, completed)', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task Terminal Start',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, {
+      status: 'failed',
+      error_message: 'Original failure',
+      finished_at: new Date().toISOString(),
+    });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    // Attempting generic startTodo must throw and NOT resurrect/mutate round1
+    await expect(orchestrator.startTodo(todo.id)).rejects.toThrow(
+      'Reviewed pipeline has a terminal execution round. Use Retry Phase instead of Start.'
+    );
+
+    const roundAfterStart = queries.getExecutionRoundById(round1.id)!;
+    expect(roundAfterStart.status).toBe('failed');
+    expect(roundAfterStart.error_message).toBe('Original failure');
+
+    // Explicit phase retry must succeed normally
+    await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('running');
+    expect(queries.getActiveExecutionRound(todo.id)?.status).toBe('running');
+    nextExitResolvers[0](0);
+  });
+
+  it('24. Historical failed round cannot be retried after newer rounds exist (409)', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task Historical Retry',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    // 1. Implementation round 1 fails
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, { status: 'failed', finished_at: new Date().toISOString() });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    // 2. Retry Implementation (round 2) -> succeeds -> auto-chains Review (round 3)
+    await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // 3. Review (round 3) fails
+    expect(mockClaudeStarts).toHaveLength(2);
+    nextExitResolvers[1](1);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(queries.getTodoById(todo.id)?.status).toBe('failed');
+    const latestRound = queries.getLatestExecutionRound(todo.id)!;
+    expect(latestRound.round_index).toBe(3);
+
+    // 4. Attempting to retry obsolete round 1 must fail with 409
+    await expect(
+      executionRoundRetryService.retryExecutionRound(todo.id, round1.id)
+    ).rejects.toThrow('Only the latest failed/stopped execution round can be retried.');
+
+    // 5. Retrying latest round (round 3) succeeds normally
+    await executionRoundRetryService.retryExecutionRound(todo.id, latestRound.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('running');
+    expect(queries.getActiveExecutionRound(todo.id)?.round_index).toBe(4);
+    nextExitResolvers[2](0);
+  });
+
+  it('25. Completed Todo cannot retry old failed attempt (409)', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task Completed with Old Attempt',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    // Round 1 failed
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, { status: 'failed', finished_at: new Date().toISOString() });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    // Round 2 (retry) succeeds -> auto-chains Review (round 3)
+    await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Round 3 (review) approves -> completed
+    queries.createTaskLog(
+      todo.id,
+      'output',
+      JSON.stringify({ verdict: 'approved', summary: 'Approved', issues: [] }),
+      3
+    );
+    nextExitResolvers[1](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(queries.getTodoById(todo.id)?.status).toBe('completed');
+
+    // Retrying old round 1 on completed todo must be rejected with 409
+    await expect(
+      executionRoundRetryService.retryExecutionRound(todo.id, round1.id)
+    ).rejects.toThrow();
+  });
+
+  it('26. Stop while waiting_quota -> remains stopped after quota wake', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task Stop Quota',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, { status: 'failed', finished_at: new Date().toISOString() });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    // Set quota exhausted
+    providerQuotaService.markExhausted('claude', { source: 'test', reason: 'quota' });
+
+    // Retry -> becomes waiting_quota
+    await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_quota');
+
+    // Stop todo
+    await orchestrator.stopTodo(todo.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+
+    // Quota becomes available -> wake
+    providerQuotaService.markUnknown('claude');
+    await orchestrator.wakeWaitingQuota();
+
+    // Must remain stopped (not resurrected!)
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+  });
+
+  it('27. stopProject stops waiting_quota tasks', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task stopProject Quota',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, { status: 'failed', finished_at: new Date().toISOString() });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    providerQuotaService.markExhausted('claude', { source: 'test' });
+    await executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_quota');
+
+    await orchestrator.stopProject(project.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+  });
+
+  it('28. Startup restart with waiting_quota remains recoverable without failing', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task Startup Quota',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, { status: 'waiting_quota' });
+    queries.updateTodoStatus(todo.id, 'waiting_quota');
+
+    // Reconcile on startup
+    reviewPipeline.reconcileOnStartup();
+
+    // Must still be waiting_quota, not failed
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_quota');
+    expect(queries.getExecutionRoundById(round1.id)?.status).toBe('waiting_quota');
+  });
+
+  it('29. Profile with candidate A quota-exhausted and candidate B available selects B', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-5-sonnet', 'Claude 3.5 Sonnet');
+    const modelCodex = queries.addModel('codex', 'o3-mini', 'o3 Mini');
+
+    const multiProfile = queries.createExecutionProfile({
+      name: 'Multi Candidate Profile',
+      slug: 'multi-cand-profile',
+      description: 'Multi profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+        { cli_model_id: modelCodex.id, priority: 2, is_enabled: 1 },
+      ],
+    });
+
+    // Claude is exhausted, Codex is available
+    providerQuotaService.markExhausted('claude', { source: 'test' });
+    providerQuotaService.markUnknown('codex');
+
+    const selection = await executorPool.selectExecutor({
+      executionProfileId: multiProfile.id,
+    });
+
+    expect(selection.status).toBe('selected');
+    expect(selection.selectedConfig?.cliTool).toBe('codex');
+    expect(selection.selectedConfig?.model).toBe('o3-mini');
+  });
+
+  it('30. Profile with all candidates quota-exhausted transitions to waiting_quota', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-5-sonnet-q', 'Claude 3.5 Sonnet Q');
+    const modelCodex = queries.addModel('codex', 'o3-mini-q', 'o3 Mini Q');
+
+    const multiProfile = queries.createExecutionProfile({
+      name: 'All Quota Exhausted Profile',
+      slug: 'all-quota-profile',
+      description: 'All quota profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+        { cli_model_id: modelCodex.id, priority: 2, is_enabled: 1 },
+      ],
+    });
+
+    providerQuotaService.markExhausted('claude', { source: 'test' });
+    providerQuotaService.markExhausted('codex', { source: 'test' });
+
+    const selection = await executorPool.selectExecutor({
+      executionProfileId: multiProfile.id,
+    });
+
+    expect(selection.status).toBe('waiting_quota');
+  });
+
+  it('31. Unknown quota state does not block admission', async () => {
+    providerQuotaService.markUnknown('claude');
+    const state = providerQuotaService.getQuotaState('claude');
+    expect(state.state).toBe('unknown');
+
+    const todo = queries.createTodo(
+      project.id,
+      'Task Unknown Quota',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    await orchestrator.startTodo(todo.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('running');
+    nextExitResolvers[0](0);
+  });
 });
+

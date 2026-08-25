@@ -648,6 +648,7 @@ export const ko = {
     'status.stopped': '\uC911\uC9C0',
     'status.merged': '\uBCD1\uD569\uB428',
     'status.waiting_executor': '\uC2E4\uD589\uAE30 \uB300\uAE30 \uC911',
+    'status.waiting_quota': '할당량 대기 중',
     'status.waiting_resource': '\uB9AC\uC18C\uC2A4 \uB300\uAE30 \uC911',
     'resources.label': '\uB9AC\uC18C\uC2A4',
     'resources.busy': '(\uC0AC\uC6A9 \uC911)',

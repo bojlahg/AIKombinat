@@ -215,15 +215,16 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const { t } = useI18n();
 
-  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped';
-  const canSchedule = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
-  const canScheduleOnReset = (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped') && !!onScheduleOnReset && !!resetsAt && resetsAt > Math.floor(Date.now() / 1000);
-  const canStop = todo.status === 'running' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource';
+  const isReviewedTerminal = Boolean(todo.review_enabled) && (todo.status === 'failed' || todo.status === 'stopped' || todo.status === 'completed');
+  const canStart = !isReviewedTerminal && (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_quota' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped');
+  const canSchedule = !isReviewedTerminal && (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_quota' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped') && !!onSchedule;
+  const canScheduleOnReset = !isReviewedTerminal && (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_quota' || todo.status === 'waiting_resource' || todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped') && !!onScheduleOnReset && !!resetsAt && resetsAt > Math.floor(Date.now() / 1000);
+  const canStop = todo.status === 'running' || todo.status === 'waiting_executor' || todo.status === 'waiting_quota' || todo.status === 'waiting_resource';
   const canViewDiff = todo.status === 'completed' || todo.status === 'stopped' || todo.status === 'merged';
   const canMerge = todo.status === 'completed' && !isChainMember && !!todo.branch_name;
-  const canRetry = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped';
-  const canContinue = !!onContinue && todo.status === 'completed' && !!todo.worktree_path;
-  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && todo.status !== 'waiting_resource' && !!todo.worktree_path && !isChainMember;
+  const canRetry = !todo.review_enabled && (todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped');
+  const canContinue = !todo.review_enabled && !!onContinue && todo.status === 'completed' && !!todo.worktree_path;
+  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && todo.status !== 'waiting_quota' && todo.status !== 'waiting_resource' && !!todo.worktree_path && !isChainMember;
 
   const hasResult = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped' || todo.status === 'merged';
 

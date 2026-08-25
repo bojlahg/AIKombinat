@@ -2,7 +2,6 @@ import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Link, Play, Square, GitMerge, Archive, RotateCcw, Trash2 } from 'lucide-react';
 import type { Todo, TaskLog } from '../types';
-import type { WsEvent } from '../hooks/useWebSocket';
 import StatusBadge from './StatusBadge';
 import { useI18n } from '../i18n';
 import { getToolConfig, type CliTool } from '../cli-tools';
@@ -29,6 +28,7 @@ const borderColorMap: Record<Todo['status'], string> = {
   stopped: '#FF9800',
   merged: '#9C27B0',
   waiting_executor: '#F59E0B',
+  waiting_quota: '#EAB308',
   waiting_resource: '#8B5CF6',
 };
 
@@ -40,6 +40,7 @@ const ringClassMap: Record<Todo['status'], string> = {
   stopped: '',
   merged: '',
   waiting_executor: 'ring-1 ring-amber-400/50',
+  waiting_quota: 'ring-1 ring-yellow-400/50',
   waiting_resource: 'ring-1 ring-violet-400/50',
 };
 
@@ -48,11 +49,13 @@ function TaskNodeComponent({ data }: NodeProps) {
   const { todo, allTodos, selected, onStart, onStop, onDelete, onMerge, onCleanup, onRetry, onSelect } = nodeData;
   const { t } = useI18n();
 
-  const canStart = todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped';
-  const canStop = todo.status === 'running' || todo.status === 'waiting_executor' || todo.status === 'waiting_resource';
+  const isReviewed = todo.review_enabled === 1;
+  const isReviewedTerminal = isReviewed && (todo.status === 'failed' || todo.status === 'stopped' || todo.status === 'completed');
+  const canStart = !isReviewedTerminal && (todo.status === 'pending' || todo.status === 'waiting_executor' || todo.status === 'waiting_quota' || todo.status === 'waiting_resource' || todo.status === 'failed' || todo.status === 'stopped');
+  const canStop = todo.status === 'running' || todo.status === 'waiting_executor' || todo.status === 'waiting_quota' || todo.status === 'waiting_resource';
   const canMerge = todo.status === 'completed';
-  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && todo.status !== 'waiting_resource' && (todo.worktree_path || todo.branch_name);
-  const canRetry = todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped';
+  const canCleanup = todo.status !== 'running' && todo.status !== 'pending' && todo.status !== 'waiting_executor' && todo.status !== 'waiting_quota' && todo.status !== 'waiting_resource' && (todo.worktree_path || todo.branch_name);
+  const canRetry = !isReviewed && (todo.status === 'completed' || todo.status === 'failed' || todo.status === 'stopped');
 
   const parentTodo = todo.depends_on ? allTodos.find(t => t.id === todo.depends_on) : null;
   const hasUnsatisfiedDep = !!parentTodo && parentTodo.status !== 'completed';

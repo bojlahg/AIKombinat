@@ -44,9 +44,12 @@ export class ReviewPipelineService {
     const todo = getTodoById(todoId);
     if (!todo || !todo.review_enabled) return undefined;
 
+    const activeRound = getActiveExecutionRound(todoId);
+    if (activeRound) return activeRound;
+
     const existingRounds = getExecutionRoundsByTodoId(todoId);
     if (existingRounds.length > 0) {
-      return getActiveExecutionRound(todoId) || existingRounds[0];
+      return undefined;
     }
 
     const runToken = uuidv4();

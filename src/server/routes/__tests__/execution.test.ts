@@ -5,6 +5,14 @@ import type { AddressInfo } from 'node:net';
 
 const mocks = vi.hoisted(() => ({
   retryExecutionRound: vi.fn(),
+  getTodoById: vi.fn(),
+  getProjectById: vi.fn(),
+  updateTodoStatus: vi.fn(),
+  updateTodo: vi.fn(),
+  deleteTaskLogsByTodoId: vi.fn(),
+  createTaskLog: vi.fn(),
+  cleanupWorktree: vi.fn(),
+  startTodo: vi.fn(),
 }));
 
 vi.mock('../../services/execution-round-retry.js', () => {
@@ -36,6 +44,34 @@ vi.mock('../../services/execution-round-retry.js', () => {
     TodoNotFoundError,
   };
 });
+
+vi.mock('../../db/queries.js', () => ({
+  getTodoById: mocks.getTodoById,
+  getProjectById: mocks.getProjectById,
+  updateTodoStatus: mocks.updateTodoStatus,
+  updateTodo: mocks.updateTodo,
+  deleteTaskLogsByTodoId: mocks.deleteTaskLogsByTodoId,
+  createTaskLog: mocks.createTaskLog,
+  getExecutionRoundById: vi.fn(),
+  getExecutionRoundsByTodoId: vi.fn(() => []),
+  getActiveExecutionRound: vi.fn(),
+  getLatestExecutionRound: vi.fn(),
+}));
+
+vi.mock('../../services/worktree-manager.js', () => ({
+  worktreeManager: {
+    cleanupWorktree: mocks.cleanupWorktree,
+    isValidWorktree: vi.fn(() => Promise.resolve(true)),
+  },
+}));
+
+vi.mock('../../services/orchestrator.js', () => ({
+  orchestrator: {
+    startTodo: mocks.startTodo,
+    stopTodo: vi.fn(),
+    isStopping: vi.fn(() => false),
+  },
+}));
 
 const router = (await import('../execution.js')).default;
 let server: Server;
@@ -99,5 +135,65 @@ describe('Execution Routes - Round Retry', () => {
     expect(response.status).toBe(409);
     const body = await response.json();
     expect(body.error).toBe('Execution round is not retryable.');
+  });
+});
+
+describe('Execution Routes - Legacy Todo Retry', () => {
+  it('rejects reviewed todo with 409 and mutates nothing', async () => {
+    mocks.getTodoById.mockReturnValue({
+      id: 'todo-reviewed',
+      project_id: 'project-1',
+      title: 'Reviewed task',
+      status: 'failed',
+      review_enabled: 1,
+      worktree_path: '/path/to/worktree',
+      branch_name: 'feature/branch',
+    });
+
+    const response = await fetch(`${baseUrl}/api/todos/todo-reviewed/retry`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'headless' }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error).toContain('Todo-level Retry is not supported for reviewed pipeline tasks');
+    expect(mocks.cleanupWorktree).not.toHaveBeenCalled();
+    expect(mocks.deleteTaskLogsByTodoId).not.toHaveBeenCalled();
+    expect(mocks.updateTodoStatus).not.toHaveBeenCalled();
+    expect(mocks.startTodo).not.toHaveBeenCalled();
+  });
+
+  it('permits legacy retry for non-reviewed todo', async () => {
+    mocks.getTodoById.mockReturnValue({
+      id: 'todo-normal',
+      project_id: 'project-1',
+      title: 'Normal task',
+      status: 'failed',
+      review_enabled: 0,
+      worktree_path: '/path/to/worktree',
+      branch_name: 'feature/branch',
+      cli_tool: 'claude',
+    });
+    mocks.getProjectById.mockReturnValue({
+      id: 'project-1',
+      path: '/path/to/repo',
+      cli_tool: 'claude',
+    });
+
+    const response = await fetch(`${baseUrl}/api/todos/todo-normal/retry`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'headless' }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.id).toBe('todo-normal');
+    expect(mocks.cleanupWorktree).toHaveBeenCalledWith('/path/to/repo', '/path/to/worktree', 'feature/branch');
+    expect(mocks.deleteTaskLogsByTodoId).toHaveBeenCalledWith('todo-normal');
+    expect(mocks.updateTodoStatus).toHaveBeenCalledWith('todo-normal', 'pending');
+    expect(mocks.startTodo).toHaveBeenCalledWith('todo-normal', 'headless');
   });
 });

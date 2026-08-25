@@ -77,7 +77,7 @@ export interface Todo {
   project_id: string;
   title: string;
   description: string | null;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'merged' | 'waiting_executor' | 'waiting_resource';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'merged' | 'waiting_executor' | 'waiting_quota' | 'waiting_resource';
   priority: number;
   branch_name: string | null;
   worktree_path: string | null;

@@ -646,6 +646,7 @@ export const en = {
     'status.stopped': 'Stopped',
     'status.merged': 'Merged',
     'status.waiting_executor': 'Waiting for Executor',
+    'status.waiting_quota': 'Waiting: Quota',
     'status.waiting_resource': 'Waiting: Resource',
     'resources.label': 'Resources',
     'resources.busy': '(busy)',
