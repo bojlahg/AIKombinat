@@ -52,8 +52,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'],
+        sans: ['"Pretendard Variable"', 'Pretendard', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"Cascadia Code"', '"Cascadia Mono"', 'ui-monospace', 'SFMono-Regular', 'Consolas', 'D2Coding', 'monospace'],
       },
       borderRadius: {
         'pill': '9999px',

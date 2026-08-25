@@ -7,7 +7,7 @@ CLITrigger is a **developer-focused task automation dashboard** built on an Appl
 - Two-accent system: blue for interactive elements, pink for point text and special callouts.
 - Surface-color change (light ↔ dark tile) creates hierarchy — not shadows or borders.
 - Consistent `rounded-xl` (12px) for cards and inputs; `rounded-full` pill for primary CTAs and badges.
-- Inter for UI text; JetBrains Mono for code, terminal output, and the brand mark.
+- Pretendard Variable (self-hosted, OFL) for UI text — one face covers Korean and Latin; system monospace stack for code, terminal output, and the brand mark.
 - Micro-interactions on every interactive element: 150–200ms, individual transition properties only (never `transition: all`), 2px lift on hover, scale(0.97) on press.
 
 ---
@@ -57,8 +57,8 @@ In code these tokens surface as Tailwind classes. **Prefer the explicit `theme-*
 ## Typography
 
 ### Font Families
-- **UI / Body**: `Inter, system-ui, -apple-system, sans-serif` — weights 300, 400, 500, 600, 700, 800.
-- **Code / Terminal / Brand**: `JetBrains Mono, Fira Code, monospace` — weights 400, 500, 700. Used for log output, diffs, inline code, and the `>_ CLI Trigger` wordmark.
+- **UI / Body**: `"Pretendard Variable", Pretendard, system-ui, -apple-system, sans-serif` — one self-hosted variable file (`/fonts/PretendardVariable.woff2`, OFL-1.1, license alongside), weight range 45–920. Covers Hangul and Latin in a single face; no web-font CDN requests.
+- **Code / Terminal / Brand**: system monospace stack `"Cascadia Code", "Cascadia Mono", ui-monospace, SFMono-Regular, Consolas, D2Coding, monospace` — the same family the terminal (`terminal-theme.ts`) uses, so all monospace in the app reads as one voice. Used for log output, diffs, inline code, and the `>_ CLI Trigger` wordmark (plain HTML spans with `font-mono`, not SVG text).
 
 ### Hierarchy
 
