@@ -23,6 +23,11 @@ type View = 'modifications' | 'log';
 // ponytail: unbounded Map, projects are few; add eviction only if it matters.
 const statusCache = new Map<string, SvnStatusResult>();
 
+// Names of changelists created empty from the UI. Native SVN changelists only
+// exist while files are assigned, so empty ones live client-side until the
+// first file is moved in (same remount-survival trick as statusCache).
+const pendingChangelistsCache = new Map<string, string[]>();
+
 const charOf = (f: GitStatusFile) => f.working_dir.trim() || '?';
 
 const charColor = (ch: string) =>
@@ -55,7 +60,7 @@ function readStoredNumber(key: string, fallback: number, min: number, max: numbe
 // changelist section — applying the same actions to every file under it.
 type SvnCtxTarget =
   | { kind: 'file'; file: SvnFile }
-  | { kind: 'group'; label: string; files: SvnFile[]; dirPath: string | null };
+  | { kind: 'group'; label: string; files: SvnFile[]; dirPath: string | null; changelist?: string };
 
 export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPanelProps) {
   const { t } = useI18n();
@@ -87,6 +92,10 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
   const [statusLoading, setStatusLoading] = useState(false);
   const [remoteChecking, setRemoteChecking] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [pendingChangelists, setPendingChangelists] = useState<string[]>(
+    () => pendingChangelistsCache.get(project.id) ?? [],
+  );
+  useEffect(() => { pendingChangelistsCache.set(project.id, pendingChangelists); }, [project.id, pendingChangelists]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [workingDiff, setWorkingDiff] = useState<string>('');
   const [workingDiffLoading, setWorkingDiffLoading] = useState(false);
@@ -221,7 +230,8 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
   const handleCleanup = () =>
     runAction(() => svnApi.svnCleanup(project.id), t('svn.cleanupSuccess'));
 
-  // ── New changelist dialog. Non-null = files pending assignment. ───────────
+  // ── New changelist dialog. Non-null = files pending assignment; an empty
+  // array (from clicking empty space) creates a client-side empty changelist.
   const [clDialogFiles, setClDialogFiles] = useState<string[] | null>(null);
   const [clNameInput, setClNameInput] = useState('');
   const handleNewChangelist = () => {
@@ -230,7 +240,30 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
     const files = clDialogFiles;
     setClDialogFiles(null);
     setClNameInput('');
-    doChangelist(name, files);
+    if (files.length === 0) {
+      setPendingChangelists((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    } else {
+      doChangelist(name, files);
+    }
+  };
+
+  // ── Rename changelist dialog. Rename = reassign every member file to the
+  // new name (SVN has no rename); an empty pending list renames locally. ────
+  const [renameTarget, setRenameTarget] = useState<{ name: string; files: string[] } | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const handleRenameChangelist = () => {
+    const newName = renameInput.trim();
+    if (!newName || !renameTarget) return;
+    const { name, files } = renameTarget;
+    setRenameTarget(null);
+    setRenameInput('');
+    if (newName === name) return;
+    setPendingChangelists((prev) => {
+      const next = prev.filter((n) => n !== name && n !== newName);
+      if (files.length === 0) next.push(newName);
+      return next;
+    });
+    if (files.length > 0) doChangelist(newName, files);
   };
 
   const handleCommit = () => {
@@ -313,16 +346,19 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
   // Right-click on a directory row or changelist header → same menu, applied to
   // every file in that group at once. dirPath is the folder path (for folder
   // properties) or null for a changelist section.
-  const openGroupCtxMenu = (e: React.MouseEvent, label: string, files: SvnFile[], dirPath: string | null) => {
+  const openGroupCtxMenu = (e: React.MouseEvent, label: string, files: SvnFile[], dirPath: string | null, changelist?: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (files.length === 0) return;
-    setCtxMenu({ x: e.clientX, y: e.clientY, target: { kind: 'group', label, files, dirPath } });
+    if (files.length === 0 && !changelist) return;
+    setCtxMenu({ x: e.clientX, y: e.clientY, target: { kind: 'group', label, files, dirPath, changelist } });
   };
 
   const changelistNames = useMemo(
-    () => Array.from(new Set((status?.files ?? []).map((f) => f.changelist).filter((n): n is string => !!n))).sort(),
-    [status],
+    () => Array.from(new Set([
+      ...(status?.files ?? []).map((f) => f.changelist).filter((n): n is string => !!n),
+      ...pendingChangelists,
+    ])).sort(),
+    [status, pendingChangelists],
   );
 
   const repoLine = useMemo(() => {
@@ -409,6 +445,8 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               onActivate={setActiveFile}
               onContextMenu={openCtxMenu}
               onGroupContextMenu={openGroupCtxMenu}
+              pendingChangelists={pendingChangelists}
+              onNewEmptyChangelist={() => setClDialogFiles([])}
               onChangelist={doChangelist}
               onResolve={(p, accept) => doResolve([p], accept)}
               workingDiff={workingDiff}
@@ -506,7 +544,41 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
                 disabled={!clNameInput.trim() || busy}
                 onClick={handleNewChangelist}
               >
-                {t('svn.moveToChangelist')}
+                {clDialogFiles?.length ? t('svn.moveToChangelist') : t('svn.createChangelist')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Rename changelist dialog */}
+      <Modal open={renameTarget !== null} onClose={() => setRenameTarget(null)} size="sm">
+        <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+          <div className="px-4 py-3 border-b border-warm-100">
+            <span className="text-sm font-semibold text-warm-700">{t('svn.renameChangelist')}</span>
+          </div>
+          <div className="p-4 space-y-3">
+            <input
+              autoFocus
+              value={renameInput}
+              onChange={(e) => setRenameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleRenameChangelist(); }}
+              placeholder={t('svn.changelistNamePlaceholder')}
+              className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+            <div className="flex gap-2">
+              <button
+                className="flex-1 px-3 py-2 text-sm rounded border border-warm-200 hover:bg-warm-50"
+                onClick={() => setRenameTarget(null)}
+              >
+                {t('svn.cancel')}
+              </button>
+              <button
+                className="flex-1 px-3 py-2 text-sm font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
+                disabled={!renameInput.trim() || busy}
+                onClick={handleRenameChangelist}
+              >
+                {t('svn.saveProperty')}
               </button>
             </div>
           </div>
@@ -529,6 +601,8 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
           changelists={changelistNames}
           onChangelist={doChangelist}
           onNewChangelist={(files) => setClDialogFiles(files)}
+          onRenameChangelist={(name, files) => { setRenameTarget({ name, files }); setRenameInput(name); }}
+          onDeleteChangelist={(name) => setPendingChangelists((prev) => prev.filter((n) => n !== name))}
           onViewDiff={(p) => { setActiveFile(p); setCtxMenu(null); }}
           onProperties={(p) => { setPropsTarget({ file: p }); setCtxMenu(null); }}
         />
@@ -844,7 +918,7 @@ interface ClSection {
 
 // Named changelists first (sorted), then the default bucket, then automatic
 // status sections (unversioned '?', locally deleted '!').
-function partitionSections(files: SvnFile[], t: (k: string) => string): ClSection[] {
+function partitionSections(files: SvnFile[], pendingNames: string[], t: (k: string) => string): ClSection[] {
   const named = new Map<string, SvnFile[]>();
   const def: SvnFile[] = [];
   const unversioned: SvnFile[] = [];
@@ -858,6 +932,9 @@ function partitionSections(files: SvnFile[], t: (k: string) => string): ClSectio
     else if (ch === '!') missing.push(f);
     else def.push(f);
   }
+  // Client-side empty changelists render as droppable empty sections; once a
+  // real one with the same name exists, the real one wins.
+  for (const name of pendingNames) if (!named.has(name)) named.set(name, []);
   const sections: ClSection[] = Array.from(named.keys()).sort()
     .map((name) => ({ key: `cl:${name}`, label: name, files: named.get(name)! }));
   if (def.length) sections.push({ key: 'default', label: t('svn.changelistDefault'), files: def });
@@ -880,7 +957,9 @@ function ModificationsView(props: {
   activeFile: string | null;
   onActivate: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, file: GitStatusFile) => void;
-  onGroupContextMenu: (e: React.MouseEvent, label: string, files: SvnFile[], dirPath: string | null) => void;
+  onGroupContextMenu: (e: React.MouseEvent, label: string, files: SvnFile[], dirPath: string | null, changelist?: string) => void;
+  pendingChangelists: string[];
+  onNewEmptyChangelist: () => void;
   onChangelist: (name: string | null, files: string[]) => void;
   onResolve: (path: string, accept: 'working' | 'mine-full' | 'theirs-full') => void;
   workingDiff: string;
@@ -908,7 +987,10 @@ function ModificationsView(props: {
       SVN_COMMIT_MESSAGE_MAX_HEIGHT,
     ),
   );
-  const sections = useMemo(() => partitionSections(props.statusFiles, t), [props.statusFiles, t]);
+  const sections = useMemo(
+    () => partitionSections(props.statusFiles, props.pendingChangelists, t),
+    [props.statusFiles, props.pendingChangelists, t],
+  );
 
   useEffect(() => {
     try { localStorage.setItem(SVN_COMMIT_MESSAGE_HEIGHT_KEY, String(commitMessageHeight)); } catch { /* ignore */ }
@@ -1055,17 +1137,20 @@ function ModificationsView(props: {
               <span className="text-2xs text-warm-400">{props.statusFiles.length}</span>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div
+            className="flex-1 overflow-y-auto"
+            onClick={(e) => { if (e.target === e.currentTarget) props.onNewEmptyChangelist(); }}
+          >
             {props.statusLoading ? (
               <div className="p-6 text-center text-xs text-warm-400">{t('git.loadingFiles')}</div>
-            ) : props.statusFiles.length === 0 ? (
+            ) : sections.length === 0 ? (
               <div className="p-6 text-center text-xs text-warm-400">{t('svn.noChanges')}</div>
             ) : (
               sections.map((sec) => {
                 const secKey = `§${sec.key}`;
                 const isCollapsed = collapsed.has(secKey);
                 const selCount = sec.files.reduce((n, f) => n + (props.selectedFiles.has(f.path) ? 1 : 0), 0);
-                const allSelected = selCount === sec.files.length;
+                const allSelected = sec.files.length > 0 && selCount === sec.files.length;
                 const tree = groupByDir ? buildDirTree(sec.files) : null;
                 const droppable = sec.key !== 'unversioned' && sec.key !== 'missing';
                 const isDropTarget = dragOverKey === sec.key;
@@ -1073,7 +1158,7 @@ function ModificationsView(props: {
                   <div key={sec.key}>
                     <div
                       onClick={() => toggleCollapse(secKey)}
-                      onContextMenu={(e) => props.onGroupContextMenu(e, sec.label, sec.files, null)}
+                      onContextMenu={(e) => props.onGroupContextMenu(e, sec.label, sec.files, null, sec.key.startsWith('cl:') ? sec.label : undefined)}
                       onDragOver={droppable ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverKey !== sec.key) setDragOverKey(sec.key); } : undefined}
                       onDragLeave={droppable ? () => setDragOverKey((k) => (k === sec.key ? null : k)) : undefined}
                       onDrop={droppable ? (e) => dropOnSection(e, sec) : undefined}
@@ -1269,6 +1354,8 @@ function FileContextMenu(props: {
   changelists: string[];
   onChangelist: (name: string | null, files: string[]) => void;
   onNewChangelist: (files: string[]) => void;
+  onRenameChangelist: (name: string, files: string[]) => void;
+  onDeleteChangelist: (name: string) => void;
   onViewDiff: (path: string) => void;
   onProperties: (path: string) => void;
 }) {
@@ -1292,6 +1379,7 @@ function FileContextMenu(props: {
   const singleFile = props.target.kind === 'file' ? props.target.file : null;
   const groupLabel = props.target.kind === 'group' ? props.target.label : null;
   const dirPath = props.target.kind === 'group' ? props.target.dirPath : null;
+  const clName = props.target.kind === 'group' ? props.target.changelist : undefined;
   const propsPath = singleFile ? (charOf(singleFile) !== '?' ? singleFile.path : null) : dirPath;
 
   const addable = targets.filter((f) => charOf(f) === '?').map((f) => f.path);
@@ -1345,6 +1433,14 @@ function FileContextMenu(props: {
           <span className="text-xs font-semibold text-warm-700">{groupLabel}</span>
           <span className="text-2xs text-warm-400 ml-1">· {targets.length}</span>
         </div>
+      )}
+      {clName !== undefined && (
+        <>
+          <Item label={t('svn.renameChangelist')} onClick={() => props.onRenameChangelist(clName, targets.map((f) => f.path))} />
+          {targets.length === 0 && (
+            <Item label={t('svn.deleteChangelist')} danger onClick={() => props.onDeleteChangelist(clName)} />
+          )}
+        </>
       )}
       {singleFile && <Item label={t('svn.viewDiff')} onClick={() => props.onViewDiff(singleFile.path)} />}
       {propsPath !== null && (
