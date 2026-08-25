@@ -13,6 +13,7 @@ const processTree = await import('../../utils/process-tree.js');
 const {
   recoverInterruptedAgentForums,
   FORUM_TURN_RESTART_INTERRUPT_MESSAGE,
+  FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE,
 } = await import('../agent-forum-orchestrator.js');
 
 /**
@@ -135,7 +136,13 @@ describe('AgentForum startup recovery', () => {
 
     const report = await recoverInterruptedAgentForums();
 
-    expect(report).toEqual({ forumsRecovered: 0, turnsReconciled: 0, orphanProcessesTerminated: 0 });
+    expect(report).toEqual({
+      forumsRecovered: 0,
+      turnsReconciled: 0,
+      orphanProcessesTerminated: 0,
+      unresolvedOrphanProcesses: 0,
+      unresolvedOrphans: [],
+    });
     expect(terminateSpy).not.toHaveBeenCalled();
     expect(queries.getAgentForumTurnById(turn.id)!.status).toBe('passed');
   });
@@ -178,7 +185,42 @@ describe('AgentForum startup recovery', () => {
     expect(queries.getAgentForumTurnById(running.id)!.status).toBe('stopped');
   });
 
-  it('still reconciles when the orphan process cannot be terminated', async () => {
+  it('keeps the PID and fails closed when termination reports failure and the process survives', async () => {
+    const { forum, running, pending, completed } = seedInterruptedForum();
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const report = await recoverInterruptedAgentForums();
+
+    // Not counted as a successful recovery.
+    expect(report.forumsRecovered).toBe(0);
+    expect(report.orphanProcessesTerminated).toBe(0);
+    expect(report.unresolvedOrphanProcesses).toBe(1);
+    expect(report.unresolvedOrphans).toEqual([
+      { forumId: forum.id, turnId: running.id, pid: ORPHAN_PID },
+    ]);
+
+    // The forum stays in error and the PID is preserved for a retry.
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    const orphanTurn = queries.getAgentForumTurnById(running.id)!;
+    expect(orphanTurn.process_pid).toBe(ORPHAN_PID);
+    expect(orphanTurn.status).toBe('running');
+    expect(orphanTurn.error_message).toBe(FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE);
+
+    // Turns without a live PID are still safe to reconcile.
+    expect(queries.getAgentForumTurnById(pending.id)!.status).toBe('stopped');
+    expect(report.turnsReconciled).toBe(1);
+
+    // History is untouched.
+    expect(queries.getAgentForumTurnById(completed.id)!.status).toBe('completed');
+    expect(queries.getAgentForumMessages(forum.id)).toHaveLength(2);
+    expect(queries.getAgentForumTurns(forum.id)).toHaveLength(3);
+  });
+
+  it('fails closed when termination throws and the process is still alive', async () => {
     const { forum, running } = seedInterruptedForum();
     queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
 
@@ -188,10 +230,148 @@ describe('AgentForum startup recovery', () => {
 
     const report = await recoverInterruptedAgentForums();
 
-    expect(report.orphanProcessesTerminated).toBe(0);
-    expect(report.turnsReconciled).toBe(2);
+    expect(report.forumsRecovered).toBe(0);
+    expect(report.unresolvedOrphanProcesses).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    const orphanTurn = queries.getAgentForumTurnById(running.id)!;
+    expect(orphanTurn.process_pid).toBe(ORPHAN_PID);
+    expect(orphanTurn.status).toBe('running');
+  });
+
+  it('reconciles safely when termination throws but the process is verifiably gone', async () => {
+    const { forum, running } = seedInterruptedForum();
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+
+    // Alive on the first probe, gone on the confirmation probe after the throw.
+    let probes = 0;
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation(() => {
+      probes++;
+      return probes === 1;
+    });
+    vi.spyOn(processTree, 'terminateProcessTree').mockRejectedValue(new Error('ESRCH'));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(report.unresolvedOrphanProcesses).toBe(0);
+    expect(report.orphanProcessesTerminated).toBe(1);
+    expect(report.forumsRecovered).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+    const turn = queries.getAgentForumTurnById(running.id)!;
+    expect(turn.status).toBe('stopped');
+    expect(turn.process_pid).toBeNull();
+  });
+
+  it('retrying recovery after the orphan exits completes the cleanup', async () => {
+    const { forum, running } = seedInterruptedForum();
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+
+    const aliveSpy = vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const first = await recoverInterruptedAgentForums();
+    expect(first.unresolvedOrphanProcesses).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+
+    // The orphan finally exits; a second pass finds the forum again (error +
+    // an unfinished turn with a PID) and completes cleanly.
+    aliveSpy.mockReturnValue(false);
+    const second = await recoverInterruptedAgentForums();
+
+    expect(second.unresolvedOrphanProcesses).toBe(0);
+    expect(second.forumsRecovered).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+    const turn = queries.getAgentForumTurnById(running.id)!;
+    expect(turn.status).toBe('stopped');
+    expect(turn.process_pid).toBeNull();
+    expect(turn.error_message).toBe(FORUM_TURN_RESTART_INTERRUPT_MESSAGE);
+  });
+
+  it('recovers a forum parked in error that still has a running turn with a PID', async () => {
+    const { forum, running, completed } = seedInterruptedForum();
+    // A Stop that timed out before the restart leaves the forum in `error`.
+    queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+
+    // The forum is picked up by the recovery query, not skipped as historical.
+    expect(queries.getAgentForumsNeedingRecovery().map((f) => f.id)).toContain(forum.id);
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(terminateSpy).toHaveBeenCalledWith(ORPHAN_PID);
+    expect(report.forumsRecovered).toBe(1);
+    expect(report.orphanProcessesTerminated).toBe(1);
     expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
     expect(queries.getAgentForumTurnById(running.id)!.status).toBe('stopped');
+    expect(queries.getAgentForumTurnById(completed.id)!.status).toBe('completed');
+  });
+
+  it('recovers an error forum whose only leftover is an unfinished turn without a PID', async () => {
+    const { forum, running } = seedInterruptedForum();
+    queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
+
+    expect(queries.getAgentForumsNeedingRecovery().map((f) => f.id)).toContain(forum.id);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(report.forumsRecovered).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+    expect(queries.getAgentForumTurnById(running.id)!.status).toBe('stopped');
+  });
+
+  it('leaves a historical error forum with nothing to reconcile alone', async () => {
+    const forum = queries.createAgentForum('Old Error Forum', undefined, 1024);
+    const member = queries.createAgentForumMember(forum.id, 'AgentA', 'participant', '', { cliTool: 'claude' });
+    const turn = queries.createAgentForumTurn(forum.id, member.id, 1, 0);
+    queries.updateAgentForumTurn(turn.id, {
+      status: 'failed',
+      error_message: 'old failure',
+      completed_at: '2026-08-20T10:00:00Z',
+    });
+    queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
+
+    expect(queries.getAgentForumsNeedingRecovery()).toHaveLength(0);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(report.forumsRecovered).toBe(0);
+    // Its status and history are not silently rewritten.
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    const untouched = queries.getAgentForumTurnById(turn.id)!;
+    expect(untouched.status).toBe('failed');
+    expect(untouched.error_message).toBe('old failure');
+  });
+
+  it('picks up an error forum whose only leftover is a stray PID on a terminal turn', async () => {
+    const forum = queries.createAgentForum('Stray PID Forum', undefined, 1024);
+    const member = queries.createAgentForumMember(forum.id, 'AgentA', 'participant', '', { cliTool: 'claude' });
+    const turn = queries.createAgentForumTurn(forum.id, member.id, 1, 0);
+    queries.updateAgentForumTurn(turn.id, {
+      status: 'failed',
+      error_message: 'crashed mid-write',
+      completed_at: '2026-08-20T10:00:00Z',
+      process_pid: ORPHAN_PID,
+    });
+    queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
+
+    expect(queries.getAgentForumsNeedingRecovery().map((f) => f.id)).toContain(forum.id);
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(report.orphanProcessesTerminated).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+    // The terminal outcome stands; only the stray PID was cleared.
+    const after = queries.getAgentForumTurnById(turn.id)!;
+    expect(after.status).toBe('failed');
+    expect(after.error_message).toBe('crashed mid-write');
+    expect(after.process_pid).toBeNull();
   });
 
   it('recovers several stale forums independently', async () => {

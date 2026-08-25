@@ -50,14 +50,37 @@ export const FORUM_TURN_RESTART_INTERRUPT_MESSAGE =
   'Turn interrupted by application/server restart before it completed.';
 
 /**
+ * Base for every "Stop did not finish" outcome. Callers must not treat the
+ * forum as idle or deletable when one of these is raised.
+ */
+export class ForumStopIncompleteError extends Error {
+  constructor(public readonly forumId: string, message: string) {
+    super(message);
+    this.name = 'ForumStopIncompleteError';
+  }
+}
+
+/**
  * Raised when Stop could not confirm that the cycle is quiescent. The forum is
  * left in a retryable state: cancellation stays armed, the cycle stays
  * registered, and the caller must not treat the forum as idle or deletable.
  */
-export class ForumStopTimeoutError extends Error {
-  constructor(public readonly forumId: string, message: string) {
-    super(message);
+export class ForumStopTimeoutError extends ForumStopIncompleteError {
+  constructor(forumId: string, message: string) {
+    super(forumId, message);
     this.name = 'ForumStopTimeoutError';
+  }
+}
+
+/**
+ * Raised when a forum parked in `error` still has an orphan process that could
+ * not be confirmed terminated. Its PID and history are deliberately preserved
+ * so cleanup can be retried.
+ */
+export class ForumRecoveryPendingError extends ForumStopIncompleteError {
+  constructor(forumId: string, message: string, public readonly unresolvedOrphanProcesses: number) {
+    super(forumId, message);
+    this.name = 'ForumRecoveryPendingError';
   }
 }
 
@@ -104,6 +127,15 @@ export class AgentForumOrchestrator {
 
     if (forum.status === 'running' || this.cycles.has(forumId)) {
       throw new Error('Forum is currently running an agent cycle. Please wait for it to complete.');
+    }
+
+    // `error` means an unconfirmed Stop or an unresolved orphan process. It is
+    // not a quiet idle state: continuing the conversation from here could race
+    // whatever is still alive, so require the cleanup to succeed first.
+    if (forum.status !== 'idle') {
+      throw new Error(
+        'Forum requires recovery before continuing. Run Stop to finish cleaning up the previous cycle.'
+      );
     }
 
     // Refuse before writing anything: a user message that can never start a
@@ -210,6 +242,37 @@ export class AgentForumOrchestrator {
           + 'The cycle is still cancelling — retry Stop once it finishes draining.',
         );
       }
+    } else if (forum.status === 'error') {
+      // No cycle in memory, but the forum is parked in `error` — a Stop that
+      // timed out before a restart, or an unresolved orphan from startup
+      // recovery. Retrying Stop means retrying that cleanup; only a confirmed
+      // clean result may return the forum to idle.
+      const recovery = await recoverAgentForum(forumId);
+      if (recovery.unresolvedOrphanProcesses > 0) {
+        broadcaster.broadcast({
+          type: 'forum:status-changed',
+          forumId,
+          status: 'error',
+          currentCycle: queries.getAgentForumById(forumId)?.current_cycle ?? forum.current_cycle,
+          currentMemberId: null,
+        });
+        throw new ForumRecoveryPendingError(
+          forumId,
+          `Stop could not confirm cleanup: ${recovery.unresolvedOrphanProcesses} process(es) from the `
+          + 'previous run are still alive. The forum stays in recovery — retry Stop once they exit.',
+          recovery.unresolvedOrphanProcesses,
+        );
+      }
+      // recoverAgentForum already moved the forum to idle.
+      broadcaster.broadcast({
+        type: 'forum:status-changed',
+        forumId,
+        status: 'idle',
+        currentCycle: queries.getAgentForumById(forumId)?.current_cycle ?? forum.current_cycle,
+        currentMemberId: null,
+      });
+      orchestrator.wakeWaitingExecutors().catch(() => {});
+      return;
     }
 
     queries.updateAgentForum(forumId, {
@@ -966,63 +1029,145 @@ Respond ONLY with the JSON object. Do not include extra conversational filler ou
 
 export const agentForumOrchestrator = new AgentForumOrchestrator();
 
+/** Recorded on a turn whose orphan process could not be confirmed terminated. */
+export const FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE =
+  'Recovery could not confirm the CLI process from the previous run was terminated. '
+  + 'The turn keeps its process id so cleanup can be retried.';
+
+/** Server-side detail about an orphan we failed to clean up. Never sent to clients. */
+export interface UnresolvedOrphanProcess {
+  forumId: string;
+  turnId: string;
+  pid: number;
+}
+
 export interface ForumRecoveryReport {
   forumsRecovered: number;
   turnsReconciled: number;
   orphanProcessesTerminated: number;
+  unresolvedOrphanProcesses: number;
+  /** Log/debug detail; kept server-side. */
+  unresolvedOrphans: UnresolvedOrphanProcess[];
+}
+
+function emptyRecoveryReport(): ForumRecoveryReport {
+  return {
+    forumsRecovered: 0,
+    turnsReconciled: 0,
+    orphanProcessesTerminated: 0,
+    unresolvedOrphanProcesses: 0,
+    unresolvedOrphans: [],
+  };
+}
+
+/**
+ * Recovers one forum left behind by a crash, restart or an unconfirmed Stop.
+ *
+ * For each turn that never finished (or still holds a PID) we try to terminate
+ * the orphan process tree. `claudeManager.stopClaude` cannot help here: after a
+ * restart its in-memory map is empty, so it would silently no-op.
+ *
+ * Termination counts as successful only when the helper reports success or a
+ * follow-up liveness probe shows the process is gone. Anything else is treated
+ * as an unresolved orphan and handled fail-closed: the turn keeps its PID and
+ * its unfinished status, the forum stays in `error`, and recovery (or Stop) can
+ * be retried later. History, snapshots and messages are never destroyed.
+ */
+export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryReport> {
+  const report = emptyRecoveryReport();
+  const forum = queries.getAgentForumById(forumId);
+  if (!forum) return report;
+
+  const candidates = queries.getAgentForumTurnsNeedingRecovery(forumId);
+  const resolvedTurnIds: string[] = [];
+
+  for (const turn of candidates) {
+    if (!turn.process_pid) {
+      resolvedTurnIds.push(turn.id);
+      continue;
+    }
+
+    // A surviving PID is an orphan, never a healthy running execution:
+    // nothing in this process owns its streams or its exit any more.
+    if (!processTree.isProcessAlive(turn.process_pid)) {
+      resolvedTurnIds.push(turn.id);
+      continue;
+    }
+
+    let terminated = false;
+    try {
+      terminated = await processTree.terminateProcessTree(turn.process_pid);
+    } catch (err) {
+      console.warn(
+        `[agent-forum] Could not terminate orphan process ${turn.process_pid} `
+        + `for turn ${turn.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // Trust the outcome only if the helper said so, or the process is verifiably
+    // gone. A `false`/throwing terminate with a live PID must NOT be reconciled.
+    if (!terminated && processTree.isProcessAlive(turn.process_pid)) {
+      report.unresolvedOrphans.push({ forumId, turnId: turn.id, pid: turn.process_pid });
+      queries.updateAgentForumTurn(turn.id, {
+        error_message: FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE,
+      });
+      continue;
+    }
+
+    report.orphanProcessesTerminated++;
+    resolvedTurnIds.push(turn.id);
+  }
+
+  report.turnsReconciled += queries.markAgentForumTurnsInterrupted(
+    forumId,
+    FORUM_TURN_RESTART_INTERRUPT_MESSAGE,
+    resolvedTurnIds,
+  );
+  report.unresolvedOrphanProcesses = report.unresolvedOrphans.length;
+
+  if (report.unresolvedOrphans.length > 0) {
+    // Fail closed: an orphan we could not kill must not look like a clean forum.
+    queries.updateAgentForum(forumId, { status: 'error', current_member_id: null });
+    console.warn(
+      `[agent-forum] Forum "${forum.title}" (${forumId}) left in error: `
+      + `${report.unresolvedOrphans.length} orphan process(es) still alive `
+      + `(pids: ${report.unresolvedOrphans.map((o) => o.pid).join(', ')})`,
+    );
+    return report;
+  }
+
+  queries.updateAgentForum(forumId, { status: 'idle', current_member_id: null });
+  report.forumsRecovered = 1;
+  console.log(`  Reset agent forum "${forum.title}" (${forumId}) to idle`);
+  return report;
 }
 
 /**
  * Startup recovery for AgentForum.
  *
- * A forum left in `running` by a crash or restart has no owning cycle any more:
- * the orchestrator's in-memory maps are empty and `claudeManager` no longer
- * knows any of the PIDs it spawned. Resetting only the forum row leaves its
- * turns stuck in `pending`/`running` forever, and any CLI the old process
- * started keeps running as an orphan.
+ * Covers forums left `running` by a crash and forums parked in `error` by a
+ * Stop that could not be confirmed, as long as they still have something
+ * concrete to reconcile. Forums whose `error` has already been cleaned up are
+ * not touched.
  *
- * So for each stale forum: terminate the orphan process tree of every unfinished
- * turn that still has a live PID, reconcile those turns to `stopped`, and return
- * the forum to `idle`. Completed / passed / failed / skipped / stopped turns,
- * their snapshots and all messages are left untouched.
+ * A forum with an orphan that refuses to die stays in `error` — the server
+ * still finishes booting, so one unkillable process cannot hold AIKombinat
+ * hostage, but that forum's endpoints stay closed until cleanup succeeds.
  */
 export async function recoverInterruptedAgentForums(): Promise<ForumRecoveryReport> {
-  const report: ForumRecoveryReport = {
-    forumsRecovered: 0,
-    turnsReconciled: 0,
-    orphanProcessesTerminated: 0,
-  };
+  const report = emptyRecoveryReport();
+  const forums = queries.getAgentForumsNeedingRecovery();
+  if (forums.length === 0) return report;
 
-  const staleForums = queries.getRunningAgentForums();
-  for (const forum of staleForums) {
-    const unfinished = queries.getUnfinishedAgentForumTurns(forum.id);
-
-    for (const turn of unfinished) {
-      if (!turn.process_pid) continue;
-      // A surviving PID is an orphan, never a healthy running execution:
-      // nothing in this process owns its streams or its exit any more.
-      if (!processTree.isProcessAlive(turn.process_pid)) continue;
-      try {
-        const terminated = await processTree.terminateProcessTree(turn.process_pid);
-        if (terminated) report.orphanProcessesTerminated++;
-      } catch (err) {
-        // Best-effort: a process we cannot signal must not block reconciliation.
-        console.warn(
-          `[agent-forum] Could not terminate orphan process ${turn.process_pid} `
-          + `for turn ${turn.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
-    report.turnsReconciled += queries.markAgentForumTurnsInterrupted(
-      forum.id,
-      FORUM_TURN_RESTART_INTERRUPT_MESSAGE,
-    );
-    queries.updateAgentForum(forum.id, { status: 'idle', current_member_id: null });
-    report.forumsRecovered++;
-
-    console.log(`  Reset agent forum "${forum.title}" (${forum.id}) from running to idle`);
+  console.log(`Recovering ${forums.length} agent forum(s) needing recovery...`);
+  for (const forum of forums) {
+    const forumReport = await recoverAgentForum(forum.id);
+    report.forumsRecovered += forumReport.forumsRecovered;
+    report.turnsReconciled += forumReport.turnsReconciled;
+    report.orphanProcessesTerminated += forumReport.orphanProcessesTerminated;
+    report.unresolvedOrphans.push(...forumReport.unresolvedOrphans);
   }
+  report.unresolvedOrphanProcesses = report.unresolvedOrphans.length;
 
   return report;
 }

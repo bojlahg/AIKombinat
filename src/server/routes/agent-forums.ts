@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as queries from '../db/queries.js';
-import { agentForumOrchestrator, ForumStopTimeoutError } from '../services/agent-forum-orchestrator.js';
+import { agentForumOrchestrator, ForumStopIncompleteError } from '../services/agent-forum-orchestrator.js';
 import { normalizeExecutionSelection, ExecutionSelectionError } from '../services/execution-selection.js';
 
 const router = Router();
@@ -9,19 +9,32 @@ const router = Router();
 const RUNNING_LOCKED_FORUM_FIELDS = ['project_id', 'rules', 'max_reply_length'] as const;
 
 /**
- * Backend is authoritative about mutation safety: while a forum is running,
- * changing its configuration or its participant set would race the in-flight
- * cycle (and, for participant removal, could cascade into the running turn).
- * The UI disables these controls too, but the UI is not the protection.
+ * Backend is authoritative about mutation safety.
+ *
+ * `running` (or a registered in-memory cycle) means changing the configuration
+ * or the participant set would race the in-flight cycle — and, for participant
+ * removal, could cascade into the running turn.
+ *
+ * `error` means a Stop that could not be confirmed or an unresolved orphan
+ * process from startup recovery. Mutating a forum in that state is just as
+ * unsafe: something from the previous cycle may still be alive. Both stay
+ * locked until cleanup succeeds. The UI disables these controls too, but the
+ * UI is not the protection.
  */
-function isForumRunning(forum: queries.AgentForum): boolean {
-  return forum.status === 'running' || agentForumOrchestrator.isCycleRegistered(forum.id);
+function isForumLocked(forum: queries.AgentForum): boolean {
+  return forum.status === 'running'
+    || forum.status === 'error'
+    || agentForumOrchestrator.isCycleRegistered(forum.id);
 }
 
-function rejectIfRunning(forum: queries.AgentForum, res: Response, action: string): boolean {
-  if (!isForumRunning(forum)) return false;
+function rejectIfLocked(forum: queries.AgentForum, res: Response, action: string): boolean {
+  if (!isForumLocked(forum)) return false;
+  const reason = forum.status === 'error' && !agentForumOrchestrator.isCycleRegistered(forum.id)
+    ? 'Forum requires recovery: the previous cycle was not confirmed stopped.'
+    : 'Forum is currently running an agent cycle.';
   res.status(409).json({
-    error: `Forum is currently running an agent cycle. ${action} is not allowed until the cycle stops.`,
+    error: `${reason} ${action} is not allowed until it is cleaned up.`,
+    code: forum.status === 'error' ? 'forum_recovery_required' : 'forum_running',
   });
   return true;
 }
@@ -158,7 +171,7 @@ router.put('/agent-forums/:id', (req: Request<{ id: string }>, res: Response) =>
     const { title, rules, max_reply_length, project_id } = req.body;
 
     const touchesLockedField = RUNNING_LOCKED_FORUM_FIELDS.some((field) => req.body[field] !== undefined);
-    if (touchesLockedField && rejectIfRunning(forum, res, 'Changing forum configuration')) return;
+    if (touchesLockedField && rejectIfLocked(forum, res, 'Changing forum configuration')) return;
 
     const updates: Partial<Pick<queries.AgentForum, 'title' | 'rules' | 'max_reply_length' | 'project_id'>> = {};
 
@@ -193,18 +206,19 @@ router.delete('/agent-forums/:id', async (req: Request<{ id: string }>, res: Res
       return;
     }
 
-    // Deleting a live forum is only safe after the full stop/drain lifecycle:
-    // `stopForum` cancels the cycle, terminates every spawned CLI and waits for
-    // in-flight turn startup to finish before returning. If it cannot confirm
-    // that, nothing is deleted — a cycle whose PID may still appear must not
-    // lose the rows that let us find and reconcile it.
-    if (forum.status === 'running' || agentForumOrchestrator.isCycleRegistered(forum.id)) {
+    // Deleting a live or unrecovered forum is only safe after the full
+    // stop/cleanup lifecycle: `stopForum` cancels the cycle, terminates every
+    // spawned CLI, waits for in-flight turn startup, and for a forum parked in
+    // `error` retries orphan cleanup. If it cannot confirm that, nothing is
+    // deleted — the persisted PID and history are exactly what lets us find and
+    // reconcile the leftovers later.
+    if (isForumLocked(forum)) {
       try {
         await agentForumOrchestrator.stopForum(forum.id);
       } catch (stopErr) {
-        if (stopErr instanceof ForumStopTimeoutError) {
+        if (stopErr instanceof ForumStopIncompleteError) {
           res.status(409).json({
-            error: `${stopErr.message} The forum was not deleted; retry once the cycle has drained.`,
+            error: `${stopErr.message} The forum was not deleted; retry once cleanup completes.`,
             code: 'forum_stop_incomplete',
           });
           return;
@@ -261,7 +275,7 @@ router.post('/agent-forums/:id/stop', async (req: Request<{ id: string }>, res: 
     try {
       await agentForumOrchestrator.stopForum(forum.id);
     } catch (stopErr) {
-      if (stopErr instanceof ForumStopTimeoutError) {
+      if (stopErr instanceof ForumStopIncompleteError) {
         res.status(503).json({
           error: stopErr.message,
           code: 'forum_stop_incomplete',
@@ -291,7 +305,7 @@ router.post('/agent-forums/:id/members', (req: Request<{ id: string }>, res: Res
       return;
     }
 
-    if (rejectIfRunning(forum, res, 'Adding a participant')) return;
+    if (rejectIfLocked(forum, res, 'Adding a participant')) return;
 
     const { name, role, system_prompt, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, avatar_color } = req.body;
     if (!name || !role) {
@@ -344,7 +358,7 @@ router.put('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; me
       return;
     }
 
-    if (rejectIfRunning(forum, res, 'Changing a participant')) return;
+    if (rejectIfLocked(forum, res, 'Changing a participant')) return;
 
     const execution = req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined
       ? normalizeExecutionSelection({
@@ -390,7 +404,7 @@ router.delete('/agent-forums/:id/members/:memberId', (req: Request<{ id: string;
       return;
     }
 
-    if (rejectIfRunning(forum, res, 'Removing a participant')) return;
+    if (rejectIfLocked(forum, res, 'Removing a participant')) return;
 
     if (queries.agentForumMemberHasHistory(member.id)) {
       const disabled = queries.setAgentForumMemberActive(member.id, false);

@@ -329,4 +329,126 @@ describe('AgentForumView UI Component', () => {
       );
     });
   });
+
+  describe('forum awaiting recovery (status=error)', () => {
+    const errorForum = { ...mockForum, status: 'error' as const, current_member_id: null };
+
+    /** Serves an error forum; `onStop` decides what POST /stop answers. */
+    function mockErrorForum(onStop: () => { status: number; body: unknown }) {
+      let current: typeof mockForum = errorForum;
+      fetchMock.mockImplementation(async (input: string | Request | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+        if (urlStr === '/api/projects') return jsonResponse([]);
+        if (urlStr === '/api/agent-forums') return jsonResponse([current]);
+        if (urlStr === '/api/agent-forums/forum-1/stop' && init?.method === 'POST') {
+          const result = onStop();
+          if (result.status < 300) current = result.body as typeof mockForum;
+          return jsonResponse(result.body, result.status);
+        }
+        if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(current);
+        if (urlStr.startsWith('/api/models')) return jsonResponse({});
+        if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+        return jsonResponse({});
+      });
+    }
+
+    it('locks the composer and configuration controls, and shows the recovery banner', async () => {
+      mockErrorForum(() => ({ status: 503, body: { error: 'still cleaning up' } }));
+      renderForumView();
+
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      // Prominent recovery status + retry affordance.
+      expect(screen.getByText(/Stop incomplete — recovery required/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Retry Stop/i })).toBeEnabled();
+
+      // Composer is disabled and says why.
+      const composer = screen.getByPlaceholderText(/Stop incomplete — recovery required/i);
+      expect(composer).toBeDisabled();
+
+      // Configuration and participant controls are disabled.
+      expect(screen.getByRole('button', { name: '512' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Rules/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Add participant/i })).toBeDisabled();
+      const selects = screen.getAllByRole('combobox');
+      expect(selects.some((el) => (el as HTMLSelectElement).disabled)).toBe(true);
+
+      // Clicking a locked control issues no mutation.
+      fireEvent.click(screen.getByRole('button', { name: '512' }));
+      await waitFor(() => {
+        const mutations = fetchMock.mock.calls.filter(([url, init]) => {
+          const method = (init as RequestInit | undefined)?.method;
+          return method === 'PUT' || (method === 'POST' && !String(url).endsWith('/stop')) || method === 'DELETE';
+        });
+        expect(mutations).toHaveLength(0);
+      });
+    });
+
+    it('returns the UI to idle after a successful Retry Stop', async () => {
+      const recovered = { ...mockForum, status: 'idle' as const, current_member_id: null };
+      mockErrorForum(() => ({ status: 200, body: recovered }));
+      renderForumView();
+
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Retry Stop/i }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/agent-forums/forum-1/stop',
+          expect.objectContaining({ method: 'POST' })
+        );
+      });
+
+      // Banner gone, composer usable again.
+      await waitFor(() => {
+        expect(screen.queryByText(/Stop incomplete — recovery required/i)).not.toBeInTheDocument();
+      });
+      expect(screen.queryByRole('button', { name: /Retry Stop/i })).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Ask the forum|Type/i)).toBeEnabled();
+    });
+
+    it('stays in recovery and keeps the retry button after another 503', async () => {
+      mockErrorForum(() => ({ status: 503, body: { error: 'orphan still alive', code: 'forum_stop_incomplete' } }));
+      renderForumView();
+
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Retry Stop/i }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/agent-forums/forum-1/stop',
+          expect.objectContaining({ method: 'POST' })
+        );
+      });
+
+      // Still in recovery, retry still offered.
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Retry Stop/i })).toBeEnabled();
+      });
+      expect(screen.getByText(/Stop incomplete — recovery required/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Stop incomplete — recovery required/i)).toBeDisabled();
+    });
+
+    it('does not regress the running-state behaviour', async () => {
+      const runningForum = { ...mockForum, status: 'running' as const, current_member_id: 'm1' };
+      fetchMock.mockImplementation(async (input: string | Request | URL) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+        if (urlStr === '/api/projects') return jsonResponse([]);
+        if (urlStr === '/api/agent-forums') return jsonResponse([runningForum]);
+        if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(runningForum);
+        if (urlStr.startsWith('/api/models')) return jsonResponse({});
+        if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+        return jsonResponse({});
+      });
+
+      renderForumView();
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      // Running shows the live cycle affordances, not the recovery ones.
+      expect(screen.queryByText(/Stop incomplete — recovery required/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Retry Stop/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '512' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Add participant/i })).toBeDisabled();
+    });
+  });
 });

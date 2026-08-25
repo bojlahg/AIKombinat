@@ -18,15 +18,29 @@ const orchestratorMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../services/agent-forum-orchestrator.js', () => {
-  class ForumStopTimeoutError extends Error {
+  class ForumStopIncompleteError extends Error {
     constructor(public readonly forumId: string, message: string) {
       super(message);
+      this.name = 'ForumStopIncompleteError';
+    }
+  }
+  class ForumStopTimeoutError extends ForumStopIncompleteError {
+    constructor(forumId: string, message: string) {
+      super(forumId, message);
       this.name = 'ForumStopTimeoutError';
+    }
+  }
+  class ForumRecoveryPendingError extends ForumStopIncompleteError {
+    constructor(forumId: string, message: string, public readonly unresolvedOrphanProcesses: number) {
+      super(forumId, message);
+      this.name = 'ForumRecoveryPendingError';
     }
   }
   return {
     agentForumOrchestrator: orchestratorMocks,
+    ForumStopIncompleteError,
     ForumStopTimeoutError,
+    ForumRecoveryPendingError,
   };
 });
 
@@ -61,13 +75,13 @@ afterEach(() => {
   testDb.close();
 });
 
-function seedForum(status: 'idle' | 'running' = 'idle') {
+function seedForum(status: 'idle' | 'running' | 'error' = 'idle') {
   const forum = queries.createAgentForum('Route Forum', undefined, 1024);
   const a = queries.createAgentForumMember(forum.id, 'AgentA', 'participant', '', { cliTool: 'claude', sortOrder: 0 });
   const b = queries.createAgentForumMember(forum.id, 'AgentB', 'participant', '', { cliTool: 'claude', sortOrder: 1 });
   const c = queries.createAgentForumMember(forum.id, 'AgentC', 'participant', '', { cliTool: 'claude', sortOrder: 2 });
-  if (status === 'running') {
-    queries.updateAgentForum(forum.id, { status: 'running', current_cycle: 1, current_member_id: a.id });
+  if (status !== 'idle') {
+    queries.updateAgentForum(forum.id, { status, current_cycle: 1, current_member_id: status === 'running' ? a.id : null });
   }
   return { forum: queries.getAgentForumById(forum.id)!, a, b, c };
 }
@@ -169,6 +183,98 @@ describe('AgentForum routes - mutation lock while running', () => {
     expect(response.status).toBe(204);
     expect(orchestratorMocks.stopForum).toHaveBeenCalledWith(forum.id);
     expect(queries.getAgentForumById(forum.id)).toBeUndefined();
+  });
+});
+
+describe('AgentForum routes - forum awaiting recovery', () => {
+  it('rejects configuration changes with 409 while the forum is in error', async () => {
+    const { forum } = seedForum('error');
+
+    for (const body of [{ rules: 'new rules' }, { max_reply_length: 512 }, { project_id: null }]) {
+      const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json()).code).toBe('forum_recovery_required');
+    }
+
+    expect(queries.getAgentForumById(forum.id)!.max_reply_length).toBe(1024);
+  });
+
+  it('rejects participant mutations with 409 while the forum is in error', async () => {
+    const { forum, b } = seedForum('error');
+
+    const added = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'AgentD', role: 'participant', cli_tool: 'claude' }),
+    });
+    expect(added.status).toBe(409);
+
+    const changed = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/members/${b.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_prompt: 'nope' }),
+    });
+    expect(changed.status).toBe(409);
+
+    const removed = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/members/${b.id}`, {
+      method: 'DELETE',
+    });
+    expect(removed.status).toBe(409);
+
+    expect(queries.getAgentForumMembers(forum.id)).toHaveLength(3);
+    expect(queries.getAgentForumMemberById(b.id)!.system_prompt).toBe('');
+  });
+
+  it('routes DELETE on an error forum through stop/recovery and keeps the PID when it fails', async () => {
+    const { ForumRecoveryPendingError } = await import('../../services/agent-forum-orchestrator.js');
+    const { forum, a } = seedForum('error');
+    const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+    queries.updateAgentForumTurn(turn.id, { status: 'running', process_pid: 7171 });
+
+    orchestratorMocks.stopForum.mockImplementation(async () => {
+      throw new ForumRecoveryPendingError(forum.id, 'orphan still alive', 1);
+    });
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('forum_stop_incomplete');
+    expect(orchestratorMocks.stopForum).toHaveBeenCalledWith(forum.id);
+    // Nothing that cleanup still needs was destroyed.
+    expect(queries.getAgentForumById(forum.id)).toBeDefined();
+    expect(queries.getAgentForumTurnById(turn.id)!.process_pid).toBe(7171);
+  });
+
+  it('deletes an error forum once stop/recovery succeeds', async () => {
+    const { forum } = seedForum('error');
+    orchestratorMocks.stopForum.mockImplementation(async () => {
+      queries.updateAgentForum(forum.id, { status: 'idle', current_member_id: null });
+    });
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+
+    expect(response.status).toBe(204);
+    expect(orchestratorMocks.stopForum).toHaveBeenCalledWith(forum.id);
+    expect(queries.getAgentForumById(forum.id)).toBeUndefined();
+  });
+
+  it('returns 503 when Stop on an error forum cannot finish recovery', async () => {
+    const { ForumRecoveryPendingError } = await import('../../services/agent-forum-orchestrator.js');
+    const { forum } = seedForum('error');
+    orchestratorMocks.stopForum.mockImplementation(async () => {
+      throw new ForumRecoveryPendingError(forum.id, 'orphan still alive', 2);
+    });
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/stop`, { method: 'POST' });
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.code).toBe('forum_stop_incomplete');
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
   });
 });
 

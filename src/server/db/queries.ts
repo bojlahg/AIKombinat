@@ -2839,9 +2839,30 @@ export function deleteAgentForum(id: string): boolean {
   return db.prepare('DELETE FROM agent_forums WHERE id = ?').run(id).changes > 0;
 }
 
-export function getRunningAgentForums(): AgentForum[] {
+/**
+ * Forums that startup recovery must look at.
+ *
+ * `running` always qualifies — nothing owns that cycle any more after a
+ * restart. `error` qualifies only when there is something concrete left to
+ * reconcile: an unfinished turn, or a turn still holding a persisted PID. A
+ * forum parked in `error` by an earlier, already-cleaned-up failure has nothing
+ * to recover and is deliberately left alone.
+ */
+export function getAgentForumsNeedingRecovery(): AgentForum[] {
   const db = getDatabase();
-  return db.prepare("SELECT * FROM agent_forums WHERE status = 'running'").all() as AgentForum[];
+  return db.prepare(
+    `SELECT * FROM agent_forums f
+      WHERE f.status = 'running'
+         OR (
+           f.status = 'error'
+           AND EXISTS (
+             SELECT 1 FROM agent_forum_turns t
+              WHERE t.forum_id = f.id
+                AND (t.status IN ('pending', 'running') OR t.process_pid IS NOT NULL)
+           )
+         )
+      ORDER BY f.created_at ASC`
+  ).all() as AgentForum[];
 }
 
 // ── Agent Forum Members ──
@@ -3058,23 +3079,61 @@ export function getUnfinishedAgentForumTurns(forumId: string): AgentForumTurn[] 
 }
 
 /**
- * Marks every unfinished turn of a forum as `stopped`, preserving any output,
- * execution snapshot and message already recorded. Terminal turns
- * (completed / passed / failed / skipped / stopped) are never touched.
+ * Everything recovery has to look at for one forum: turns that never finished,
+ * plus any turn still holding a persisted PID (a terminal turn should not, but
+ * a crash between "process spawned" and "outcome recorded" can leave one).
+ */
+export function getAgentForumTurnsNeedingRecovery(forumId: string): AgentForumTurn[] {
+  const db = getDatabase();
+  return db.prepare(
+    `SELECT * FROM agent_forum_turns
+      WHERE forum_id = ?
+        AND (status IN ('pending', 'running') OR process_pid IS NOT NULL)
+      ORDER BY cycle_number ASC, turn_order ASC`
+  ).all(forumId) as AgentForumTurn[];
+}
+
+/**
+ * Reconciles the named turns to `stopped`, preserving any output, execution
+ * snapshot and message already recorded. Only turns that are still unfinished
+ * are touched — terminal turns (completed / passed / failed / skipped /
+ * stopped) keep their outcome, and only have a stray PID cleared.
+ *
+ * Callers pass an explicit turn list rather than "everything unfinished",
+ * because a turn whose orphan process could not be confirmed dead must keep
+ * both its PID and its unfinished status so recovery can be retried.
  *
  * Returns the number of turns reconciled.
  */
-export function markAgentForumTurnsInterrupted(forumId: string, reason: string): number {
+export function markAgentForumTurnsInterrupted(
+  forumId: string,
+  reason: string,
+  turnIds: string[],
+): number {
+  if (turnIds.length === 0) return 0;
   const db = getDatabase();
   const now = new Date().toISOString();
-  return db.prepare(
-    `UPDATE agent_forum_turns
-        SET status = 'stopped',
-            error_message = ?,
-            completed_at = COALESCE(completed_at, ?),
-            process_pid = NULL
-      WHERE forum_id = ? AND status IN ('pending', 'running')`
-  ).run(reason, now, forumId).changes;
+  const placeholders = turnIds.map(() => '?').join(', ');
+  const reconcile = db.transaction(() => {
+    // Terminal turns only need the stray PID dropped; their outcome stands.
+    db.prepare(
+      `UPDATE agent_forum_turns
+          SET process_pid = NULL
+        WHERE forum_id = ? AND id IN (${placeholders})
+          AND status NOT IN ('pending', 'running')`
+    ).run(forumId, ...turnIds);
+
+    return db.prepare(
+      `UPDATE agent_forum_turns
+          SET status = 'stopped',
+              error_message = ?,
+              completed_at = COALESCE(completed_at, ?),
+              process_pid = NULL
+        WHERE forum_id = ? AND id IN (${placeholders})
+          AND status IN ('pending', 'running')`
+    ).run(reason, now, forumId, ...turnIds).changes;
+  });
+  return reconcile();
 }
 
 export function updateAgentForumTurn(

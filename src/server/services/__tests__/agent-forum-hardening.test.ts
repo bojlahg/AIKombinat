@@ -13,7 +13,13 @@ vi.mock('../../db/connection.js', () => ({
 }));
 
 const queries = await import('../../db/queries.js');
-const { AgentForumOrchestrator, FORUM_TEMP_ROOT, ForumStopTimeoutError } = await import('../agent-forum-orchestrator.js');
+const {
+  AgentForumOrchestrator,
+  FORUM_TEMP_ROOT,
+  ForumStopTimeoutError,
+  ForumRecoveryPendingError,
+} = await import('../agent-forum-orchestrator.js');
+const processTree = await import('../../utils/process-tree.js');
 const { executorPool } = await import('../executor-pool.js');
 const { claudeManager } = await import('../claude-manager.js');
 const { providerQuotaService } = await import('../provider-quota.js');
@@ -930,6 +936,91 @@ describe('AgentForum lifecycle hardening', () => {
       for (const turn of queries.getAgentForumTurns(forum.id)) {
         expect(turn.process_pid).toBeNull();
       }
+    });
+  });
+
+  // ── Backend state gate for a forum parked in `error` ───────────────────────
+
+  describe('Forum in error state', () => {
+    const ORPHAN_PID = 515151;
+
+    it('refuses a new user message until recovery succeeds', async () => {
+      const { forum } = seedForum();
+      queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
+
+      const startSpy = vi.spyOn(claudeManager, 'startClaude');
+
+      await expect(orchestrator.postUserMessage(forum.id, 'Carry on?'))
+        .rejects.toThrow(/requires recovery/i);
+
+      expect(startSpy).not.toHaveBeenCalled();
+      // The un-runnable message was never persisted.
+      expect(queries.getAgentForumMessages(forum.id)).toHaveLength(1);
+    });
+
+    it('Stop on an error forum retries orphan cleanup and returns it to idle', async () => {
+      const { forum, a } = seedForum();
+      const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+      queries.updateAgentForumTurn(turn.id, { status: 'running', process_pid: ORPHAN_PID });
+      queries.updateAgentForum(forum.id, { status: 'error', current_member_id: a.id });
+
+      vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
+
+      await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+
+      expect(terminateSpy).toHaveBeenCalledWith(ORPHAN_PID);
+      const recovered = queries.getAgentForumById(forum.id)!;
+      expect(recovered.status).toBe('idle');
+      expect(recovered.current_member_id).toBeNull();
+      const after = queries.getAgentForumTurnById(turn.id)!;
+      expect(after.status).toBe('stopped');
+      expect(after.process_pid).toBeNull();
+
+      // The conversation continues normally once the forum is idle again.
+      vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+        const proc = createMockProcess(9990);
+        proc.stdout.write(PASS_PAYLOAD);
+        proc.resolveExit(0);
+        return proc as never;
+      });
+      await expect(orchestrator.postUserMessage(forum.id, 'Carry on?')).resolves.toBeDefined();
+    });
+
+    it('Stop on an error forum with a surviving orphan stays failed and retryable', async () => {
+      const { forum, a } = seedForum();
+      const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+      queries.updateAgentForumTurn(turn.id, { status: 'running', process_pid: ORPHAN_PID });
+      queries.updateAgentForum(forum.id, { status: 'error', current_member_id: a.id });
+
+      const aliveSpy = vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await expect(orchestrator.stopForum(forum.id)).rejects.toBeInstanceOf(ForumRecoveryPendingError);
+
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+      const stillOrphaned = queries.getAgentForumTurnById(turn.id)!;
+      expect(stillOrphaned.process_pid).toBe(ORPHAN_PID);
+      expect(stillOrphaned.status).toBe('running');
+
+      // Still refuses new messages while unresolved.
+      await expect(orchestrator.postUserMessage(forum.id, 'Carry on?')).rejects.toThrow(/requires recovery/i);
+
+      // Once the orphan exits, retrying Stop completes the cleanup.
+      aliveSpy.mockReturnValue(false);
+      terminateSpy.mockResolvedValue(true);
+      await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+      expect(queries.getAgentForumTurnById(turn.id)!.process_pid).toBeNull();
+    });
+
+    it('reports a stop timeout as an incomplete stop', async () => {
+      // ForumStopTimeoutError and ForumRecoveryPendingError share one base so
+      // the route layer can handle both with a single check.
+      const err = new ForumStopTimeoutError('f1', 'timed out');
+      expect(err).toBeInstanceOf(ForumStopTimeoutError);
+      expect(new ForumRecoveryPendingError('f1', 'pending', 1).unresolvedOrphanProcesses).toBe(1);
     });
   });
 });

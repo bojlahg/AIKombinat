@@ -16,6 +16,7 @@ import {
   ChevronRight,
   RotateCcw,
   Loader2,
+  AlertTriangle,
   X,
   Sparkles,
 } from 'lucide-react';
@@ -89,6 +90,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   const [userInput, setUserInput] = useState('');
   const [replyTarget, setReplyTarget] = useState<AgentForumMessage | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   // Top Bar Edit States
   const [showRulesModal, setShowRulesModal] = useState(false);
@@ -234,7 +236,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Send message
   const handleSendMessage = async () => {
-    if (!currentForum || !userInput.trim() || submitting || currentForum.status === 'running') return;
+    if (!currentForum || !userInput.trim() || submitting || currentForum.status !== 'idle') return;
     setSubmitting(true);
     try {
       await forumsApi.postUserMessage(currentForum.id, {
@@ -253,21 +255,31 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
     }
   };
 
-  // Stop forum cycle
+  // Stop the forum cycle. Doubles as "Retry Stop" for a forum parked in `error`:
+  // the backend treats a repeated Stop as a retry of the unfinished cleanup, and
+  // answers 503 while it still cannot confirm the previous cycle is gone.
   const handleStopCycle = async () => {
-    if (!currentForum) return;
+    if (!currentForum || stopping) return;
+    setStopping(true);
     try {
       await forumsApi.stopAgentForum(currentForum.id);
       const updated = await forumsApi.getAgentForum(currentForum.id);
       setCurrentForum(updated);
     } catch (err) {
       toastError(err instanceof Error ? err.message : 'Failed to stop forum');
+      // Refresh anyway so the banner reflects the server's current state; the
+      // forum stays in `error` and the retry button stays available.
+      try {
+        setCurrentForum(await forumsApi.getAgentForum(currentForum.id));
+      } catch { /* keep the last known state */ }
+    } finally {
+      setStopping(false);
     }
   };
 
   // Update Max Reply Length
   const handleMaxReplyLengthChange = async (len: number) => {
-    if (!currentForum || currentForum.status === 'running') return;
+    if (!currentForum || currentForum.status !== 'idle') return;
     try {
       const updated = await forumsApi.updateAgentForum(currentForum.id, { max_reply_length: len });
       setCurrentForum(updated);
@@ -279,7 +291,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Update Project Link
   const handleProjectLinkChange = async (projectId: string) => {
-    if (!currentForum || currentForum.status === 'running') return;
+    if (!currentForum || currentForum.status !== 'idle') return;
     try {
       const updated = await forumsApi.updateAgentForum(currentForum.id, { project_id: projectId || null });
       setCurrentForum(updated);
@@ -291,7 +303,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Save Rules
   const handleSaveRules = async () => {
-    if (!currentForum || currentForum.status === 'running') return;
+    if (!currentForum || currentForum.status !== 'idle') return;
     try {
       const updated = await forumsApi.updateAgentForum(currentForum.id, { rules: rulesDraft });
       setCurrentForum(updated);
@@ -330,7 +342,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   };
 
   const handleSaveMember = async () => {
-    if (!currentForum || !memberName.trim() || currentForum.status === 'running') return;
+    if (!currentForum || !memberName.trim() || currentForum.status !== 'idle') return;
     try {
       if (editingMember) {
         await forumsApi.updateAgentForumMember(currentForum.id, editingMember.id, {
@@ -364,7 +376,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    if (!currentForum || currentForum.status === 'running') return;
+    if (!currentForum || currentForum.status !== 'idle') return;
     if (currentForum.members.filter((m) => m.is_active !== 0).length <= 2) {
       toastError(t('forum.minMembersWarning'));
       return;
@@ -486,6 +498,11 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   }
 
   const isRunning = currentForum?.status === 'running';
+  // `error` means the previous cycle was never confirmed stopped (drain timeout
+  // or an orphan process startup recovery could not kill). The backend rejects
+  // every mutation until cleanup succeeds, so the UI must not offer them.
+  const needsRecovery = currentForum?.status === 'error';
+  const isLocked = isRunning || needsRecovery;
   // Removal is gated on ACTIVE participants: soft-disabled members still show in
   // the bar (their history is intact) but no longer count towards the quorum.
   const activeMemberCount = currentForum?.members.filter((m) => m.is_active !== 0).length ?? 0;
@@ -535,7 +552,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             <select
               value={currentForum?.project_id || ''}
               onChange={(e) => handleProjectLinkChange(e.target.value)}
-              disabled={isRunning}
+              disabled={isLocked}
               className="text-xs bg-theme-bg/60 border border-theme-border rounded-lg px-2.5 py-1 text-theme-text outline-none disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">{t('forum.standaloneOption')}</option>
@@ -554,7 +571,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
                 <button
                   key={len}
                   onClick={() => handleMaxReplyLengthChange(len)}
-                  disabled={isRunning}
+                  disabled={isLocked}
                   className={`px-1.5 py-0.5 rounded text-2xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     currentForum?.max_reply_length === len
                       ? 'bg-accent text-white font-semibold'
@@ -569,7 +586,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             {/* Rules button */}
             <button
               onClick={() => setShowRulesModal(true)}
-              disabled={isRunning}
+              disabled={isLocked}
               className="flex items-center gap-1.5 text-xs bg-theme-bg/60 hover:bg-theme-hover border border-theme-border px-2.5 py-1 rounded-lg text-theme-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Sliders size={13} />
@@ -616,9 +633,9 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             {currentForum?.members.map((m) => (
               <div
                 key={m.id}
-                onClick={() => { if (!isRunning) handleOpenEditMember(m); }}
+                onClick={() => { if (!isLocked) handleOpenEditMember(m); }}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-lg bg-theme-bg/80 border border-theme-border transition-colors ${
-                  isRunning ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-accent'
+                  isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-accent'
                 } ${m.is_active === 0 ? 'opacity-50 line-through' : ''} ${
                   currentForum.current_member_id === m.id ? 'ring-2 ring-accent ring-offset-1 animate-pulse' : ''
                 }`}
@@ -633,7 +650,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             ))}
             <button
               onClick={handleOpenAddMember}
-              disabled={isRunning}
+              disabled={isLocked}
               className="flex items-center gap-1 text-2xs px-2 py-1 rounded-lg border border-dashed border-theme-border hover:border-accent text-theme-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus size={11} />
@@ -655,6 +672,26 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               >
                 <Square size={10} />
                 {t('discussions.pause')}
+              </button>
+            </div>
+          )}
+
+          {needsRecovery && (
+            <div className="flex items-center gap-2">
+              <span
+                className="flex items-center gap-1.5 text-xs text-status-error font-medium"
+                title={t('forum.recoveryHint')}
+              >
+                <AlertTriangle size={13} />
+                {t('forum.recoveryRequired')}
+              </span>
+              <button
+                onClick={handleStopCycle}
+                disabled={stopping}
+                className="btn-danger text-2xs py-0.5 px-2 flex items-center gap-1 disabled:opacity-50"
+              >
+                {stopping ? <Loader2 size={10} className="animate-spin" /> : <RotateCcw size={10} />}
+                {t('forum.retryStop')}
               </button>
             </div>
           )}
@@ -795,20 +832,22 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               }
             }}
             placeholder={
-              isRunning
+              needsRecovery
+                ? t('forum.recoveryRequired')
+                : isRunning
                 ? t('forum.cycleRunning')
                 : replyTarget
                 ? `${t('forum.replyToPlaceholder')} @${replyTarget.author_name}...`
                 : t('forum.inputPlaceholder')
             }
-            disabled={isRunning || submitting}
+            disabled={isLocked || submitting}
             rows={2}
             className="input-field flex-1 resize-none text-sm py-2"
           />
 
           <button
             onClick={handleSendMessage}
-            disabled={!userInput.trim() || isRunning || submitting}
+            disabled={!userInput.trim() || isLocked || submitting}
             className="btn-primary px-4 py-2.5 flex items-center justify-center gap-1.5 h-[42px] disabled:opacity-50"
           >
             {submitting ? (
@@ -847,7 +886,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               <button onClick={() => setShowRulesModal(false)} className="btn text-xs">
                 {t('header.cancel')}
               </button>
-              <button onClick={handleSaveRules} disabled={isRunning} className="btn-primary text-xs">
+              <button onClick={handleSaveRules} disabled={isLocked} className="btn-primary text-xs">
                 {t('header.save')}
               </button>
             </div>
@@ -912,7 +951,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               <h3 className="text-base font-semibold text-theme-text">
                 {editingMember ? t('agents.edit') : t('agents.add')}
               </h3>
-              {editingMember && currentForum && activeMemberCount > 2 && !isRunning && (
+              {editingMember && currentForum && activeMemberCount > 2 && !isLocked && (
                 <button
                   onClick={() => {
                     handleDeleteMember(editingMember.id);
@@ -1013,7 +1052,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               </button>
               <button
                 onClick={handleSaveMember}
-                disabled={!memberName.trim() || isRunning}
+                disabled={!memberName.trim() || isLocked}
                 className="btn-primary text-xs"
               >
                 {t('header.save')}

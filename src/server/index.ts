@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import crypto from 'crypto';
 import { getDatabase } from './db/connection.js';
-import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession, getRunningAgentForums } from './db/queries.js';
+import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession } from './db/queries.js';
 import { initAuth } from './middleware/auth.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
@@ -168,21 +168,32 @@ if (staleSessions.length > 0) {
   }
 }
 
-// Startup recovery: reset stale 'running' agent forums to 'idle' and reconcile
-// their unfinished turns (plus any orphan CLI process those turns left behind).
-const staleAgentForums = getRunningAgentForums();
-if (staleAgentForums.length > 0) {
-  console.log(`Recovering ${staleAgentForums.length} stale running agent forum(s)...`);
-  recoverInterruptedAgentForums()
-    .then((report) => {
-      console.log(
-        `  Reconciled ${report.turnsReconciled} interrupted forum turn(s); `
-        + `terminated ${report.orphanProcessesTerminated} orphan process(es)`,
-      );
-    })
-    .catch((err) => {
-      console.error('Agent forum startup recovery failed:', err);
-    });
+// Startup recovery: reconcile agent forums left behind by a crash, restart or a
+// Stop that never completed — their unfinished turns and any orphan CLI process
+// those turns left running. Awaited: the app must not start serving requests
+// while a previous run's processes are still unaccounted for. A forum whose
+// orphan cannot be killed stays in 'error' (its endpoints fail closed) rather
+// than holding up the whole server.
+try {
+  const forumRecovery = await recoverInterruptedAgentForums();
+  if (forumRecovery.forumsRecovered > 0 || forumRecovery.turnsReconciled > 0 || forumRecovery.unresolvedOrphanProcesses > 0) {
+    console.log(
+      `  Recovered ${forumRecovery.forumsRecovered} agent forum(s); `
+      + `reconciled ${forumRecovery.turnsReconciled} interrupted turn(s); `
+      + `terminated ${forumRecovery.orphanProcessesTerminated} orphan process(es)`,
+    );
+  }
+  if (forumRecovery.unresolvedOrphanProcesses > 0) {
+    console.warn(
+      `  ${forumRecovery.unresolvedOrphanProcesses} orphan process(es) could not be terminated. `
+      + 'The affected forum(s) stay in recovery — use Stop once those processes exit.',
+    );
+    for (const orphan of forumRecovery.unresolvedOrphans) {
+      console.warn(`    forum ${orphan.forumId} turn ${orphan.turnId} pid ${orphan.pid}`);
+    }
+  }
+} catch (err) {
+  console.error('Agent forum startup recovery failed:', err);
 }
 
 // One-shot legacy paste-images cleanup. Older builds saved clipboard
