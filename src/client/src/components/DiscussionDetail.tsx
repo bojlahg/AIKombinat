@@ -699,7 +699,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
 
       {showImplementModal && (
         <Modal open onClose={() => setShowImplementModal(false)} size="sm">
-          <div className="glass-card rounded-2xl p-6 shadow-elevated space-y-4">
+          <div className="bg-theme-card border border-theme-border rounded-2xl p-6 shadow-elevated space-y-4">
             <h3 className="text-sm font-semibold text-warm-700">{t('discussions.selectAgent')}</h3>
             <p className="text-xs text-warm-400">{t('discussions.implementHint')}</p>
             <div className="space-y-2">
@@ -729,7 +729,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
 
       {extractOpen && (
         <Modal open onClose={() => !extractSaving && !extractLoading && setExtractOpen(false)} size="lg">
-          <div className="glass-card rounded-2xl p-6 shadow-elevated space-y-4 max-h-[85vh] flex flex-col">
+          <div className="bg-theme-card border border-theme-border rounded-2xl p-6 shadow-elevated space-y-4 max-h-[85vh] flex flex-col">
             <div>
               <h3 className="text-sm font-semibold text-warm-700">{t('discussions.extractTitle')}</h3>
               <p className="text-xs text-warm-400 mt-1">{t('discussions.extractHint')}</p>

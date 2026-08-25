@@ -402,7 +402,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   if (collapsed) {
     const railDivider = <div className="w-7 border-t my-1.5" style={{ borderColor: 'var(--color-border)' }} />;
     return (
-      <div className="flex flex-col items-center h-full glass border-none py-3">
+      <div className="flex flex-col items-center h-full bg-theme-bg-secondary border-none py-3">
         <IconButton
           onClick={onToggleCollapsed}
           label={t('sidebar.expand')}
@@ -505,7 +505,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
 
   return (
     <div
-      className="flex flex-col h-full glass border-none"
+      className="flex flex-col h-full bg-theme-bg-secondary border-none"
       // Defence in depth: any element inside the sidebar that the browser
       // tries to start a native drag from (anchor, image, selected text)
       // is canceled here. Without it, Edge can grab a drag from anywhere

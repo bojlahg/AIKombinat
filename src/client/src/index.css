@@ -113,9 +113,11 @@
     @apply font-normal;
   }
 
-  /* Global smooth transitions for all interactive elements */
+  /* Global transitions for interactive elements — individual properties only.
+     `all` animates layout properties too (height on textarea resize, etc.). */
   a, button, input, select, textarea, .card {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: color 0.15s, background-color 0.15s, border-color 0.15s,
+                opacity 0.15s, transform 0.2s, box-shadow 0.2s;
   }
 
   /* Native form controls inherit the action accent — no browser-default magenta. */
@@ -150,7 +152,7 @@
     border: 1px solid var(--color-border-muted);
     box-shadow: var(--shadow-soft), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
     position: relative;
-    @apply rounded-xl transition-all duration-300 overflow-hidden;
+    @apply rounded-xl transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200 overflow-hidden;
   }
 
   /* Accent top line on hover */
@@ -199,7 +201,7 @@
     color: var(--color-text-secondary);
     border: 1px solid var(--color-border-muted);
     @apply inline-flex items-center justify-center gap-2 font-medium
-           px-4 py-2 rounded-xl transition-all duration-300
+           px-4 py-2 rounded-xl transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200
            hover:bg-theme-bg-tertiary hover:text-theme-text hover:-translate-y-0.5
            active:scale-[0.97]
            disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:transform-none;
@@ -210,7 +212,7 @@
     color: var(--color-accent);
     border: 1px solid var(--color-border);
     @apply inline-flex items-center justify-center gap-2 font-semibold
-           px-6 py-2.5 rounded-xl transition-all duration-300 relative overflow-hidden
+           px-6 py-2.5 rounded-xl transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200 relative overflow-hidden
            disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:transform-none
            active:scale-[0.97];
   }
@@ -241,7 +243,7 @@
     border: 1px solid var(--color-border-muted);
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.04);
     @apply inline-flex items-center justify-center gap-2 font-semibold
-           px-6 py-2.5 rounded-xl transition-all duration-300
+           px-6 py-2.5 rounded-xl transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200
            hover:bg-theme-active hover:text-theme-text hover:shadow-soft hover:-translate-y-0.5
            active:scale-[0.97] active:brightness-90
            disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:transform-none;
@@ -250,7 +252,7 @@
   .btn-danger {
     @apply inline-flex items-center justify-center gap-2 bg-status-error/10 text-status-error font-semibold
            border border-status-error/20
-           px-6 py-2.5 rounded-xl transition-all duration-300
+           px-6 py-2.5 rounded-xl transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200
            hover:bg-status-error hover:text-white hover:shadow-lg hover:shadow-status-error/20 hover:-translate-y-0.5
            active:scale-[0.97] active:brightness-90
            disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:transform-none;
@@ -260,7 +262,7 @@
     color: var(--color-text-tertiary);
     border: 1px solid var(--color-border-muted);
     @apply inline-flex items-center justify-center gap-2 font-medium
-           px-3 py-2 rounded-xl transition-all duration-300
+           px-3 py-2 rounded-xl transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200
            hover:bg-theme-bg-tertiary hover:text-theme-text hover:-translate-y-0.5
            active:scale-[0.95] active:bg-theme-active
            disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:transform-none;
@@ -273,7 +275,7 @@
 
   /* Icon-only button */
   .btn-icon {
-    @apply inline-flex items-center justify-center rounded-lg transition-all duration-200
+    @apply inline-flex items-center justify-center rounded-lg transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200
            hover:bg-theme-hover active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed;
     color: var(--color-text-tertiary);
   }
@@ -301,7 +303,7 @@
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
     /* Not transition-all: `all` includes height, which animates the native
        resize-grip drag on textareas and makes it lag behind the cursor. */
-    transition: background-color 300ms, border-color 300ms, box-shadow 300ms, transform 300ms;
+    transition: background-color 200ms, border-color 200ms, box-shadow 200ms, transform 200ms;
     @apply w-full rounded-xl px-4 py-3 text-sm
            focus:outline-none focus:ring-4 focus:bg-white dark:focus:bg-black/20;
   }
@@ -336,13 +338,6 @@
     color: var(--color-text-tertiary);
   }
 
-  /* Small metric chip for stats display */
-  .metric-chip {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium;
-    background-color: var(--color-bg-tertiary);
-    color: var(--color-text-tertiary);
-  }
-
   /* Panel container for settings sections */
   .panel {
     @apply p-4 rounded-xl;
@@ -353,7 +348,7 @@
     background-color: var(--color-bg-tertiary);
     color: var(--color-text-tertiary);
     @apply flex items-center justify-center w-9 h-9 rounded-xl
-           font-bold text-2xs transition-all duration-300
+           font-bold text-2xs transition-[color,background-color,border-color,opacity,transform,box-shadow] duration-200
            hover:bg-accent hover:text-white hover:shadow-accent hover:-translate-y-0.5
            active:scale-[0.9] active:brightness-90;
   }
@@ -526,25 +521,6 @@
   .markdown-content-dark hr {
     border-color: #3c3c3c;
     @apply my-3;
-  }
-
-  .glass {
-    @apply backdrop-blur-md border border-white/20;
-    background: rgba(255, 255, 255, 0.7);
-  }
-  :is([data-theme="dark"] .glass) {
-    @apply border-white/10;
-    background: color-mix(in srgb, var(--color-bg-secondary) 85%, transparent);
-  }
-
-  .glass-card {
-    @apply backdrop-blur-xl border shadow-glass;
-    background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
-    border-color: color-mix(in srgb, var(--color-bg-tertiary) 50%, transparent);
-  }
-  :is([data-theme="dark"] .glass-card) {
-    @apply border-white/10;
-    background: color-mix(in srgb, var(--color-bg-card) 85%, transparent);
   }
 
   /* Sidebar right edge */
