@@ -34,6 +34,9 @@ export class Orchestrator {
   private activeResourceRuns = new Map<string, string>();
   private isStoppingProjects = new Set<string>();
   private stoppingTodoIds = new Set<string>();
+  private activeStartTokens = new Map<string, string>();
+  private startGenerations = new Map<string, number>();
+  private activeStartPromises = new Map<string, Promise<void>>();
 
   /**
    * Start periodic process liveness check.
@@ -224,6 +227,11 @@ export class Orchestrator {
     const todos = queries.getTodosByProjectId(projectId);
     const running = todos.filter((t) => t.status === 'running');
     const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource');
+    todos.forEach((t) => {
+      this.activeStartTokens.delete(t.id);
+      this.startGenerations.set(t.id, (this.startGenerations.get(t.id) ?? 0) + 1);
+      executorPool.releaseReservation(t.id);
+    });
     running.forEach((t) => this.stoppingTodoIds.add(t.id));
     waiting.forEach((t) => this.stoppingTodoIds.add(t.id));
 
@@ -394,6 +402,9 @@ export class Orchestrator {
     }
 
     this.stoppingTodoIds.add(todoId);
+    this.activeStartTokens.delete(todoId);
+    this.startGenerations.set(todoId, (this.startGenerations.get(todoId) ?? 0) + 1);
+    executorPool.releaseReservation(todoId);
     try {
       if (todo.process_pid) {
         await claudeManager.stopClaude(todo.process_pid);
@@ -435,6 +446,16 @@ export class Orchestrator {
    * When continueOptions is provided, reuses the existing worktree and runs a
    * follow-up prompt (no new worktree, no squash merge, CLI session continued).
    */
+  private isStartupValid(todoId: string, startToken: string, projectId: string): boolean {
+    if (this.isStoppingProjects.has(projectId)) return false;
+    if (this.stoppingTodoIds.has(todoId)) return false;
+    if (this.activeStartTokens.get(todoId) !== startToken) return false;
+    const currentTodo = queries.getTodoById(todoId);
+    if (!currentTodo) return false;
+    if (currentTodo.status === 'stopped') return false;
+    return true;
+  }
+
   private failCurrentRoundAndTodo(
     todoId: string,
     projectId: string,
@@ -451,16 +472,25 @@ export class Orchestrator {
     } else {
       resourceManager.releaseOwner('todo', todoId);
     }
+
+    const currentTodo = queries.getTodoById(todoId);
+    if (!currentTodo || currentTodo.status === 'stopped' || this.isStoppingProjects.has(projectId) || this.stoppingTodoIds.has(todoId)) {
+      return;
+    }
+
     queries.updateTodoStatus(todoId, 'failed');
     queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
     if (currentRound) {
-      queries.updateExecutionRound(currentRound.id, {
-        status: 'failed',
-        error_message: errorMessage,
-        finished_at: new Date().toISOString(),
-      });
-      const updated = queries.getExecutionRoundById(currentRound.id);
-      if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+      const freshRound = queries.getExecutionRoundById(currentRound.id);
+      if (freshRound && freshRound.status !== 'stopped') {
+        queries.updateExecutionRound(currentRound.id, {
+          status: 'failed',
+          error_message: errorMessage,
+          finished_at: new Date().toISOString(),
+        });
+        const updated = queries.getExecutionRoundById(currentRound.id);
+        if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
+      }
     }
     const logMsg = adapterDisplayName ? `Failed to start ${adapterDisplayName}: ${errorMessage}` : errorMessage;
     queries.createTaskLog(todoId, 'error', logMsg, roundNumber);
@@ -477,13 +507,54 @@ export class Orchestrator {
     autoChain: boolean = false,
     continueOptions?: { followUpPrompt: string; roundNumber: number },
   ): Promise<void> {
+    if (this.isStoppingProjects.has(projectId) || this.stoppingTodoIds.has(todoId)) {
+      return;
+    }
+
+    const inFlight = this.activeStartPromises.get(todoId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const startToken = uuidv4();
+    this.activeStartTokens.set(todoId, startToken);
+    const generation = (this.startGenerations.get(todoId) ?? 0) + 1;
+    this.startGenerations.set(todoId, generation);
+
+    let startPromise: Promise<void> | null = null;
+    startPromise = (async () => {
+      try {
+        await this.executeStartSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions, startToken);
+      } finally {
+        if (this.activeStartTokens.get(todoId) === startToken) {
+          this.activeStartTokens.delete(todoId);
+        }
+        if (this.activeStartPromises.get(todoId) === startPromise) {
+          this.activeStartPromises.delete(todoId);
+        }
+      }
+    })();
+
+    this.activeStartPromises.set(todoId, startPromise);
+    return startPromise;
+  }
+
+  private async executeStartSingleTodo(
+    todoId: string,
+    projectPath: string,
+    projectId: string,
+    mode: ClaudeMode = 'headless',
+    autoChain: boolean = false,
+    continueOptions?: { followUpPrompt: string; roundNumber: number },
+    startToken?: string,
+  ): Promise<void> {
     const todo = queries.getTodoById(todoId);
     if (!todo) return;
 
     const project = queries.getProjectById(projectId);
     if (!project) return;
 
-    if (this.isStoppingProjects.has(projectId) || this.stoppingTodoIds.has(todoId)) {
+    if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
       return;
     }
 
@@ -493,6 +564,9 @@ export class Orchestrator {
     let currentRound: queries.TodoExecutionRound | undefined = undefined;
     if (todo.review_enabled) {
       reviewPipeline.ensureInitialRound(todoId);
+      if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+        return;
+      }
       currentRound = queries.getActiveExecutionRound(todoId);
       if (!currentRound) {
         const latestRound = queries.getLatestExecutionRound(todoId);
@@ -573,6 +647,11 @@ export class Orchestrator {
           reserveOwnerId: todoId,
         });
 
+        if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+          executorPool.releaseReservation(todoId);
+          return;
+        }
+
         if (selection.status === 'waiting_executor') {
           queries.updateTodoStatus(todoId, 'waiting_executor');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
@@ -644,6 +723,10 @@ export class Orchestrator {
           roundNumber,
         );
       } catch (err) {
+        if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+          executorPool.releaseReservation(todoId);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         queries.updateTodoStatus(todoId, 'failed');
         queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
@@ -722,6 +805,10 @@ export class Orchestrator {
           return;
         }
       } catch (err) {
+        if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+          executorPool.releaseReservation(todoId);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         this.failCurrentRoundAndTodo(todoId, projectId, currentRound, `Configuration error: ${message}`, roundNumber);
         return;
@@ -735,6 +822,11 @@ export class Orchestrator {
     let debugSession: DebugSession | null = null;
     let executionStartRowid = 0;
     let streamDrainPromise: Promise<void> | null = null;
+
+    if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+      executorPool.releaseReservation(todoId);
+      return;
+    }
 
     try {
       adapter = getAdapter(resolvedCliTool);
@@ -790,6 +882,10 @@ export class Orchestrator {
       }
       executorPool.releaseReservation(todoId);
     } catch (err) {
+      if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+        executorPool.releaseReservation(todoId);
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       this.failCurrentRoundAndTodo(todoId, projectId, currentRound, `Resource configuration error: ${message}`, roundNumber);
       return;
@@ -810,6 +906,12 @@ export class Orchestrator {
         // Reuse existing worktree if available (context switch restart OR continue scenario)
         // Validates that the worktree is a real git checkout, not just an empty directory
         if (todo.worktree_path && todo.branch_name && isGitRepo && (await worktreeManager.isValidWorktree(todo.worktree_path))) {
+          if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+            if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+            else resourceManager.releaseOwner('todo', todoId);
+            this.activeResourceRuns.delete(todoId);
+            return;
+          }
           worktreePath = todo.worktree_path;
           branchName = todo.branch_name;
           queries.createTaskLog(todoId, 'output', `Reusing existing worktree at ${worktreePath} (branch: ${branchName})`, roundNumber);
@@ -825,6 +927,12 @@ export class Orchestrator {
           if (isGitRepo) {
             const requestedBranch = worktreeManager.sanitizeBranchName(todo.title);
             const wt = await worktreeManager.createWorktree(projectPath, requestedBranch, !!project.npm_auto_install);
+            if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+              if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+              else resourceManager.releaseOwner('todo', todoId);
+              this.activeResourceRuns.delete(todoId);
+              return;
+            }
             worktreePath = wt.worktreePath;
             branchName = wt.branchName;
           } else {
@@ -926,6 +1034,12 @@ export class Orchestrator {
           query: `${todo.title}\n${todo.description ?? ''}`.trim(),
           log: (type, message) => queries.createTaskLog(todoId, type, message, roundNumber),
         });
+        if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+          if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+          else resourceManager.releaseOwner('todo', todoId);
+          this.activeResourceRuns.delete(todoId);
+          return;
+        }
         if (memBlock) {
           prompt = `${memBlock}\n\n${prompt}`;
         }
@@ -969,6 +1083,18 @@ export class Orchestrator {
       pid = result.pid;
       exitPromise = result.exitPromise;
 
+      if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+        if (pid && pid > 0) {
+          try {
+            await claudeManager.stopClaude(pid).catch(() => {});
+          } catch { /* ignore */ }
+        }
+        if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+        else resourceManager.releaseOwner('todo', todoId);
+        this.activeResourceRuns.delete(todoId);
+        return;
+      }
+
       // Debug logging: capture full stdin/stdout/stderr to file
       let stdout = result.stdout;
       let stderr = result.stderr;
@@ -1003,8 +1129,14 @@ export class Orchestrator {
       broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'running', mode, worktree_path: worktreePath, branch_name: branchName });
       this.broadcastProjectStatus(projectId);
     } catch (err) {
+      if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+        if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
+        else resourceManager.releaseOwner('todo', todoId);
+        this.activeResourceRuns.delete(todoId);
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
-      this.failCurrentRoundAndTodo(todoId, projectId, currentRound, message, roundNumber, adapter.displayName);
+      this.failCurrentRoundAndTodo(todoId, projectId, currentRound, message, roundNumber, adapter?.displayName);
       return;
     }
 

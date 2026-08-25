@@ -110,6 +110,7 @@ const { executorPool } = await import('../executor-pool.js');
 const { resourceManager } = await import('../resource-manager.js');
 const { providerQuotaService } = await import('../provider-quota.js');
 const { claudeManager } = await import('../claude-manager.js');
+const { worktreeManager } = await import('../worktree-manager.js');
 const { executionRoundRetryService, RetryConflictError } = await import('../execution-round-retry.js');
 
 describe('Execution Round Retry & Recovery V1', () => {
@@ -1702,6 +1703,361 @@ describe('Execution Round Retry & Recovery V1', () => {
 
     nextExitResolvers[initialStartsCount](0);
     executorPool.resetLimits();
+  });
+
+  it('37. Concurrent manual start and admission wake spawns exactly once', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-manwake', 'Claude 3.7 Sonnet ManWake');
+    const profile = queries.createExecutionProfile({
+      name: 'ManWake Profile',
+      slug: 'manwake-profile',
+      description: 'ManWake profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+      ],
+    });
+
+    providerQuotaService.markExhausted('claude', { source: 'test', reason: 'exhausted' });
+
+    const todo = queries.createTodo(
+      project.id,
+      'Task Manual Start and Admission Wake',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    await orchestrator.startTodo(todo.id);
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_quota');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    providerQuotaService.markUnknown('claude');
+
+    // Launch manual start and admission wake concurrently
+    await Promise.all([
+      orchestrator.startTodo(todo.id),
+      orchestrator.wakeWaitingQuota(),
+    ]);
+
+    const updatedTodo = queries.getTodoById(todo.id)!;
+    expect(updatedTodo.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    nextExitResolvers[initialStartsCount](0);
+  });
+
+  it('38. Concurrent startProject and admission wake spawns exactly once', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-projwake', 'Claude 3.7 Sonnet ProjWake');
+    const profile = queries.createExecutionProfile({
+      name: 'ProjWake Profile',
+      slug: 'projwake-profile',
+      description: 'ProjWake profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+      ],
+    });
+
+    const testProject = queries.createProject('ProjWake Project', '/tmp/projwake-proj');
+
+    const todo = queries.createTodo(
+      testProject.id,
+      'Task ProjWake',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // Concurrently start project and wake admission
+    await Promise.all([
+      orchestrator.startProject(testProject.id),
+      orchestrator.wakeWaitingExecutors(),
+    ]);
+
+    const updatedTodo = queries.getTodoById(todo.id)!;
+    expect(updatedTodo.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    nextExitResolvers[initialStartsCount](0);
+  });
+
+  it('39. Repeated concurrent manual start attempts never spawn twice', async () => {
+    const todo = queries.createTodo(
+      project.id,
+      'Task Concurrent Manual Start',
+      'Desc',
+      1,
+      'claude',
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // Concurrent manual start calls
+    await Promise.allSettled([
+      orchestrator.startTodo(todo.id),
+      orchestrator.startTodo(todo.id),
+    ]);
+
+    const updatedTodo = queries.getTodoById(todo.id)!;
+    expect(updatedTodo.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    nextExitResolvers[initialStartsCount](0);
+  });
+
+  it('40. Stop during async executor selection cancels startup and cleans up reservations', async () => {
+    const testProject = queries.createProject('StopSel Project', '/tmp/stopsel-proj');
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-stopsel', 'Claude 3.7 Sonnet StopSel');
+    const profile = queries.createExecutionProfile({
+      name: 'StopSel Profile',
+      slug: 'stopsel-profile',
+      description: 'StopSel profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+      ],
+    });
+
+    const todo = queries.createTodo(
+      testProject.id,
+      'Task Stop During Selection',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+      'high',
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    // Initial round created
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round1 = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round1.id, {
+      status: 'failed',
+      error_message: 'Failure 1',
+      finished_at: new Date().toISOString(),
+    });
+    queries.updateTodoStatus(todo.id, 'failed');
+
+    // Create a controllable delay in selectExecutor
+    let resolveSelect: () => void;
+    const selectPromise = new Promise<void>((resolve) => {
+      resolveSelect = resolve;
+    });
+
+    const origSelect = executorPool.selectExecutor.bind(executorPool);
+    const selectSpy = vi.spyOn(executorPool, 'selectExecutor').mockImplementation(async (opts) => {
+      const res = await origSelect(opts);
+      await selectPromise;
+      return res;
+    });
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // Begin retry phase (which calls startTodo -> selectExecutor)
+    const retryPromise = executionRoundRetryService.retryExecutionRound(todo.id, round1.id);
+
+    // Give time for selectExecutor to be called
+    await new Promise((r) => setTimeout(r, 10));
+
+    // While selectExecutor is in-flight, user clicks Stop Todo
+    await orchestrator.stopTodo(todo.id);
+
+    // Release the selectExecutor delay
+    resolveSelect!();
+    await retryPromise.catch(() => {});
+
+    // Assertions:
+    // 1. No CLI process spawned
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+    // 2. Todo remains stopped
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+    // 3. Retry round remains stopped
+    const rounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(rounds).toHaveLength(2);
+    expect(rounds[1].status).toBe('stopped');
+    // 4. No executor reservation remains
+    expect(executorPool.getReservations().find((r) => r.ownerId === todo.id)).toBeUndefined();
+
+    // 5. Subsequent wake does not resurrect
+    await orchestrator.wakeWaitingExecutors();
+    await orchestrator.wakeWaitingQuota();
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    selectSpy.mockRestore();
+  });
+
+  it('41. Stop during async worktree setup cancels startup and cleans up resources', async () => {
+    const testProject = queries.createProject('StopWT Project', '/tmp/stopwt-proj', undefined, undefined, 1);
+    const todo = queries.createTodo(
+      testProject.id,
+      'Task Stop During Worktree',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    let resolveWorktree: () => void;
+    const worktreePromise = new Promise<void>((resolve) => {
+      resolveWorktree = resolve;
+    });
+
+    const createWorktreeSpy = vi.spyOn(worktreeManager, 'createWorktree').mockImplementation(async () => {
+      await worktreePromise;
+      return {
+        worktreePath: '/tmp/worktree-stop-wt',
+        branchName: 'task-stop-wt',
+      };
+    });
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    const startPromise = orchestrator.startTodo(todo.id);
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Stop while worktree creation is pending
+    await orchestrator.stopTodo(todo.id);
+
+    // Release worktree creation
+    resolveWorktree!();
+    await startPromise.catch(() => {});
+
+    // Assertions
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+    expect(queries.getTodoById(todo.id)?.status).toBe('stopped');
+    const round = queries.getExecutionRoundsByTodoId(todo.id)[0];
+    expect(round.status).toBe('stopped');
+
+    createWorktreeSpy.mockRestore();
+  });
+
+  it('42. Stop while startClaude is pending immediately terminates spawned process and prevents resurrection', async () => {
+    const testProject = queries.createProject('StopStartClaude Project', '/tmp/stopsc-proj');
+    const todo = queries.createTodo(
+      testProject.id,
+      'Task Stop During StartClaude',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+
+    let resolveStartClaude: (val: any) => void;
+    const startClaudePromise = new Promise<any>((resolve) => {
+      resolveStartClaude = resolve;
+    });
+
+    const startClaudeSpy = vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      return startClaudePromise;
+    });
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    const startPromise = orchestrator.startTodo(todo.id);
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Call stopTodo while startClaude is awaiting process spawn
+    await orchestrator.stopTodo(todo.id);
+
+    // Clear stopClaude mock calls before resolving late process
+    vi.mocked(claudeManager.stopClaude).mockClear();
+
+    // Now resolve startClaude with a spawned OS PID
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const latePid = 9999;
+    resolveStartClaude!({
+      pid: latePid,
+      exitPromise: Promise.resolve(0),
+      stdout,
+      stderr,
+      command: 'claude',
+      args: [],
+    });
+
+    await startPromise.catch(() => {});
+
+    // Assertions:
+    // 1. claudeManager.stopClaude was immediately called for the late-spawned PID
+    expect(claudeManager.stopClaude).toHaveBeenCalledWith(latePid);
+    // 2. PID 9999 was NOT saved on the Todo
+    const currentTodo = queries.getTodoById(todo.id)!;
+    expect(currentTodo.process_pid).toBe(0);
+    expect(currentTodo.status).toBe('stopped');
+    // 3. Round remains stopped
+    const round = queries.getExecutionRoundsByTodoId(todo.id)[0];
+    expect(round.status).toBe('stopped');
+
+    startClaudeSpy.mockRestore();
   });
 });
 
