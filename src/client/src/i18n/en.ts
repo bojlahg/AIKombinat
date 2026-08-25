@@ -1657,4 +1657,9 @@ export const en = {
     'review.pipeline.issues': 'Issues ({count})',
     'review.pipeline.noIssues': 'No issues reported.',
     'review.pipeline.emptyRounds': 'No execution rounds recorded yet.',
+    'review.pipeline.action.retryPhase': 'Retry Phase',
+    'review.pipeline.action.retryImplementation': 'Retry Implementation',
+    'review.pipeline.action.retryReview': 'Retry Review',
+    'review.pipeline.action.retryRework': 'Retry Rework',
+    'review.pipeline.retryAttempt': 'Retry {attempt}',
 } as const;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Todo, TodoExecutionRound, ReviewResult, ReviewIssueSeverity } from '../types';
+import type { Todo, TodoExecutionRound, ReviewResult, ReviewIssueSeverity, RoundPhase } from '../types';
 import { useI18n } from '../i18n';
 import {
   CheckCircle,
@@ -21,6 +21,7 @@ interface ReviewTimelineProps {
   onApprove?: () => void;
   onRequestRework?: () => void;
   onStopLoop?: () => void;
+  onRetryRound?: (round: TodoExecutionRound) => void;
   loadingAction?: string | null;
 }
 
@@ -59,12 +60,63 @@ function getSeverityBadge(severity: ReviewIssueSeverity, t: (key: string) => str
   }
 }
 
+function getRoundDisplayTitle(round: TodoExecutionRound, allRounds: TodoExecutionRound[], t: (key: string) => string): string {
+  const sorted = [...allRounds].sort((a, b) => a.round_index - b.round_index);
+
+  const getRoot = (r: TodoExecutionRound): TodoExecutionRound => {
+    let curr = r;
+    while (curr.retry_of_round_id) {
+      const parent = sorted.find((p) => p.id === curr.retry_of_round_id);
+      if (!parent || parent.id === curr.id) break;
+      curr = parent;
+    }
+    return curr;
+  };
+
+  const attempt = round.attempt_index && round.attempt_index > 1 ? round.attempt_index : 1;
+  const retrySuffix = attempt > 1 ? ` · ${t('review.pipeline.retryAttempt').replace('{attempt}', String(attempt))}` : '';
+
+  if (round.phase === 'implementation') {
+    return `${t('review.pipeline.phase.implementation')}${retrySuffix}`;
+  }
+
+  if (round.phase === 'review') {
+    const root = getRoot(round);
+    const rootReviewRounds = sorted.filter((r) => r.phase === 'review' && !r.retry_of_round_id && r.round_index <= root.round_index);
+    const logicalNum = rootReviewRounds.length > 0 ? rootReviewRounds.length : 1;
+    return `${t('review.pipeline.phase.review')} #${logicalNum}${retrySuffix}`;
+  }
+
+  if (round.phase === 'rework') {
+    const root = getRoot(round);
+    const rootReworkRounds = sorted.filter((r) => r.phase === 'rework' && !r.retry_of_round_id && r.round_index <= root.round_index);
+    const logicalNum = rootReworkRounds.length > 0 ? rootReworkRounds.length : 1;
+    return `${t('review.pipeline.phase.rework')} #${logicalNum}${retrySuffix}`;
+  }
+
+  return round.phase;
+}
+
+function getRetryButtonText(phase: RoundPhase, t: (key: string) => string): string {
+  switch (phase) {
+    case 'implementation':
+      return t('review.pipeline.action.retryImplementation');
+    case 'review':
+      return t('review.pipeline.action.retryReview');
+    case 'rework':
+      return t('review.pipeline.action.retryRework');
+    default:
+      return t('review.pipeline.action.retryPhase');
+  }
+}
+
 export default function ReviewTimeline({
   todo,
   rounds,
   onApprove,
   onRequestRework,
   onStopLoop,
+  onRetryRound,
   loadingAction,
 }: ReviewTimelineProps) {
   const { t } = useI18n();
@@ -76,7 +128,7 @@ export default function ReviewTimeline({
 
   const sortedRounds = [...rounds].sort((a, b) => a.round_index - b.round_index);
   const activeRound = sortedRounds.find(
-    (r) => ['running', 'waiting_executor', 'waiting_resource', 'pending'].includes(r.status)
+    (r) => ['running', 'waiting_executor', 'waiting_quota', 'waiting_resource', 'pending'].includes(r.status)
   );
   const latestRound = sortedRounds[sortedRounds.length - 1];
 
@@ -89,6 +141,7 @@ export default function ReviewTimeline({
     latestRound?.phase === 'review' &&
     todo.status !== 'running';
   const canStop = onStopLoop && ['running', 'waiting_executor', 'waiting_resource'].includes(todo.status);
+  const canRetryAnyRound = !activeRound && todo.status !== 'running' && todo.status !== 'waiting_executor' && todo.status !== 'waiting_resource' && Boolean(onRetryRound);
 
   return (
     <div className="space-y-4 text-xs font-sans text-slate-200">
@@ -162,6 +215,10 @@ export default function ReviewTimeline({
           {sortedRounds.map((round) => {
             const result = parseResultPayload(round.result_payload);
             const isIssuesOpen = expandedIssues[round.id] ?? true;
+            const roundTitle = getRoundDisplayTitle(round, sortedRounds, t);
+            const isTerminalFailedOrStopped = round.status === 'failed' || round.status === 'stopped';
+            const isLatest = latestRound?.id === round.id;
+            const showRoundRetry = isTerminalFailedOrStopped && canRetryAnyRound && isLatest;
 
             return (
               <div
@@ -191,11 +248,7 @@ export default function ReviewTimeline({
                     )}
 
                     <span className="font-semibold text-slate-200 uppercase tracking-wide text-[11px]">
-                      {round.phase === 'implementation'
-                        ? t('review.pipeline.phase.implementation')
-                        : round.phase === 'review'
-                        ? `${t('review.pipeline.phase.review')} #${round.round_index}`
-                        : `${t('review.pipeline.phase.rework')} #${round.round_index}`}
+                      {roundTitle}
                     </span>
 
                     <span
@@ -206,7 +259,7 @@ export default function ReviewTimeline({
                           ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50'
                           : round.status === 'failed'
                           ? 'bg-red-900/40 text-red-300 border border-red-700/50'
-                          : round.status === 'waiting_executor' || round.status === 'waiting_resource'
+                          : round.status === 'waiting_executor' || round.status === 'waiting_resource' || round.status === 'waiting_quota'
                           ? 'bg-amber-900/40 text-amber-300 border border-amber-700/50'
                           : 'bg-slate-800 text-slate-400'
                       }`}
@@ -215,12 +268,28 @@ export default function ReviewTimeline({
                     </span>
                   </div>
 
-                  <div className="text-[11px] text-slate-500">
-                    {round.finished_at
-                      ? new Date(round.finished_at).toLocaleTimeString()
-                      : round.started_at
-                      ? new Date(round.started_at).toLocaleTimeString()
-                      : ''}
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                    <span>
+                      {round.finished_at
+                        ? new Date(round.finished_at).toLocaleTimeString()
+                        : round.started_at
+                        ? new Date(round.started_at).toLocaleTimeString()
+                        : ''}
+                    </span>
+                    {showRoundRetry && (
+                      <button
+                        onClick={() => onRetryRound?.(round)}
+                        disabled={!!loadingAction}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/80 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-medium cursor-pointer transition-colors shadow-sm"
+                      >
+                        {loadingAction === `retry-${round.id}` ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3 h-3" />
+                        )}
+                        {getRetryButtonText(round.phase, t)}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -228,7 +297,7 @@ export default function ReviewTimeline({
                 {round.error_message && (
                   <div className="mt-2 p-2 rounded bg-red-950/40 border border-red-900/50 text-red-300 text-xs flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
-                    <span>{round.error_message}</span>
+                    <span className="flex-1">{round.error_message}</span>
                   </div>
                 )}
 

@@ -257,6 +257,17 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
   }, [expanded, hasResult, resultLoaded, todo.id]);
 
   useEffect(() => {
+    if (expanded && (todo.review_enabled || todo.pipeline_phase) && !roundsLoaded) {
+      todosApi.getTodoRounds(todo.id)
+        .then((data) => {
+          setRounds(data);
+          setRoundsLoaded(true);
+        })
+        .catch(() => {});
+    }
+  }, [expanded, roundsLoaded, todo.id, todo.review_enabled, todo.pipeline_phase]);
+
+  useEffect(() => {
     return onEvent((event) => {
       if (event.type === 'todo:log' && event.todoId === todo.id && event.message) {
         const newLog: TaskLog = {
@@ -277,6 +288,18 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
           created_at: new Date().toISOString(),
         };
         setLogs((prev) => [...prev, newLog]);
+      }
+      if (event.type === 'todo:round-created' && event.todoId === todo.id && event.round) {
+        const newRound = event.round;
+        setRounds((prev) => {
+          const exists = prev.some((r) => r.id === newRound.id);
+          if (exists) return prev.map((r) => (r.id === newRound.id ? newRound : r));
+          return [...prev, newRound];
+        });
+      }
+      if (event.type === 'todo:round-updated' && event.todoId === todo.id && event.round) {
+        const updatedRound = event.round;
+        setRounds((prev) => prev.map((r) => (r.id === updatedRound.id ? updatedRound : r)));
       }
     });
   }, [onEvent, todo.id]);
@@ -403,6 +426,46 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
       // ignore
     } finally {
       setScheduling(false);
+    }
+  };
+
+  const handleApproveReview = async () => {
+    setReviewActionLoading('approve');
+    try {
+      await todosApi.approveReview(todo.id);
+    } catch { /* ignore */ }
+    finally {
+      setReviewActionLoading(null);
+    }
+  };
+
+  const handleRequestRework = async () => {
+    setReviewActionLoading('rework');
+    try {
+      await todosApi.requestRework(todo.id);
+    } catch { /* ignore */ }
+    finally {
+      setReviewActionLoading(null);
+    }
+  };
+
+  const handleStopReviewLoop = async () => {
+    setReviewActionLoading('stop');
+    try {
+      await todosApi.stopReviewLoop(todo.id);
+    } catch { /* ignore */ }
+    finally {
+      setReviewActionLoading(null);
+    }
+  };
+
+  const handleRetryRound = async (round: TodoExecutionRound) => {
+    setReviewActionLoading(`retry-${round.id}` as any);
+    try {
+      await todosApi.retryExecutionRound(todo.id, round.id);
+    } catch { /* ignore */ }
+    finally {
+      setReviewActionLoading(null);
     }
   };
 
@@ -942,6 +1005,21 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                     </div>
                   )}
                 </div>
+              </section>
+            )}
+
+            {/* Review & Rework Pipeline */}
+            {(Boolean(todo.review_enabled) || rounds.length > 0) && (
+              <section className="rounded-lg border border-theme-border bg-theme-card/50 p-3">
+                <ReviewTimeline
+                  todo={todo}
+                  rounds={rounds}
+                  onApprove={handleApproveReview}
+                  onRequestRework={handleRequestRework}
+                  onStopLoop={handleStopReviewLoop}
+                  onRetryRound={handleRetryRound}
+                  loadingAction={reviewActionLoading}
+                />
               </section>
             )}
 

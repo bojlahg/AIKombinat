@@ -1654,4 +1654,9 @@ export const ru = {
     'review.pipeline.issues': 'Замечания ({count})',
     'review.pipeline.noIssues': 'Замечаний не обнаружено.',
     'review.pipeline.emptyRounds': 'Раунды исполнения пока не записаны.',
+    'review.pipeline.action.retryPhase': 'Повторить фазу',
+    'review.pipeline.action.retryImplementation': 'Повторить реализацию',
+    'review.pipeline.action.retryReview': 'Повторить ревью',
+    'review.pipeline.action.retryRework': 'Повторить доработку',
+    'review.pipeline.retryAttempt': 'Повтор {attempt}',
 } satisfies Record<TranslationKey, string>;

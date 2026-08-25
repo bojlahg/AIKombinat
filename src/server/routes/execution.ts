@@ -4,6 +4,7 @@ import { getTodosByProjectId, getTodoById, updateTodoStatus, updateTodo, deleteT
 import { getProjectById } from '../db/queries.js';
 import { orchestrator } from '../services/orchestrator.js';
 import { reviewPipeline, InvalidTransitionError } from '../services/review-pipeline.js';
+import { executionRoundRetryService, TodoNotFoundError, RoundNotFoundError, RetryConflictError } from '../services/execution-round-retry.js';
 import { worktreeManager } from '../services/worktree-manager.js';
 import { supportsInteractiveMode, type CliTool } from '../services/cli-adapters.js';
 
@@ -479,6 +480,25 @@ router.get('/todos/:id/rounds', (req: Request<{ id: string }>, res: Response) =>
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });
+  }
+});
+
+// POST /api/todos/:todoId/rounds/:roundId/retry - retry a failed or stopped execution round
+router.post('/todos/:todoId/rounds/:roundId/retry', async (req: Request<{ todoId: string; roundId: string }>, res: Response) => {
+  try {
+    const result = await executionRoundRetryService.retryExecutionRound(req.params.todoId, req.params.roundId);
+    res.json(result);
+  } catch (err: unknown) {
+    if (err instanceof TodoNotFoundError || err instanceof RoundNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof RetryConflictError || err instanceof InvalidTransitionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
   }
 });
 

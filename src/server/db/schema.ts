@@ -402,6 +402,8 @@ export function initDatabase(db: Database.Database): void {
       input_payload TEXT,
       result_payload TEXT,
       error_message TEXT,
+      retry_of_round_id TEXT,
+      attempt_index INTEGER NOT NULL DEFAULT 1,
       started_at DATETIME,
       finished_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -537,6 +539,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'schedules', column: 'review_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
     { table: 'schedules', column: 'rework_profile_id', definition: 'TEXT REFERENCES execution_profiles(id)' },
     { table: 'schedules', column: 'max_review_rounds', definition: 'INTEGER' },
+    { table: 'todo_execution_rounds', column: 'retry_of_round_id', definition: 'TEXT' },
+    { table: 'todo_execution_rounds', column: 'attempt_index', definition: 'INTEGER NOT NULL DEFAULT 1' },
   ];
 
   for (const { table, column, definition } of migrations) {
@@ -545,6 +549,13 @@ export function initDatabase(db: Database.Database): void {
     } catch {
       // Column already exists - ignore
     }
+  }
+
+  // Ensure index on retry_of_round_id exists
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_retry_of ON todo_execution_rounds(retry_of_round_id)`);
+  } catch {
+    // Ignore if table or index doesn't exist yet
   }
 
   // Backfill vcs_type from legacy is_git_repo flag. Idempotent — only touches NULL rows.

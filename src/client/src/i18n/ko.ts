@@ -1659,4 +1659,9 @@ export const ko = {
     'review.pipeline.issues': '이슈 ({count}개)',
     'review.pipeline.noIssues': '보고된 이슈가 없습니다.',
     'review.pipeline.emptyRounds': '아직 기록된 실행 라운드가 없습니다.',
+    'review.pipeline.action.retryPhase': '단계 재시도',
+    'review.pipeline.action.retryImplementation': '구현 재시도',
+    'review.pipeline.action.retryReview': '리뷰 재시도',
+    'review.pipeline.action.retryRework': '재작업 재시도',
+    'review.pipeline.retryAttempt': '재시도 {attempt}',
 } satisfies Record<TranslationKey, string>;

@@ -422,6 +422,8 @@ export interface TodoExecutionRound {
   input_payload: string | null;
   result_payload: string | null;
   error_message: string | null;
+  retry_of_round_id: string | null;
+  attempt_index: number;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -443,6 +445,10 @@ export function createExecutionRound(
     result_payload?: string | null;
     errorMessage?: string | null;
     error_message?: string | null;
+    retryOfRoundId?: string | null;
+    retry_of_round_id?: string | null;
+    attemptIndex?: number;
+    attempt_index?: number;
     startedAt?: string | null;
     started_at?: string | null;
   } = {}
@@ -451,8 +457,8 @@ export function createExecutionRound(
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, execution_snapshot, input_payload, result_payload, error_message, started_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, execution_snapshot, input_payload, result_payload, error_message, retry_of_round_id, attempt_index, started_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     todoId,
@@ -464,11 +470,19 @@ export function createExecutionRound(
     options.inputPayload ?? options.input_payload ?? null,
     options.resultPayload ?? options.result_payload ?? null,
     options.errorMessage ?? options.error_message ?? null,
+    options.retryOfRoundId ?? options.retry_of_round_id ?? null,
+    options.attemptIndex ?? options.attempt_index ?? 1,
     options.startedAt ?? options.started_at ?? null,
     now,
     now
   );
   return getExecutionRoundById(id)!;
+}
+
+export function getNextExecutionRoundIndex(todoId: string): number {
+  const db = getDatabase();
+  const row = db.prepare('SELECT MAX(round_index) as max_idx FROM todo_execution_rounds WHERE todo_id = ?').get(todoId) as { max_idx: number | null } | undefined;
+  return ((row?.max_idx ?? 0) || 0) + 1;
 }
 
 export function getExecutionRoundsByTodoId(todoId: string): TodoExecutionRound[] {

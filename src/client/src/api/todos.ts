@@ -135,3 +135,7 @@ export function requestRework(todoId: string): Promise<{ todo: Todo; round: Todo
 export function stopReviewLoop(todoId: string): Promise<Todo> {
   return post(`/api/todos/${todoId}/review/stop`);
 }
+
+export function retryExecutionRound(todoId: string, roundId: string): Promise<{ todo: Todo; round: TodoExecutionRound }> {
+  return post(`/api/todos/${todoId}/rounds/${roundId}/retry`);
+}

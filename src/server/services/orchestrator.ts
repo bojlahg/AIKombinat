@@ -52,6 +52,20 @@ export class Orchestrator {
   }
 
   /**
+   * Check whether a todo is currently in a stopping lifecycle.
+   */
+  isStopping(todoId: string): boolean {
+    return this.stoppingTodoIds.has(todoId);
+  }
+
+  /**
+   * Check whether a project is currently in a stopping lifecycle.
+   */
+  isStoppingProject(projectId: string): boolean {
+    return this.isStoppingProjects.has(projectId);
+  }
+
+  /**
    * Find tasks marked 'running' whose process is no longer alive, and mark them as failed.
    */
   public recoverStaleTasks(): void {

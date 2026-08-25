@@ -64,6 +64,8 @@ export interface TodoExecutionRound {
   input_payload: string | null;
   result_payload: string | null;
   error_message: string | null;
+  retry_of_round_id?: string | null;
+  attempt_index?: number;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
