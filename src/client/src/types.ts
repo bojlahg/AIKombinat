@@ -561,3 +561,89 @@ export interface AgendaJiraConfig {
   statuses: string[];
   extra_jql: string;
 }
+
+// ── Agent Forums ──
+
+export const DEFAULT_AGENT_FORUM_RULES = `You are an equal participant in a multi-agent discussion.
+
+Read the full available conversation.
+
+Reply only when you can add useful information:
+- correction;
+- objection;
+- missing consideration;
+- alternative;
+- concrete improvement;
+- answer to a question.
+
+Do not repeat points without adding something new.
+
+You may reply to multiple messages in one turn.
+You may not reply to your own messages.
+You may reply to a particular message only once.
+
+If you have nothing useful to add, return no replies.
+Keep each reply within the configured maximum length.`;
+
+export interface AgentForum {
+  id: string;
+  project_id: string | null;
+  title: string;
+  rules: string;
+  max_reply_length: number;
+  status: 'idle' | 'running' | 'error';
+  current_cycle: number;
+  current_member_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentForumMember {
+  id: string;
+  forum_id: string;
+  name: string;
+  role: string;
+  system_prompt: string;
+  cli_tool: string | null;
+  cli_model: string | null;
+  cli_model_id: string | null;
+  execution_profile_id: string | null;
+  cli_effort: string | null;
+  avatar_color: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface AgentForumMessage {
+  id: string;
+  forum_id: string;
+  author_type: 'user' | 'agent';
+  author_id: string | null;
+  author_name: string;
+  author_role: string;
+  content: string;
+  parent_message_id: string | null;
+  turn_id: string | null;
+  created_at: string;
+}
+
+export interface AgentForumTurn {
+  id: string;
+  forum_id: string;
+  member_id: string;
+  cycle_number: number;
+  turn_order: number;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'passed';
+  execution_snapshot: string | null;
+  raw_output: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface AgentForumDetail extends AgentForum {
+  members: AgentForumMember[];
+  messages: AgentForumMessage[];
+  turns: AgentForumTurn[];
+}

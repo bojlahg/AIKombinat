@@ -18,6 +18,7 @@ import { getSessionSettings } from './api/sessionSettings';
 import { setGlobalDefaultFontSize } from './hooks/useSessionFontSize';
 import { forceImeHandoff } from './ime-handoff';
 import SettingsPage from './components/settings/SettingsPage';
+import AgentForumView from './components/experiments/AgentForumView';
 
 function App() {
   const { authenticated, authRequired, setupRequired, loading, login, logout, setup, changePassword } = useAuth();
@@ -205,6 +206,18 @@ function App() {
                     path="/agenda"
                     element={
                       <PersonalAgenda />
+                    }
+                  />
+                  <Route
+                    path="/experiments/agent-forum"
+                    element={
+                      <AgentForumView onEvent={onEvent} connected={connected} />
+                    }
+                  />
+                  <Route
+                    path="/experiments/agent-forum/:forumId"
+                    element={
+                      <AgentForumView onEvent={onEvent} connected={connected} />
                     }
                   />
                   <Route path="/settings/*" element={<SettingsPage onEvent={onEvent} />} />

@@ -2647,3 +2647,342 @@ export function deleteProviderQuotaState(tool: AgentCliTool): boolean {
   return db.prepare('DELETE FROM provider_quota_state WHERE tool = ?').run(tool).changes > 0;
 }
 
+// ── Agent Forums ──────────────────────────────────────────────
+
+export const DEFAULT_AGENT_FORUM_RULES = `You are an equal participant in a multi-agent discussion.
+
+Read the full available conversation.
+
+Reply only when you can add useful information:
+- correction;
+- objection;
+- missing consideration;
+- alternative;
+- concrete improvement;
+- answer to a question.
+
+Do not repeat points without adding something new.
+
+You may reply to multiple messages in one turn.
+You may not reply to your own messages.
+You may reply to a particular message only once.
+
+If you have nothing useful to add, return no replies.
+Keep each reply within the configured maximum length.`;
+
+export interface AgentForum {
+  id: string;
+  project_id: string | null;
+  title: string;
+  rules: string;
+  max_reply_length: number;
+  status: 'idle' | 'running' | 'error';
+  current_cycle: number;
+  current_member_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentForumMember {
+  id: string;
+  forum_id: string;
+  name: string;
+  role: string;
+  system_prompt: string;
+  cli_tool: string | null;
+  cli_model: string | null;
+  cli_model_id: string | null;
+  execution_profile_id: string | null;
+  cli_effort: string | null;
+  avatar_color: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface AgentForumMessage {
+  id: string;
+  forum_id: string;
+  author_type: 'user' | 'agent';
+  author_id: string | null;
+  author_name: string;
+  author_role: string;
+  content: string;
+  parent_message_id: string | null;
+  turn_id: string | null;
+  created_at: string;
+}
+
+export interface AgentForumTurn {
+  id: string;
+  forum_id: string;
+  member_id: string;
+  cycle_number: number;
+  turn_order: number;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'passed';
+  execution_snapshot: string | null;
+  raw_output: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export function createAgentForum(
+  title: string,
+  rules?: string,
+  maxReplyLength = 1024,
+  projectId?: string | null,
+): AgentForum {
+  const db = getDatabase();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  const forumRules = rules ?? DEFAULT_AGENT_FORUM_RULES;
+  db.prepare(
+    `INSERT INTO agent_forums (id, project_id, title, rules, max_reply_length, status, current_cycle, current_member_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'idle', 0, NULL, ?, ?)`
+  ).run(id, projectId ?? null, title, forumRules, maxReplyLength, now, now);
+  return getAgentForumById(id)!;
+}
+
+export function getAgentForumById(id: string): AgentForum | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forums WHERE id = ?').get(id) as AgentForum | undefined;
+}
+
+export function listAgentForums(projectId?: string | null): AgentForum[] {
+  const db = getDatabase();
+  if (projectId !== undefined) {
+    if (projectId === null) {
+      return db.prepare('SELECT * FROM agent_forums WHERE project_id IS NULL ORDER BY created_at DESC').all() as AgentForum[];
+    }
+    return db.prepare('SELECT * FROM agent_forums WHERE project_id = ? ORDER BY created_at DESC').all(projectId) as AgentForum[];
+  }
+  return db.prepare('SELECT * FROM agent_forums ORDER BY created_at DESC').all() as AgentForum[];
+}
+
+export function updateAgentForum(
+  id: string,
+  updates: Partial<Pick<AgentForum, 'title' | 'rules' | 'max_reply_length' | 'status' | 'current_cycle' | 'current_member_id' | 'project_id'>>,
+): AgentForum | undefined {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (updates.title !== undefined) { fields.push('title = ?'); values.push(updates.title); }
+  if (updates.rules !== undefined) { fields.push('rules = ?'); values.push(updates.rules); }
+  if (updates.max_reply_length !== undefined) { fields.push('max_reply_length = ?'); values.push(updates.max_reply_length); }
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+  if (updates.current_cycle !== undefined) { fields.push('current_cycle = ?'); values.push(updates.current_cycle); }
+  if (updates.current_member_id !== undefined) { fields.push('current_member_id = ?'); values.push(updates.current_member_id); }
+  if (updates.project_id !== undefined) { fields.push('project_id = ?'); values.push(updates.project_id); }
+
+  if (fields.length === 0) return getAgentForumById(id);
+
+  fields.push('updated_at = ?');
+  values.push(new Date().toISOString());
+  values.push(id);
+
+  db.prepare(`UPDATE agent_forums SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  return getAgentForumById(id);
+}
+
+export function deleteAgentForum(id: string): boolean {
+  const db = getDatabase();
+  return db.prepare('DELETE FROM agent_forums WHERE id = ?').run(id).changes > 0;
+}
+
+export function getRunningAgentForums(): AgentForum[] {
+  const db = getDatabase();
+  return db.prepare("SELECT * FROM agent_forums WHERE status = 'running'").all() as AgentForum[];
+}
+
+// ── Agent Forum Members ──
+
+export function createAgentForumMember(
+  forumId: string,
+  name: string,
+  role: string,
+  systemPrompt = '',
+  options?: {
+    cliTool?: string | null;
+    cliModel?: string | null;
+    cliModelId?: string | null;
+    executionProfileId?: string | null;
+    cliEffort?: string | null;
+    avatarColor?: string | null;
+    sortOrder?: number;
+  },
+): AgentForumMember {
+  const db = getDatabase();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  let sortOrder = options?.sortOrder;
+  if (sortOrder === undefined) {
+    const row = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM agent_forum_members WHERE forum_id = ?').get(forumId) as { max_order: number };
+    sortOrder = row.max_order + 1;
+  }
+
+  db.prepare(
+    `INSERT INTO agent_forum_members (id, forum_id, name, role, system_prompt, cli_tool, cli_model, cli_model_id, execution_profile_id, cli_effort, avatar_color, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    forumId,
+    name,
+    role,
+    systemPrompt,
+    options?.cliTool ?? null,
+    options?.cliModel ?? null,
+    options?.cliModelId ?? null,
+    options?.executionProfileId ?? null,
+    options?.cliEffort ?? null,
+    options?.avatarColor ?? null,
+    sortOrder,
+    now,
+  );
+  return getAgentForumMemberById(id)!;
+}
+
+export function getAgentForumMemberById(id: string): AgentForumMember | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forum_members WHERE id = ?').get(id) as AgentForumMember | undefined;
+}
+
+export function getAgentForumMembers(forumId: string): AgentForumMember[] {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forum_members WHERE forum_id = ? ORDER BY sort_order ASC, created_at ASC').all(forumId) as AgentForumMember[];
+}
+
+export function updateAgentForumMember(
+  id: string,
+  updates: Partial<Pick<AgentForumMember, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order'>>,
+): AgentForumMember | undefined {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name); }
+  if (updates.role !== undefined) { fields.push('role = ?'); values.push(updates.role); }
+  if (updates.system_prompt !== undefined) { fields.push('system_prompt = ?'); values.push(updates.system_prompt); }
+  if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
+  if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
+  if (updates.execution_profile_id !== undefined) { fields.push('execution_profile_id = ?'); values.push(updates.execution_profile_id); }
+  if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
+  if (updates.avatar_color !== undefined) { fields.push('avatar_color = ?'); values.push(updates.avatar_color); }
+  if (updates.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(updates.sort_order); }
+
+  if (fields.length === 0) return getAgentForumMemberById(id);
+
+  values.push(id);
+  db.prepare(`UPDATE agent_forum_members SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  return getAgentForumMemberById(id);
+}
+
+export function deleteAgentForumMember(id: string): boolean {
+  const db = getDatabase();
+  return db.prepare('DELETE FROM agent_forum_members WHERE id = ?').run(id).changes > 0;
+}
+
+// ── Agent Forum Messages ──
+
+export function createAgentForumMessage(
+  forumId: string,
+  authorType: 'user' | 'agent',
+  authorId: string | null,
+  authorName: string,
+  authorRole: string,
+  content: string,
+  parentMessageId?: string | null,
+  turnId?: string | null,
+): AgentForumMessage {
+  const db = getDatabase();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO agent_forum_messages (id, forum_id, author_type, author_id, author_name, author_role, content, parent_message_id, turn_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    forumId,
+    authorType,
+    authorId,
+    authorName,
+    authorRole,
+    content,
+    parentMessageId ?? null,
+    turnId ?? null,
+    now,
+  );
+  return getAgentForumMessageById(id)!;
+}
+
+export function getAgentForumMessageById(id: string): AgentForumMessage | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forum_messages WHERE id = ?').get(id) as AgentForumMessage | undefined;
+}
+
+export function getAgentForumMessages(forumId: string): AgentForumMessage[] {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forum_messages WHERE forum_id = ? ORDER BY created_at ASC').all(forumId) as AgentForumMessage[];
+}
+
+export function getAgentRepliedTargetMessageIds(forumId: string, memberId: string): Set<string> {
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT parent_message_id FROM agent_forum_messages
+     WHERE forum_id = ? AND author_id = ? AND parent_message_id IS NOT NULL`
+  ).all(forumId, memberId) as Array<{ parent_message_id: string }>;
+  return new Set(rows.map((r) => r.parent_message_id));
+}
+
+// ── Agent Forum Turns ──
+
+export function createAgentForumTurn(
+  forumId: string,
+  memberId: string,
+  cycleNumber: number,
+  turnOrder: number,
+): AgentForumTurn {
+  const db = getDatabase();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO agent_forum_turns (id, forum_id, member_id, cycle_number, turn_order, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+  ).run(id, forumId, memberId, cycleNumber, turnOrder, now);
+  return getAgentForumTurnById(id)!;
+}
+
+export function getAgentForumTurnById(id: string): AgentForumTurn | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forum_turns WHERE id = ?').get(id) as AgentForumTurn | undefined;
+}
+
+export function getAgentForumTurns(forumId: string): AgentForumTurn[] {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM agent_forum_turns WHERE forum_id = ? ORDER BY cycle_number ASC, turn_order ASC').all(forumId) as AgentForumTurn[];
+}
+
+export function updateAgentForumTurn(
+  id: string,
+  updates: Partial<Pick<AgentForumTurn, 'status' | 'execution_snapshot' | 'raw_output' | 'error_message' | 'started_at' | 'completed_at'>>,
+): AgentForumTurn | undefined {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+  if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
+  if (updates.raw_output !== undefined) { fields.push('raw_output = ?'); values.push(updates.raw_output); }
+  if (updates.error_message !== undefined) { fields.push('error_message = ?'); values.push(updates.error_message); }
+  if (updates.started_at !== undefined) { fields.push('started_at = ?'); values.push(updates.started_at); }
+  if (updates.completed_at !== undefined) { fields.push('completed_at = ?'); values.push(updates.completed_at); }
+
+  if (fields.length === 0) return getAgentForumTurnById(id);
+
+  values.push(id);
+  db.prepare(`UPDATE agent_forum_turns SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  return getAgentForumTurnById(id);
+}
+

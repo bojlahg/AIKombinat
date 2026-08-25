@@ -412,6 +412,69 @@ export function initDatabase(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_todo ON todo_execution_rounds(todo_id, round_index);
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_run_token ON todo_execution_rounds(run_token);
+
+    CREATE TABLE IF NOT EXISTS agent_forums (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      rules TEXT NOT NULL,
+      max_reply_length INTEGER NOT NULL DEFAULT 1024,
+      status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'running', 'error')),
+      current_cycle INTEGER NOT NULL DEFAULT 0,
+      current_member_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_forum_members (
+      id TEXT PRIMARY KEY,
+      forum_id TEXT NOT NULL REFERENCES agent_forums(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      system_prompt TEXT NOT NULL DEFAULT '',
+      cli_tool TEXT,
+      cli_model TEXT,
+      cli_model_id TEXT REFERENCES cli_models(id),
+      execution_profile_id TEXT REFERENCES execution_profiles(id),
+      cli_effort TEXT,
+      avatar_color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_forum_messages (
+      id TEXT PRIMARY KEY,
+      forum_id TEXT NOT NULL REFERENCES agent_forums(id) ON DELETE CASCADE,
+      author_type TEXT NOT NULL CHECK (author_type IN ('user', 'agent')),
+      author_id TEXT,
+      author_name TEXT NOT NULL,
+      author_role TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      parent_message_id TEXT REFERENCES agent_forum_messages(id) ON DELETE SET NULL,
+      turn_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_forum_turns (
+      id TEXT PRIMARY KEY,
+      forum_id TEXT NOT NULL REFERENCES agent_forums(id) ON DELETE CASCADE,
+      member_id TEXT NOT NULL REFERENCES agent_forum_members(id) ON DELETE CASCADE,
+      cycle_number INTEGER NOT NULL,
+      turn_order INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'passed')),
+      execution_snapshot TEXT,
+      raw_output TEXT,
+      error_message TEXT,
+      started_at DATETIME,
+      completed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_forums_project ON agent_forums(project_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_forum_members_forum ON agent_forum_members(forum_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_agent_forum_messages_forum ON agent_forum_messages(forum_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_forum_messages_parent ON agent_forum_messages(parent_message_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_forum_turns_forum ON agent_forum_turns(forum_id, cycle_number);
   `);
 
   // Backwards-compatible migration: add new columns to existing DBs

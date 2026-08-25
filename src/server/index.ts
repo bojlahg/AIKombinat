@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import crypto from 'crypto';
 import { getDatabase } from './db/connection.js';
-import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession } from './db/queries.js';
+import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession, getRunningAgentForums, updateAgentForum } from './db/queries.js';
 import { initAuth } from './middleware/auth.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
@@ -35,6 +35,7 @@ import executionProfilesRouter from './routes/execution-profiles.js';
 import cliStatusRouter from './routes/cli-status.js';
 import debugLogsRouter from './routes/debug-logs.js';
 import discussionsRouter from './routes/discussions.js';
+import agentForumsRouter from './routes/agent-forums.js';
 import analyticsRouter from './routes/analytics.js';
 import sessionsRouter from './routes/sessions.js';
 import sessionTagsRouter from './routes/session-tags.js';
@@ -166,6 +167,16 @@ if (staleSessions.length > 0) {
   }
 }
 
+// Startup recovery: reset stale 'running' agent forums to 'idle'
+const staleAgentForums = getRunningAgentForums();
+if (staleAgentForums.length > 0) {
+  console.log(`Recovering ${staleAgentForums.length} stale running agent forum(s)...`);
+  for (const forum of staleAgentForums) {
+    updateAgentForum(forum.id, { status: 'idle', current_member_id: null });
+    console.log(`  Reset agent forum "${forum.title}" (${forum.id}) from running to idle`);
+  }
+}
+
 // One-shot legacy paste-images cleanup. Older builds saved clipboard
 // screenshots into `<project>/.aikombinat/paste-images/` or `.clitrigger/paste-images/` (and worktrees);
 // the new flow writes the image directly to the host OS clipboard, so
@@ -271,6 +282,7 @@ app.use('/api', executionProfilesRouter);
 app.use('/api/cli', cliStatusRouter);
 app.use('/api', debugLogsRouter);
 app.use('/api', discussionsRouter);
+app.use('/api', agentForumsRouter);
 app.use('/api', analyticsRouter);
 app.use('/api', sessionsRouter);
 app.use('/api', sessionTagsRouter);
