@@ -176,7 +176,11 @@ if (staleSessions.length > 0) {
 // than holding up the whole server.
 try {
   const forumRecovery = await recoverInterruptedAgentForums();
-  if (forumRecovery.forumsRecovered > 0 || forumRecovery.turnsReconciled > 0 || forumRecovery.unresolvedOrphanProcesses > 0) {
+  const sawActivity = forumRecovery.forumsRecovered > 0
+    || forumRecovery.turnsReconciled > 0
+    || forumRecovery.unresolvedOrphanProcesses > 0
+    || forumRecovery.forumsFailed > 0;
+  if (sawActivity) {
     console.log(
       `  Recovered ${forumRecovery.forumsRecovered} agent forum(s); `
       + `reconciled ${forumRecovery.turnsReconciled} interrupted turn(s); `
@@ -185,11 +189,20 @@ try {
   }
   if (forumRecovery.unresolvedOrphanProcesses > 0) {
     console.warn(
-      `  ${forumRecovery.unresolvedOrphanProcesses} orphan process(es) could not be terminated. `
-      + 'The affected forum(s) stay in recovery — use Stop once those processes exit.',
+      `  ${forumRecovery.unresolvedOrphanProcesses} process(es) from the previous run were left alive `
+      + '(not terminated, or not safe to signal). The affected forum(s) stay in recovery — '
+      + 'use Stop once those processes exit.',
     );
     for (const orphan of forumRecovery.unresolvedOrphans) {
-      console.warn(`    forum ${orphan.forumId} turn ${orphan.turnId} pid ${orphan.pid}`);
+      console.warn(`    forum ${orphan.forumId} turn ${orphan.turnId} pid ${orphan.pid} (${orphan.reason})`);
+    }
+  }
+  if (forumRecovery.forumsFailed > 0) {
+    console.error(
+      `  ${forumRecovery.forumsFailed} agent forum(s) could not be recovered and stay closed:`,
+    );
+    for (const failure of forumRecovery.recoveryFailures) {
+      console.error(`    forum ${failure.forumId}: ${failure.error}`);
     }
   }
 } catch (err) {

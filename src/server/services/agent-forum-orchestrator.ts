@@ -242,13 +242,16 @@ export class AgentForumOrchestrator {
           + 'The cycle is still cancelling — retry Stop once it finishes draining.',
         );
       }
-    } else if (forum.status === 'error') {
-      // No cycle in memory, but the forum is parked in `error` — a Stop that
-      // timed out before a restart, or an unresolved orphan from startup
-      // recovery. Retrying Stop means retrying that cleanup; only a confirmed
-      // clean result may return the forum to idle.
+    } else if (forum.status === 'error' || forum.status === 'running') {
+      // No cycle in memory, but the forum is not quiescent on disk: either it is
+      // still marked `running` from a previous process (a crash, or a restart
+      // between spawn and reconciliation), or it is parked in `error` by a Stop
+      // that timed out or an unresolved orphan. Both cases mean a real process
+      // may still be alive, so Stop must run the cleanup rather than blindly
+      // flipping the row to idle. Only a confirmed clean result may do that.
       const recovery = await recoverAgentForum(forumId);
       if (recovery.unresolvedOrphanProcesses > 0) {
+        // `recoverAgentForum` already parked the forum in `error`.
         broadcaster.broadcast({
           type: 'forum:status-changed',
           forumId,
@@ -602,6 +605,11 @@ export class AgentForumOrchestrator {
       // Persist process identity immediately: if the server dies right here,
       // startup recovery needs the PID to find and terminate the orphan.
       queries.updateAgentForumTurn(turn.id, { process_pid: pid });
+      // The instance fingerprint is captured off the critical path — it costs an
+      // OS probe and must not delay the turn. If the server dies before it
+      // lands, the PID stays unverifiable and recovery fails closed rather than
+      // risking a signal to a process that merely reused the id.
+      this.captureTurnProcessIdentity(turn.id, pid);
 
       // Post-spawn race: Stop may have completed its PID sweep before this
       // process existed. Terminate it and refuse its output.
@@ -661,7 +669,7 @@ export class AgentForumOrchestrator {
       stderrReader.flush();
 
       cycle.activePids.delete(pid);
-      queries.updateAgentForumTurn(turn.id, { process_pid: null });
+      queries.updateAgentForumTurn(turn.id, { process_pid: null, process_identity: null });
       pid = null;
 
       // A stale completion belonging to a cancelled or superseded cycle must
@@ -791,6 +799,26 @@ export class AgentForumOrchestrator {
     return this.cycles.get(forumId) === cycle;
   }
 
+  /**
+   * Records the OS instance fingerprint of a freshly spawned turn process.
+   *
+   * Fire-and-forget on purpose: the probe is an OS call and the turn must not
+   * wait for it. A turn whose process already exited, or whose identity cannot
+   * be read, simply keeps a null fingerprint — recovery then refuses to signal
+   * that PID, which is the safe direction.
+   */
+  private captureTurnProcessIdentity(turnId: string, pid: number): void {
+    void processTree.readProcessIdentity(pid)
+      .then((identity) => {
+        if (!identity) return;
+        const turn = queries.getAgentForumTurnById(turnId);
+        // Only attach the fingerprint while the turn still owns this PID.
+        if (!turn || turn.process_pid !== pid) return;
+        queries.updateAgentForumTurn(turnId, { process_identity: JSON.stringify(identity) });
+      })
+      .catch(() => { /* unverifiable identity is handled fail-closed at recovery */ });
+  }
+
   private async terminatePid(cycle: ForumCycle, pid: number): Promise<void> {
     try {
       await claudeManager.stopClaude(pid);
@@ -847,6 +875,7 @@ export class AgentForumOrchestrator {
       error_message: reason,
       completed_at: new Date().toISOString(),
       process_pid: null,
+      process_identity: null,
     });
 
     broadcaster.broadcast({
@@ -872,6 +901,7 @@ export class AgentForumOrchestrator {
       error_message: error,
       completed_at: new Date().toISOString(),
       process_pid: null,
+      process_identity: null,
     });
 
     broadcaster.broadcast({
@@ -893,6 +923,7 @@ export class AgentForumOrchestrator {
       error_message: 'Turn stopped before completion',
       completed_at: new Date().toISOString(),
       process_pid: null,
+      process_identity: null,
     });
   }
 
@@ -1029,16 +1060,43 @@ Respond ONLY with the JSON object. Do not include extra conversational filler ou
 
 export const agentForumOrchestrator = new AgentForumOrchestrator();
 
+/** Why an orphan process was left alive by recovery. */
+export type UnresolvedOrphanReason =
+  /** We were allowed to signal it, but it survived (or the kill failed). */
+  | 'termination_failed'
+  /** The PID is alive but belongs to a different process instance now. */
+  | 'identity_mismatch'
+  /** The PID is alive but we could not prove which process it is. */
+  | 'identity_unverifiable';
+
+export const FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGES: Record<UnresolvedOrphanReason, string> = {
+  termination_failed:
+    'Recovery could not confirm the CLI process from the previous run was terminated. '
+    + 'The turn keeps its process id so cleanup can be retried.',
+  identity_mismatch:
+    'Recovery found a live process at the recorded process id, but it is a different process instance '
+    + '(the id was reused). It was NOT signalled. The turn keeps its recorded process id for inspection.',
+  identity_unverifiable:
+    'Recovery could not verify that the live process at the recorded process id is the one this turn '
+    + 'started, so it was NOT signalled. The turn keeps its recorded process id for inspection.',
+};
+
 /** Recorded on a turn whose orphan process could not be confirmed terminated. */
 export const FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE =
-  'Recovery could not confirm the CLI process from the previous run was terminated. '
-  + 'The turn keeps its process id so cleanup can be retried.';
+  FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGES.termination_failed;
 
 /** Server-side detail about an orphan we failed to clean up. Never sent to clients. */
 export interface UnresolvedOrphanProcess {
   forumId: string;
   turnId: string;
   pid: number;
+  reason: UnresolvedOrphanReason;
+}
+
+/** Server-side detail about a forum whose recovery threw unexpectedly. */
+export interface ForumRecoveryFailure {
+  forumId: string;
+  error: string;
 }
 
 export interface ForumRecoveryReport {
@@ -1046,8 +1104,11 @@ export interface ForumRecoveryReport {
   turnsReconciled: number;
   orphanProcessesTerminated: number;
   unresolvedOrphanProcesses: number;
+  /** Forums whose recovery threw and were therefore left closed. */
+  forumsFailed: number;
   /** Log/debug detail; kept server-side. */
   unresolvedOrphans: UnresolvedOrphanProcess[];
+  recoveryFailures: ForumRecoveryFailure[];
 }
 
 function emptyRecoveryReport(): ForumRecoveryReport {
@@ -1056,7 +1117,9 @@ function emptyRecoveryReport(): ForumRecoveryReport {
     turnsReconciled: 0,
     orphanProcessesTerminated: 0,
     unresolvedOrphanProcesses: 0,
+    forumsFailed: 0,
     unresolvedOrphans: [],
+    recoveryFailures: [],
   };
 }
 
@@ -1067,10 +1130,16 @@ function emptyRecoveryReport(): ForumRecoveryReport {
  * the orphan process tree. `claudeManager.stopClaude` cannot help here: after a
  * restart its in-memory map is empty, so it would silently no-op.
  *
- * Termination counts as successful only when the helper reports success or a
- * follow-up liveness probe shows the process is gone. Anything else is treated
- * as an unresolved orphan and handled fail-closed: the turn keeps its PID and
- * its unfinished status, the forum stays in `error`, and recovery (or Stop) can
+ * A live PID is never signalled on the strength of the number alone. The OS
+ * reuses process ids, so the recorded instance fingerprint must still match
+ * before anything is killed; a mismatch or an unverifiable identity leaves that
+ * process untouched. Leaving a real orphan running is recoverable — killing an
+ * unrelated process that inherited the id is not.
+ *
+ * Termination itself counts as successful only when the helper reports success
+ * or a follow-up liveness probe shows the process is gone. Anything else is an
+ * unresolved orphan, handled fail-closed: the turn keeps its PID, fingerprint
+ * and unfinished status, the forum stays in `error`, and recovery (or Stop) can
  * be retried later. History, snapshots and messages are never destroyed.
  */
 export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryReport> {
@@ -1080,6 +1149,13 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
 
   const candidates = queries.getAgentForumTurnsNeedingRecovery(forumId);
   const resolvedTurnIds: string[] = [];
+
+  const leaveUnresolved = (turnId: string, pid: number, reason: UnresolvedOrphanReason) => {
+    report.unresolvedOrphans.push({ forumId, turnId, pid, reason });
+    queries.updateAgentForumTurn(turnId, {
+      error_message: FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGES[reason],
+    });
+  };
 
   for (const turn of candidates) {
     if (!turn.process_pid) {
@@ -1091,6 +1167,30 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
     // nothing in this process owns its streams or its exit any more.
     if (!processTree.isProcessAlive(turn.process_pid)) {
       resolvedTurnIds.push(turn.id);
+      continue;
+    }
+
+    // Something is alive at that id — prove it is OUR process before signalling.
+    let verdict: processTree.ProcessIdentityVerdict;
+    try {
+      verdict = await processTree.verifyProcessIdentity(
+        turn.process_pid,
+        processTree.parseProcessIdentity(turn.process_identity),
+      );
+    } catch {
+      verdict = 'unverifiable';
+    }
+
+    if (verdict !== 'match') {
+      console.warn(
+        `[agent-forum] Not signalling pid ${turn.process_pid} for turn ${turn.id}: `
+        + `process identity ${verdict}. Leaving it alone.`,
+      );
+      leaveUnresolved(
+        turn.id,
+        turn.process_pid,
+        verdict === 'mismatch' ? 'identity_mismatch' : 'identity_unverifiable',
+      );
       continue;
     }
 
@@ -1107,10 +1207,7 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
     // Trust the outcome only if the helper said so, or the process is verifiably
     // gone. A `false`/throwing terminate with a live PID must NOT be reconciled.
     if (!terminated && processTree.isProcessAlive(turn.process_pid)) {
-      report.unresolvedOrphans.push({ forumId, turnId: turn.id, pid: turn.process_pid });
-      queries.updateAgentForumTurn(turn.id, {
-        error_message: FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE,
-      });
+      leaveUnresolved(turn.id, turn.process_pid, 'termination_failed');
       continue;
     }
 
@@ -1126,12 +1223,13 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
   report.unresolvedOrphanProcesses = report.unresolvedOrphans.length;
 
   if (report.unresolvedOrphans.length > 0) {
-    // Fail closed: an orphan we could not kill must not look like a clean forum.
+    // Fail closed: a process we could not kill — or were not allowed to touch —
+    // must not leave the forum looking clean.
     queries.updateAgentForum(forumId, { status: 'error', current_member_id: null });
     console.warn(
       `[agent-forum] Forum "${forum.title}" (${forumId}) left in error: `
-      + `${report.unresolvedOrphans.length} orphan process(es) still alive `
-      + `(pids: ${report.unresolvedOrphans.map((o) => o.pid).join(', ')})`,
+      + `${report.unresolvedOrphans.length} unresolved process(es) `
+      + `(${report.unresolvedOrphans.map((o) => `pid ${o.pid}: ${o.reason}`).join(', ')})`,
     );
     return report;
   }
@@ -1150,9 +1248,11 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
  * concrete to reconcile. Forums whose `error` has already been cleaned up are
  * not touched.
  *
- * A forum with an orphan that refuses to die stays in `error` — the server
- * still finishes booting, so one unkillable process cannot hold AIKombinat
- * hostage, but that forum's endpoints stay closed until cleanup succeeds.
+ * Each forum is recovered in isolation: an unexpected failure on one leaves
+ * that forum closed (`error`, with its turns and PIDs untouched) and recovery
+ * moves on to the next. A forum with an orphan that refuses to die — or one we
+ * are not allowed to signal — stays in `error` too, so one stuck process cannot
+ * hold AIKombinat hostage while still failing closed at its own endpoints.
  */
 export async function recoverInterruptedAgentForums(): Promise<ForumRecoveryReport> {
   const report = emptyRecoveryReport();
@@ -1161,13 +1261,25 @@ export async function recoverInterruptedAgentForums(): Promise<ForumRecoveryRepo
 
   console.log(`Recovering ${forums.length} agent forum(s) needing recovery...`);
   for (const forum of forums) {
-    const forumReport = await recoverAgentForum(forum.id);
-    report.forumsRecovered += forumReport.forumsRecovered;
-    report.turnsReconciled += forumReport.turnsReconciled;
-    report.orphanProcessesTerminated += forumReport.orphanProcessesTerminated;
-    report.unresolvedOrphans.push(...forumReport.unresolvedOrphans);
+    try {
+      const forumReport = await recoverAgentForum(forum.id);
+      report.forumsRecovered += forumReport.forumsRecovered;
+      report.turnsReconciled += forumReport.turnsReconciled;
+      report.orphanProcessesTerminated += forumReport.orphanProcessesTerminated;
+      report.unresolvedOrphans.push(...forumReport.unresolvedOrphans);
+    } catch (err) {
+      // One broken forum must not stop the others from being reconciled, and it
+      // must never be quietly marked idle — leave it closed for a later retry.
+      const message = err instanceof Error ? err.message : String(err);
+      report.recoveryFailures.push({ forumId: forum.id, error: message });
+      try {
+        queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
+      } catch { /* the DB itself is unhappy; the log below is all we can do */ }
+      console.error(`[agent-forum] Recovery failed for forum ${forum.id}: ${message}`);
+    }
   }
   report.unresolvedOrphanProcesses = report.unresolvedOrphans.length;
+  report.forumsFailed = report.recoveryFailures.length;
 
   return report;
 }

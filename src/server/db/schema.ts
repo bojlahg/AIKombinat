@@ -465,6 +465,7 @@ export function initDatabase(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'passed', 'skipped', 'stopped')),
       execution_snapshot TEXT,
       process_pid INTEGER,
+      process_identity TEXT,
       raw_output TEXT,
       error_message TEXT,
       started_at DATETIME,
@@ -608,6 +609,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'todo_execution_rounds', column: 'attempt_index', definition: 'INTEGER NOT NULL DEFAULT 1' },
     { table: 'agent_forum_members', column: 'is_active', definition: 'INTEGER NOT NULL DEFAULT 1' },
     { table: 'agent_forum_turns', column: 'process_pid', definition: 'INTEGER' },
+    { table: 'agent_forum_turns', column: 'process_identity', definition: 'TEXT' },
   ];
 
   for (const { table, column, definition } of migrations) {
@@ -1128,6 +1130,7 @@ export function migrateAgentForumTurnHistory(db: Database.Database): void {
           status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'passed', 'skipped', 'stopped')),
           execution_snapshot TEXT,
           process_pid INTEGER,
+          process_identity TEXT,
           raw_output TEXT,
           error_message TEXT,
           started_at DATETIME,
@@ -1137,9 +1140,9 @@ export function migrateAgentForumTurnHistory(db: Database.Database): void {
 
         INSERT INTO agent_forum_turns_migrated
           (id, forum_id, member_id, cycle_number, turn_order, status,
-           execution_snapshot, process_pid, raw_output, error_message, started_at, completed_at, created_at)
+           execution_snapshot, process_pid, process_identity, raw_output, error_message, started_at, completed_at, created_at)
         SELECT id, forum_id, member_id, cycle_number, turn_order, status,
-               execution_snapshot, process_pid, raw_output, error_message, started_at, completed_at, created_at
+               execution_snapshot, process_pid, process_identity, raw_output, error_message, started_at, completed_at, created_at
         FROM agent_forum_turns;
 
         DROP TABLE agent_forum_turns;

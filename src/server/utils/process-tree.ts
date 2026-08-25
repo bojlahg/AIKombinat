@@ -1,3 +1,5 @@
+import fs from 'fs';
+import { spawn } from 'child_process';
 import treeKill from 'tree-kill';
 import { isTestEnvironment } from './cli-guard.js';
 
@@ -81,4 +83,164 @@ export async function terminateProcessTree(
   }
 
   return !isProcessAlive(pid);
+}
+
+// ── Process instance identity ──────────────────────────────────────────────
+//
+// A PID alone is not a safe target. The OS reuses PIDs, so a numeric id
+// persisted before a restart may belong to a completely unrelated process by
+// the time recovery runs. Signalling it would kill a bystander.
+//
+// The discriminator is the OS-reported process creation time, which is unique
+// per process instance for a given PID. We read it once at spawn, persist it,
+// and compare it against a fresh read before ever signalling. The values are
+// only ever compared against each other, so their format never has to be
+// parsed — which keeps this free of locale and platform date quirks.
+
+/** Instance-specific fingerprint of one OS process. */
+export interface ProcessIdentity {
+  pid: number;
+  /**
+   * OS-reported creation time, in whatever native representation the platform
+   * gives us. Opaque: only ever compared with another reading from the same
+   * machine, never parsed.
+   */
+  startedAt: string;
+  /** Executable / command name as reported by the OS, when available. */
+  command?: string | null;
+}
+
+export type ProcessIdentityVerdict = 'match' | 'mismatch' | 'unverifiable';
+
+function runIdentityProbe(command: string, args: string[], timeoutMs = 5000): Promise<string | null> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      resolve(null);
+      return;
+    }
+
+    let out = '';
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.kill(); } catch { /* already gone */ }
+      resolve(value);
+    };
+
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => { out += chunk; });
+    child.on('error', () => finish(null));
+    child.on('close', (code) => finish(code === 0 && out.trim() ? out.trim() : null));
+  });
+}
+
+/** Linux: /proc gives creation time with no subprocess and tick resolution. */
+function readProcIdentity(pid: number): ProcessIdentity | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // The comm field is parenthesised and may itself contain spaces or ')',
+    // so fields are counted from after the LAST ')'. starttime is field 22,
+    // i.e. index 19 of what follows.
+    const tail = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
+    const startTicks = tail[19];
+    if (!startTicks) return null;
+    let command: string | null = null;
+    try { command = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim() || null; } catch { command = null; }
+    return { pid, startedAt: startTicks, command };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads the instance fingerprint of a live process, or null when it cannot be
+ * determined (process gone, tooling unavailable, probe failed).
+ *
+ * Returns null in test environments without inspecting anything, so tests never
+ * spawn probe processes; a null identity is unverifiable and therefore
+ * fail-closed at the call site.
+ */
+export async function readProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
+  if (!pid || pid <= 0) return null;
+  if (isTestEnvironment()) return null;
+
+  if (process.platform === 'linux') {
+    return readProcIdentity(pid);
+  }
+
+  if (process.platform === 'win32') {
+    const script =
+      `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction SilentlyContinue; `
+      + 'if ($p) { "{0}`t{1}" -f $p.CreationDate.ToUniversalTime().ToString("o"), $p.Name }';
+    const out = await runIdentityProbe('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+    if (!out) return null;
+    const [startedAt, command] = out.split('\t');
+    if (!startedAt) return null;
+    return { pid, startedAt: startedAt.trim(), command: command?.trim() || null };
+  }
+
+  // macOS and other POSIX: `ps` reports the absolute start time of the process.
+  const out = await runIdentityProbe('ps', ['-o', 'lstart=', '-p', String(pid)]);
+  if (!out) return null;
+  return { pid, startedAt: out.replace(/\s+/g, ' ').trim(), command: null };
+}
+
+/**
+ * Decides whether the process currently at `pid` is the same instance that
+ * `expected` describes.
+ *
+ * Deliberately asymmetric: only a positive, confirmed match authorises a
+ * signal. A missing expectation, an unreadable current identity or any probe
+ * failure yields `unverifiable`, and callers must treat that exactly like a
+ * mismatch. Leaving a genuine orphan alive is recoverable; killing an unrelated
+ * process that inherited the PID is not.
+ */
+export async function verifyProcessIdentity(
+  pid: number,
+  expected: ProcessIdentity | null | undefined,
+): Promise<ProcessIdentityVerdict> {
+  if (!pid || pid <= 0) return 'unverifiable';
+  if (!expected || typeof expected.startedAt !== 'string' || !expected.startedAt) return 'unverifiable';
+  if (typeof expected.pid === 'number' && expected.pid !== pid) return 'mismatch';
+
+  let current: ProcessIdentity | null;
+  try {
+    current = await readProcessIdentity(pid);
+  } catch {
+    return 'unverifiable';
+  }
+  if (!current || !current.startedAt) return 'unverifiable';
+
+  if (current.startedAt !== expected.startedAt) return 'mismatch';
+  // Command is a secondary check only: absent on some platforms, and never
+  // sufficient on its own.
+  if (expected.command && current.command && expected.command !== current.command) return 'mismatch';
+
+  return 'match';
+}
+
+/** Parses a persisted identity blob. Malformed input is unverifiable, not fatal. */
+export function parseProcessIdentity(serialized: string | null | undefined): ProcessIdentity | null {
+  if (!serialized) return null;
+  try {
+    const parsed = JSON.parse(serialized) as Partial<ProcessIdentity>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (typeof parsed.startedAt !== 'string' || !parsed.startedAt) return null;
+    if (typeof parsed.pid !== 'number') return null;
+    return {
+      pid: parsed.pid,
+      startedAt: parsed.startedAt,
+      command: typeof parsed.command === 'string' ? parsed.command : null,
+    };
+  } catch {
+    return null;
+  }
 }

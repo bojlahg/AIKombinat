@@ -2724,6 +2724,12 @@ export interface AgentForumTurn {
   execution_snapshot: string | null;
   /** PID of the CLI process while the turn is running; cleared once it exits. */
   process_pid: number | null;
+  /**
+   * Serialized `ProcessIdentity` for that PID. Recovery refuses to signal a
+   * surviving PID unless this fingerprint still matches, because the OS reuses
+   * process ids.
+   */
+  process_identity: string | null;
   raw_output: string | null;
   error_message: string | null;
   started_at: string | null;
@@ -3118,7 +3124,7 @@ export function markAgentForumTurnsInterrupted(
     // Terminal turns only need the stray PID dropped; their outcome stands.
     db.prepare(
       `UPDATE agent_forum_turns
-          SET process_pid = NULL
+          SET process_pid = NULL, process_identity = NULL
         WHERE forum_id = ? AND id IN (${placeholders})
           AND status NOT IN ('pending', 'running')`
     ).run(forumId, ...turnIds);
@@ -3128,7 +3134,8 @@ export function markAgentForumTurnsInterrupted(
           SET status = 'stopped',
               error_message = ?,
               completed_at = COALESCE(completed_at, ?),
-              process_pid = NULL
+              process_pid = NULL,
+              process_identity = NULL
         WHERE forum_id = ? AND id IN (${placeholders})
           AND status IN ('pending', 'running')`
     ).run(reason, now, forumId, ...turnIds).changes;
@@ -3138,7 +3145,7 @@ export function markAgentForumTurnsInterrupted(
 
 export function updateAgentForumTurn(
   id: string,
-  updates: Partial<Pick<AgentForumTurn, 'status' | 'execution_snapshot' | 'process_pid' | 'raw_output' | 'error_message' | 'started_at' | 'completed_at'>>,
+  updates: Partial<Pick<AgentForumTurn, 'status' | 'execution_snapshot' | 'process_pid' | 'process_identity' | 'raw_output' | 'error_message' | 'started_at' | 'completed_at'>>,
 ): AgentForumTurn | undefined {
   const db = getDatabase();
   const fields: string[] = [];
@@ -3147,6 +3154,7 @@ export function updateAgentForumTurn(
   if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
   if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
   if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
+  if (updates.process_identity !== undefined) { fields.push('process_identity = ?'); values.push(updates.process_identity); }
   if (updates.raw_output !== undefined) { fields.push('raw_output = ?'); values.push(updates.raw_output); }
   if (updates.error_message !== undefined) { fields.push('error_message = ?'); values.push(updates.error_message); }
   if (updates.started_at !== undefined) { fields.push('started_at = ?'); values.push(updates.started_at); }

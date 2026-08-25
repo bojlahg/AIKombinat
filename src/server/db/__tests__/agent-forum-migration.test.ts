@@ -201,6 +201,29 @@ describe('AgentForum schema migration on an existing database', () => {
     expect(db.prepare('SELECT process_pid FROM agent_forum_turns WHERE id = ?').get('t2')).toEqual({ process_pid: 4242 });
   });
 
+  it('adds process_identity to existing turns and carries it across the rebuild', () => {
+    db = new Database(':memory:');
+    createLegacyForumSchema(db);
+    db.exec(`
+      INSERT INTO agent_forum_turns (id, forum_id, member_id, cycle_number, turn_order, status, created_at) VALUES
+        ('t1', 'f1', 'm1', 1, 0, 'running', '2026-08-01T00:01:00Z');
+    `);
+
+    initDatabase(db);
+    const columns = (db.pragma('table_info(agent_forum_turns)') as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).toContain('process_identity');
+    expect(db.prepare('SELECT process_identity FROM agent_forum_turns WHERE id = ?').get('t1'))
+      .toEqual({ process_identity: null });
+
+    // A recorded fingerprint survives further startups.
+    const identity = JSON.stringify({ pid: 4242, startedAt: '1699999999', command: 'claude' });
+    db.prepare('UPDATE agent_forum_turns SET process_pid = 4242, process_identity = ? WHERE id = ?')
+      .run(identity, 't1');
+    initDatabase(db);
+    expect(db.prepare('SELECT process_pid, process_identity FROM agent_forum_turns WHERE id = ?').get('t1'))
+      .toEqual({ process_pid: 4242, process_identity: identity });
+  });
+
   it('does not rebuild agent_forum_turns on a database created by the current schema', () => {
     db = new Database(':memory:');
     initDatabase(db);

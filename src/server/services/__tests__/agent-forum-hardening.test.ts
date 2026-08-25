@@ -943,6 +943,8 @@ describe('AgentForum lifecycle hardening', () => {
 
   describe('Forum in error state', () => {
     const ORPHAN_PID = 515151;
+    /** Fingerprint the turn recorded when it spawned; never a real process. */
+    const ORPHAN_IDENTITY = JSON.stringify({ pid: ORPHAN_PID, startedAt: '1699999999', command: 'claude' });
 
     it('refuses a new user message until recovery succeeds', async () => {
       const { forum } = seedForum();
@@ -961,10 +963,15 @@ describe('AgentForum lifecycle hardening', () => {
     it('Stop on an error forum retries orphan cleanup and returns it to idle', async () => {
       const { forum, a } = seedForum();
       const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
-      queries.updateAgentForumTurn(turn.id, { status: 'running', process_pid: ORPHAN_PID });
+      queries.updateAgentForumTurn(turn.id, {
+        status: 'running',
+        process_pid: ORPHAN_PID,
+        process_identity: ORPHAN_IDENTITY,
+      });
       queries.updateAgentForum(forum.id, { status: 'error', current_member_id: a.id });
 
       vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      vi.spyOn(processTree, 'verifyProcessIdentity').mockResolvedValue('match');
       const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
 
       await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
@@ -990,10 +997,15 @@ describe('AgentForum lifecycle hardening', () => {
     it('Stop on an error forum with a surviving orphan stays failed and retryable', async () => {
       const { forum, a } = seedForum();
       const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
-      queries.updateAgentForumTurn(turn.id, { status: 'running', process_pid: ORPHAN_PID });
+      queries.updateAgentForumTurn(turn.id, {
+        status: 'running',
+        process_pid: ORPHAN_PID,
+        process_identity: ORPHAN_IDENTITY,
+      });
       queries.updateAgentForum(forum.id, { status: 'error', current_member_id: a.id });
 
       const aliveSpy = vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      vi.spyOn(processTree, 'verifyProcessIdentity').mockResolvedValue('match');
       const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
       vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -1013,6 +1025,106 @@ describe('AgentForum lifecycle hardening', () => {
       await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
       expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
       expect(queries.getAgentForumTurnById(turn.id)!.process_pid).toBeNull();
+    });
+
+    it('Stop on a persisted running forum with no in-memory cycle runs recovery, not a blind idle', async () => {
+      const { forum, a } = seedForum();
+      const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+      queries.updateAgentForumTurn(turn.id, {
+        status: 'running',
+        process_pid: ORPHAN_PID,
+        process_identity: ORPHAN_IDENTITY,
+      });
+      // Marked running on disk, but this process owns no cycle for it — exactly
+      // the state a crash or restart leaves behind.
+      queries.updateAgentForum(forum.id, { status: 'running', current_cycle: 1, current_member_id: a.id });
+      expect(orchestrator.isCycleRegistered(forum.id)).toBe(false);
+
+      const aliveSpy = vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      vi.spyOn(processTree, 'verifyProcessIdentity').mockResolvedValue('match');
+      const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      // Termination fails and the process survives: Stop must NOT claim success.
+      await expect(orchestrator.stopForum(forum.id)).rejects.toBeInstanceOf(ForumRecoveryPendingError);
+
+      expect(terminateSpy).toHaveBeenCalledWith(ORPHAN_PID);
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+      const stillOrphaned = queries.getAgentForumTurnById(turn.id)!;
+      expect(stillOrphaned.status).toBe('running');
+      expect(stillOrphaned.process_pid).toBe(ORPHAN_PID);
+      expect(stillOrphaned.process_identity).toBe(ORPHAN_IDENTITY);
+
+      // Once the process is confirmed gone, retrying Stop completes cleanly.
+      aliveSpy.mockReturnValue(false);
+      await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+      const recovered = queries.getAgentForumById(forum.id)!;
+      expect(recovered.status).toBe('idle');
+      expect(recovered.current_member_id).toBeNull();
+      const done = queries.getAgentForumTurnById(turn.id)!;
+      expect(done.status).toBe('stopped');
+      expect(done.process_pid).toBeNull();
+      expect(done.process_identity).toBeNull();
+    });
+
+    it('Stop on a persisted running forum succeeds when the orphan is terminated', async () => {
+      const { forum, a } = seedForum();
+      const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+      queries.updateAgentForumTurn(turn.id, {
+        status: 'running',
+        process_pid: ORPHAN_PID,
+        process_identity: ORPHAN_IDENTITY,
+      });
+      queries.updateAgentForum(forum.id, { status: 'running', current_cycle: 1, current_member_id: a.id });
+
+      vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      vi.spyOn(processTree, 'verifyProcessIdentity').mockResolvedValue('match');
+      const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
+
+      await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+
+      expect(terminateSpy).toHaveBeenCalledWith(ORPHAN_PID);
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+      const done = queries.getAgentForumTurnById(turn.id)!;
+      expect(done.status).toBe('stopped');
+      expect(done.process_pid).toBeNull();
+    });
+
+    it('Stop on a persisted running forum never signals a reused PID', async () => {
+      const { forum, a } = seedForum();
+      const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+      queries.updateAgentForumTurn(turn.id, {
+        status: 'running',
+        process_pid: ORPHAN_PID,
+        process_identity: ORPHAN_IDENTITY,
+      });
+      queries.updateAgentForum(forum.id, { status: 'running', current_cycle: 1, current_member_id: a.id });
+
+      vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+      vi.spyOn(processTree, 'verifyProcessIdentity').mockResolvedValue('mismatch');
+      const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree');
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await expect(orchestrator.stopForum(forum.id)).rejects.toBeInstanceOf(ForumRecoveryPendingError);
+
+      expect(terminateSpy).not.toHaveBeenCalled();
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+      expect(queries.getAgentForumTurnById(turn.id)!.process_pid).toBe(ORPHAN_PID);
+    });
+
+    it('Stop on a persisted running forum with nothing left simply goes idle', async () => {
+      const { forum, a } = seedForum();
+      const turn = queries.createAgentForumTurn(forum.id, a.id, 1, 0);
+      queries.updateAgentForumTurn(turn.id, { status: 'passed', completed_at: '2026-08-25T10:00:00Z' });
+      queries.updateAgentForum(forum.id, { status: 'running', current_cycle: 1, current_member_id: a.id });
+
+      const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree');
+
+      await expect(orchestrator.stopForum(forum.id)).resolves.toBeUndefined();
+
+      expect(terminateSpy).not.toHaveBeenCalled();
+      expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+      expect(queries.getAgentForumTurnById(turn.id)!.status).toBe('passed');
     });
 
     it('reports a stop timeout as an incomplete stop', async () => {

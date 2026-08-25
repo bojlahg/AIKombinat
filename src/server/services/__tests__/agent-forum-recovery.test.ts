@@ -14,13 +14,27 @@ const {
   recoverInterruptedAgentForums,
   FORUM_TURN_RESTART_INTERRUPT_MESSAGE,
   FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGE,
+  FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGES,
 } = await import('../agent-forum-orchestrator.js');
 
 /**
  * PIDs used here are never signalled: `terminateProcessTree` is stubbed in every
- * test that reaches it, and the helper itself is fail-closed in test mode.
+ * test that reaches it, and the helper itself is fail-closed in test mode. The
+ * process-identity probe is stubbed too, so no test inspects a real process.
  */
 const ORPHAN_PID = 424242;
+
+/** The fingerprint a turn would have persisted when it spawned its process. */
+const ORPHAN_IDENTITY = { pid: ORPHAN_PID, startedAt: '1699999999', command: 'claude' };
+
+function persistedIdentity(pid = ORPHAN_PID) {
+  return JSON.stringify({ ...ORPHAN_IDENTITY, pid });
+}
+
+/** Stubs identity verification with a fixed verdict for every PID. */
+function stubIdentityVerdict(verdict: 'match' | 'mismatch' | 'unverifiable') {
+  return vi.spyOn(processTree, 'verifyProcessIdentity').mockResolvedValue(verdict);
+}
 
 describe('AgentForum startup recovery', () => {
   beforeEach(() => {
@@ -141,7 +155,9 @@ describe('AgentForum startup recovery', () => {
       turnsReconciled: 0,
       orphanProcessesTerminated: 0,
       unresolvedOrphanProcesses: 0,
+      forumsFailed: 0,
       unresolvedOrphans: [],
+      recoveryFailures: [],
     });
     expect(terminateSpy).not.toHaveBeenCalled();
     expect(queries.getAgentForumTurnById(turn.id)!.status).toBe('passed');
@@ -149,10 +165,11 @@ describe('AgentForum startup recovery', () => {
 
   it('terminates the orphan process tree of a live stale PID, then stops the turn', async () => {
     const { running } = seedInterruptedForum();
-    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
 
     const callOrder: string[] = [];
     vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('match');
     const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockImplementation(async (pid) => {
       // The turn must still be `running` while we terminate — reconciliation
       // happens only after the orphan is dealt with.
@@ -187,9 +204,10 @@ describe('AgentForum startup recovery', () => {
 
   it('keeps the PID and fails closed when termination reports failure and the process survives', async () => {
     const { forum, running, pending, completed } = seedInterruptedForum();
-    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
 
     vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('match');
     vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -200,7 +218,7 @@ describe('AgentForum startup recovery', () => {
     expect(report.orphanProcessesTerminated).toBe(0);
     expect(report.unresolvedOrphanProcesses).toBe(1);
     expect(report.unresolvedOrphans).toEqual([
-      { forumId: forum.id, turnId: running.id, pid: ORPHAN_PID },
+      { forumId: forum.id, turnId: running.id, pid: ORPHAN_PID, reason: 'termination_failed' },
     ]);
 
     // The forum stays in error and the PID is preserved for a retry.
@@ -222,9 +240,10 @@ describe('AgentForum startup recovery', () => {
 
   it('fails closed when termination throws and the process is still alive', async () => {
     const { forum, running } = seedInterruptedForum();
-    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
 
     vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('match');
     vi.spyOn(processTree, 'terminateProcessTree').mockRejectedValue(new Error('EPERM'));
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -240,7 +259,8 @@ describe('AgentForum startup recovery', () => {
 
   it('reconciles safely when termination throws but the process is verifiably gone', async () => {
     const { forum, running } = seedInterruptedForum();
-    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
+    stubIdentityVerdict('match');
 
     // Alive on the first probe, gone on the confirmation probe after the throw.
     let probes = 0;
@@ -264,9 +284,10 @@ describe('AgentForum startup recovery', () => {
 
   it('retrying recovery after the orphan exits completes the cleanup', async () => {
     const { forum, running } = seedInterruptedForum();
-    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
 
     const aliveSpy = vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('match');
     vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(false);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -292,12 +313,13 @@ describe('AgentForum startup recovery', () => {
     const { forum, running, completed } = seedInterruptedForum();
     // A Stop that timed out before the restart leaves the forum in `error`.
     queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
-    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
 
     // The forum is picked up by the recovery query, not skipped as historical.
     expect(queries.getAgentForumsNeedingRecovery().map((f) => f.id)).toContain(forum.id);
 
     vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('match');
     const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
 
     const report = await recoverInterruptedAgentForums();
@@ -355,12 +377,14 @@ describe('AgentForum startup recovery', () => {
       error_message: 'crashed mid-write',
       completed_at: '2026-08-20T10:00:00Z',
       process_pid: ORPHAN_PID,
+      process_identity: persistedIdentity(),
     });
     queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
 
     expect(queries.getAgentForumsNeedingRecovery().map((f) => f.id)).toContain(forum.id);
 
     vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('match');
     vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
 
     const report = await recoverInterruptedAgentForums();
@@ -372,6 +396,135 @@ describe('AgentForum startup recovery', () => {
     expect(after.status).toBe('failed');
     expect(after.error_message).toBe('crashed mid-write');
     expect(after.process_pid).toBeNull();
+  });
+
+  // ── PID reuse safety: never signal on the strength of a number ────────────
+
+  it('terminates the orphan only when the recorded process identity still matches', async () => {
+    const { forum, running } = seedInterruptedForum();
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    const verifySpy = stubIdentityVerdict('match');
+    const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree').mockResolvedValue(true);
+
+    const report = await recoverInterruptedAgentForums();
+
+    // Identity is checked BEFORE anything is signalled.
+    expect(verifySpy).toHaveBeenCalledWith(ORPHAN_PID, expect.objectContaining({
+      pid: ORPHAN_PID,
+      startedAt: ORPHAN_IDENTITY.startedAt,
+    }));
+    expect(terminateSpy).toHaveBeenCalledWith(ORPHAN_PID);
+    expect(report.orphanProcessesTerminated).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
+    const turn = queries.getAgentForumTurnById(running.id)!;
+    expect(turn.status).toBe('stopped');
+    expect(turn.process_pid).toBeNull();
+    expect(turn.process_identity).toBeNull();
+  });
+
+  it('never signals a live PID whose identity no longer matches (PID reuse)', async () => {
+    const { forum, running } = seedInterruptedForum();
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('mismatch');
+    const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const report = await recoverInterruptedAgentForums();
+
+    // The unrelated process that inherited the PID is left completely alone.
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(report.forumsRecovered).toBe(0);
+    expect(report.orphanProcessesTerminated).toBe(0);
+    expect(report.unresolvedOrphanProcesses).toBe(1);
+    expect(report.unresolvedOrphans).toEqual([
+      { forumId: forum.id, turnId: running.id, pid: ORPHAN_PID, reason: 'identity_mismatch' },
+    ]);
+
+    // Fail closed with a recoverable diagnostic state.
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    const turn = queries.getAgentForumTurnById(running.id)!;
+    expect(turn.process_pid).toBe(ORPHAN_PID);
+    expect(turn.process_identity).toBe(persistedIdentity());
+    expect(turn.status).toBe('running');
+    expect(turn.error_message).toBe(FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGES.identity_mismatch);
+  });
+
+  it('never signals a live PID whose identity cannot be verified', async () => {
+    const { forum, running } = seedInterruptedForum();
+    // No persisted fingerprint at all — e.g. the server died before the probe
+    // landed. Unverifiable must behave exactly like a mismatch.
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID });
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    stubIdentityVerdict('unverifiable');
+    const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(report.forumsRecovered).toBe(0);
+    expect(report.unresolvedOrphans).toEqual([
+      { forumId: forum.id, turnId: running.id, pid: ORPHAN_PID, reason: 'identity_unverifiable' },
+    ]);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    const turn = queries.getAgentForumTurnById(running.id)!;
+    expect(turn.process_pid).toBe(ORPHAN_PID);
+    expect(turn.status).toBe('running');
+    expect(turn.error_message).toBe(FORUM_TURN_UNRESOLVED_ORPHAN_MESSAGES.identity_unverifiable);
+  });
+
+  it('treats a throwing identity probe as unverifiable and does not signal', async () => {
+    const { forum, running } = seedInterruptedForum();
+    queries.updateAgentForumTurn(running.id, { process_pid: ORPHAN_PID, process_identity: persistedIdentity() });
+
+    vi.spyOn(processTree, 'isProcessAlive').mockImplementation((pid) => pid === ORPHAN_PID);
+    vi.spyOn(processTree, 'verifyProcessIdentity').mockRejectedValue(new Error('probe exploded'));
+    const terminateSpy = vi.spyOn(processTree, 'terminateProcessTree');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(report.unresolvedOrphans[0].reason).toBe('identity_unverifiable');
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    expect(queries.getAgentForumTurnById(running.id)!.process_pid).toBe(ORPHAN_PID);
+  });
+
+  // ── Per-forum isolation ───────────────────────────────────────────────────
+
+  it('keeps recovering later forums when one forum recovery throws', async () => {
+    const broken = seedInterruptedForum();
+    const healthy = seedInterruptedForum();
+
+    // Make the FIRST forum blow up inside recovery, without touching the second.
+    const realGetTurns = queries.getAgentForumTurnsNeedingRecovery;
+    vi.spyOn(queries, 'getAgentForumTurnsNeedingRecovery').mockImplementation((forumId: string) => {
+      if (forumId === broken.forum.id) throw new Error('database went sideways');
+      return realGetTurns(forumId);
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const report = await recoverInterruptedAgentForums();
+
+    // The broken forum is recorded and left closed — never silently idle.
+    expect(report.forumsFailed).toBe(1);
+    expect(report.recoveryFailures).toEqual([
+      { forumId: broken.forum.id, error: 'database went sideways' },
+    ]);
+    expect(queries.getAgentForumById(broken.forum.id)!.status).toBe('error');
+    expect(queries.getAgentForumTurnById(broken.running.id)!.status).toBe('running');
+    expect(queries.getAgentForumTurnById(broken.pending.id)!.status).toBe('pending');
+
+    // The healthy forum behind it was still reconciled.
+    expect(report.forumsRecovered).toBe(1);
+    expect(queries.getAgentForumById(healthy.forum.id)!.status).toBe('idle');
+    expect(queries.getAgentForumTurnById(healthy.running.id)!.status).toBe('stopped');
+    expect(queries.getAgentForumTurnById(healthy.pending.id)!.status).toBe('stopped');
   });
 
   it('recovers several stale forums independently', async () => {
