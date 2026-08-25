@@ -494,39 +494,42 @@ describe('Test Hardening & Boundary Guard Suite', () => {
 
     it('21. WorktreeManager mutating operations succeed inside a real TestWorkspace git repository', async () => {
       const gitWs = createTestWorkspace('wm-real-git');
-      const git = createGit(gitWs.path);
-      await git.init();
-      await git.addConfig('user.name', 'Test Runner');
-      await git.addConfig('user.email', 'test@example.com');
+      try {
+        const git = createGit(gitWs.path);
+        await git.init();
+        await git.addConfig('user.name', 'Test Runner');
+        await git.addConfig('user.email', 'test@example.com');
 
-      const testFile = gitWs.resolvePath('sample.txt');
-      fs.writeFileSync(testFile, 'initial content\n', 'utf8');
+        const testFile = gitWs.resolvePath('sample.txt');
+        fs.writeFileSync(testFile, 'initial content\n', 'utf8');
 
-      // Stage and commit using WorktreeManager
-      await expect(worktreeManager.gitStage(gitWs.path, ['sample.txt'])).resolves.not.toThrow();
-      await expect(worktreeManager.gitCommit(gitWs.path, 'initial commit')).resolves.toBeDefined();
+        // Stage and commit using WorktreeManager
+        await expect(worktreeManager.gitStage(gitWs.path, ['sample.txt'])).resolves.not.toThrow();
+        await expect(worktreeManager.gitCommit(gitWs.path, 'initial commit')).resolves.toBeDefined();
 
-      // Create and checkout branch
-      await expect(worktreeManager.gitCreateBranch(gitWs.path, 'feature/sample')).resolves.not.toThrow();
-      await expect(worktreeManager.gitCheckout(gitWs.path, 'feature/sample')).resolves.not.toThrow();
+        // Create and checkout branch
+        await expect(worktreeManager.gitCreateBranch(gitWs.path, 'feature/sample')).resolves.not.toThrow();
+        await expect(worktreeManager.gitCheckout(gitWs.path, 'feature/sample')).resolves.not.toThrow();
 
-      // Modify file and test stash operations
-      fs.appendFileSync(testFile, 'modified line\n', 'utf8');
-      await expect(worktreeManager.gitStashPush(gitWs.path, 'stash test')).resolves.not.toThrow();
-      await expect(worktreeManager.gitStashPop(gitWs.path, 0)).resolves.not.toThrow();
+        // Modify file and test stash operations
+        fs.appendFileSync(testFile, 'modified line\n', 'utf8');
+        await expect(worktreeManager.gitStashPush(gitWs.path, 'stash test')).resolves.not.toThrow();
+        await expect(worktreeManager.gitStashPop(gitWs.path, 0)).resolves.not.toThrow();
 
-      // Commit the modified content so HEAD advances
-      await expect(worktreeManager.gitStage(gitWs.path, ['sample.txt'])).resolves.not.toThrow();
-      await expect(worktreeManager.gitCommit(gitWs.path, 'second commit')).resolves.toBeDefined();
+        // Commit the modified content so HEAD advances
+        await expect(worktreeManager.gitStage(gitWs.path, ['sample.txt'])).resolves.not.toThrow();
+        await expect(worktreeManager.gitCommit(gitWs.path, 'second commit')).resolves.toBeDefined();
 
-      // Test discard all (dirty uncommitted line is cleanly discarded)
-      fs.appendFileSync(testFile, 'dirty line\n', 'utf8');
-      await expect(worktreeManager.gitDiscardAll(gitWs.path)).resolves.not.toThrow();
-      expect(fs.readFileSync(testFile, 'utf8').replace(/\r\n/g, '\n')).toBe('initial content\nmodified line\n');
-
-      gitWs.cleanup();
+        // Test discard all (dirty uncommitted line is cleanly discarded)
+        fs.appendFileSync(testFile, 'dirty line\n', 'utf8');
+        await expect(worktreeManager.gitDiscardAll(gitWs.path)).resolves.not.toThrow();
+        expect(fs.readFileSync(testFile, 'utf8').replace(/\r\n/g, '\n')).toBe('initial content\nmodified line\n');
+      } finally {
+        gitWs.cleanup();
+      }
       expect(fs.existsSync(gitWs.path)).toBe(false);
     });
+
 
   });
 });

@@ -1,5 +1,29 @@
+import path from 'path';
 import { runSvn } from '../lib/svn.js';
-import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+import { assertTestRuntimePathAllowed, isTestEnvironment, UNEXPECTED_FS_WRITE_MESSAGE } from '../utils/test-fs-guard.js';
+
+function assertSvnMutationTargetsAllowed(dirPath: string, targets?: string | string[]): void {
+  assertTestRuntimePathAllowed(dirPath);
+  if (!targets) return;
+  const list = Array.isArray(targets) ? targets : [targets];
+  for (const t of list) {
+    if (!t) continue;
+    const effectivePath = path.isAbsolute(t)
+      ? path.resolve(t)
+      : path.resolve(dirPath, t);
+    assertTestRuntimePathAllowed(effectivePath);
+
+    if (isTestEnvironment()) {
+      const normDir = process.platform === 'win32' ? path.resolve(dirPath).toLowerCase() : path.resolve(dirPath);
+      const normEffective = process.platform === 'win32' ? effectivePath.toLowerCase() : effectivePath;
+      const rel = path.relative(normDir, normEffective);
+      if (rel !== '' && (rel.startsWith('..' + path.sep) || rel === '..' || path.isAbsolute(rel))) {
+        throw new Error(`${UNEXPECTED_FS_WRITE_MESSAGE} ${t}`);
+      }
+    }
+  }
+}
+
 
 
 /**
@@ -259,27 +283,26 @@ class SvnManager {
   }
 
   async setProperty(dirPath: string, name: string, value: string, target?: string): Promise<void> {
-    assertTestRuntimePathAllowed(dirPath);
-    if (target) assertTestRuntimePathAllowed(target);
+    assertSvnMutationTargetsAllowed(dirPath, target);
     await runSvn(['propset', name, value, target ?? dirPath], dirPath);
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────
 
   async add(dirPath: string, files: string[]): Promise<void> {
-    assertTestRuntimePathAllowed(dirPath);
+    assertSvnMutationTargetsAllowed(dirPath, files);
     if (files.length === 0) return;
     await runSvn(['add', '--parents', '--force', ...files], dirPath);
   }
 
   async revert(dirPath: string, files: string[]): Promise<void> {
-    assertTestRuntimePathAllowed(dirPath);
+    assertSvnMutationTargetsAllowed(dirPath, files);
     if (files.length === 0) return;
     await runSvn(['revert', '-R', ...files], dirPath);
   }
 
   async remove(dirPath: string, files: string[], keepLocal = false): Promise<void> {
-    assertTestRuntimePathAllowed(dirPath);
+    assertSvnMutationTargetsAllowed(dirPath, files);
     if (files.length === 0) return;
     const args = ['delete'];
     if (keepLocal) args.push('--keep-local');
@@ -288,21 +311,21 @@ class SvnManager {
   }
 
   async resolve(dirPath: string, files: string[], accept: 'working' | 'mine-full' | 'theirs-full' | 'base' = 'working'): Promise<void> {
-    assertTestRuntimePathAllowed(dirPath);
+    assertSvnMutationTargetsAllowed(dirPath, files);
     if (files.length === 0) return;
     await runSvn(['resolve', `--accept=${accept}`, ...files], dirPath);
   }
 
   /** Assign files to a native changelist, or remove them from any (name === null). */
   async changelist(dirPath: string, name: string | null, files: string[]): Promise<void> {
-    assertTestRuntimePathAllowed(dirPath);
+    assertSvnMutationTargetsAllowed(dirPath, files);
     if (files.length === 0) return;
     const args = name ? ['changelist', name, ...files] : ['changelist', '--remove', ...files];
     await runSvn(args, dirPath);
   }
 
   async commit(dirPath: string, message: string, files?: string[]): Promise<{ revision: string | null; output: string }> {
-    assertTestRuntimePathAllowed(dirPath);
+    assertSvnMutationTargetsAllowed(dirPath, files);
     if (!message.trim()) throw new Error('Commit message is required');
     const args = ['commit', '-m', message];
     if (files && files.length > 0) args.push(...files);
@@ -312,6 +335,7 @@ class SvnManager {
     const revMatch = /Committed revision (\d+)\./.exec(stdout);
     return { revision: revMatch?.[1] ?? null, output: stdout };
   }
+
 
   async update(dirPath: string, revision?: string): Promise<{ revision: string | null; output: string; conflicts: string[] }> {
     assertTestRuntimePathAllowed(dirPath);
