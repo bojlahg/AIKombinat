@@ -42,6 +42,10 @@ const translations = {
     'errors.projectCreate': 'Failed to create the project.',
     'errors.projectDelete': 'Failed to delete the project.',
 
+    // Shared dialog labels
+    'common.ok': 'OK',
+    'common.cancel': 'Cancel',
+
     // Sidebar
     'sidebar.home': 'Home',
     'sidebar.review': 'Review Queue',
@@ -1461,6 +1465,10 @@ const translations = {
     'errors.projectsLoad': '\uD504\uB85C\uC81D\uD2B8\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
     'errors.projectCreate': '\uD504\uB85C\uC81D\uD2B8\uB97C \uC0DD\uC131\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
     'errors.projectDelete': '\uD504\uB85C\uC81D\uD2B8\uB97C \uC0AD\uC81C\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.',
+
+    // Shared dialog labels
+    'common.ok': '\uD655\uC778',
+    'common.cancel': '\uCDE8\uC18C',
 
     // Sidebar
     'sidebar.home': '홈',
