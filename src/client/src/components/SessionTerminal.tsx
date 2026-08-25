@@ -466,7 +466,7 @@ export default function SessionTerminal({
       // permission denial; the right-click → Paste menu fires the native
       // paste event and uses the container fallback below.
       console.warn('[paste] no content available (text empty, no image, no file path)');
-      toastWarningRef.current?.('붙여넣을 내용을 클립보드에서 읽지 못했습니다. 우클릭 → 붙여넣기를 시도해 보세요.');
+      toastWarningRef.current?.('붙여넣을 내용을 클립보드에서 읽지 못했습니다. 우클릭 → 붙여넣기를 사용하세요.');
     };
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== 'keydown') return true;
