@@ -1,6 +1,7 @@
 import path from 'path';
 import { execFile } from 'child_process';
 import { getModelByValue } from '../db/queries.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
@@ -46,6 +47,7 @@ export function parseHelpForModels(helpText: string): ProbedModel[] {
 }
 
 function runHelp(command: string): Promise<string | null> {
+  assertExternalAiCliAllowed(command);
   return new Promise((resolve) => {
     const opts: { timeout: number; shell?: boolean; maxBuffer: number } = {
       timeout: PROBE_TIMEOUT_MS,
@@ -63,12 +65,16 @@ function runHelp(command: string): Promise<string | null> {
 }
 
 async function probeViaHelp(command: string): Promise<ProbedModel[] | null> {
+  assertExternalAiCliAllowed(command);
   try {
     const help = await runHelp(command);
     if (!help) return null;
     const parsed = parseHelpForModels(help);
     return parsed.length > 0 ? parsed : null;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Unexpected real CLI launch from test')) {
+      throw err;
+    }
     return null;
   }
 }

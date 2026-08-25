@@ -3,6 +3,7 @@ import { maybeTriggerSync } from './model-sync.js';
 import type { CliTool } from './cli-adapters.js';
 import { getRawShellInfo } from './cli-adapters.js';
 import { getDatabase } from '../db/connection.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 export interface CliToolStatus {
   tool: string;
@@ -32,10 +33,12 @@ const VCS_TOOLS = [
 ] as const;
 
 function checkTool(tool: string, command: string, isVcs = false): Promise<CliToolStatus> {
-  if (!isVcs && (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true')) {
-    return Promise.reject(
-      new Error('Unexpected real CLI launch from test. Install an explicit mock for this test.')
-    );
+  if (!isVcs) {
+    try {
+      assertExternalAiCliAllowed(command);
+    } catch (err) {
+      return Promise.reject(err);
+    }
   }
 
   return new Promise((resolve) => {

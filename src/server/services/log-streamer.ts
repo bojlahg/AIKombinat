@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as queries from '../db/queries.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import { createPtyFilterState, isPlainTextNoise, type PtyFilterState } from './pty-output-filter.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 export interface TokenUsage {
   input_tokens: number | null;
@@ -468,6 +469,7 @@ export class LogStreamer {
    */
   fetchRateLimitOnStartup(): void {
     if (this._resetsAt) return; // already known
+    assertExternalAiCliAllowed('claude');
     try {
       const proc = spawn(
         process.platform === 'win32' ? 'cmd.exe' : 'claude',

@@ -11,6 +11,7 @@ import {
   type ModelSource,
 } from '../db/queries.js';
 import { getAdapter, type CliTool, type ProbedModel } from './cli-adapters.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 const MODEL_REFRESH_TTL_MS = 6 * 60 * 60 * 1000;
 const DISCOVERY_TIMEOUT_MS = 10_000;
@@ -66,11 +67,12 @@ export const DOCUMENTED_CLAUDE_MODELS: DiscoveredModel[] = [
   { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', supportedEfforts: null },
 ];
 
-export function execCommand(
+export async function execCommand(
   command: string,
   args: string[],
   options: { timeoutMs?: number } = {},
 ): Promise<CommandResult> {
+  assertExternalAiCliAllowed(command);
   const timeoutMs = options.timeoutMs ?? DISCOVERY_TIMEOUT_MS;
 
   if (process.platform === 'win32') {
@@ -374,6 +376,7 @@ export async function discoverAntigravity(run = execCommand): Promise<ModelDisco
 }
 
 async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
+  assertExternalAiCliAllowed('codex');
   return new Promise((resolve) => {
     const child = spawn('codex', ['app-server'], {
       stdio: ['pipe', 'pipe', 'pipe'],

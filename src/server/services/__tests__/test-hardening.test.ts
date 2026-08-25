@@ -19,6 +19,8 @@ const { executorPool } = await import('../executor-pool.js');
 const { resourceManager } = await import('../resource-manager.js');
 const { broadcaster } = await import('../../websocket/broadcaster.js');
 const cliStatus = await import('../cli-status.js');
+const { getAdapter } = await import('../cli-adapters.js');
+const { discoverAntigravity, discoverModelCatalog, execCommand } = await import('../model-sync.js');
 
 describe('Test Hardening & Boundary Guard Suite', () => {
   let workspace: TestWorkspace;
@@ -78,6 +80,7 @@ describe('Test Hardening & Boundary Guard Suite', () => {
   describe('AI CLI Boundary Fail-Closed Protections', () => {
     it('2. unmocked startClaude in test mode fails closed before calling getToolStatus or spawning processes', async () => {
       const execFileSpy = vi.spyOn(child_process, 'execFile');
+      const spawnSpy = vi.spyOn(child_process, 'spawn');
       const getToolStatusSpy = vi.spyOn(cliStatus, 'getToolStatus');
 
       await expect(
@@ -93,6 +96,7 @@ describe('Test Hardening & Boundary Guard Suite', () => {
 
       expect(getToolStatusSpy).not.toHaveBeenCalled();
       expect(execFileSpy).not.toHaveBeenCalled();
+      expect(spawnSpy).not.toHaveBeenCalled();
     });
 
     it('3. getToolStatus cannot invoke real execFile for claude, codex, or antigravity in test mode', async () => {
@@ -181,10 +185,61 @@ describe('Test Hardening & Boundary Guard Suite', () => {
       const todoLogs = queries.getTaskLogsByTodoId(todo.id);
       expect(todoLogs.some((l) => l.message.includes(UNEXPECTED_CLI_LAUNCH_MESSAGE))).toBe(true);
     });
+
+    it('8. discoverAntigravity with default runner cannot execute agy', async () => {
+      const execFileSpy = vi.spyOn(child_process, 'execFile');
+      const spawnSpy = vi.spyOn(child_process, 'spawn');
+
+      await expect(discoverAntigravity()).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+      expect(execFileSpy).not.toHaveBeenCalled();
+      expect(spawnSpy).not.toHaveBeenCalled();
+    });
+
+    it('9. discoverModelCatalog for codex cannot spawn codex app-server', async () => {
+      const spawnSpy = vi.spyOn(child_process, 'spawn');
+
+      await expect(discoverModelCatalog('codex')).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+      expect(spawnSpy).not.toHaveBeenCalled();
+    });
+
+    it('10. getAdapter probeModels cannot execute claude --help or agy --help', async () => {
+      const execFileSpy = vi.spyOn(child_process, 'execFile');
+
+      const claudeAdapter = getAdapter('claude');
+      await expect(claudeAdapter.probeModels!()).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+
+      const agyAdapter = getAdapter('antigravity');
+      await expect(agyAdapter.probeModels!()).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+
+      const codexAdapter = getAdapter('codex');
+      await expect(codexAdapter.probeModels!()).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+
+      expect(execFileSpy).not.toHaveBeenCalled();
+    });
+
+    it('11. execCommand with process.execPath is NOT blocked by AI guard', async () => {
+      const res = await execCommand(process.execPath, ['-e', 'console.log("allowed non-ai child process");']);
+      expect(res.exitCode).toBe(0);
+      expect(res.timeout).toBe(false);
+      expect(res.stdout.trim()).toBe('allowed non-ai child process');
+    });
+
+    it('12. execCommand with AI CLI binary throws fail-closed error', async () => {
+      const spawnSpy = vi.spyOn(child_process, 'spawn');
+      const execFileSpy = vi.spyOn(child_process, 'execFile');
+
+      await expect(execCommand('claude', ['--help'])).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+      await expect(execCommand('claude.cmd', ['--version'])).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+      await expect(execCommand('codex', ['exec'])).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+      await expect(execCommand('agy', ['models'])).rejects.toThrow(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+
+      expect(spawnSpy).not.toHaveBeenCalled();
+      expect(execFileSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('TestWorkspace Path Containment & Lifecycle Invariants', () => {
-    it('8. rejects path traversal outside workspace via resolvePath and createSubdir', () => {
+    it('13. rejects path traversal outside workspace via resolvePath and createSubdir', () => {
       const testWs = createTestWorkspace('containment-check');
 
       // Traversal via ..
@@ -209,7 +264,7 @@ describe('Test Hardening & Boundary Guard Suite', () => {
       testWs.cleanup();
     });
 
-    it('9. only untracks workspace from activeWorkspaces after successful deletion', () => {
+    it('14. only untracks workspace from activeWorkspaces after successful deletion', () => {
       const initialActiveCount = getActiveWorkspacesCount();
       const testWs = createTestWorkspace('tracking-check');
       expect(getActiveWorkspacesCount()).toBe(initialActiveCount + 1);
@@ -232,7 +287,7 @@ describe('Test Hardening & Boundary Guard Suite', () => {
       expect(fs.existsSync(testWs.path)).toBe(false);
     });
 
-    it('10. verifies test workspaces are strictly located below os.tmpdir() and not at root', () => {
+    it('15. verifies test workspaces are strictly located below os.tmpdir() and not at root', () => {
       const freshWorkspace = createTestWorkspace('root-isolation-check');
       const tempDir = os.tmpdir();
 

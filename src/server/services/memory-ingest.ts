@@ -6,6 +6,7 @@ import type { CliTool } from './cli-adapters.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import { debugLogger, type DebugSession } from './debug-logger.js';
 import { dispatchWikiExport } from './wiki-exporter.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 const RAW_DIR_NAME = '.aikombinat';
 const RAW_SUBDIR = 'raw';
@@ -238,8 +239,9 @@ export function runHeadless(
   timeoutMs = 180_000,
   debugSession?: DebugSession,
 ): Promise<string> {
+  const { command, args } = buildInvocation(cliTool);
+  assertExternalAiCliAllowed(command);
   return new Promise((resolve, reject) => {
-    const { command, args } = buildInvocation(cliTool);
     const isWin = process.platform === 'win32';
     const spawnCmd = isWin ? 'cmd.exe' : command;
     const spawnArgs = isWin ? ['/c', command, ...args] : args;

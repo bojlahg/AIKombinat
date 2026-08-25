@@ -2,9 +2,19 @@ import { vi } from 'vitest';
 import { PassThrough } from 'stream';
 import { claudeManager } from '../services/claude-manager.js';
 import * as cliStatus from '../services/cli-status.js';
+import {
+  UNEXPECTED_CLI_LAUNCH_MESSAGE,
+  isTestEnvironment,
+  isRecognizedAiCli,
+  assertExternalAiCliAllowed,
+} from '../utils/cli-guard.js';
 
-export const UNEXPECTED_CLI_LAUNCH_MESSAGE =
-  'Unexpected real CLI launch from test. Install an explicit mock for this test.';
+export {
+  UNEXPECTED_CLI_LAUNCH_MESSAGE,
+  isTestEnvironment,
+  isRecognizedAiCli,
+  assertExternalAiCliAllowed,
+};
 
 export interface MockCliProcessResult {
   pid: number;
@@ -65,4 +75,3 @@ export function installDefaultCliGuard(): void {
     throw new Error(UNEXPECTED_CLI_LAUNCH_MESSAGE);
   });
 }
-

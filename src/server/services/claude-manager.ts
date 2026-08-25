@@ -8,6 +8,7 @@ import treeKill from 'tree-kill';
 import { getAdapter, type CliAdapter, type CliTool, type CliMode, type SandboxMode } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 export type ClaudeMode = CliMode;
 
@@ -164,9 +165,7 @@ export class ClaudeManager {
     command: string;
     args: string[];
   }> {
-    if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
-      throw new Error('Unexpected real CLI launch from test. Install an explicit mock for this test.');
-    }
+    assertExternalAiCliAllowed(tool);
 
     const adapter = getAdapter(tool);
     const args = adapter.buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession });
@@ -213,6 +212,7 @@ export class ClaudeManager {
     return new Promise((resolve, reject) => {
       const command = adapter.command;
       const displayName = adapter.displayName;
+      assertExternalAiCliAllowed(command);
       const delayStdin = !!adapter.delayStdinUntilReady;
       const autoRespondRules = adapter.autoRespondRules ?? [];
       const readyPattern = adapter.readyIndicatorPattern;
@@ -408,6 +408,7 @@ export class ClaudeManager {
     stdin: NodeJS.WritableStream | null;
     exitPromise: Promise<number>;
   }> {
+    assertExternalAiCliAllowed(adapter.command);
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
       const needsStdin = adapter.needsStdin(mode);

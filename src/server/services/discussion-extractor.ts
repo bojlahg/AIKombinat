@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import * as queries from '../db/queries.js';
 import type { CliTool } from './cli-adapters.js';
+import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 export interface ExtractedActionItem {
   title: string;
@@ -95,8 +96,9 @@ function buildInvocation(cliTool: CliTool): CliInvocation {
 }
 
 function runHeadless(cliTool: CliTool, prompt: string, timeoutMs = 120_000): Promise<string> {
+  const { command, args, displayName } = buildInvocation(cliTool);
+  assertExternalAiCliAllowed(command);
   return new Promise((resolve, reject) => {
-    const { command, args, displayName } = buildInvocation(cliTool);
     const isWin = process.platform === 'win32';
     const spawnCmd = isWin ? 'cmd.exe' : command;
     const spawnArgs = isWin ? ['/c', command, ...args] : args;
