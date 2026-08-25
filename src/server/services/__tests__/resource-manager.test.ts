@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { PassThrough } from 'stream';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
@@ -32,7 +33,10 @@ function createMockCliResult(pid: number, command = 'raw-shell') {
 }
 
 describe('Resource Manager V1', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('resource-mgr');
     testDb = new Database(':memory:');
     initDatabase(testDb);
     vi.spyOn(broadcaster, 'broadcast').mockImplementation(() => undefined);
@@ -51,10 +55,11 @@ describe('Resource Manager V1', () => {
     executorPool.resetLimits();
     providerQuotaService.resetForTesting();
     testDb.close();
+    workspace.cleanup();
   });
 
   function owner(title = 'Owner') {
-    const project = queries.createProject('Project', `C:/project-${Math.random()}`);
+    const project = queries.createProject('Project', workspace.resolvePath(`project-${Math.random()}`));
     return queries.createTodo(project.id, title);
   }
 
@@ -183,7 +188,7 @@ describe('Resource Manager V1', () => {
   it('releases a startup-recovered Session when its persisted process dies', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'));
-    const project = queries.createProject('Project', 'C:/recovered-session');
+    const project = queries.createProject('Project', workspace.resolvePath('recovered-session'));
     const session = queries.createSession(
       project.id, 'Recovered', undefined, 'raw-shell', undefined, false,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -218,7 +223,7 @@ describe('Resource Manager V1', () => {
   it('continues protecting a startup-recovered Todo while its process is live', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'));
-    const project = queries.createProject('Project', 'C:/recovered-todo');
+    const project = queries.createProject('Project', workspace.resolvePath('recovered-todo'));
     const todo = resourceTodo(project.id, 'Recovered Todo');
     queries.updateTodoStatus(todo.id, 'running');
     queries.updateTodo(todo.id, { process_pid: 9876 });
@@ -236,7 +241,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('moves a blocked Todo to waiting_resource without leaking its provider reservation', async () => {
-    const project = queries.createProject('Project', 'C:/resource-todo');
+    const project = queries.createProject('Project', workspace.resolvePath('resource-todo'));
     const holder = queries.createTodo(project.id, 'Holder');
     const waiting = queries.createTodo(
       project.id, 'Waiting', undefined, 0, 'raw-shell', undefined, undefined, undefined,
@@ -254,7 +259,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('rejects a busy interactive Session without spawning a PTY or retaining a reservation', async () => {
-    const project = queries.createProject('Project', 'C:/resource-session');
+    const project = queries.createProject('Project', workspace.resolvePath('resource-session'));
     const holder = queries.createTodo(project.id, 'Holder');
     resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: holder.id, runToken: 'holder-run', resources: ['unity.editor'] });
     const session = queries.createSession(
@@ -271,7 +276,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('automatically wakes a waiting Todo through normal admission when a resource is released', async () => {
-    const project = queries.createProject('Project', 'C:/automatic-resource-wake');
+    const project = queries.createProject('Project', workspace.resolvePath('automatic-resource-wake'));
     const holder = resourceTodo(project.id, 'A');
     const waiting = resourceTodo(project.id, 'B');
     const run = createMockCliResult(5001);
@@ -293,7 +298,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('admits waiting resource Todos deterministically by created_at', async () => {
-    const project = queries.createProject('Project', 'C:/ordered-resource-wake');
+    const project = queries.createProject('Project', workspace.resolvePath('ordered-resource-wake'));
     const holder = resourceTodo(project.id, 'A');
     const first = resourceTodo(project.id, 'B');
     const second = resourceTodo(project.id, 'C');
@@ -317,7 +322,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('does not resurrect a stopped resource waiter after capacity is released', async () => {
-    const project = queries.createProject('Project', 'C:/stopped-resource-waiter');
+    const project = queries.createProject('Project', workspace.resolvePath('stopped-resource-waiter'));
     const holder = resourceTodo(project.id, 'A');
     const waiting = resourceTodo(project.id, 'B');
     const spawn = vi.spyOn(claudeManager, 'startClaude');
@@ -334,7 +339,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('releases a lease after spawn failure so the next waiter starts', async () => {
-    const project = queries.createProject('Project', 'C:/resource-spawn-failure');
+    const project = queries.createProject('Project', workspace.resolvePath('resource-spawn-failure'));
     const failing = resourceTodo(project.id, 'A');
     const waiting = resourceTodo(project.id, 'B');
     let rejectSpawn!: (error: Error) => void;
@@ -367,7 +372,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('releases a lease after provider failure while preserving normal failure classification', async () => {
-    const project = queries.createProject('Project', 'C:/resource-provider-failure');
+    const project = queries.createProject('Project', workspace.resolvePath('resource-provider-failure'));
     const failing = resourceTodo(project.id, 'A');
     const waiting = resourceTodo(project.id, 'B');
     const firstRun = createMockCliResult(5004);
@@ -392,7 +397,7 @@ describe('Resource Manager V1', () => {
 
   it('uses a new run token for context fallback and isolates late cleanup from the restarted run', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Project', 'C:/resource-context-fallback');
+    const project = queries.createProject('Project', workspace.resolvePath('resource-context-fallback'));
     queries.updateProject(project.id, { cli_fallback_chain: JSON.stringify(['claude', 'raw-shell']) });
     const todo = queries.createTodo(
       project.id, 'Context fallback', undefined, 0, 'claude', 'claude-3.7-sonnet', undefined, undefined,
@@ -421,7 +426,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('keeps a newer Session lease when an older run exits late', async () => {
-    const project = queries.createProject('Project', 'C:/session-resource-isolation');
+    const project = queries.createProject('Project', workspace.resolvePath('session-resource-isolation'));
     const session = queries.createSession(
       project.id, 'Session', undefined, 'raw-shell', undefined, false,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -451,7 +456,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('hands off waiting_resource to waiting_executor without holding either capacity', async () => {
-    const project = queries.createProject('Project', 'C:/resource-to-executor');
+    const project = queries.createProject('Project', workspace.resolvePath('resource-to-executor'));
     const holder = resourceTodo(project.id, 'A');
     const waiting = resourceTodo(project.id, 'B');
     installResourceWake();
@@ -469,7 +474,7 @@ describe('Resource Manager V1', () => {
   });
 
   it('hands off waiting_executor to waiting_resource without holding either capacity', async () => {
-    const project = queries.createProject('Project', 'C:/executor-to-resource');
+    const project = queries.createProject('Project', workspace.resolvePath('executor-to-resource'));
     const holder = resourceTodo(project.id, 'A');
     const waiting = resourceTodo(project.id, 'B');
     executorPool.setLimit('raw-shell', 0);

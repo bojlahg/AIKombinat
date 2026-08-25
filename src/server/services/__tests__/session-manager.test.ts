@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { PassThrough } from 'stream';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
@@ -34,9 +35,11 @@ function tick(ms = 40) {
 }
 
 describe('Session Manager Stale Liveness Recovery', () => {
+  let workspace: TestWorkspace;
   let broadcastEvents: any[] = [];
 
   beforeEach(() => {
+    workspace = createTestWorkspace('session-mgr');
     testDb = new Database(':memory:');
     initDatabase(testDb);
     broadcastEvents = [];
@@ -59,10 +62,11 @@ describe('Session Manager Stale Liveness Recovery', () => {
     executorPool.resetLimits();
     providerQuotaService.resetForTesting();
     testDb.close();
+    workspace.cleanup();
   });
 
   it('1. Recovered Session dies after restart: recovers to failed, releases leases, and updates provider usage', async () => {
-    const project = queries.createProject('Project', 'C:/project-recovered-die');
+    const project = queries.createProject('Project', workspace.resolvePath('project-recovered-die'));
     const session = queries.createSession(
       project.id,
       'Recovered Session',
@@ -126,7 +130,7 @@ describe('Session Manager Stale Liveness Recovery', () => {
   });
 
   it('2. Recovered Session stays alive: stale checker does not mutate it and protects resource lease', async () => {
-    const project = queries.createProject('Project', 'C:/project-recovered-alive');
+    const project = queries.createProject('Project', workspace.resolvePath('project-recovered-alive'));
     const session = queries.createSession(
       project.id,
       'Live Recovered Session',
@@ -166,7 +170,7 @@ describe('Session Manager Stale Liveness Recovery', () => {
   });
 
   it('3. Normal locally managed Session: stale checker does not interfere with its normal lifecycle', async () => {
-    const project = queries.createProject('Project', 'C:/project-local-session');
+    const project = queries.createProject('Project', workspace.resolvePath('project-local-session'));
     const session = queries.createSession(
       project.id,
       'Local Session',
@@ -208,7 +212,7 @@ describe('Session Manager Stale Liveness Recovery', () => {
   });
 
   it('4. Stop race: stale checker during graceful kill does not emit failed; resources released after termination', async () => {
-    const project = queries.createProject('Project', 'C:/project-stop-race');
+    const project = queries.createProject('Project', workspace.resolvePath('project-stop-race'));
     const session = queries.createSession(
       project.id,
       'Stop Race Session',
@@ -259,7 +263,7 @@ describe('Session Manager Stale Liveness Recovery', () => {
   });
 
   it('5. Executor capacity recovery: dead recovered session frees slot and wakes waiting_executor Todo', async () => {
-    const project = queries.createProject('Project', 'C:/project-executor-wake');
+    const project = queries.createProject('Project', workspace.resolvePath('project-executor-wake'));
     executorPool.setLimit('claude', 1);
 
     const session = queries.createSession(
@@ -313,7 +317,7 @@ describe('Session Manager Stale Liveness Recovery', () => {
   });
 
   it('recovers persisted running sessions with missing or zero process_pid', async () => {
-    const project = queries.createProject('Project', 'C:/project-missing-pid');
+    const project = queries.createProject('Project', workspace.resolvePath('project-missing-pid'));
     const session = queries.createSession(project.id, 'No PID Session', undefined, 'claude');
     queries.updateSessionStatus(session.id, 'running');
     queries.updateSession(session.id, { process_pid: 0 });

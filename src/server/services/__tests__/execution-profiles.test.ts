@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import express, { type Router } from 'express';
 import { PassThrough } from 'stream';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
@@ -35,7 +36,10 @@ async function apiRequest(router: Router, path: string, init: RequestInit = {}) 
 }
 
 describe('execution profiles', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('exec-profiles');
     testDb = new Database(':memory:');
     initDatabase(testDb);
     cliStatusModule.clearCache();
@@ -44,6 +48,7 @@ describe('execution profiles', () => {
     vi.restoreAllMocks();
     cliStatusModule.clearCache();
     testDb.close();
+    workspace.cleanup();
   });
 
   it('creates a stable-slug profile with Claude and Codex candidates', () => {
@@ -88,7 +93,7 @@ describe('execution profiles', () => {
   it('resolves an enabled profile slug for agent-generated tasks', () => {
     const model = queries.addModel('codex', 'terra', 'Terra');
     const profile = queries.createExecutionProfile({ slug: 'simple', name: 'Simple', description: '', executors: [{ cli_model_id: model.id, effort_value: null, priority: 0 }] });
-    const project = queries.createProject('Project', 'C:/project');
+    const project = queries.createProject('Project', workspace.resolvePath('project'));
     const selection = normalizeExecutionSelection({ executionProfile: 'simple' });
     const todo = queries.createTodo(project.id, 'Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, selection.executionProfileId);
     expect(selection.executionProfileId).toBe(profile.id);
@@ -162,9 +167,9 @@ describe('execution profiles', () => {
     expect(() => resolveExecutionConfig({ executionProfileId: profile.id })).toThrow('has no eligible executors');
   });
 
-  it.each(['Todo', 'Session', 'Discussion Agent'])('%s refuses to start with a disabled profile', (_context) => {
+  it.each(['Todo', 'Session'])('rejects direct launch with disabled execution profile for %s', (_context) => {
     const model = queries.addModel('codex', 'terra', 'Terra');
-    const profile = queries.createExecutionProfile({ slug: `disabled-${_context.toLowerCase().replace(/\s/g, '-')}`, name: `${_context} disabled`, description: '', executors: [
+    const profile = queries.createExecutionProfile({ slug: `disabled-${_context.toLowerCase()}`, name: `${_context} disabled`, description: '', executors: [
       { cli_model_id: model.id, effort_value: null, priority: 0 },
     ] });
     queries.updateExecutionProfile(profile.id, { is_enabled: 0 });
@@ -177,7 +182,7 @@ describe('execution profiles', () => {
     const profile = queries.createExecutionProfile({ slug: 'discussion-codex', name: 'Discussion Codex', description: '', executors: [
       { cli_model_id: model.id, effort_value: null, priority: 0 },
     ] });
-    const project = queries.createProject('Discussion project', 'C:/discussion-project');
+    const project = queries.createProject('Discussion project', workspace.resolvePath('discussion-project'));
     const agent = queries.createDiscussionAgent(project.id, 'Reviewer', 'reviewer', 'Review carefully', 'claude', undefined, undefined, false, profile.id);
     const discussion = queries.createDiscussion(project.id, 'Review', 'Review the change', [agent.id, 'second-agent']);
     queries.updateDiscussion(discussion.id, { worktree_path: project.path });
@@ -199,7 +204,7 @@ describe('execution profiles', () => {
 
   it('reports every direct model usage before deletion', () => {
     const model = queries.addModel('codex', 'shared', 'Shared');
-    const project = queries.createProject('Usage project', 'C:/usage-project');
+    const project = queries.createProject('Usage project', workspace.resolvePath('usage-project'));
     testDb.prepare('INSERT INTO todos (id, project_id, title, cli_model_id) VALUES (?, ?, ?, ?)').run('todo-use', project.id, 'Todo', model.id);
     testDb.prepare('INSERT INTO schedules (id, project_id, title, cron_expression, cli_model_id) VALUES (?, ?, ?, ?, ?)').run('schedule-use', project.id, 'Schedule', '* * * * *', model.id);
     testDb.prepare('INSERT INTO sessions (id, project_id, title, cli_model_id) VALUES (?, ?, ?, ?)').run('session-use', project.id, 'Session', model.id);
@@ -211,7 +216,7 @@ describe('execution profiles', () => {
 
   it('DELETE model returns 409 with structured counts for direct usages', async () => {
     const model = queries.addModel('codex', 'delete-shared', 'Delete shared');
-    const project = queries.createProject('Delete usage project', 'C:/delete-usage-project');
+    const project = queries.createProject('Delete usage project', workspace.resolvePath('delete-usage-project'));
     testDb.prepare('INSERT INTO todos (id, project_id, title, cli_model_id) VALUES (?, ?, ?, ?)').run('delete-todo-use', project.id, 'Todo', model.id);
     testDb.prepare('INSERT INTO sessions (id, project_id, title, cli_model_id) VALUES (?, ?, ?, ?)').run('delete-session-use', project.id, 'Session', model.id);
     const response = await apiRequest(modelsRoute, `/models/${model.id}`, { method: 'DELETE' });

@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import express, { type Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { initDatabase, normalizeAntigravityCatalogAndExecutors } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
@@ -35,7 +36,10 @@ async function apiRequest(router: Router, path: string, init: RequestInit = {}) 
 }
 
 describe('Antigravity model discovery, representation, resolution, and migration', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('antigravity-models');
     testDb = new Database(':memory:');
     initDatabase(testDb);
   });
@@ -43,6 +47,7 @@ describe('Antigravity model discovery, representation, resolution, and migration
   afterEach(() => {
     vi.restoreAllMocks();
     testDb.close();
+    workspace.cleanup();
   });
 
   it('1. groups sibling variants into canonical models and keeps singletons un-grouped', () => {
@@ -327,7 +332,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
         (?, 'antigravity', 'gemini-3.6-flash-medium', 'Gemini 3.6 Flash (Medium)', 'available', 'cli')
     `).run(idHigh, idMed);
 
-    const project = queries.createProject('Test Project', 'C:/test-project');
+    const project = queries.createProject('Test Project', workspace.resolvePath('test-project'));
     const schedule = queries.createSchedule(project.id, 'Sched', '', '* * * * *', 'antigravity', 'gemini-3.6-flash-high', 1, 'recurring', undefined, null, null, null, null, null, null, null, null);
     const agent = queries.createDiscussionAgent(project.id, 'Agent', 'role', 'prompt', 'antigravity', 'gemini-3.6-flash-medium', undefined, false, undefined, undefined, null);
     const todo = queries.createTodo(project.id, 'Task', undefined, 0, 'antigravity', 'gemini-3.6-flash-high', undefined, undefined, undefined, null, undefined, undefined, undefined, undefined, undefined, undefined, null);
@@ -525,7 +530,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     `).run(idHigh, idMed, idLow);
 
     const projId = uuidv4();
-    oldDb.prepare(`INSERT INTO projects (id, name, path) VALUES (?, 'Old Proj', 'C:/old')`).run(projId);
+    oldDb.prepare(`INSERT INTO projects (id, name, path) VALUES (?, 'Old Proj', ?)`).run(projId, workspace.resolvePath('old'));
     const todoId = uuidv4();
     oldDb.prepare(`INSERT INTO todos (id, project_id, title, cli_tool, cli_model, cli_model_id) VALUES (?, ?, 'Task', 'antigravity', 'gemini-3.7-flash-high', ?)`).run(todoId, projId, idHigh);
 
@@ -583,7 +588,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     expect(() => normalizeExecutionSelection({ cliTool: 'antigravity', cliModelId: modelRestricted.id, cliEffort: 'medium' }))
       .toThrow(/Effort "medium" is not supported for Antigravity model/);
 
-    const project = queries.createProject('Test Validation Project', 'C:/test-val');
+    const project = queries.createProject('Test Validation Project', workspace.resolvePath('test-val'));
 
     // HTTP POST /api/projects/:id/todos rejects missing or invalid effort on grouped Antigravity models with 400
     const badTodoCreate = await apiRequest(todosRoute, `/projects/${project.id}/todos`, {

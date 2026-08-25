@@ -166,6 +166,10 @@ export class ClaudeManager {
       }
     }
 
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+      throw new Error('Unexpected real CLI launch from test. Install an explicit mock for this test.');
+    }
+
     if (adapter.requiresTty || mode === 'interactive') {
       // Empty prompt (sessions stash the real prompt in pendingInitialPrompts and
       // deliver it later via writeToStdin) must NOT produce a stdinPrompt — the

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDatabase } from '../schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 // We need to mock the connection module so queries use our in-memory DB
 let testDb: Database.Database;
@@ -13,7 +14,10 @@ vi.mock('../connection.js', () => ({
 const queries = await import('../queries.js');
 
 describe('Database Queries', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('db-queries');
     testDb = new Database(':memory:');
     testDb.pragma('journal_mode = WAL');
     initDatabase(testDb);
@@ -21,35 +25,37 @@ describe('Database Queries', () => {
 
   afterEach(() => {
     testDb.close();
+    workspace.cleanup();
   });
 
   // ── Projects ──
 
   describe('Projects', () => {
     it('should create a project', () => {
-      const project = queries.createProject('Test Project', '/tmp/test-project');
+      const projPath = workspace.resolvePath('test-project');
+      const project = queries.createProject('Test Project', projPath);
       expect(project).toBeDefined();
       expect(project.id).toBeTruthy();
       expect(project.name).toBe('Test Project');
-      expect(project.path).toBe('/tmp/test-project');
+      expect(project.path).toBe(projPath);
       expect(project.default_branch).toBe('main');
       expect(project.max_concurrent).toBe(3);
     });
 
     it('should create a project with custom default branch', () => {
-      const project = queries.createProject('Test', '/tmp/test', 'develop');
+      const project = queries.createProject('Test', workspace.resolvePath('test'), 'develop');
       expect(project.default_branch).toBe('develop');
     });
 
     it('should get all projects', () => {
-      queries.createProject('Project A', '/tmp/a');
-      queries.createProject('Project B', '/tmp/b');
+      queries.createProject('Project A', workspace.resolvePath('a'));
+      queries.createProject('Project B', workspace.resolvePath('b'));
       const all = queries.getAllProjects();
       expect(all).toHaveLength(2);
     });
 
     it('should get project by id', () => {
-      const created = queries.createProject('Test', '/tmp/test');
+      const created = queries.createProject('Test', workspace.resolvePath('test-by-id'));
       const found = queries.getProjectById(created.id);
       expect(found).toBeDefined();
       expect(found!.name).toBe('Test');
@@ -61,7 +67,7 @@ describe('Database Queries', () => {
     });
 
     it('should update a project', () => {
-      const project = queries.createProject('Old Name', '/tmp/test');
+      const project = queries.createProject('Old Name', workspace.resolvePath('test-update'));
       const updated = queries.updateProject(project.id, { name: 'New Name', max_concurrent: 5 });
       expect(updated).toBeDefined();
       expect(updated!.name).toBe('New Name');
@@ -69,13 +75,13 @@ describe('Database Queries', () => {
     });
 
     it('should return project unchanged when no updates provided', () => {
-      const project = queries.createProject('Test', '/tmp/test');
+      const project = queries.createProject('Test', workspace.resolvePath('test-no-update'));
       const same = queries.updateProject(project.id, {});
       expect(same!.name).toBe('Test');
     });
 
     it('should sync non-running todos and schedules that still match previous project CLI defaults', () => {
-      const project = queries.createProject('Test', '/tmp/test-sync');
+      const project = queries.createProject('Test', workspace.resolvePath('test-sync'));
       queries.updateProject(project.id, { cli_tool: 'claude', claude_model: 'claude-opus-4-6' });
 
       const pendingTodo = queries.createTodo(project.id, 'Pending task', undefined, 0, 'claude', 'claude-opus-4-6');
@@ -106,7 +112,7 @@ describe('Database Queries', () => {
     });
 
     it('should delete a project', () => {
-      const project = queries.createProject('Test', '/tmp/test');
+      const project = queries.createProject('Test', workspace.resolvePath('test-delete'));
       const deleted = queries.deleteProject(project.id);
       expect(deleted).toBe(true);
       expect(queries.getProjectById(project.id)).toBeUndefined();
@@ -118,8 +124,8 @@ describe('Database Queries', () => {
     });
 
     it('should enforce unique path constraint', () => {
-      queries.createProject('A', '/tmp/unique');
-      expect(() => queries.createProject('B', '/tmp/unique')).toThrow();
+      queries.createProject('A', workspace.resolvePath('unique'));
+      expect(() => queries.createProject('B', workspace.resolvePath('unique'))).toThrow();
     });
   });
 
@@ -129,7 +135,7 @@ describe('Database Queries', () => {
     let projectId: string;
 
     beforeEach(() => {
-      const project = queries.createProject('Test Project', '/tmp/test-' + Date.now());
+      const project = queries.createProject('Test Project', workspace.resolvePath(`test-${Date.now()}`));
       projectId = project.id;
     });
 
@@ -211,7 +217,7 @@ describe('Database Queries', () => {
     let todoId: string;
 
     beforeEach(() => {
-      const project = queries.createProject('Test', '/tmp/log-test-' + Date.now());
+      const project = queries.createProject('Test', workspace.resolvePath(`log-test-${Date.now()}`));
       const todo = queries.createTodo(project.id, 'Task');
       todoId = todo.id;
     });
@@ -258,7 +264,7 @@ describe('Database Queries', () => {
     let sessionId: string;
 
     beforeEach(() => {
-      const project = queries.createProject('Chunks', '/tmp/chunks');
+      const project = queries.createProject('Chunks', workspace.resolvePath('chunks'));
       sessionId = queries.createSession(project.id, 'chunk session').id;
     });
 
@@ -337,7 +343,7 @@ describe('Database Queries', () => {
     let todoId: string;
 
     beforeEach(() => {
-      const project = queries.createProject('Test Log Boundary', '/tmp/log-bound-' + Date.now());
+      const project = queries.createProject('Test Log Boundary', workspace.resolvePath(`log-bound-${Date.now()}`));
       todoId = queries.createTodo(project.id, 'Log Boundary Task').id;
     });
 

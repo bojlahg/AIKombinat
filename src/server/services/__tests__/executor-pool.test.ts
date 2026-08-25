@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { PassThrough } from 'stream';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
@@ -39,7 +40,10 @@ function createMockCliResult(pid: number, command: string = 'claude', args: stri
 }
 
 describe('Executor Pool V1', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('executor-pool');
     testDb = new Database(':memory:');
     initDatabase(testDb);
     executorPool.resetLimits();
@@ -54,6 +58,7 @@ describe('Executor Pool V1', () => {
     executorPool.resetReservations();
     cliStatusModule.clearCache();
     testDb.close();
+    workspace.cleanup();
   });
 
   it('1. first candidate available -> selected', async () => {
@@ -110,7 +115,7 @@ describe('Executor Pool V1', () => {
     executorPool.setLimit('claude', 1);
     executorPool.setLimit('codex', 2);
 
-    const project = queries.createProject('Proj', 'C:/proj');
+    const project = queries.createProject('Proj', workspace.resolvePath('proj'));
     const runningTodo = queries.createTodo(project.id, 'Running task', undefined, 0, 'claude');
     queries.updateTodoStatus(runningTodo.id, 'running');
     queries.updateTodo(runningTodo.id, {
@@ -221,7 +226,7 @@ describe('Executor Pool V1', () => {
     executorPool.setLimit('claude', 0);
     executorPool.setLimit('codex', 0);
 
-    const project = queries.createProject('Test Project', 'C:/test-project');
+    const project = queries.createProject('Test Project', workspace.resolvePath('test-project'));
     const todo = queries.createTodo(
       project.id,
       'Execute task with busy profile',
@@ -277,7 +282,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Test Project', 'C:/test-project');
+    const project = queries.createProject('Test Project', workspace.resolvePath('test-project-2'));
     const todo = queries.createTodo(
       project.id,
       'Execute task with invalid profile',
@@ -328,12 +333,12 @@ describe('Executor Pool V1', () => {
 
     const { worktreeManager } = await import('../worktree-manager.js');
     vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
-      worktreePath: 'C:/mock-worktree',
+      worktreePath: workspace.resolvePath('mock-worktree'),
       branchName: 'mock-branch',
     });
     vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
 
-    const project = queries.createProject('Resume Project', 'C:/resume-project', 'main', 1);
+    const project = queries.createProject('Resume Project', workspace.resolvePath('resume-project'), 'main', 1);
     queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
 
     // Create Todo 1 (runs first)
@@ -408,7 +413,7 @@ describe('Executor Pool V1', () => {
 
   it('9. manual execution without an Execution Profile keeps existing behavior', async () => {
     const codex = queries.addModel('codex', 'sol', 'Sol', ['medium']);
-    const project = queries.createProject('Manual Project', 'C:/manual-project');
+    const project = queries.createProject('Manual Project', workspace.resolvePath('manual-project'));
     const todo = queries.createTodo(
       project.id,
       'Manual Task',
@@ -497,7 +502,7 @@ describe('Executor Pool V1', () => {
       },
     });
 
-    const project = queries.createProject('Antigravity Project', 'C:/agy-proj');
+    const project = queries.createProject('Antigravity Project', workspace.resolvePath('agy-proj'));
     const todo = queries.createTodo(
       project.id,
       'Agy Task',
@@ -581,12 +586,12 @@ describe('Executor Pool V1', () => {
 
     const { worktreeManager } = await import('../worktree-manager.js');
     vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
-      worktreePath: 'C:/mock-worktree',
+      worktreePath: workspace.resolvePath('mock-worktree'),
       branchName: 'mock-branch',
     });
     vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
 
-    const project = queries.createProject('Race Project', 'C:/race-proj', 'main', 1);
+    const project = queries.createProject('Race Project', workspace.resolvePath('race-proj'), 'main', 1);
     queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
 
     const t1 = queries.createTodo(project.id, 'Task 1', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
@@ -646,7 +651,7 @@ describe('Executor Pool V1', () => {
 
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Fail Project', 'C:/fail-proj');
+    const project = queries.createProject('Fail Project', workspace.resolvePath('fail-proj'));
     const t1 = queries.createTodo(project.id, 'Failing Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     const t2 = queries.createTodo(project.id, 'Next Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
 
@@ -693,7 +698,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Stop All Project', 'C:/stop-all-proj');
+    const project = queries.createProject('Stop All Project', workspace.resolvePath('stop-all-proj'));
     const runningTodo = queries.createTodo(project.id, 'Running A', undefined, 0, 'claude');
     queries.updateTodoStatus(runningTodo.id, 'running');
     queries.updateTodo(runningTodo.id, { process_pid: 999 });
@@ -728,8 +733,8 @@ describe('Executor Pool V1', () => {
     // Provider limit is 1
     executorPool.setLimit('claude', 1);
 
-    const projectA = queries.createProject('Project A', 'C:/proj-a');
-    const projectB = queries.createProject('Project B', 'C:/proj-b');
+    const projectA = queries.createProject('Project A', workspace.resolvePath('proj-a'));
+    const projectB = queries.createProject('Project B', workspace.resolvePath('proj-b'));
 
     const todoA = queries.createTodo(projectA.id, 'Task A', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     const todoB = queries.createTodo(projectB.id, 'Task B', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
@@ -772,7 +777,7 @@ describe('Executor Pool V1', () => {
     });
 
     // Project default is Claude
-    const project = queries.createProject('Disc Project', 'C:/disc-proj', 'main', 0, 'claude');
+    const project = queries.createProject('Disc Project', workspace.resolvePath('disc-proj'), 'main', 0, 'claude');
 
     // Discussion agent uses the profile (cli_tool is null)
     const agent = queries.createDiscussionAgent(
@@ -821,7 +826,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Recovery Project', 'C:/recovery-proj');
+    const project = queries.createProject('Recovery Project', workspace.resolvePath('recovery-proj'));
     const waitingTodo = queries.createTodo(project.id, 'Persisted Waiting', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -864,7 +869,7 @@ describe('Executor Pool V1', () => {
     // Claude is busy (limit = 0)
     executorPool.setLimit('claude', 0);
 
-    const project = queries.createProject('Spam Project', 'C:/spam-proj');
+    const project = queries.createProject('Spam Project', workspace.resolvePath('spam-proj'));
     const todo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
 
     // Start task -> becomes waiting_executor, logs initial diagnostic
@@ -899,7 +904,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Double Wake Project', 'C:/double-wake-proj');
+    const project = queries.createProject('Double Wake Project', workspace.resolvePath('double-wake-proj'));
     const waitingTodo = queries.createTodo(project.id, 'Double Wake Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -998,12 +1003,12 @@ describe('Executor Pool V1', () => {
 
     const { worktreeManager } = await import('../worktree-manager.js');
     vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
-      worktreePath: 'C:/mock-worktree',
+      worktreePath: workspace.resolvePath('mock-worktree'),
       branchName: 'mock-branch',
     });
     vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
 
-    const project = queries.createProject('Two Slot Project', 'C:/two-slot-proj', 'main', 1);
+    const project = queries.createProject('Two Slot Project', workspace.resolvePath('two-slot-proj'), 'main', 1);
     queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
     const t1 = queries.createTodo(project.id, 'Task 1', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
     const t2 = queries.createTodo(project.id, 'Task 2', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
@@ -1067,7 +1072,7 @@ describe('Executor Pool V1', () => {
     // Limit is 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Spawn Fail Project', 'C:/spawn-fail-proj');
+    const project = queries.createProject('Spawn Fail Project', workspace.resolvePath('spawn-fail-proj'));
     const t1 = queries.createTodo(project.id, 'Task 1 (Failing)', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     const t2 = queries.createTodo(project.id, 'Task 2 (Waiting)', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
 
@@ -1121,7 +1126,7 @@ describe('Executor Pool V1', () => {
     // Limit is 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Session Project', 'C:/session-proj');
+    const project = queries.createProject('Session Project', workspace.resolvePath('session-proj'));
     const waitingTodo = queries.createTodo(project.id, 'Waiting Todo', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -1191,7 +1196,7 @@ describe('Executor Pool V1', () => {
     // Limit is 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Discussion Project', 'C:/disc-proj', 'main', 0, 'claude');
+    const project = queries.createProject('Discussion Project', workspace.resolvePath('disc-proj'), 'main', 0, 'claude');
     const waitingTodo = queries.createTodo(project.id, 'Waiting Todo', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -1279,7 +1284,7 @@ describe('Executor Pool V1', () => {
     executorPool.setLimit('claude', 1);
     executorPool.setLimit('codex', 2);
 
-    const project = queries.createProject('Multi Disc Project', 'C:/multi-disc', 'main', 0, 'claude');
+    const project = queries.createProject('Multi Disc Project', workspace.resolvePath('multi-disc'), 'main', 0, 'claude');
 
     // Simulate an active Claude todo consuming Claude's only slot
     const activeTodo = queries.createTodo(project.id, 'Claude Task', undefined, 0, 'claude');
@@ -1345,7 +1350,7 @@ describe('Executor Pool V1', () => {
       args: [],
     }));
 
-    const project = queries.createProject('Coalesce Project', 'C:/coalesce-proj');
+    const project = queries.createProject('Coalesce Project', workspace.resolvePath('coalesce-proj'));
     const waitingTodo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -1420,12 +1425,12 @@ describe('Executor Pool V1', () => {
 
     const { worktreeManager } = await import('../worktree-manager.js');
     vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
-      worktreePath: 'C:/mock-worktree',
+      worktreePath: workspace.resolvePath('mock-worktree'),
       branchName: 'mock-branch',
     });
     vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
 
-    const project = queries.createProject('Manual Todo Project', 'C:/manual-proj', 'main', 1);
+    const project = queries.createProject('Manual Todo Project', workspace.resolvePath('manual-proj'), 'main', 1);
     queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
 
     const t1 = queries.createTodo(project.id, 'Task 1', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
@@ -1476,12 +1481,12 @@ describe('Executor Pool V1', () => {
 
     const { worktreeManager } = await import('../worktree-manager.js');
     vi.spyOn(worktreeManager, 'createWorktree').mockResolvedValue({
-      worktreePath: 'C:/mock-worktree',
+      worktreePath: workspace.resolvePath('mock-worktree'),
       branchName: 'mock-branch',
     });
     vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
 
-    const project = queries.createProject('Race Manual Project', 'C:/race-manual-proj', 'main', 1);
+    const project = queries.createProject('Race Manual Project', workspace.resolvePath('race-manual-proj'), 'main', 1);
     queries.updateProject(project.id, { max_concurrent: 5, use_worktree: 1 });
 
     const t1 = queries.createTodo(project.id, 'Task A', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
@@ -1533,7 +1538,7 @@ describe('Executor Pool V1', () => {
     // Limit Claude = 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Session Race Project', 'C:/session-race-proj');
+    const project = queries.createProject('Session Race Project', workspace.resolvePath('session-race-proj'));
     const s1 = queries.createSession(project.id, 'Session 1', 'Desc', 'claude');
     const s2 = queries.createSession(project.id, 'Session 2', 'Desc', 'claude');
 
@@ -1588,9 +1593,9 @@ describe('Executor Pool V1', () => {
     // Codex limit = 1
     executorPool.setLimit('codex', 1);
 
-    const project = queries.createProject('Validation Project', 'C:/val-proj', 'main', 1);
+    const project = queries.createProject('Validation Project', workspace.resolvePath('val-proj'), 'main', 1);
     const session1 = queries.createSession(project.id, 'Session 1', 'Desc', undefined, undefined, true, undefined, undefined, undefined, undefined, profile.id);
-    queries.updateSession(session1.id, { worktree_path: 'C:/mock-worktree' });
+    queries.updateSession(session1.id, { worktree_path: workspace.resolvePath('mock-worktree') });
 
     // Attempting to continue/resume with non-Claude profile fails validation
     await expect(
@@ -1641,7 +1646,7 @@ describe('Executor Pool V1', () => {
     // Claude limit = 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Disc Release Project', 'C:/disc-rel-proj', 'main', 0, 'claude');
+    const project = queries.createProject('Disc Release Project', workspace.resolvePath('disc-rel-proj'), 'main', 0, 'claude');
     const waitingTodo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -1715,7 +1720,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Multi Turn Project', 'C:/multi-turn', 'main', 0, 'claude');
+    const project = queries.createProject('Multi Turn Project', workspace.resolvePath('multi-turn'), 'main', 0, 'claude');
     const agent1 = queries.createDiscussionAgent(project.id, 'Agent 1', 'Role', 'Prompt', undefined, undefined, undefined, false, profileClaude.id);
     const agent2 = queries.createDiscussionAgent(project.id, 'Agent 2', 'Role', 'Prompt', undefined, undefined, undefined, false, profileCodex.id);
 
@@ -1784,7 +1789,7 @@ describe('Executor Pool V1', () => {
     // Claude limit = 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Session Fail Project', 'C:/sess-fail', 'main', 0, 'claude');
+    const project = queries.createProject('Session Fail Project', workspace.resolvePath('sess-fail'), 'main', 0, 'claude');
     const waitingTodo = queries.createTodo(project.id, 'Waiting Task', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(waitingTodo.id, 'waiting_executor');
 
@@ -1828,7 +1833,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Prompt Gate Project', 'C:/prompt-gate', 'main', 0, 'claude');
+    const project = queries.createProject('Prompt Gate Project', workspace.resolvePath('prompt-gate'), 'main', 0, 'claude');
     const session = queries.createSession(project.id, 'Session Review', 'Initial description to review', 'claude');
 
     let resolveMem: (value: string) => void = () => {};
@@ -1892,7 +1897,7 @@ describe('Executor Pool V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('No Prompt Project', 'C:/no-prompt', 'main', 0, 'claude');
+    const project = queries.createProject('No Prompt Project', workspace.resolvePath('no-prompt'), 'main', 0, 'claude');
     // Session with NO description and NO memory injection
     const session = queries.createSession(project.id, 'Interactive Shell', '', 'claude');
 
@@ -1956,7 +1961,7 @@ describe('Executor Pool V1', () => {
     // Claude limit = 1
     executorPool.setLimit('claude', 1);
 
-    const project = queries.createProject('Stale Project', 'C:/stale-proj', 'main', 0, 'claude');
+    const project = queries.createProject('Stale Project', workspace.resolvePath('stale-proj'), 'main', 0, 'claude');
     const taskA = queries.createTodo(project.id, 'Task A (Stale)', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
     queries.updateTodoStatus(taskA.id, 'running');
     queries.updateTodo(taskA.id, { process_pid: 999999, execution_snapshot: JSON.stringify({ agent: 'claude' }) });

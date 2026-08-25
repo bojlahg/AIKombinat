@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 // We need to mock the connection module so queries use our in-memory DB
 let testDb: Database.Database;
@@ -14,7 +15,10 @@ const queries = await import('../../db/queries.js');
 const { parseAutoDelegate, maybeCreateReviewTodo } = await import('../auto-delegate.js');
 
 describe('Auto Delegate', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('auto-delegate');
     testDb = new Database(':memory:');
     testDb.pragma('journal_mode = WAL');
     initDatabase(testDb);
@@ -22,6 +26,7 @@ describe('Auto Delegate', () => {
 
   afterEach(() => {
     testDb.close();
+    workspace.cleanup();
   });
 
   describe('parseAutoDelegate', () => {
@@ -40,7 +45,7 @@ describe('Auto Delegate', () => {
 
   describe('maybeCreateReviewTodo', () => {
     function createProjectWithRule(rule: string | null) {
-      const project = queries.createProject('Test Project', '/tmp/test-project');
+      const project = queries.createProject('Test Project', workspace.resolvePath('test-project'));
       return queries.updateProject(project.id, { auto_delegate: rule })!;
     }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 
@@ -32,16 +33,18 @@ const queries = await import('../../db/queries.js');
 const { reviewPipeline } = await import('../review-pipeline.js');
 
 describe('ReviewPipelineService', () => {
+  let workspace: TestWorkspace;
   let project: queries.Project;
   let reviewProfile: queries.ExecutionProfile;
   let reworkProfile: queries.ExecutionProfile;
 
   beforeEach(() => {
+    workspace = createTestWorkspace('review-pipeline');
     testDb = new Database(':memory:');
     testDb.pragma('journal_mode = WAL');
     initDatabase(testDb);
 
-    project = queries.createProject('Test Project', '/tmp/test-project');
+    project = queries.createProject('Test Project', workspace.resolvePath('test-project'));
     reviewProfile = queries.createExecutionProfile({
       slug: 'review-profile',
       name: 'Review Profile',
@@ -62,6 +65,7 @@ describe('ReviewPipelineService', () => {
 
   afterEach(() => {
     testDb.close();
+    workspace.cleanup();
   });
 
   it('TC-01 / TC-02: creates initial implementation round with pending status when review_enabled=1', () => {

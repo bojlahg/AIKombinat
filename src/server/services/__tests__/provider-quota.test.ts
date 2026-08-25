@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { PassThrough } from 'stream';
 import { initDatabase } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
@@ -41,7 +42,10 @@ function createMockCliResult(pid: number, command: string = 'claude', args: stri
 }
 
 describe('Quota Awareness V1', () => {
+  let workspace: TestWorkspace;
+
   beforeEach(() => {
+    workspace = createTestWorkspace('provider-quota');
     testDb = new Database(':memory:');
     initDatabase(testDb);
     executorPool.resetLimits();
@@ -58,6 +62,7 @@ describe('Quota Awareness V1', () => {
     providerQuotaService.resetForTesting();
     cliStatusModule.clearCache();
     testDb.close();
+    workspace.cleanup();
   });
 
   it('1. default quota state is unknown', () => {
@@ -184,7 +189,7 @@ describe('Quota Awareness V1', () => {
     const selection = await executorPool.selectExecutor({ executionProfileId: profile.id });
     expect(selection.status).toBe('waiting_quota');
 
-    const project = queries.createProject('Exhausted Project', 'C:/exhausted-project');
+    const project = queries.createProject('Exhausted Project', workspace.resolvePath('exhausted-project'));
     const todo = queries.createTodo(
       project.id,
       'Execute task when all providers exhausted',
@@ -236,7 +241,7 @@ describe('Quota Awareness V1', () => {
       version: '1.0.0',
     }));
 
-    const project = queries.createProject('Runtime Fallback Project', 'C:/rt-proj');
+    const project = queries.createProject('Runtime Fallback Project', workspace.resolvePath('rt-proj'));
     const todo = queries.createTodo(
       project.id,
       'Task with profile fallback',
@@ -292,7 +297,7 @@ describe('Quota Awareness V1', () => {
 
   it('7. runtime Codex quota rejection marks Codex exhausted', async () => {
     const codex = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
-    const project = queries.createProject('Codex Project', 'C:/codex-proj');
+    const project = queries.createProject('Codex Project', workspace.resolvePath('codex-proj'));
     const todo = queries.createTodo(
       project.id,
       'Codex Task',
@@ -332,7 +337,7 @@ describe('Quota Awareness V1', () => {
 
   it('8. runtime Antigravity quota rejection marks Antigravity exhausted', async () => {
     const agy = queries.addModel('antigravity', 'gemini-3.7-flash', 'Gemini 3.7 Flash', ['high'], { high: 'gemini-3.7-flash-high' });
-    const project = queries.createProject('Agy Project', 'C:/agy-proj');
+    const project = queries.createProject('Agy Project', workspace.resolvePath('agy-proj'));
     const todo = queries.createTodo(
       project.id,
       'Agy Task',
@@ -372,7 +377,7 @@ describe('Quota Awareness V1', () => {
 
   it('9. unrelated process failure does NOT change quota state', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Normal Error Project', 'C:/normal-err-proj');
+    const project = queries.createProject('Normal Error Project', workspace.resolvePath('normal-err-proj'));
     const todo = queries.createTodo(
       project.id,
       'Syntax Error Task',
@@ -450,7 +455,7 @@ describe('Quota Awareness V1', () => {
 
   it('11. successful execution may mark provider available', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Success Project', 'C:/success-proj');
+    const project = queries.createProject('Success Project', workspace.resolvePath('success-proj'));
     const todo = queries.createTodo(
       project.id,
       'Successful Task',
@@ -514,7 +519,7 @@ describe('Quota Awareness V1', () => {
 
   it('12. manual execution does not silently fall back to another provider', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Manual No-Switch Project', 'C:/manual-proj');
+    const project = queries.createProject('Manual No-Switch Project', workspace.resolvePath('manual-proj'));
     const todo = queries.createTodo(
       project.id,
       'Manual Task',
@@ -560,7 +565,7 @@ describe('Quota Awareness V1', () => {
 
   it('12b. manual Todo preflight blocks launch of already exhausted provider without spawning CLI', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Preflight Todo Project', 'C:/preflight-todo-proj');
+    const project = queries.createProject('Preflight Todo Project', workspace.resolvePath('preflight-todo-proj'));
     const todo = queries.createTodo(
       project.id,
       'Preflight Todo Task',
@@ -601,7 +606,7 @@ describe('Quota Awareness V1', () => {
 
   it('12c. manual Session preflight blocks launch of already exhausted provider', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Preflight Session Project', 'C:/preflight-sess-proj');
+    const project = queries.createProject('Preflight Session Project', workspace.resolvePath('preflight-sess-proj'));
     const session = queries.createSession(
       project.id,
       'Preflight Session',
@@ -628,7 +633,7 @@ describe('Quota Awareness V1', () => {
   it('12d. manual Discussion preflight pauses turn for already exhausted provider', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     const codex = queries.addModel('codex', 'gpt-5', 'GPT-5', ['medium']);
-    const project = queries.createProject('Preflight Disc Project', 'C:/preflight-disc-proj');
+    const project = queries.createProject('Preflight Disc Project', workspace.resolvePath('preflight-disc-proj'));
 
     const agent1 = queries.createDiscussionAgent(
       project.id,
@@ -744,7 +749,7 @@ describe('Quota Awareness V1', () => {
 
   it('15. Session failure classification reads raw PTY output for quota detection', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('PTY Session Project', 'C:/pty-sess-proj');
+    const project = queries.createProject('PTY Session Project', workspace.resolvePath('pty-sess-proj'));
     const session = queries.createSession(
       project.id,
       'PTY Session',
@@ -791,7 +796,7 @@ describe('Quota Awareness V1', () => {
 
   it('15b. Antigravity Session failure classification reads raw PTY output for RESOURCE_EXHAUSTED', async () => {
     const agy = queries.addModel('antigravity', 'gemini-3.7-flash', 'Gemini 3.7 Flash', ['high'], { high: 'gemini-3.7-flash-high' });
-    const project = queries.createProject('Agy PTY Project', 'C:/agy-pty-proj');
+    const project = queries.createProject('Agy PTY Project', workspace.resolvePath('agy-pty-proj'));
     const session = queries.createSession(
       project.id,
       'Agy PTY Session',
@@ -834,7 +839,7 @@ describe('Quota Awareness V1', () => {
 
   it('16. Session unrelated PTY failure does not change quota state', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('PTY Normal Err Project', 'C:/pty-normal-proj');
+    const project = queries.createProject('PTY Normal Err Project', workspace.resolvePath('pty-normal-proj'));
     const session = queries.createSession(
       project.id,
       'PTY Normal Session',
@@ -883,7 +888,7 @@ describe('Quota Awareness V1', () => {
   it('18. Todo failure classification is strictly isolated to current execution and ignores historical logs', async () => {
     providerQuotaService.setCooldownMs(100);
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Todo Iso Project', 'C:/todo-iso-proj');
+    const project = queries.createProject('Todo Iso Project', workspace.resolvePath('todo-iso-proj'));
     const todo = queries.createTodo(
       project.id,
       'Todo Isolation Task',
@@ -944,7 +949,7 @@ describe('Quota Awareness V1', () => {
   it('19. Session failure classification is strictly isolated to current execution and ignores historical raw chunks', async () => {
     providerQuotaService.setCooldownMs(100);
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Session Iso Project', 'C:/sess-iso-proj');
+    const project = queries.createProject('Session Iso Project', workspace.resolvePath('sess-iso-proj'));
     const session = queries.createSession(
       project.id,
       'Session Isolation',
@@ -1030,7 +1035,7 @@ describe('Quota Awareness V1', () => {
       ],
     });
 
-    const project = queries.createProject('Profile Quota Proj', 'C:/prof-proj');
+    const project = queries.createProject('Profile Quota Proj', workspace.resolvePath('prof-proj'));
     queries.updateProject(project.id, { fallback_cli: 'raw-shell' });
     const todo = queries.createTodo(
       project.id,
@@ -1080,7 +1085,7 @@ describe('Quota Awareness V1', () => {
 
   it('21. manual Todo emits repeated quota errors -> fails clearly and does not silently change cli_tool', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Manual Quota Proj', 'C:/man-proj');
+    const project = queries.createProject('Manual Quota Proj', workspace.resolvePath('man-proj'));
     queries.updateProject(project.id, { fallback_cli: 'codex' });
     const todo = queries.createTodo(
       project.id,
@@ -1121,7 +1126,7 @@ describe('Quota Awareness V1', () => {
   it('22. genuine context-window exhaustion still triggers context fallback and does not mark quota exhausted', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     const codex = queries.addModel('codex', 'gpt-5-codex', 'GPT 5 Codex', ['high']);
-    const project = queries.createProject('Context Fallback Proj', 'C:/ctx-proj');
+    const project = queries.createProject('Context Fallback Proj', workspace.resolvePath('ctx-proj'));
     queries.updateProject(project.id, { cli_fallback_chain: JSON.stringify(['claude', 'codex']) });
     const todo = queries.createTodo(
       project.id,
@@ -1172,7 +1177,7 @@ describe('Quota Awareness V1', () => {
 
   it('23. PTY emits quota error before SessionManager installs subscriber -> quota is detected on exit', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('PTY Early Quota Proj', 'C:/pty-early-proj');
+    const project = queries.createProject('PTY Early Quota Proj', workspace.resolvePath('pty-early-proj'));
     const session = queries.createSession(
       project.id,
       'PTY Early Session',
@@ -1222,7 +1227,7 @@ describe('Quota Awareness V1', () => {
 
   it('24. output emitted around replay/subscription boundary is persisted exactly once without duplicates', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('PTY Boundary Proj', 'C:/pty-bound-proj');
+    const project = queries.createProject('PTY Boundary Proj', workspace.resolvePath('pty-bound-proj'));
     const session = queries.createSession(
       project.id,
       'PTY Boundary Session',
@@ -1278,7 +1283,7 @@ describe('Quota Awareness V1', () => {
 
   it('25. normal later PTY output is still persisted correctly', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('PTY Normal Proj', 'C:/pty-norm-proj');
+    const project = queries.createProject('PTY Normal Proj', workspace.resolvePath('pty-norm-proj'));
     const session = queries.createSession(
       project.id,
       'PTY Normal Session',
@@ -1324,7 +1329,7 @@ describe('Quota Awareness V1', () => {
 
   it('26. very fast process exit does not lose the quota message', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('PTY Fast Exit Proj', 'C:/pty-fast-proj');
+    const project = queries.createProject('PTY Fast Exit Proj', workspace.resolvePath('pty-fast-proj'));
     const session = queries.createSession(
       project.id,
       'PTY Fast Exit Session',
@@ -1406,7 +1411,7 @@ describe('Quota Awareness V1', () => {
 
   it('28. Todo failure classification deterministically waits for stdout/stderr drain after process exit', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Todo Drain Proj', 'C:/todo-drain-proj');
+    const project = queries.createProject('Todo Drain Proj', workspace.resolvePath('todo-drain-proj'));
     const todo = queries.createTodo(
       project.id,
       'Todo Drain Task',
@@ -1465,7 +1470,7 @@ describe('Quota Awareness V1', () => {
 
   it('29. Todo prompt containing quota keywords does not trigger false quota classification on unrelated failure', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Todo Prompt Boundary Proj', 'C:/todo-prompt-proj');
+    const project = queries.createProject('Todo Prompt Boundary Proj', workspace.resolvePath('todo-prompt-proj'));
     // Prompt contains quota error keywords
     const todo = queries.createTodo(
       project.id,
@@ -1495,7 +1500,7 @@ describe('Quota Awareness V1', () => {
 
   it('30. Session stop and immediate restart isolates transient state and quota classification between Run A and Run B', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Session Cross-Run Proj', 'C:/session-cross-proj');
+    const project = queries.createProject('Session Cross-Run Proj', workspace.resolvePath('session-cross-proj'));
     const session = queries.createSession(
       project.id,
       'Session Cross-Run Title',
@@ -1603,7 +1608,7 @@ describe('Quota Awareness V1', () => {
 
   it('31. Concurrent sessions with same generation numbers do not collide or overwrite transient runtime state', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Concurrent Sess Proj', 'C:/conc-sess-proj');
+    const project = queries.createProject('Concurrent Sess Proj', workspace.resolvePath('conc-sess-proj'));
     const sessionA = queries.createSession(
       project.id,
       'Session A Title',
@@ -1705,7 +1710,7 @@ describe('Quota Awareness V1', () => {
 
   it('32. Stopping a session synchronously flushes pending raw bytes and rejects subsequent late callbacks', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Stop Flush Proj', 'C:/stop-flush-proj');
+    const project = queries.createProject('Stop Flush Proj', workspace.resolvePath('stop-flush-proj'));
     const session = queries.createSession(
       project.id,
       'Stop Flush Title',

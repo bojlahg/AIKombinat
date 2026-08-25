@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassThrough } from 'stream';
 import Database from 'better-sqlite3';
 import { initDatabase, dedupeLegacyExecutionRounds, enforceExecutionRoundUniqueIndexes } from '../../db/schema.js';
+import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 
 let testDb: Database.Database;
 
@@ -67,12 +68,14 @@ vi.mock('../claude-manager.js', () => ({
   },
 }));
 
+let currentWorkspace: TestWorkspace | null = null;
+
 vi.mock('../worktree-manager.js', () => ({
   worktreeManager: {
-    createWorktree: vi.fn().mockResolvedValue({
-      worktreePath: '/tmp/worktree-1',
+    createWorktree: vi.fn().mockImplementation(async () => ({
+      worktreePath: currentWorkspace?.resolvePath('worktree-1') ?? '',
       branchName: 'task-feature-1',
-    }),
+    })),
     isValidWorktree: vi.fn().mockResolvedValue(true),
     sanitizeBranchName: vi.fn((name: string) => name.toLowerCase().replace(/\s+/g, '-')),
     removeWorktree: vi.fn().mockResolvedValue(undefined),
@@ -112,6 +115,7 @@ const { providerQuotaService } = await import('../provider-quota.js');
 const { claudeManager } = await import('../claude-manager.js');
 
 describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
+  let workspace: TestWorkspace;
   let project: queries.Project;
   let claudeModel: queries.CliModel;
   let claudeHaiku: queries.CliModel;
@@ -119,6 +123,8 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
   let reworkProfile: queries.ExecutionProfile;
 
   beforeEach(() => {
+    workspace = createTestWorkspace('review-orch-int');
+    currentWorkspace = workspace;
     mockClaudeStarts = [];
     nextExitResolvers = [];
     mockGitDiff.mockReset().mockResolvedValue('diff --git a/index.ts b/index.ts\n+ console.log("reviewed");');
@@ -136,7 +142,7 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     claudeModel = queries.addModel('claude', 'claude-3-7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     claudeHaiku = queries.addModel('claude', 'claude-3-5-haiku', 'Claude 3.5 Haiku', ['low']);
 
-    project = queries.createProject('Integration Test Project', '/tmp/int-proj');
+    project = queries.createProject('Integration Test Project', workspace.resolvePath('int-proj'));
     reviewProfile = queries.createExecutionProfile({
       slug: 'review-prof',
       name: 'Review Profile',
@@ -174,6 +180,8 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     executorPool.resetReservations();
     providerQuotaService.resetForTesting();
     testDb.close();
+    currentWorkspace = null;
+    workspace.cleanup();
   });
 
   it('1. Automatic approved flow: Implementation -> Review (approved) -> Completed', async () => {
