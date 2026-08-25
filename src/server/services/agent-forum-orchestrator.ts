@@ -16,6 +16,9 @@ import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import { readLines, drainReaders } from '../utils/line-stream.js';
 import * as processTree from '../utils/process-tree.js';
 import { extractStructuredReplies, type AgentForumReply } from './agent-forum-extractor.js';
+import { logger } from '../logging/logger.js';
+import { runWithLogContext, tag } from '../logging/context.js';
+import { tailOf, clampLine } from '../logging/truncate.js';
 
 export interface AvailableTargetInfo {
   id: string;
@@ -93,6 +96,8 @@ export class ForumRecoveryPendingError extends ForumStopIncompleteError {
 interface ForumCycle {
   generation: number;
   cancelled: boolean;
+  /** Console tag for this cycle, e.g. `[forum:Design review]`. */
+  scope: string;
   /** PIDs spawned by this cycle that have not been observed exiting yet. */
   activePids: Set<number>;
   /** Executor-pool reservation owners still held by this cycle's turns. */
@@ -106,6 +111,8 @@ export interface AgentForumOrchestratorOptions {
 
 export class AgentForumOrchestrator {
   private cycles: Map<string, ForumCycle> = new Map();
+  /** Turn start timestamps, so an outcome helper can report a duration. */
+  private turnStartedAt: Map<string, number> = new Map();
   private cycleRuns: Map<string, Promise<void>> = new Map();
   private generationCounters: Map<string, number> = new Map();
   private readonly stopDrainTimeoutMs: number;
@@ -172,7 +179,12 @@ export class AgentForumOrchestrator {
 
     // Start cycle in background
     this.runCycle(forumId).catch((err) => {
-      console.error(`[agent-forum] Cycle error in forum ${forumId}:`, err);
+      logger.error('forum.cycle.error', {
+        scope: tag('forum', forum.title),
+        msg: 'cycle failed',
+        forumId,
+        err,
+      });
     });
 
     return userMsg;
@@ -202,6 +214,13 @@ export class AgentForumOrchestrator {
   async stopForum(forumId: string): Promise<void> {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) throw new Error('Agent forum not found');
+
+    const forumScope = tag('forum', forum.title);
+    logger.info('forum.stop.requested', {
+      scope: forumScope,
+      msg: 'stop requested',
+      forumId,
+    });
 
     const cycle = this.cycles.get(forumId);
     if (cycle) {
@@ -236,6 +255,14 @@ export class AgentForumOrchestrator {
         });
         orchestrator.wakeWaitingExecutors().catch(() => {});
 
+        logger.error('forum.stop.timeout', {
+          scope: forumScope,
+          msg: `stop could not confirm the cycle is quiescent within ${this.stopDrainTimeoutMs}ms`,
+          forumId,
+          timeoutMs: this.stopDrainTimeoutMs,
+          detail: 'The forum stays in recovery: cancellation is still armed and Stop must be retried.',
+        });
+
         throw new ForumStopTimeoutError(
           forumId,
           `Stop could not confirm the forum cycle is quiescent within ${this.stopDrainTimeoutMs}ms. `
@@ -258,6 +285,12 @@ export class AgentForumOrchestrator {
           status: 'error',
           currentCycle: queries.getAgentForumById(forumId)?.current_cycle ?? forum.current_cycle,
           currentMemberId: null,
+        });
+        logger.error('forum.stop.recovery-pending', {
+          scope: forumScope,
+          msg: `stop could not confirm cleanup: ${recovery.unresolvedOrphanProcesses} orphan process(es) still alive`,
+          forumId,
+          unresolvedOrphanProcesses: recovery.unresolvedOrphanProcesses,
         });
         throw new ForumRecoveryPendingError(
           forumId,
@@ -308,20 +341,37 @@ export class AgentForumOrchestrator {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) return;
 
+    const forumScope = tag('forum', forum.title);
+
     if (this.cycles.has(forumId)) {
-      console.warn(`[agent-forum] Forum ${forumId} already has a cycle in flight. Skipping.`);
+      logger.warn('forum.cycle.already-running', {
+        scope: forumScope,
+        msg: 'cycle skipped: another cycle is already in flight',
+        forumId,
+      });
       return;
     }
 
     const members = queries.getActiveAgentForumMembers(forumId);
     if (members.length < MIN_FORUM_PARTICIPANTS) {
-      console.warn(`[agent-forum] Forum ${forumId} has fewer than ${MIN_FORUM_PARTICIPANTS} active members. Skipping cycle.`);
+      logger.warn('forum.cycle.not-enough-members', {
+        scope: forumScope,
+        msg: `cycle skipped: fewer than ${MIN_FORUM_PARTICIPANTS} active participants`,
+        forumId,
+        activeMembers: members.length,
+      });
       return;
     }
 
     const generation = (this.generationCounters.get(forumId) ?? 0) + 1;
     this.generationCounters.set(forumId, generation);
-    const cycle: ForumCycle = { generation, cancelled: false, activePids: new Set(), reservationOwners: new Set() };
+    const cycle: ForumCycle = {
+      generation,
+      cancelled: false,
+      scope: forumScope,
+      activePids: new Set(),
+      reservationOwners: new Set(),
+    };
 
     const nextCycleNumber = forum.current_cycle + 1;
 
@@ -355,7 +405,12 @@ export class AgentForumOrchestrator {
 
     const run = (async () => {
       await gate;
-      await this.executeCycle(forumId, cycle, orderedMembers, nextCycleNumber);
+      // Every record emitted underneath — including the shared CLI spawn and
+      // quota lines — inherits this forum's tag and correlation ids.
+      await runWithLogContext(
+        { scope: forumScope, fields: { forumId } },
+        () => this.executeCycle(forumId, cycle, orderedMembers, nextCycleNumber),
+      );
     })();
 
     this.cycles.set(forumId, cycle);
@@ -376,12 +431,19 @@ export class AgentForumOrchestrator {
     orderedMembers: queries.AgentForumMember[],
     cycleNumber: number,
   ): Promise<void> {
+    const cycleStartedAt = Date.now();
+    logger.info('forum.cycle.started', {
+      msg: `cycle #${cycleNumber} started`,
+      cycleNumber,
+      participants: orderedMembers.length,
+    });
     try {
       for (let turnOrder = 0; turnOrder < orderedMembers.length; turnOrder++) {
         if (!this.isCycleActive(forumId, cycle)) break;
         await this.runMemberTurn(forumId, cycle, orderedMembers[turnOrder], cycleNumber, turnOrder);
       }
     } finally {
+      this.logCycleSummary(forumId, cycle, cycleNumber, Date.now() - cycleStartedAt);
       // A cancelled cycle does not own the terminal transition — `stopForum`
       // performs it once the drain completes. A superseded cycle owns nothing.
       if (this.isCycleActive(forumId, cycle)) {
@@ -416,12 +478,26 @@ export class AgentForumOrchestrator {
     cycleNumber: number,
     turnOrder: number,
   ): Promise<void> {
+    return runWithLogContext(
+      { scope: `[${member.name}]`, fields: { memberId: member.id, cycleNumber } },
+      () => this.runMemberTurnInner(forumId, cycle, member, cycleNumber, turnOrder),
+    );
+  }
+
+  private async runMemberTurnInner(
+    forumId: string,
+    cycle: ForumCycle,
+    member: queries.AgentForumMember,
+    cycleNumber: number,
+    turnOrder: number,
+  ): Promise<void> {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) return;
 
     const project = forum.project_id ? (queries.getProjectById(forum.project_id) ?? null) : null;
 
     const turn = queries.createAgentForumTurn(forumId, member.id, cycleNumber, turnOrder);
+    this.turnStartedAt.set(turn.id, Date.now());
 
     queries.updateAgentForum(forumId, { current_member_id: member.id });
     broadcaster.broadcast({
@@ -554,6 +630,15 @@ export class AgentForumOrchestrator {
           return;
         }
       }
+
+      logger.info('forum.turn.started', {
+        msg: 'turn started',
+        turnId: turn.id,
+        provider: resolvedCliTool,
+        ...(executionConfig?.effectiveModel ? { model: executionConfig.effectiveModel } : {}),
+        ...(executionConfig?.effort.nativeEffort ? { effort: executionConfig.effort.nativeEffort } : {}),
+        ...(executionConfig?.profileName ? { profile: executionConfig.profileName } : {}),
+      });
 
       const snapshotStr = executionConfig
         ? JSON.stringify(executionSnapshot(executionConfig))
@@ -697,12 +782,21 @@ export class AgentForumOrchestrator {
           });
         } catch (validationErr) {
           const errMsg = validationErr instanceof Error ? validationErr.message : String(validationErr);
-          this.markTurnFailed(forumId, turn.id, member, errMsg, fullOutput);
+          this.markTurnFailed(forumId, turn.id, member, errMsg, fullOutput, {
+            category: 'invalid_structured_output',
+            provider: resolvedCliTool,
+          });
           return;
         }
 
         if (validatedReplies.length === 0) {
           // PASS — no message created
+          logger.info('forum.turn.passed', {
+            msg: `PASSED after ${this.turnDuration(turn.id)}`,
+            turnId: turn.id,
+            provider: resolvedCliTool,
+            repliesCount: 0,
+          });
           queries.updateAgentForumTurn(turn.id, {
             status: 'passed',
             raw_output: fullOutput,
@@ -719,6 +813,12 @@ export class AgentForumOrchestrator {
             repliesCount: 0,
           });
         } else {
+          logger.info('forum.turn.completed', {
+            msg: `COMPLETED after ${this.turnDuration(turn.id)}`,
+            turnId: turn.id,
+            provider: resolvedCliTool,
+            repliesCount: validatedReplies.length,
+          });
           // Persist each reply as a message node
           for (const reply of validatedReplies) {
             const msg = queries.createAgentForumMessage(
@@ -771,7 +871,12 @@ export class AgentForumOrchestrator {
         }
 
         const errMsg = `Process failed with exit code ${exitCode}: ${classification.reason || combinedOutput.slice(-300)}`;
-        this.markTurnFailed(forumId, turn.id, member, errMsg, combinedOutput);
+        this.markTurnFailed(forumId, turn.id, member, errMsg, combinedOutput, {
+          category: classification.category,
+          exitCode,
+          provider: resolvedCliTool,
+          stderrTail: errorOutput,
+        });
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -789,10 +894,71 @@ export class AgentForumOrchestrator {
         cycle.reservationOwners.delete(reservationOwner);
       }
       if (workDir) this.cleanupTurnWorkDir(workDir);
+      this.turnStartedAt.delete(turn.id);
     }
   }
 
+  /** `1.42s` / `3ms` — matches how the spec's console examples read. */
+  private turnDuration(turnId: string): string {
+    const startedAt = this.turnStartedAt.get(turnId);
+    if (startedAt === undefined) return 'unknown time';
+    const ms = Date.now() - startedAt;
+    return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`;
+  }
+
+  private turnDurationMs(turnId: string): number | undefined {
+    const startedAt = this.turnStartedAt.get(turnId);
+    return startedAt === undefined ? undefined : Date.now() - startedAt;
+  }
+
   // ── Cycle lifecycle helpers ────────────────────────────────────────────────
+
+  /**
+   * The one line that answers "why did nothing appear in the chat?".
+   *
+   * Counted from the persisted turns rather than from in-memory bookkeeping, so
+   * it reports what actually happened even when a turn ended on a path that
+   * never returned to the loop. A cycle with failures or skips is a WARN: the
+   * user asked a question and did not get every answer.
+   */
+  private logCycleSummary(forumId: string, cycle: ForumCycle, cycleNumber: number, durationMs: number): void {
+    let counts = { completed: 0, passed: 0, skipped: 0, failed: 0, stopped: 0, running: 0 };
+    try {
+      for (const turn of queries.getAgentForumTurns(forumId)) {
+        if (turn.cycle_number !== cycleNumber) continue;
+        if (turn.status in counts) {
+          counts[turn.status as keyof typeof counts]++;
+        }
+      }
+    } catch (err) {
+      logger.debug('forum.cycle.summary-unavailable', { msg: 'could not read cycle turns', cycleNumber, err });
+      return;
+    }
+
+    const cancelled = cycle.cancelled;
+    const hasProblems = counts.failed > 0 || counts.skipped > 0;
+    const fields = {
+      msg: cancelled
+        ? `cycle #${cycleNumber} stopped`
+        : hasProblems
+          ? `cycle #${cycleNumber} finished with problems`
+          : `cycle #${cycleNumber} finished`,
+      cycleNumber,
+      completed: counts.completed,
+      passed: counts.passed,
+      skipped: counts.skipped,
+      failed: counts.failed,
+      ...(counts.stopped > 0 ? { stopped: counts.stopped } : {}),
+      durationMs,
+    };
+    if (cancelled) {
+      logger.warn('forum.cycle.stopped', fields);
+    } else if (hasProblems) {
+      logger.warn('forum.cycle.finished-with-problems', fields);
+    } else {
+      logger.info('forum.cycle.finished', fields);
+    }
+  }
 
   private isCycleActive(forumId: string, cycle: ForumCycle): boolean {
     if (cycle.cancelled) return false;
@@ -870,6 +1036,14 @@ export class AgentForumOrchestrator {
     member: queries.AgentForumMember,
     reason: string,
   ): void {
+    // A skip is why the chat stayed silent, so it is never quieter than WARN.
+    logger.warn('forum.turn.skipped', {
+      msg: `SKIPPED after ${this.turnDuration(turnId)}`,
+      turnId,
+      reason: clampLine(reason),
+      durationMs: this.turnDurationMs(turnId),
+    });
+
     queries.updateAgentForumTurn(turnId, {
       status: 'skipped',
       error_message: reason,
@@ -894,7 +1068,20 @@ export class AgentForumOrchestrator {
     member: queries.AgentForumMember,
     error: string,
     rawOutput?: string,
+    diagnostics: { category?: string; exitCode?: number; provider?: string; stderrTail?: string } = {},
   ): void {
+    logger.error('forum.turn.failed', {
+      msg: `FAILED after ${this.turnDuration(turnId)}`,
+      turnId,
+      ...(diagnostics.provider ? { provider: diagnostics.provider } : {}),
+      ...(diagnostics.category ? { category: diagnostics.category } : {}),
+      ...(diagnostics.exitCode !== undefined ? { exitCode: diagnostics.exitCode } : {}),
+      message: clampLine(error),
+      durationMs: this.turnDurationMs(turnId),
+      // Bounded tail only — provider output is never logged in full.
+      detail: diagnostics.stderrTail ? tailOf(diagnostics.stderrTail) : undefined,
+    });
+
     queries.updateAgentForumTurn(turnId, {
       status: 'failed',
       ...(rawOutput !== undefined ? { raw_output: rawOutput } : {}),
@@ -918,6 +1105,11 @@ export class AgentForumOrchestrator {
     const turn = queries.getAgentForumTurnById(turnId);
     if (!turn) return;
     if (turn.status === 'completed' || turn.status === 'passed' || turn.status === 'failed' || turn.status === 'skipped') return;
+    logger.warn('forum.turn.stopped', {
+      msg: `STOPPED after ${this.turnDuration(turnId)}`,
+      turnId,
+      durationMs: this.turnDurationMs(turnId),
+    });
     queries.updateAgentForumTurn(turnId, {
       status: 'stopped',
       error_message: 'Turn stopped before completion',
@@ -1182,10 +1374,14 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
     }
 
     if (verdict !== 'match') {
-      console.warn(
-        `[agent-forum] Not signalling pid ${turn.process_pid} for turn ${turn.id}: `
-        + `process identity ${verdict}. Leaving it alone.`,
-      );
+      logger.warn('forum.recovery.identity-unconfirmed', {
+        scope: tag('forum', forum.title),
+        msg: `not signalling pid ${turn.process_pid}: process identity ${verdict}`,
+        forumId,
+        turnId: turn.id,
+        pid: turn.process_pid,
+        verdict,
+      });
       leaveUnresolved(
         turn.id,
         turn.process_pid,
@@ -1198,10 +1394,14 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
     try {
       terminated = await processTree.terminateProcessTree(turn.process_pid);
     } catch (err) {
-      console.warn(
-        `[agent-forum] Could not terminate orphan process ${turn.process_pid} `
-        + `for turn ${turn.id}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      logger.warn('forum.recovery.orphan-terminate-failed', {
+        scope: tag('forum', forum.title),
+        msg: `could not terminate orphan process ${turn.process_pid}`,
+        forumId,
+        turnId: turn.id,
+        pid: turn.process_pid,
+        err,
+      });
     }
 
     // Trust the outcome only if the helper said so, or the process is verifiably
@@ -1226,17 +1426,25 @@ export async function recoverAgentForum(forumId: string): Promise<ForumRecoveryR
     // Fail closed: a process we could not kill — or were not allowed to touch —
     // must not leave the forum looking clean.
     queries.updateAgentForum(forumId, { status: 'error', current_member_id: null });
-    console.warn(
-      `[agent-forum] Forum "${forum.title}" (${forumId}) left in error: `
-      + `${report.unresolvedOrphans.length} unresolved process(es) `
-      + `(${report.unresolvedOrphans.map((o) => `pid ${o.pid}: ${o.reason}`).join(', ')})`,
-    );
+    logger.error('forum.recovery.unresolved', {
+      scope: tag('forum', forum.title),
+      msg: `forum left in error: ${report.unresolvedOrphans.length} unresolved process(es)`,
+      forumId,
+      unresolved: report.unresolvedOrphans.length,
+      detail: report.unresolvedOrphans.map((o) => `pid ${o.pid}: ${o.reason}`).join('\n'),
+    });
     return report;
   }
 
   queries.updateAgentForum(forumId, { status: 'idle', current_member_id: null });
   report.forumsRecovered = 1;
-  console.log(`  Reset agent forum "${forum.title}" (${forumId}) to idle`);
+  logger.info('forum.recovery.completed', {
+    scope: tag('forum', forum.title),
+    msg: 'recovered to idle',
+    forumId,
+    turnsReconciled: report.turnsReconciled,
+    orphansTerminated: report.orphanProcessesTerminated,
+  });
   return report;
 }
 
@@ -1259,7 +1467,11 @@ export async function recoverInterruptedAgentForums(): Promise<ForumRecoveryRepo
   const forums = queries.getAgentForumsNeedingRecovery();
   if (forums.length === 0) return report;
 
-  console.log(`Recovering ${forums.length} agent forum(s) needing recovery...`);
+  logger.warn('forum.recovery.started', {
+    scope: '[forum]',
+    msg: `recovering ${forums.length} agent forum(s) needing recovery`,
+    count: forums.length,
+  });
   for (const forum of forums) {
     try {
       const forumReport = await recoverAgentForum(forum.id);
@@ -1275,7 +1487,12 @@ export async function recoverInterruptedAgentForums(): Promise<ForumRecoveryRepo
       try {
         queries.updateAgentForum(forum.id, { status: 'error', current_member_id: null });
       } catch { /* the DB itself is unhappy; the log below is all we can do */ }
-      console.error(`[agent-forum] Recovery failed for forum ${forum.id}: ${message}`);
+      logger.error('forum.recovery.failed', {
+        scope: tag('forum', forum.title),
+        msg: 'recovery failed - forum stays closed',
+        forumId: forum.id,
+        message,
+      });
     }
   }
   report.unresolvedOrphanProcesses = report.unresolvedOrphans.length;

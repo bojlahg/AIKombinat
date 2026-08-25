@@ -17,6 +17,8 @@ import { broadcaster } from '../websocket/broadcaster.js';
 import { orchestrator } from './orchestrator.js';
 import { resourceManager } from './resource-manager.js';
 import { executorPool } from './executor-pool.js';
+import { logger } from '../logging/logger.js';
+import { tag } from '../logging/context.js';
 
 export class TodoNotFoundError extends Error {
   constructor(message = 'Todo not found') {
@@ -173,6 +175,17 @@ export class ExecutionRoundRetryService {
     // Release any stale resources / reservations from previous runs
     resourceManager.releaseOwner('todo', todoId);
     executorPool.releaseReservation(todoId);
+
+    logger.warn('todo.retry.scheduled', {
+      scope: tag('todo', todo.title),
+      msg: `retry scheduled for ${newRound.phase} phase (attempt ${newRound.attempt_index ?? 1})`,
+      todoId,
+      projectId: todo.project_id,
+      phase: newRound.phase,
+      attempt: newRound.attempt_index ?? 1,
+      round: newRound.round_index,
+      retryOfRoundId: newRound.retry_of_round_id,
+    });
 
     broadcaster.broadcast({ type: 'todo:round-created', todoId, round: newRound });
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'pending' });

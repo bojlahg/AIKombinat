@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import type { WSEvent } from './events.js';
+import { logger } from '../logging/logger.js';
 
 // Binary frame format for high-frequency PTY output:
 //   byte 0:           kind (0x01 = session output)
@@ -57,10 +58,32 @@ class Broadcaster {
   }
 
   broadcast(event: WSEvent): void {
-    const data = JSON.stringify(event);
+    let data: string;
+    try {
+      data = JSON.stringify(event);
+    } catch (err) {
+      // Serialization failure means the event is lost for every client — one of
+      // the few WebSocket conditions that is worth an ERROR line.
+      logger.error('ws.serialize-failed', {
+        scope: '[ws]',
+        msg: `could not serialize "${event?.type ?? 'unknown'}" event`,
+        eventType: event?.type,
+        err,
+      });
+      return;
+    }
+    logger.debug('ws.broadcast', { scope: '[ws]', msg: `broadcast ${event.type}`, eventType: event.type, clients: this.clients.size });
     for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+      try {
         client.send(data);
+      } catch (err) {
+        logger.warn('ws.broadcast-failed', {
+          scope: '[ws]',
+          msg: `broadcast to one client failed (${event.type})`,
+          eventType: event.type,
+          err,
+        });
       }
     }
   }

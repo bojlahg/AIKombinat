@@ -74,6 +74,8 @@ Checklist:
 Config via `.env` (see `.env.example`), `~/.aikombinat/config.json` (or legacy `~/.clitrigger/config.json`), or Electron `userData/config.json`.
 Key vars: `PORT` (default 3000), `DB_PATH`, `TUNNEL_ENABLED`, `HEADLESS`, `DISABLE_AUTH`.
 
+Runtime diagnostics go to the console **and** to a rotating log file (`<app data>/logs/aikombinat.log`, or `<repo>/logs/` in development). Use the shared logger in `src/server/logging/` — `logger.info('event.name', { msg, scope, ...fields })` — instead of adding `console.*` calls; it handles console/file formatting, secret redaction and output caps. `AIKOMBINAT_LOG_LEVEL` (default `info`) and `AIKOMBINAT_LOG_DIR` control it. Never log prompts or full provider output.
+
 ## Language
 
 The UI supports English, Korean, and Russian. Add new UI strings through the existing i18n system and provide all required core locale keys; do not hardcode Korean, English, or Russian UI text. English is the canonical core locale: EN/KO/RU must always have identical key sets and identical placeholder sets for every key. Keep plugin translation fallback semantics separate from mandatory core locale parity. Code identifiers and comments remain in English. Commit messages may be in English or Korean.

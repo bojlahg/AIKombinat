@@ -17,6 +17,9 @@ import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+import { logger } from '../logging/logger.js';
+import { tag } from '../logging/context.js';
+import { clampLine, tailOf } from '../logging/truncate.js';
 
 
 function broadcastDiscussionProjectStatus(discussionId: string): void {
@@ -93,7 +96,12 @@ export class DiscussionOrchestrator {
           branchName = created.branchName;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`[discussion] Failed to create worktree for discussion ${discussionId}:`, message);
+          logger.error('discussion.worktree.failed', {
+            scope: tag('discussion', discussion.title),
+            msg: 'failed to create worktree',
+            discussionId,
+            message: clampLine(message),
+          });
           queries.updateDiscussionStatus(discussionId, 'failed');
           queries.createDiscussionLog(discussionId, null, 'error', `Failed to create worktree: ${message}`);
           dispatchDiscussionStatus({ discussionId, status: 'failed', currentRound: 0, currentAgentId: null });
@@ -452,7 +460,16 @@ export class DiscussionOrchestrator {
             }
           }
 
-          console.error(`[discussion] Agent ${message.agent_name} failed (exit code ${exitCode}). Output:\n${fullOutput.slice(-500)}`);
+          logger.error('discussion.agent.failed', {
+            scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+            msg: `agent failed with exit code ${exitCode}`,
+            discussionId,
+            round: message.round_number,
+            provider: resolvedCliTool,
+            exitCode,
+            ...(classification.category ? { category: classification.category } : {}),
+            detail: tailOf(fullOutput),
+          });
           queries.updateDiscussionMessage(messageId, {
             content: fullOutput,
             status: 'failed',
@@ -467,7 +484,13 @@ export class DiscussionOrchestrator {
         }
       }).catch((err) => {
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[discussion] Process error for discussion ${discussionId}:`, errMsg);
+        logger.error('discussion.process.error', {
+          scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+          msg: 'process error',
+          discussionId,
+          round: message.round_number,
+          message: clampLine(errMsg),
+        });
         queries.updateDiscussionMessage(messageId, { status: 'failed', completed_at: new Date().toISOString() });
         queries.updateDiscussionStatus(discussionId, 'failed');
         queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
@@ -478,7 +501,13 @@ export class DiscussionOrchestrator {
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[discussion] Failed to start ${adapter.displayName} for discussion ${discussionId}:`, errMsg);
+      logger.error('discussion.start.failed', {
+        scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+        msg: `failed to start ${adapter.displayName}`,
+        discussionId,
+        round: message.round_number,
+        message: clampLine(errMsg),
+      });
       queries.updateDiscussionMessage(messageId, { status: 'failed', completed_at: new Date().toISOString() });
       queries.updateDiscussionStatus(discussionId, 'failed');
       queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });

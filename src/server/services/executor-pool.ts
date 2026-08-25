@@ -3,6 +3,7 @@ import { getAdapter, resolveExecutionModel, supportsInteractiveMode, type CliToo
 import { getToolStatus } from './cli-status.js';
 import { resolveExecutionConfig, type ResolvedExecutionConfig } from './execution-config.js';
 import { providerQuotaService } from './provider-quota.js';
+import { logger } from '../logging/logger.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -369,7 +370,20 @@ export class ExecutorPool {
 
     try {
       await prevMutex;
-      return await this._doSelectExecutor(input);
+      const result = await this._doSelectExecutor(input);
+      // Candidate-by-candidate reasoning is DEBUG detail; the WARN that the
+      // operator needs ("turn skipped because quota") is emitted by whichever
+      // feature owns the run, with its own context attached.
+      logger.debug('execution.selection', {
+        msg: `executor selection: ${result.status}`,
+        status: result.status,
+        profile: result.profileName,
+        ...(result.status === 'selected'
+          ? { provider: result.selectedConfig?.cliTool, model: result.selectedConfig?.effectiveModel }
+          : { reason: result.rejectionSummary }),
+        candidates: result.evaluations.map(e => `${e.cliTool}:${e.status}`).join(','),
+      });
+      return result;
     } finally {
       release!();
     }

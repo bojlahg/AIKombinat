@@ -1,6 +1,7 @@
 import * as queries from '../db/queries.js';
 import type { AgentCliTool } from '../db/queries.js';
 import { broadcaster } from '../websocket/broadcaster.js';
+import { logger } from '../logging/logger.js';
 
 export type QuotaState = 'available' | 'exhausted' | 'unknown';
 
@@ -294,6 +295,17 @@ export class ProviderQuotaService {
       });
     } catch { /* ignore */ }
 
+    // Quota is one of the two reasons a run silently produces nothing, so it
+    // belongs in the ordinary log — never in the API response alone.
+    logger.warn('provider.quota.exhausted', {
+      scope: `[provider:${tool}]`,
+      msg: 'quota exhausted',
+      provider: tool,
+      source: options.source,
+      ...(record.reason ? { reason: record.reason } : {}),
+      ...(record.resetAt ? { resetAt: record.resetAt } : {}),
+    });
+
     this.scheduleExhaustionTimer(tool, record);
     return record;
   }
@@ -306,6 +318,7 @@ export class ProviderQuotaService {
     if (current.state === 'exhausted') {
       return current;
     }
+    const wasKnown = current.state === 'available';
 
     this.clearTimer(tool);
     const observedAt = new Date().toISOString();
@@ -339,6 +352,17 @@ export class ProviderQuotaService {
         resetAt: null,
       });
     } catch { /* ignore */ }
+
+    // Only the transition is interesting: repeating "still available" after
+    // every successful run would drown the log.
+    if (!wasKnown) {
+      logger.info('provider.quota.available', {
+        scope: `[provider:${tool}]`,
+        msg: 'quota state available',
+        provider: tool,
+        source: record.source,
+      });
+    }
 
     this.notifyAvailable();
     return record;
@@ -381,6 +405,19 @@ export class ProviderQuotaService {
         resetAt: null,
       });
     } catch { /* ignore */ }
+
+    if (previous && previous.state !== 'unknown') {
+      // Worth a line only as a transition away from a known state — an
+      // always-unknown provider is not a diagnostic signal.
+      logger.info('provider.quota.unknown', {
+        scope: `[provider:${tool}]`,
+        msg: `quota state is no longer known (was ${previous.state})`,
+        provider: tool,
+        previousState: previous.state,
+        source: record.source,
+        ...(record.reason ? { reason: record.reason } : {}),
+      });
+    }
 
     if (previous && previous.state === 'exhausted') {
       this.notifyAvailable();

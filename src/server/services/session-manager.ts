@@ -7,6 +7,9 @@ import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
 import { broadcastProjectStatus } from './project-status.js';
+import { logger } from '../logging/logger.js';
+import { tag } from '../logging/context.js';
+import { clampLine } from '../logging/truncate.js';
 import { snapshotWorkingTree } from '../lib/git-diff.js';
 import { executorPool } from './executor-pool.js';
 import { orchestrator } from './orchestrator.js';
@@ -93,6 +96,13 @@ export class SessionManager {
       }
 
       const msg = 'Process exited unexpectedly (detected by liveness check).';
+      logger.error('session.process.vanished', {
+        scope: tag('session', session.title),
+        msg: 'process exited unexpectedly (detected by liveness check)',
+        sessionId: session.id,
+        projectId: session.project_id,
+        pid,
+      });
       try {
         queries.updateSessionStatus(session.id, 'failed');
         queries.createSessionLog(session.id, 'error', msg);
@@ -598,6 +608,16 @@ export class SessionManager {
           const msg = exitCode === 0
             ? `${adapter!.displayName} session completed.`
             : `${adapter!.displayName} exited with code ${exitCode}.`;
+          logger[exitCode === 0 ? 'info' : 'error'](
+            exitCode === 0 ? 'session.completed' : 'session.failed',
+            {
+              scope: tag('session', session.title),
+              msg: exitCode === 0 ? 'session completed' : `session failed with exit code ${exitCode}`,
+              sessionId,
+              projectId: session.project_id,
+              exitCode,
+            },
+          );
           try {
             queries.updateSessionStatus(sessionId, status);
             queries.createSessionLog(sessionId, exitCode === 0 ? 'output' : 'error', msg);
@@ -646,6 +666,13 @@ export class SessionManager {
         if (isRunningPersisted) {
           queries.updateSessionStatus(sessionId, 'failed');
           queries.updateSession(sessionId, { process_pid: 0, execution_snapshot: null });
+          logger.error('session.start-failed', {
+            scope: tag('session', session.title),
+            msg: `failed to start ${adapter?.displayName || 'session'}`,
+            sessionId,
+            projectId: session.project_id,
+            message: clampLine(message),
+          });
           queries.createSessionLog(sessionId, 'error', `Failed to start ${adapter?.displayName || 'session'}: ${message}`);
           if (useWorktree && worktreePath && !session.worktree_path) {
             try { await worktreeManager.removeWorktree(project.path, worktreePath); } catch { /* ignore */ }

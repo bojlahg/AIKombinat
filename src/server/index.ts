@@ -1,4 +1,7 @@
 import 'dotenv/config';
+// Must stay the first local import: it runs the native-module preflight and
+// installs the crash handlers before the graph below reaches better-sqlite3.
+import './bootstrap.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -60,6 +63,9 @@ import { resourceManager } from './services/resource-manager.js';
 import { providerQuotaService } from './services/provider-quota.js';
 import { reviewPipeline } from './services/review-pipeline.js';
 import { assertTestRuntimePathAllowed } from './utils/test-fs-guard.js';
+import { logger } from './logging/logger.js';
+import { printStartupBanner, logShutdown } from './services/startup-diagnostics.js';
+import { httpErrorLogger, httpStatusLogger } from './middleware/http-logging.js';
 
 
 
@@ -116,6 +122,8 @@ app.use(helmet({
   },
 }));
 app.use(express.json({ limit: '50mb' }));
+// Failed responses are diagnosable from the terminal, not only from DevTools.
+app.use(httpStatusLogger);
 
 // Initialize database
 getDatabase();
@@ -136,35 +144,60 @@ const isProcessAlive = (pid: number | null): boolean => {
 // child keeps its persisted state and resource lease even though output is not reattached.
 const staleTodos = getTodosByStatus('running');
 if (staleTodos.length > 0) {
-  console.log(`Recovering ${staleTodos.length} stale running task(s)...`);
+  logger.warn('startup.recovery.todos', {
+    scope: '[startup]',
+    msg: `recovering ${staleTodos.length} stale running task(s)`,
+    count: staleTodos.length,
+  });
   for (const todo of staleTodos) {
     if (isProcessAlive(todo.process_pid)) continue;
     updateTodoStatus(todo.id, 'failed');
     updateTodo(todo.id, { process_pid: 0 });
-    console.log(`  Reset todo "${todo.title}" (${todo.id}) from running to failed`);
+    logger.warn('startup.recovery.todo-reset', {
+      scope: '[startup]',
+      msg: `reset todo "${todo.title}" from running to failed`,
+      todoId: todo.id,
+      projectId: todo.project_id,
+    });
   }
 }
 
 // Startup recovery: reset stale 'running' discussions to 'paused'
 const staleDiscussions = getDiscussionsByStatus('running');
 if (staleDiscussions.length > 0) {
-  console.log(`Recovering ${staleDiscussions.length} stale running discussion(s)...`);
+  logger.warn('startup.recovery.discussions', {
+    scope: '[startup]',
+    msg: `recovering ${staleDiscussions.length} stale running discussion(s)`,
+    count: staleDiscussions.length,
+  });
   for (const discussion of staleDiscussions) {
     updateDiscussionStatus(discussion.id, 'paused');
     updateDiscussion(discussion.id, { process_pid: 0 });
-    console.log(`  Reset discussion "${discussion.title}" (${discussion.id}) from running to paused`);
+    logger.warn('startup.recovery.discussion-reset', {
+      scope: '[startup]',
+      msg: `reset discussion "${discussion.title}" from running to paused`,
+      discussionId: discussion.id,
+    });
   }
 }
 
 // Startup recovery: reset stale 'running' sessions to 'failed'
 const staleSessions = getSessionsByStatus('running');
 if (staleSessions.length > 0) {
-  console.log(`Recovering ${staleSessions.length} stale running session(s)...`);
+  logger.warn('startup.recovery.sessions', {
+    scope: '[startup]',
+    msg: `recovering ${staleSessions.length} stale running session(s)`,
+    count: staleSessions.length,
+  });
   for (const session of staleSessions) {
     if (isProcessAlive(session.process_pid)) continue;
     updateSessionStatus(session.id, 'failed');
     updateSession(session.id, { process_pid: 0 });
-    console.log(`  Reset session "${session.title}" (${session.id}) from running to failed`);
+    logger.warn('startup.recovery.session-reset', {
+      scope: '[startup]',
+      msg: `reset session "${session.title}" from running to failed`,
+      sessionId: session.id,
+    });
   }
 }
 
@@ -181,32 +214,44 @@ try {
     || forumRecovery.unresolvedOrphanProcesses > 0
     || forumRecovery.forumsFailed > 0;
   if (sawActivity) {
-    console.log(
-      `  Recovered ${forumRecovery.forumsRecovered} agent forum(s); `
-      + `reconciled ${forumRecovery.turnsReconciled} interrupted turn(s); `
-      + `terminated ${forumRecovery.orphanProcessesTerminated} orphan process(es)`,
-    );
+    logger.info('startup.recovery.forums', {
+      scope: '[startup]',
+      msg: `recovered ${forumRecovery.forumsRecovered} agent forum(s), `
+        + `reconciled ${forumRecovery.turnsReconciled} interrupted turn(s), `
+        + `terminated ${forumRecovery.orphanProcessesTerminated} orphan process(es)`,
+      forumsRecovered: forumRecovery.forumsRecovered,
+      turnsReconciled: forumRecovery.turnsReconciled,
+      orphansTerminated: forumRecovery.orphanProcessesTerminated,
+    });
   }
   if (forumRecovery.unresolvedOrphanProcesses > 0) {
-    console.warn(
-      `  ${forumRecovery.unresolvedOrphanProcesses} process(es) from the previous run were left alive `
-      + '(not terminated, or not safe to signal). The affected forum(s) stay in recovery — '
-      + 'use Stop once those processes exit.',
-    );
-    for (const orphan of forumRecovery.unresolvedOrphans) {
-      console.warn(`    forum ${orphan.forumId} turn ${orphan.turnId} pid ${orphan.pid} (${orphan.reason})`);
-    }
+    logger.warn('startup.recovery.forum-orphans', {
+      scope: '[startup]',
+      msg: `${forumRecovery.unresolvedOrphanProcesses} process(es) from the previous run are still alive`,
+      unresolved: forumRecovery.unresolvedOrphanProcesses,
+      detail: 'Not terminated, or not safe to signal. The affected forum(s) stay in recovery '
+        + '- use Stop once those processes exit.\n'
+        + forumRecovery.unresolvedOrphans
+          .map(o => `forum ${o.forumId} turn ${o.turnId} pid ${o.pid} (${o.reason})`)
+          .join('\n'),
+    });
   }
   if (forumRecovery.forumsFailed > 0) {
-    console.error(
-      `  ${forumRecovery.forumsFailed} agent forum(s) could not be recovered and stay closed:`,
-    );
-    for (const failure of forumRecovery.recoveryFailures) {
-      console.error(`    forum ${failure.forumId}: ${failure.error}`);
-    }
+    logger.error('startup.recovery.forum-failed', {
+      scope: '[startup]',
+      msg: `${forumRecovery.forumsFailed} agent forum(s) could not be recovered and stay closed`,
+      failed: forumRecovery.forumsFailed,
+      detail: forumRecovery.recoveryFailures
+        .map(f => `forum ${f.forumId}: ${f.error}`)
+        .join('\n'),
+    });
   }
 } catch (err) {
-  console.error('Agent forum startup recovery failed:', err);
+  logger.error('startup.recovery.forum-error', {
+    scope: '[startup]',
+    msg: 'agent forum startup recovery failed',
+    err,
+  });
 }
 
 // One-shot legacy paste-images cleanup. Older builds saved clipboard
@@ -242,7 +287,12 @@ for (const p of getAllProjects()) {
 const LOG_RETENTION_DAYS = parseInt(process.env.LOG_RETENTION_DAYS || '30', 10);
 const cleaned = cleanOldLogs(LOG_RETENTION_DAYS);
 if (cleaned > 0) {
-  console.log(`Cleaned up ${cleaned} old log entries (older than ${LOG_RETENTION_DAYS} days)`);
+  logger.info('startup.cleanup.logs', {
+    scope: '[startup]',
+    msg: `cleaned up ${cleaned} old log entries (older than ${LOG_RETENTION_DAYS} days)`,
+    count: cleaned,
+    retentionDays: LOG_RETENTION_DAYS,
+  });
 }
 
 // Auto-cleanup old debug log files
@@ -250,7 +300,12 @@ for (const p of getAllProjects()) {
   if (p.debug_logging) {
     const debugCleaned = debugLogger.cleanupOldLogs(p.path, LOG_RETENTION_DAYS);
     if (debugCleaned > 0) {
-      console.log(`Cleaned up ${debugCleaned} debug log files for project "${p.name}"`);
+      logger.info('startup.cleanup.debug-logs', {
+        scope: '[startup]',
+        msg: `cleaned up ${debugCleaned} debug log file(s) for project "${p.name}"`,
+        count: debugCleaned,
+        projectId: p.id,
+      });
     }
   }
 }
@@ -268,7 +323,10 @@ if (process.env.DISABLE_AUTH !== 'true') {
     const migrated = await hashPassword(envPwd);
     setAppSetting('auth.password_hash', migrated);
     setAppSetting('auth.password_changed_at', String(Date.now()));
-    console.log('Migrated legacy AUTH_PASSWORD to hashed credential store.');
+    logger.info('startup.auth.migrated', {
+      scope: '[startup]',
+      msg: 'migrated legacy AUTH_PASSWORD to hashed credential store',
+    });
     // Drop a marker so the launcher (bin/aikombinat.js) can scrub the
     // plaintext field from ~/.aikombinat/config.json on next boot.
     if (process.env.DB_PATH) {
@@ -280,8 +338,11 @@ if (process.env.DISABLE_AUTH !== 'true') {
   delete process.env.AUTH_PASSWORD;
   if (!getAppSetting('auth.password_hash')) {
     setupMode = true;
-    console.log('No password set. Open the web UI to finish setup.');
-    console.log('Tunnel auto-start is paused until setup completes.');
+    logger.warn('startup.auth.setup-required', {
+      scope: '[startup]',
+      msg: 'no password set - open the web UI to finish setup',
+      detail: 'Tunnel auto-start is paused until setup completes.',
+    });
   }
 }
 
@@ -357,7 +418,10 @@ initWebSocket(server);
 
 // --- Tunnel (Phase 7) ---
 if (setupMode && process.env.TUNNEL_ENABLED === 'true') {
-  console.log('Tunnel start blocked: password not initialized — finish setup in browser first.');
+  logger.warn('tunnel.blocked', {
+    scope: '[tunnel]',
+    msg: 'tunnel start blocked: password not initialized - finish setup in the browser first',
+  });
 }
 if (process.env.TUNNEL_ENABLED === 'true' && !setupMode) {
   const port = Number(PORT);
@@ -367,7 +431,7 @@ if (process.env.TUNNEL_ENABLED === 'true' && !setupMode) {
     ? tunnelManager.startNamedTunnel(tunnelName, port, customHostname || undefined)
     : tunnelManager.startTunnel(port);
   tunnelPromise.catch((err: Error) => {
-    console.error('Failed to start tunnel:', err.message);
+    logger.error('tunnel.start-failed', { scope: '[tunnel]', msg: 'failed to start tunnel', err });
   });
   tunnelManager.on('url', (url: string) => {
     console.log(`    Share with others      →  ${url}`);
@@ -375,8 +439,12 @@ if (process.env.TUNNEL_ENABLED === 'true' && !setupMode) {
     console.log('');
   });
   tunnelManager.on('error', (err: Error) => {
-    console.error(`  ✖ Tunnel failed: ${err.message}`);
-    console.error('    External sharing is disabled. You can still use the local address above.');
+    logger.error('tunnel.failed', {
+      scope: '[tunnel]',
+      msg: 'tunnel failed',
+      err,
+      detail: 'External sharing is disabled. You can still use the local address above.',
+    });
   });
 }
 
@@ -404,9 +472,17 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Terminal error handler — last, so an unexpected backend failure always lands
+// in the log with its route and stack instead of only in the client's response.
+app.use(httpErrorLogger);
+
 // Cleanup on process exit: kill all Claude CLI processes
-function cleanup() {
-  console.log('Shutting down: killing all Claude CLI processes, scheduler, and tunnel...');
+let shuttingDown = false;
+function cleanup(reason = 'signal') {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const activeExecutions = getTodosByStatus('running').length;
+  logShutdown(reason, { activeExecutions });
   orchestrator.stopStaleProcessChecker();
   sessionManager.stopStaleProcessChecker();
   resourceManager.shutdown();
@@ -415,19 +491,23 @@ function cleanup() {
     claudeManager.killAll(),
     tunnelManager.stopTunnel(),
   ]).then(() => {
+    logger.info('server.shutdown.completed', { scope: '[server]', msg: 'cleanup completed' });
+    logger.flush();
     process.exit(0);
-  }).catch(() => {
+  }).catch((err) => {
+    logger.error('server.shutdown.failed', { scope: '[server]', msg: 'cleanup failed', err });
+    logger.flush();
     process.exit(1);
   });
 }
 
-process.on('SIGTERM', cleanup);
-process.on('SIGINT', cleanup);
+process.on('SIGTERM', () => cleanup('SIGTERM'));
+process.on('SIGINT', () => cleanup('SIGINT'));
 
 // Plugin mode: shut down when parent process closes stdin
 // Only enable stdin-based shutdown in headless/plugin mode (not in dev with concurrently)
 if (process.env.HEADLESS === 'true') {
-  process.stdin.on('end', cleanup);
+  process.stdin.on('end', () => cleanup('stdin-closed'));
   process.stdin.resume();
 }
 
@@ -436,7 +516,12 @@ const requestedPort = Number(PORT);
 
 // Security: an auth-disabled server must never be publicly reachable.
 if (process.env.DISABLE_AUTH === 'true' && process.env.TUNNEL_ENABLED === 'true') {
-  console.error('[security] Refusing to start: DISABLE_AUTH=true with TUNNEL_ENABLED=true would expose an unauthenticated server. Disable one of them.');
+  logger.error('startup.security.refused', {
+    scope: '[security]',
+    msg: 'refusing to start: DISABLE_AUTH=true with TUNNEL_ENABLED=true would expose an unauthenticated server',
+    detail: 'Disable one of them.',
+  });
+  logger.flush();
   process.exit(1);
 }
 // Default to loopback for desktop/local use. BIND_HOST explicitly enables LAN
@@ -446,20 +531,7 @@ const bindHost = resolveBindHost();
 function tryListen(port: number, attempt: number) {
   server.listen(port, bindHost, () => {
     const tunnelEnabled = process.env.TUNNEL_ENABLED === 'true';
-    console.log('');
-    console.log('  ✔ AIKombinat is running');
-    console.log('');
-    console.log(`    Open on this computer  →  http://localhost:${port}`);
-    if (port !== requestedPort) {
-      console.log(`                              (port ${requestedPort} was in use, using ${port} instead)`);
-    }
-    if (tunnelEnabled) {
-      console.log('    Share with others      →  (tunnel starting…)');
-    }
-    console.log('');
-    console.log('    Login with the password you set on first run.');
-    console.log('    Press Ctrl+C to stop.');
-    console.log('');
+    printStartupBanner({ port, requestedPort, tunnelEnabled });
     orchestrator.startStaleProcessChecker();
     sessionManager.startStaleProcessChecker();
 
@@ -471,10 +543,16 @@ function tryListen(port: number, attempt: number) {
     if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_RETRIES) {
       server.removeAllListeners('error');
       const nextPort = port + 1;
-      console.log(`  ⚠ Port ${port} busy, trying ${nextPort}…`);
+      logger.warn('server.port-busy', {
+        scope: '[server]',
+        msg: `port ${port} busy, trying ${nextPort}`,
+        port,
+        nextPort,
+      });
       tryListen(nextPort, attempt + 1);
     } else {
-      console.error('Failed to start server:', err.message);
+      logger.error('server.listen-failed', { scope: '[server]', msg: 'failed to start server', port, err });
+      logger.flush();
       process.exit(1);
     }
   });

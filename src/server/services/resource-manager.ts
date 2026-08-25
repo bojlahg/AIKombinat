@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/connection.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import { RESOURCE_CATALOG, normalizeResourceKeys, type ResourceKey } from './resource-catalog.js';
+import { logger } from '../logging/logger.js';
 
 export type ResourceOwnerType = 'todo' | 'session';
 
@@ -132,6 +133,22 @@ export class ResourceManager {
       this.localRunTokens.add(request.runToken);
       this.recoveredRunTokens.delete(request.runToken);
       this.notifyCapacityChanged(resources, false);
+      // Individual lease bookkeeping stays at DEBUG — one line per admission
+      // check would swamp the log without telling the operator anything.
+      logger.debug('resource.lease.acquired', {
+        msg: `acquired ${resources.join(', ')}`,
+        resources: resources.join(','),
+        ownerType: request.ownerType,
+        ownerId: request.ownerId,
+        runToken: request.runToken,
+      });
+    } else {
+      logger.warn('resource.unavailable', {
+        msg: `resource unavailable: ${result.busy.map(b => `${b.key} (${b.used}/${b.capacity})`).join(', ')}`,
+        resources: result.busy.map(b => b.key).join(','),
+        ownerType: request.ownerType,
+        ownerId: request.ownerId,
+      });
     }
     return result;
   }
@@ -141,7 +158,14 @@ export class ResourceManager {
     const rows = db.prepare('SELECT DISTINCT resource_key FROM resource_leases WHERE run_token = ?').all(runToken) as Array<{ resource_key: ResourceKey }>;
     const result = db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
     this.forgetRun(runToken);
-    if (result.changes > 0) this.notifyCapacityChanged(rows.map((row) => row.resource_key), true);
+    if (result.changes > 0) {
+      this.notifyCapacityChanged(rows.map((row) => row.resource_key), true);
+      logger.debug('resource.lease.released', {
+        msg: `released ${rows.map(r => r.resource_key).join(', ')}`,
+        resources: rows.map(r => r.resource_key).join(','),
+        runToken,
+      });
+    }
     return result.changes;
   }
 
@@ -203,7 +227,16 @@ export class ResourceManager {
     }
     const after = db.prepare('SELECT COUNT(*) AS count FROM resource_leases').get() as { count: number };
     if (removedKeys.size > 0) this.notifyCapacityChanged([...removedKeys], true);
-    return { released: before.count - after.count, recovered: recoveredTokens.size };
+    const released = before.count - after.count;
+    if (released > 0) {
+      logger.warn('resource.stale-lease.recovered', {
+        msg: `recovered ${released} stale resource lease(s)`,
+        released,
+        recoveredRuns: recoveredTokens.size,
+        resources: [...removedKeys].join(','),
+      });
+    }
+    return { released, recovered: recoveredTokens.size };
   }
 
   initialize(): void {

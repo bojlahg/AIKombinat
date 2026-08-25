@@ -17,6 +17,9 @@ import {
   createTaskLog,
 } from '../db/queries.js';
 import { broadcaster } from '../websocket/broadcaster.js';
+import { logger } from '../logging/logger.js';
+import { tag } from '../logging/context.js';
+import { clampLine } from '../logging/truncate.js';
 import { createGit, resolveLocalBaseBranch } from '../lib/git.js';
 import { parseReviewResult } from './review-result-parser.js';
 import type { ReviewResult, ReviewIssue } from './review-result.js';
@@ -350,6 +353,14 @@ When done, ensure all tests pass.`);
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
 
+        logger.error('review.result.invalid', {
+          scope: tag('todo', todo.title),
+          msg: 'review produced an unusable result',
+          todoId,
+          roundId: currentRoundId,
+          round: currentRound.round_index,
+          message: clampLine(parseResult.error),
+        });
         return { action: 'failed', reason: 'review_invalid_result' };
       }
 
@@ -391,6 +402,13 @@ When done, ensure all tests pass.`);
 
         const updatedCurrent = getExecutionRoundById(currentRoundId)!;
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
+        logger.info('review.approved', {
+          scope: tag('todo', todo.title),
+          msg: `review round ${currentRound.round_index} approved`,
+          todoId,
+          roundId: currentRoundId,
+          round: currentRound.round_index,
+        });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'completed' });
         return { action: 'completed', reviewResult: reviewData };
       }
@@ -441,6 +459,14 @@ When done, ensure all tests pass.`);
         const updatedCurrent = getExecutionRoundById(currentRoundId)!;
         broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
         broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed', mode: 'error' });
+        logger.error('review.max-rounds-reached', {
+          scope: tag('todo', todo.title),
+          msg: 'review/rework did not converge before the round limit',
+          todoId,
+          roundId: currentRoundId,
+          round: currentRound.round_index,
+          issues: reviewData.issues.length,
+        });
         return { action: 'max_rounds_reached', reviewResult: reviewData };
       }
 
@@ -506,6 +532,14 @@ When done, ensure all tests pass.`);
       broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updatedCurrent });
       if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });
 
+      logger.warn('review.needs-changes', {
+        scope: tag('todo', todo.title),
+        msg: `review requested changes (${reviewData.issues.length} issue(s)) - starting rework`,
+        todoId,
+        roundId: currentRoundId,
+        round: currentRound.round_index,
+        issues: reviewData.issues.length,
+      });
       return { action: 'start_rework', nextRound, reviewResult: reviewData };
     }
 
@@ -625,6 +659,15 @@ When done, ensure all tests pass.`);
    * Handle failure of an active round.
    */
   handleRoundFailure(todoId: string, currentRoundId: string, errorMessage?: string): void {
+    const failedRound = getExecutionRoundById(currentRoundId);
+    logger.error('review.round.failed', {
+      scope: tag('todo', getTodoById(todoId)?.title ?? todoId),
+      msg: `${failedRound?.phase ?? 'execution'} round failed`,
+      todoId,
+      roundId: currentRoundId,
+      ...(failedRound ? { phase: failedRound.phase, round: failedRound.round_index } : {}),
+      message: clampLine(errorMessage ?? 'Process execution failed.'),
+    });
     const now = new Date().toISOString();
     const db = getDatabase();
     db.transaction(() => {

@@ -2,6 +2,7 @@ import cron, { type ScheduledTask } from 'node-cron';
 import * as queries from '../db/queries.js';
 import { orchestrator } from './orchestrator.js';
 import { broadcaster } from '../websocket/broadcaster.js';
+import { logger } from '../logging/logger.js';
 
 export class Scheduler {
   private jobs: Map<string, ScheduledTask> = new Map();
@@ -20,7 +21,11 @@ export class Scheduler {
       }
     }
     if (activeSchedules.length > 0) {
-      console.log(`Scheduler initialized: ${activeSchedules.length} active schedule(s)`);
+      logger.info('scheduler.initialized', {
+        scope: '[scheduler]',
+        msg: `${activeSchedules.length} active schedule(s)`,
+        count: activeSchedules.length,
+      });
     }
   }
 
@@ -32,13 +37,23 @@ export class Scheduler {
     this.unregisterJob(schedule.id);
 
     if (!cron.validate(schedule.cron_expression)) {
-      console.error(`Invalid cron expression for schedule "${schedule.title}": ${schedule.cron_expression}`);
+      logger.error('scheduler.invalid-cron', {
+        scope: '[scheduler]',
+        msg: `invalid cron expression for schedule "${schedule.title}"`,
+        scheduleId: schedule.id,
+        cron: schedule.cron_expression,
+      });
       return;
     }
 
     const task = cron.schedule(schedule.cron_expression, () => {
       this.executeSchedule(schedule.id, 'scheduled').catch((err) => {
-        console.error(`Schedule "${schedule.title}" execution error:`, err);
+        logger.error('scheduler.execution-error', {
+          scope: '[scheduler]',
+          msg: `schedule "${schedule.title}" execution failed`,
+          scheduleId: schedule.id,
+          err,
+        });
       });
     });
 
@@ -52,7 +67,11 @@ export class Scheduler {
     this.unregisterJob(schedule.id);
 
     if (!schedule.run_at) {
-      console.error(`One-time schedule "${schedule.title}" has no run_at time`);
+      logger.error('scheduler.missing-run-at', {
+        scope: '[scheduler]',
+        msg: `one-time schedule "${schedule.title}" has no run_at time`,
+        scheduleId: schedule.id,
+      });
       return;
     }
 
@@ -61,9 +80,18 @@ export class Scheduler {
 
     if (delay <= 0) {
       // run_at is in the past — execute immediately
-      console.log(`One-time schedule "${schedule.title}" run_at is in the past, executing now`);
+      logger.warn('scheduler.late-run', {
+        scope: '[scheduler]',
+        msg: `one-time schedule "${schedule.title}" run_at is in the past, executing now`,
+        scheduleId: schedule.id,
+      });
       this.executeSchedule(schedule.id, 'scheduled').catch((err) => {
-        console.error(`One-time schedule "${schedule.title}" execution error:`, err);
+        logger.error('scheduler.execution-error', {
+          scope: '[scheduler]',
+          msg: `one-time schedule "${schedule.title}" execution failed`,
+          scheduleId: schedule.id,
+          err,
+        });
       });
       return;
     }
@@ -71,12 +99,22 @@ export class Scheduler {
     const timer = setTimeout(() => {
       this.timers.delete(schedule.id);
       this.executeSchedule(schedule.id, 'scheduled').catch((err) => {
-        console.error(`One-time schedule "${schedule.title}" execution error:`, err);
+        logger.error('scheduler.execution-error', {
+          scope: '[scheduler]',
+          msg: `one-time schedule "${schedule.title}" execution failed`,
+          scheduleId: schedule.id,
+          err,
+        });
       });
     }, delay);
 
     this.timers.set(schedule.id, timer);
-    console.log(`One-time schedule "${schedule.title}" registered, fires in ${Math.round(delay / 1000)}s`);
+    logger.info('scheduler.registered', {
+      scope: '[scheduler]',
+      msg: `one-time schedule "${schedule.title}" registered, fires in ${Math.round(delay / 1000)}s`,
+      scheduleId: schedule.id,
+      delaySeconds: Math.round(delay / 1000),
+    });
   }
 
   /**
@@ -174,7 +212,12 @@ export class Scheduler {
       await orchestrator.startTodo(todo.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Schedule "${schedule.title}" failed to start todo: ${message}`);
+      logger.error('scheduler.start-failed', {
+        scope: '[scheduler]',
+        msg: `schedule "${schedule.title}" failed to start its task`,
+        scheduleId: schedule.id,
+        message,
+      });
       queries.updateScheduleRun(run.id, { status: 'failed', completed_at: new Date().toISOString() });
     }
   }

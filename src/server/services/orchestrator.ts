@@ -23,6 +23,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { parseStoredResourceRequirements } from './resource-catalog.js';
 import { resourceManager } from './resource-manager.js';
 import { reviewPipeline } from './review-pipeline.js';
+import { logger } from '../logging/logger.js';
+import { runWithLogContext, tag } from '../logging/context.js';
+import { clampLine, tailOf } from '../logging/truncate.js';
 import * as queries from '../db/queries.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 
@@ -121,6 +124,13 @@ export class Orchestrator {
               if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId: todo.id, round: updated });
             }
           }
+          logger.error('todo.process.vanished', {
+            scope: tag('todo', todo.title),
+            msg: 'process exited unexpectedly (detected by liveness check)',
+            todoId: todo.id,
+            projectId: todo.project_id,
+            pid: todo.process_pid,
+          });
           queries.updateTodoStatus(todo.id, 'failed');
           queries.createTaskLog(todo.id, 'error', 'Process exited unexpectedly (detected by liveness check).');
           queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
@@ -522,6 +532,13 @@ export class Orchestrator {
       }
     }
     const logMsg = adapterDisplayName ? `Failed to start ${adapterDisplayName}: ${errorMessage}` : errorMessage;
+    logger.error('todo.execution.start-failed', {
+      msg: adapterDisplayName ? `failed to start ${adapterDisplayName}` : 'execution failed to start',
+      todoId,
+      projectId,
+      round: roundNumber,
+      message: clampLine(errorMessage),
+    });
     queries.createTaskLog(todoId, 'error', logMsg, roundNumber);
     broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
     this.broadcastProjectStatus(projectId);
@@ -589,6 +606,24 @@ export class Orchestrator {
     autoChain: boolean = false,
     continueOptions?: { followUpPrompt: string; roundNumber: number },
     startToken?: string,
+  ): Promise<void> {
+    const contextTodo = queries.getTodoById(todoId);
+    // Everything logged underneath — CLI spawn, quota, resources — carries this
+    // task's tag, so the terminal reads as one story per task.
+    return runWithLogContext(
+      { scope: tag('todo', contextTodo?.title ?? todoId), fields: { todoId, projectId } },
+      () => this.executeStartSingleTodoInner(todoId, projectPath, projectId, mode, autoChain, continueOptions, startToken),
+    );
+  }
+
+  private async executeStartSingleTodoInner(
+    todoId: string,
+    projectPath: string,
+    projectId: string,
+    mode: ClaudeMode,
+    autoChain: boolean,
+    continueOptions: { followUpPrompt: string; roundNumber: number } | undefined,
+    startToken: string | undefined,
   ): Promise<void> {
     const todo = queries.getTodoById(todoId);
     if (!todo) return;
@@ -702,6 +737,11 @@ export class Orchestrator {
             const updated = queries.getExecutionRoundById(currentRound.id);
             if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
           }
+          logger.warn('todo.admission.waiting-executor', {
+            msg: 'waiting_executor: provider concurrency limit reached',
+            profile: selection.profileName,
+            reason: clampLine(selection.rejectionSummary),
+          });
           const message = `[executor-pool] Waiting for executor capacity (profile "${selection.profileName}"):\n\n${selection.rejectionSummary}`;
           const recentLogs = queries.getTaskLogsByTodoId(todoId);
           const lastOutput = [...recentLogs].reverse().find((l) => l.log_type === 'output');
@@ -722,6 +762,11 @@ export class Orchestrator {
             const updated = queries.getExecutionRoundById(currentRound.id);
             if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
           }
+          logger.warn('todo.admission.waiting-quota', {
+            msg: 'waiting_quota: provider quota exhausted',
+            profile: selection.profileName,
+            reason: clampLine(selection.rejectionSummary),
+          });
           const message = `[executor-pool] Waiting for provider quota (profile "${selection.profileName}"):\n\n${selection.rejectionSummary}`;
           const recentLogs = queries.getTaskLogsByTodoId(todoId);
           const lastOutput = [...recentLogs].reverse().find((l) => l.log_type === 'output');
@@ -745,6 +790,11 @@ export class Orchestrator {
             const updated = queries.getExecutionRoundById(currentRound.id);
             if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
           }
+          logger.error('todo.admission.no-candidates', {
+            msg: `no eligible executors for execution profile "${selection.profileName}"`,
+            profile: selection.profileName,
+            detail: selection.rejectionSummary,
+          });
           queries.createTaskLog(
             todoId,
             'error',
@@ -808,6 +858,11 @@ export class Orchestrator {
             executorPool.releaseReservation(todoId);
             const adapter = getAdapter(resolvedCliTool);
             const quotaMsg = `${adapter.displayName} waiting for provider quota (${quota.reason || 'provider quota is currently exhausted'}).`;
+            logger.warn('todo.admission.waiting-quota', {
+              msg: 'waiting_quota: provider quota exhausted',
+              provider: resolvedCliTool,
+              ...(quota.reason ? { reason: clampLine(quota.reason) } : {}),
+            });
             queries.updateTodoStatus(todoId, 'waiting_quota');
             queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
             if (currentRound) {
@@ -836,6 +891,12 @@ export class Orchestrator {
           const adapter = getAdapter(resolvedCliTool);
           const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeTodoId: todoId });
           const limit = executorPool.getLimit(resolvedCliTool);
+          logger.warn('todo.admission.waiting-executor', {
+            msg: `waiting_executor: provider concurrency limit reached (${usage}/${limit} active)`,
+            provider: resolvedCliTool,
+            active: usage,
+            limit,
+          });
           const message = `[executor-pool] Waiting for executor capacity (manual ${adapter.displayName}): provider concurrency limit reached (${usage}/${limit} active)`;
           const recentLogs = queries.getTaskLogsByTodoId(todoId);
           const lastOutput = [...recentLogs].reverse().find((l) => l.log_type === 'output');
@@ -891,6 +952,11 @@ export class Orchestrator {
           const holders = busy.holders.map((holder) => `${holder.ownerType === 'todo' ? 'Todo' : 'Session'} ${holder.ownerId}`).join(', ');
           return `- ${busy.key}: busy, held by ${holders}`;
         }).join('\n');
+        logger.warn('todo.admission.waiting-resource', {
+          msg: `waiting_resource: ${acquisition.busy.map(b => b.key).join(', ')}`,
+          resources: acquisition.busy.map(b => b.key).join(','),
+          detail: details,
+        });
         const message = `[resource-manager] Waiting for resources:\n${details}`;
         const recentLogs = queries.getTaskLogsByTodoId(todoId);
         const lastOutput = [...recentLogs].reverse().find((log) => log.log_type === 'output');
@@ -1110,6 +1176,17 @@ export class Orchestrator {
         ? undefined
         : executionConfig?.effort.nativeEffort;
 
+      logger.info('todo.execution.started', {
+        msg: `${isContinue ? 'rework' : (currentRound?.phase ?? 'implementation')} started`,
+        phase: currentRound?.phase ?? (isContinue ? 'rework' : 'implementation'),
+        round: roundNumber,
+        provider: resolvedCliTool,
+        ...(launchModel ? { model: launchModel } : {}),
+        ...(launchEffort ? { effort: launchEffort } : {}),
+        ...(executionConfig?.profileName ? { profile: executionConfig.profileName } : {}),
+        mode,
+      });
+
       // Establish the current-run classification boundary immediately before starting provider process
       executionStartRowid = queries.getMaxTaskLogRowid(todoId);
 
@@ -1258,6 +1335,13 @@ export class Orchestrator {
             }
 
             const quotaMsg = `[quota] ${adapter.displayName} quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
+            logger.warn('todo.execution.quota-rejected', {
+              msg: 'provider rejected the run: quota exhausted',
+              provider: resolvedCliTool,
+              exitCode,
+              reason: clampLine(classification.reason || 'runtime quota rejection'),
+              round: roundNumber,
+            });
             queries.createTaskLog(todoId, 'warning', quotaMsg, roundNumber);
 
             if (effectiveProfileId) {
@@ -1298,6 +1382,14 @@ export class Orchestrator {
             } else {
               // Manual execution: do not silently switch executor; fail clearly with quota diagnostic
               const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
+              logger.error('todo.execution.failed', {
+                msg: 'execution failed: provider quota exhausted',
+                provider: resolvedCliTool,
+                category: classification.category,
+                exitCode,
+                round: roundNumber,
+                reason: clampLine(classification.reason || 'runtime quota rejection'),
+              });
               try {
                 if (todo.review_enabled && currentRound) {
                   reviewPipeline.handleRoundFailure(todoId, currentRound.id, failMsg);
@@ -1328,6 +1420,16 @@ export class Orchestrator {
 
           // Normal failure path
           const failMsg = `${adapter.displayName} exited with code ${exitCode}.`;
+          logger.error('todo.execution.failed', {
+            msg: `process failed with exit code ${exitCode}`,
+            provider: resolvedCliTool,
+            ...(classification.category ? { category: classification.category } : {}),
+            exitCode,
+            round: roundNumber,
+            phase: currentRound?.phase ?? (isContinue ? 'rework' : 'implementation'),
+            // Bounded tail of this run's captured output — never the whole log.
+            detail: tailOf(combinedOutput),
+          });
           try {
             if (todo.review_enabled && currentRound) {
               reviewPipeline.handleRoundFailure(todoId, currentRound.id, failMsg);
@@ -1357,6 +1459,13 @@ export class Orchestrator {
             providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
           }
 
+          logger.info('todo.execution.completed', {
+            msg: `${currentRound?.phase ?? (isContinue ? 'rework' : 'implementation')} completed successfully`,
+            provider: resolvedCliTool,
+            phase: currentRound?.phase ?? (isContinue ? 'rework' : 'implementation'),
+            round: roundNumber,
+            exitCode,
+          });
           const doneMsg = `${adapter.displayName} completed successfully.${isContinue ? ` (round ${roundNumber})` : ''}`;
           queries.createTaskLog(todoId, 'output', doneMsg, roundNumber);
           const tokenUsage = logStreamer.getTokenUsage(todoId);

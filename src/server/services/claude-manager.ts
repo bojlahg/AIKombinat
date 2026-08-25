@@ -9,6 +9,8 @@ import { getAdapter, type CliAdapter, type CliTool, type CliMode, type PromptPol
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
+import { logger } from '../logging/logger.js';
+import { redactArgs } from '../logging/redact.js';
 
 export type ClaudeMode = CliMode;
 
@@ -171,6 +173,27 @@ export class ClaudeManager {
     const adapter = getAdapter(tool);
     const args = adapter.buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession });
 
+    // Shared spawn diagnostics for every feature (todo, review, forum, session,
+    // discussion). Features add their own summaries on top; none of them
+    // re-implement this. The prompt itself is never logged — it carries project
+    // context, memory and user messages.
+    const startedAt = Date.now();
+    const spawnFields = {
+      provider: tool,
+      mode,
+      sandbox: sandboxMode,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      continueSession,
+    };
+    logger.debug('cli.spawn.requested', {
+      msg: `${adapter.displayName} spawn requested`,
+      ...spawnFields,
+      command: adapter.command,
+      args: redactArgs(args).join(' '),
+      cwd: worktreePath,
+    });
+
     // Pre-flight on Windows only: spawn goes through cmd.exe (shell:true), so
     // a missing CLI never fires ENOENT — cmd exits 1 with a localized (often
     // mojibake) message. POSIX already surfaces ENOENT via the 'error' event.
@@ -193,11 +216,75 @@ export class ClaudeManager {
       const stdinPrompt = adapter.needsStdin(mode) && prompt
         ? adapter.formatStdinPrompt(prompt, mode, promptPolicy)
         : undefined;
-      const result = await this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows);
+      const result = await this.spawnAndLog(
+        () => this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows),
+        adapter,
+        spawnFields,
+        startedAt,
+      );
       return { ...result, command: adapter.command, args };
     }
-    const result = await this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy);
+    const result = await this.spawnAndLog(
+      () => this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy),
+      adapter,
+      spawnFields,
+      startedAt,
+    );
     return { ...result, command: adapter.command, args };
+  }
+
+  /**
+   * Wraps a spawn so the process lifetime — start, pid, exit code, duration —
+   * lands in the log regardless of which transport (PTY or child_process) the
+   * adapter needs, and regardless of which feature asked for it.
+   */
+  private async spawnAndLog<T extends { pid: number; exitPromise: Promise<number> }>(
+    start: () => Promise<T>,
+    adapter: CliAdapter,
+    spawnFields: Record<string, unknown>,
+    startedAt: number,
+  ): Promise<T> {
+    let result: T;
+    try {
+      result = await start();
+    } catch (err) {
+      logger.error('cli.spawn.failed', {
+        msg: `${adapter.displayName} failed to start`,
+        ...spawnFields,
+        durationMs: Date.now() - startedAt,
+        err,
+      });
+      throw err;
+    }
+
+    logger.info('cli.spawned', {
+      msg: `${adapter.displayName} started`,
+      ...spawnFields,
+      pid: result.pid,
+    });
+
+    result.exitPromise.then(
+      (exitCode) => {
+        logger[exitCode === 0 ? 'info' : 'warn']('cli.exited', {
+          msg: `${adapter.displayName} exited with code ${exitCode}`,
+          ...spawnFields,
+          pid: result.pid,
+          exitCode,
+          durationMs: Date.now() - startedAt,
+        });
+      },
+      (err) => {
+        logger.error('cli.exit-error', {
+          msg: `${adapter.displayName} process error`,
+          ...spawnFields,
+          pid: result.pid,
+          durationMs: Date.now() - startedAt,
+          err,
+        });
+      },
+    );
+
+    return result;
   }
 
   /**
@@ -499,8 +586,12 @@ export class ClaudeManager {
   async stopClaude(pid: number): Promise<void> {
     const proc = this.processes.get(pid);
     if (!proc) {
+      logger.debug('process.stop.not-tracked', { msg: `stop requested for untracked pid ${pid}`, pid });
       return;
     }
+
+    const stopStartedAt = Date.now();
+    logger.info('process.stop.requested', { msg: `stop requested (SIGTERM) for pid ${pid}`, pid });
 
     // End stdin stream before killing
     const stdin = this.stdinStreams.get(pid);
@@ -525,6 +616,11 @@ export class ClaudeManager {
 
       // Escalate to SIGKILL after 5 seconds if still alive
       const killTimer = setTimeout(() => {
+        logger.warn('process.stop.forced', {
+          msg: `pid ${pid} did not exit on SIGTERM, escalating to SIGKILL`,
+          pid,
+          durationMs: Date.now() - stopStartedAt,
+        });
         try { treeKill(pid, 'SIGKILL'); } catch { /* ignore */ }
       }, 5000);
 
@@ -533,6 +629,11 @@ export class ClaudeManager {
         clearInterval(checkInterval);
         clearTimeout(killTimer);
         this.processes.delete(pid);
+        logger.error('process.stop.timeout', {
+          msg: `pid ${pid} could not be confirmed terminated within the stop deadline`,
+          pid,
+          durationMs: Date.now() - stopStartedAt,
+        });
         resolve();
       }, 7000);
     });
@@ -544,6 +645,12 @@ export class ClaudeManager {
 
   async killAll(): Promise<void> {
     const pids = Array.from(this.processes.keys());
+    if (pids.length > 0) {
+      logger.info('process.kill-all', {
+        msg: `terminating ${pids.length} running CLI process(es)`,
+        count: pids.length,
+      });
+    }
     await Promise.all(pids.map((pid) => this.stopClaude(pid)));
   }
 }
