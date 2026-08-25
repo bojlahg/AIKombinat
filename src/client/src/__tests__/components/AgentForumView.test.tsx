@@ -31,6 +31,7 @@ const mockForum: AgentForumDetail = {
       cli_effort: null,
       avatar_color: '#8b5cf6',
       sort_order: 0,
+      is_active: 1,
       created_at: '2026-08-25T10:00:00Z',
     },
     {
@@ -46,6 +47,7 @@ const mockForum: AgentForumDetail = {
       cli_effort: null,
       avatar_color: '#10b981',
       sort_order: 1,
+      is_active: 1,
       created_at: '2026-08-25T10:00:00Z',
     },
   ],
@@ -225,6 +227,87 @@ describe('AgentForumView UI Component', () => {
           }),
         })
       );
+    });
+  });
+
+  it('creates a new forum with neutral peer participants (no default critic/reviewer)', async () => {
+    renderForumView();
+
+    expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /New Forum/i }));
+
+    const titleInput = await screen.findByPlaceholderText(/Database Architecture Discussion/i);
+    fireEvent.change(titleInput, { target: { value: 'Neutral Forum' } });
+
+    const saveButtons = screen.getAllByRole('button', { name: /^Save$/i });
+    fireEvent.click(saveButtons[saveButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agent-forums',
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+
+    const createCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === '/api/agent-forums' && (init as RequestInit | undefined)?.method === 'POST'
+    )!;
+    const payload = JSON.parse((createCall[1] as RequestInit).body as string);
+
+    expect(payload.members).toHaveLength(3);
+    // Every default participant is an equal peer.
+    expect(payload.members.map((m: { role: string }) => m.role)).toEqual([
+      'participant',
+      'participant',
+      'participant',
+    ]);
+    // Provider/model diversity is preserved.
+    expect(payload.members.map((m: { cli_tool: string }) => m.cli_tool)).toEqual([
+      'claude',
+      'codex',
+      'antigravity',
+    ]);
+    // No default participant is cast as critic / judge / reviewer.
+    const promptText = payload.members
+      .map((m: { role: string; system_prompt: string }) => `${m.role} ${m.system_prompt}`)
+      .join(' ')
+      .toLowerCase();
+    expect(promptText).not.toMatch(/critic|judge|reviewer|architect/);
+  });
+
+  it('locks configuration and participant controls while a cycle is running', async () => {
+    const runningForum = { ...mockForum, status: 'running' as const, current_member_id: 'm1' };
+    fetchMock.mockImplementation(async (input: string | Request | URL, init?: RequestInit) => {
+      const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+      if (urlStr === '/api/projects') return jsonResponse([]);
+      if (urlStr === '/api/agent-forums') return jsonResponse([runningForum]);
+      if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(runningForum);
+      if (urlStr.startsWith('/api/models')) return jsonResponse({});
+      if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+      return jsonResponse({});
+    });
+
+    renderForumView();
+
+    expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: '512' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Rules/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Add participant/i })).toBeDisabled();
+    // The project-context selector is locked too.
+    const selects = screen.getAllByRole('combobox');
+    expect(selects.some((el) => (el as HTMLSelectElement).disabled)).toBe(true);
+
+    // Clicking a locked control issues no mutation request.
+    fireEvent.click(screen.getByRole('button', { name: '512' }));
+    fireEvent.click(screen.getByRole('button', { name: /Add participant/i }));
+    await waitFor(() => {
+      const mutations = fetchMock.mock.calls.filter(([, init]) => {
+        const method = (init as RequestInit | undefined)?.method;
+        return method === 'PUT' || method === 'POST' || method === 'DELETE';
+      });
+      expect(mutations).toHaveLength(0);
     });
   });
 

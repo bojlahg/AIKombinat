@@ -2696,6 +2696,8 @@ export interface AgentForumMember {
   cli_effort: string | null;
   avatar_color: string | null;
   sort_order: number;
+  /** 0 = soft-disabled. Disabled participants keep their history but skip future cycles. */
+  is_active: number;
   created_at: string;
 }
 
@@ -2718,7 +2720,7 @@ export interface AgentForumTurn {
   member_id: string;
   cycle_number: number;
   turn_order: number;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'passed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'passed' | 'skipped' | 'stopped';
   execution_snapshot: string | null;
   raw_output: string | null;
   error_message: string | null;
@@ -2742,6 +2744,50 @@ export function createAgentForum(
      VALUES (?, ?, ?, ?, ?, 'idle', 0, NULL, ?, ?)`
   ).run(id, projectId ?? null, title, forumRules, maxReplyLength, now, now);
   return getAgentForumById(id)!;
+}
+
+/**
+ * Atomically creates a forum together with its initial participants.
+ *
+ * Callers MUST validate/normalize every member's execution configuration before
+ * calling: this function only guarantees that either the forum and all of its
+ * members exist, or nothing does. A partially-populated forum (created, then a
+ * later member rejected) is not a reachable state.
+ */
+export function createAgentForumWithMembers(
+  title: string,
+  rules: string | undefined,
+  maxReplyLength: number,
+  projectId: string | null,
+  members: Array<{
+    name: string;
+    role: string;
+    systemPrompt?: string;
+    cliTool?: string | null;
+    cliModel?: string | null;
+    cliModelId?: string | null;
+    executionProfileId?: string | null;
+    cliEffort?: string | null;
+    avatarColor?: string | null;
+  }>,
+): AgentForum {
+  const db = getDatabase();
+  const create = db.transaction(() => {
+    const forum = createAgentForum(title, rules, maxReplyLength, projectId);
+    members.forEach((member, index) => {
+      createAgentForumMember(forum.id, member.name, member.role, member.systemPrompt ?? '', {
+        cliTool: member.cliTool,
+        cliModel: member.cliModel,
+        cliModelId: member.cliModelId,
+        executionProfileId: member.executionProfileId,
+        cliEffort: member.cliEffort,
+        avatarColor: member.avatarColor,
+        sortOrder: index,
+      });
+    });
+    return forum;
+  });
+  return create();
 }
 
 export function getAgentForumById(id: string): AgentForum | undefined {
@@ -2811,6 +2857,7 @@ export function createAgentForumMember(
     cliEffort?: string | null;
     avatarColor?: string | null;
     sortOrder?: number;
+    isActive?: boolean;
   },
 ): AgentForumMember {
   const db = getDatabase();
@@ -2823,8 +2870,8 @@ export function createAgentForumMember(
   }
 
   db.prepare(
-    `INSERT INTO agent_forum_members (id, forum_id, name, role, system_prompt, cli_tool, cli_model, cli_model_id, execution_profile_id, cli_effort, avatar_color, sort_order, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO agent_forum_members (id, forum_id, name, role, system_prompt, cli_tool, cli_model, cli_model_id, execution_profile_id, cli_effort, avatar_color, sort_order, is_active, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     forumId,
@@ -2838,6 +2885,7 @@ export function createAgentForumMember(
     options?.cliEffort ?? null,
     options?.avatarColor ?? null,
     sortOrder,
+    options?.isActive === false ? 0 : 1,
     now,
   );
   return getAgentForumMemberById(id)!;
@@ -2853,9 +2901,37 @@ export function getAgentForumMembers(forumId: string): AgentForumMember[] {
   return db.prepare('SELECT * FROM agent_forum_members WHERE forum_id = ? ORDER BY sort_order ASC, created_at ASC').all(forumId) as AgentForumMember[];
 }
 
+/**
+ * Members eligible to take a turn. Soft-disabled participants keep their
+ * messages and turn history but never speak again.
+ */
+export function getActiveAgentForumMembers(forumId: string): AgentForumMember[] {
+  const db = getDatabase();
+  return db.prepare(
+    'SELECT * FROM agent_forum_members WHERE forum_id = ? AND is_active = 1 ORDER BY sort_order ASC, created_at ASC'
+  ).all(forumId) as AgentForumMember[];
+}
+
+/**
+ * True once a participant has produced any persisted history. Such a member may
+ * only be soft-disabled — physically deleting them would destroy turn rows and
+ * execution snapshots that the conversation still references.
+ */
+export function agentForumMemberHasHistory(memberId: string): boolean {
+  const db = getDatabase();
+  const turns = db.prepare('SELECT COUNT(*) AS n FROM agent_forum_turns WHERE member_id = ?').get(memberId) as { n: number };
+  if (turns.n > 0) return true;
+  const messages = db.prepare('SELECT COUNT(*) AS n FROM agent_forum_messages WHERE author_id = ?').get(memberId) as { n: number };
+  return messages.n > 0;
+}
+
+export function setAgentForumMemberActive(memberId: string, isActive: boolean): AgentForumMember | undefined {
+  return updateAgentForumMember(memberId, { is_active: isActive ? 1 : 0 });
+}
+
 export function updateAgentForumMember(
   id: string,
-  updates: Partial<Pick<AgentForumMember, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order'>>,
+  updates: Partial<Pick<AgentForumMember, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order' | 'is_active'>>,
 ): AgentForumMember | undefined {
   const db = getDatabase();
   const fields: string[] = [];
@@ -2871,6 +2947,7 @@ export function updateAgentForumMember(
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
   if (updates.avatar_color !== undefined) { fields.push('avatar_color = ?'); values.push(updates.avatar_color); }
   if (updates.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(updates.sort_order); }
+  if (updates.is_active !== undefined) { fields.push('is_active = ?'); values.push(updates.is_active ? 1 : 0); }
 
   if (fields.length === 0) return getAgentForumMemberById(id);
 

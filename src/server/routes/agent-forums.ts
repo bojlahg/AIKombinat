@@ -5,6 +5,27 @@ import { normalizeExecutionSelection, ExecutionSelectionError } from '../service
 
 const router = Router();
 
+/** Fields that must not change while a cycle is running. */
+const RUNNING_LOCKED_FORUM_FIELDS = ['project_id', 'rules', 'max_reply_length'] as const;
+
+/**
+ * Backend is authoritative about mutation safety: while a forum is running,
+ * changing its configuration or its participant set would race the in-flight
+ * cycle (and, for participant removal, could cascade into the running turn).
+ * The UI disables these controls too, but the UI is not the protection.
+ */
+function isForumRunning(forum: queries.AgentForum): boolean {
+  return forum.status === 'running' || agentForumOrchestrator.isCycleRegistered(forum.id);
+}
+
+function rejectIfRunning(forum: queries.AgentForum, res: Response, action: string): boolean {
+  if (!isForumRunning(forum)) return false;
+  res.status(409).json({
+    error: `Forum is currently running an agent cycle. ${action} is not allowed until the cycle stops.`,
+  });
+  return true;
+}
+
 // GET /api/agent-forums - list all forums
 router.get('/agent-forums', (req: Request, res: Response) => {
   try {
@@ -27,42 +48,40 @@ router.post('/agent-forums', (req: Request, res: Response) => {
     }
 
     const maxReplyLength = typeof max_reply_length === 'number' && max_reply_length > 0 ? max_reply_length : 1024;
-    const forum = queries.createAgentForum(
+
+    // Validate and normalize EVERY initial member before touching the DB. A
+    // member with an invalid execution configuration must abort the whole
+    // create, never leave a half-populated forum behind.
+    const normalizedMembers = (Array.isArray(members) ? members : [])
+      .filter((m) => m && typeof m === 'object' && m.name && m.role)
+      .map((m) => {
+        const execution = normalizeExecutionSelection({
+          cliTool: m.cli_tool,
+          cliModel: m.cli_model,
+          cliModelId: m.cli_model_id,
+          cliEffort: m.cli_effort,
+          executionProfileId: m.execution_profile_id,
+        });
+        return {
+          name: String(m.name),
+          role: String(m.role),
+          systemPrompt: m.system_prompt || '',
+          cliTool: execution.cliTool,
+          cliModel: execution.cliModel,
+          cliModelId: execution.cliModelId,
+          executionProfileId: execution.executionProfileId,
+          cliEffort: execution.cliEffort,
+          avatarColor: m.avatar_color,
+        };
+      });
+
+    const forum = queries.createAgentForumWithMembers(
       title.trim(),
       typeof rules === 'string' ? rules : undefined,
       maxReplyLength,
       typeof project_id === 'string' && project_id.trim() ? project_id.trim() : null,
+      normalizedMembers,
     );
-
-    // If initial members provided, create them
-    if (Array.isArray(members)) {
-      for (const m of members) {
-        if (m && typeof m === 'object' && m.name && m.role) {
-          const execution = normalizeExecutionSelection({
-            cliTool: m.cli_tool,
-            cliModel: m.cli_model,
-            cliModelId: m.cli_model_id,
-            cliEffort: m.cli_effort,
-            executionProfileId: m.execution_profile_id,
-          });
-
-          queries.createAgentForumMember(
-            forum.id,
-            m.name,
-            m.role,
-            m.system_prompt || '',
-            {
-              cliTool: execution.cliTool,
-              cliModel: execution.cliModel,
-              cliModelId: execution.cliModelId,
-              executionProfileId: execution.executionProfileId,
-              cliEffort: execution.cliEffort,
-              avatarColor: m.avatar_color,
-            },
-          );
-        }
-      }
-    }
 
     const createdMembers = queries.getAgentForumMembers(forum.id);
     const messages = queries.getAgentForumMessages(forum.id);
@@ -115,6 +134,10 @@ router.put('/agent-forums/:id', (req: Request<{ id: string }>, res: Response) =>
     }
 
     const { title, rules, max_reply_length, project_id } = req.body;
+
+    const touchesLockedField = RUNNING_LOCKED_FORUM_FIELDS.some((field) => req.body[field] !== undefined);
+    if (touchesLockedField && rejectIfRunning(forum, res, 'Changing forum configuration')) return;
+
     const updates: Partial<Pick<queries.AgentForum, 'title' | 'rules' | 'max_reply_length' | 'project_id'>> = {};
 
     if (typeof title === 'string' && title.trim()) updates.title = title.trim();
@@ -148,7 +171,10 @@ router.delete('/agent-forums/:id', async (req: Request<{ id: string }>, res: Res
       return;
     }
 
-    if (forum.status === 'running') {
+    // Deleting a live forum is only safe after the full stop/drain lifecycle:
+    // `stopForum` cancels the cycle, terminates every spawned CLI and waits for
+    // in-flight turn startup to finish before returning.
+    if (forum.status === 'running' || agentForumOrchestrator.isCycleRegistered(forum.id)) {
       await agentForumOrchestrator.stopForum(forum.id);
     }
 
@@ -217,6 +243,8 @@ router.post('/agent-forums/:id/members', (req: Request<{ id: string }>, res: Res
       return;
     }
 
+    if (rejectIfRunning(forum, res, 'Adding a participant')) return;
+
     const { name, role, system_prompt, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, avatar_color } = req.body;
     if (!name || !role) {
       res.status(400).json({ error: 'name and role are required' });
@@ -256,11 +284,19 @@ router.post('/agent-forums/:id/members', (req: Request<{ id: string }>, res: Res
 // PUT /api/agent-forums/:id/members/:memberId - update member
 router.put('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; memberId: string }>, res: Response) => {
   try {
+    const forum = queries.getAgentForumById(req.params.id);
+    if (!forum) {
+      res.status(404).json({ error: 'Agent forum not found' });
+      return;
+    }
+
     const member = queries.getAgentForumMemberById(req.params.memberId);
     if (!member || member.forum_id !== req.params.id) {
       res.status(404).json({ error: 'Member not found' });
       return;
     }
+
+    if (rejectIfRunning(forum, res, 'Changing a participant')) return;
 
     const execution = req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined
       ? normalizeExecutionSelection({
@@ -286,12 +322,31 @@ router.put('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; me
   }
 });
 
-// DELETE /api/agent-forums/:id/members/:memberId - delete member
+// DELETE /api/agent-forums/:id/members/:memberId - remove member
+//
+// Once a participant has produced history, removal is a soft-disable: they stop
+// taking turns but their turns, execution snapshots and messages stay intact.
+// Physically deleting such a row would destroy execution history that the
+// surviving messages still reference.
 router.delete('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; memberId: string }>, res: Response) => {
   try {
+    const forum = queries.getAgentForumById(req.params.id);
+    if (!forum) {
+      res.status(404).json({ error: 'Agent forum not found' });
+      return;
+    }
+
     const member = queries.getAgentForumMemberById(req.params.memberId);
     if (!member || member.forum_id !== req.params.id) {
       res.status(404).json({ error: 'Member not found' });
+      return;
+    }
+
+    if (rejectIfRunning(forum, res, 'Removing a participant')) return;
+
+    if (queries.agentForumMemberHasHistory(member.id)) {
+      const disabled = queries.setAgentForumMemberActive(member.id, false);
+      res.json({ ...disabled, removal: 'soft_disabled' });
       return;
     }
 

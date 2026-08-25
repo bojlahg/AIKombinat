@@ -63,5 +63,6 @@ export type WSEvent =
   | { type: 'forum:message-created'; forumId: string; message: import('../db/queries.js').AgentForumMessage }
   | { type: 'forum:turn-started'; forumId: string; turnId: string; memberId: string; memberName: string; cycleNumber: number; turnOrder: number }
   | { type: 'forum:turn-completed'; forumId: string; turnId: string; memberId: string; memberName: string; status: string; repliesCount: number }
-  | { type: 'forum:turn-failed'; forumId: string; turnId: string; memberId: string; memberName: string; error: string };
+  | { type: 'forum:turn-failed'; forumId: string; turnId: string; memberId: string; memberName: string; error: string }
+  | { type: 'forum:turn-skipped'; forumId: string; turnId: string; memberId: string; memberName: string; reason: string };
 

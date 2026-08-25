@@ -8,11 +8,12 @@ import { executionSnapshot, resolveExecutionConfig } from './execution-config.js
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
 import { executorPool } from './executor-pool.js';
-import { orchestrator, configureClaudeSandboxPermissions } from './orchestrator.js';
+import { orchestrator } from './orchestrator.js';
 import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+import { readLines, drainReaders } from '../utils/line-stream.js';
 import { extractStructuredReplies, type AgentForumReply } from './agent-forum-extractor.js';
 
 export interface AvailableTargetInfo {
@@ -23,9 +24,44 @@ export interface AvailableTargetInfo {
   snippet: string;
 }
 
+/** Minimum participants required for a discussion to be meaningful. */
+export const MIN_FORUM_PARTICIPANTS = 2;
+
+/** Root for the per-turn scratch directories AgentForum runs its CLIs in. */
+export const FORUM_TEMP_ROOT = path.join(os.tmpdir(), 'aikombinat-forum');
+
+/**
+ * AgentForum is a discussion experiment, never an implementation workflow, so
+ * every turn is capped hard and always runs in strict sandbox mode regardless
+ * of the linked project's permissive settings.
+ */
+const FORUM_MAX_TURNS = 5;
+const FORUM_SANDBOX_MODE: SandboxMode = 'strict';
+
+/**
+ * Upper bound on how long Stop waits for an in-flight turn startup to drain.
+ * Reached only when a CLI ignores termination; the cancelled cycle still
+ * refuses to mutate forum state afterwards.
+ */
+const STOP_DRAIN_TIMEOUT_MS = 15_000;
+
+/**
+ * Live state for one forum cycle. Each `runCycle` call gets a fresh object and
+ * a monotonically increasing generation; identity comparison against
+ * `this.cycles.get(forumId)` is what makes a superseded cycle's late completion
+ * a no-op instead of a state mutation on the current cycle.
+ */
+interface ForumCycle {
+  generation: number;
+  cancelled: boolean;
+  /** PIDs spawned by this cycle that have not been observed exiting yet. */
+  activePids: Set<number>;
+}
+
 export class AgentForumOrchestrator {
-  private activePids: Map<string, number> = new Map();
-  private abortControllers: Map<string, boolean> = new Map();
+  private cycles: Map<string, ForumCycle> = new Map();
+  private cycleRuns: Map<string, Promise<void>> = new Map();
+  private generationCounters: Map<string, number> = new Map();
 
   /**
    * User posts a message and starts a sequential cycle.
@@ -38,8 +74,17 @@ export class AgentForumOrchestrator {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) throw new Error('Agent forum not found');
 
-    if (forum.status === 'running') {
+    if (forum.status === 'running' || this.cycles.has(forumId)) {
       throw new Error('Forum is currently running an agent cycle. Please wait for it to complete.');
+    }
+
+    // Refuse before writing anything: a user message that can never start a
+    // cycle would sit in the thread with no agent able to answer it.
+    const activeMembers = queries.getActiveAgentForumMembers(forumId);
+    if (activeMembers.length < MIN_FORUM_PARTICIPANTS) {
+      throw new Error(
+        `Forum needs at least ${MIN_FORUM_PARTICIPANTS} active participants to start a cycle (currently ${activeMembers.length}).`
+      );
     }
 
     if (parentMessageId) {
@@ -75,17 +120,32 @@ export class AgentForumOrchestrator {
 
   /**
    * Stop an active forum cycle.
+   *
+   * Cancellation is generation-scoped and drains: after flagging the cycle we
+   * kill everything already spawned, wait for any turn sitting between executor
+   * admission and spawn to finish its startup, then kill whatever won that race.
+   * A turn that observes the cancellation refuses to accept CLI output, so no
+   * replies are created after Stop returns.
    */
   async stopForum(forumId: string): Promise<void> {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) throw new Error('Agent forum not found');
 
-    this.abortControllers.set(forumId, true);
+    const cycle = this.cycles.get(forumId);
+    if (cycle) {
+      cycle.cancelled = true;
 
-    const pid = this.activePids.get(forumId);
-    if (pid) {
-      await claudeManager.stopClaude(pid);
-      this.activePids.delete(forumId);
+      // 1. Terminate processes that are already running.
+      await this.terminateCyclePids(cycle);
+
+      // 2. Drain in-flight startup. A turn may currently be awaiting executor
+      //    selection or the spawn itself; it must reach its own cleanup before
+      //    Stop can claim the forum is quiescent.
+      const run = this.cycleRuns.get(forumId);
+      if (run) await this.drain(run);
+
+      // 3. Terminate anything that was spawned during the drain window.
+      await this.terminateCyclePids(cycle);
     }
 
     queries.updateAgentForum(forumId, {
@@ -93,32 +153,47 @@ export class AgentForumOrchestrator {
       current_member_id: null,
     });
 
+    const finalForum = queries.getAgentForumById(forumId);
+
     broadcaster.broadcast({
       type: 'forum:status-changed',
       forumId,
       status: 'idle',
-      currentCycle: forum.current_cycle,
+      currentCycle: finalForum?.current_cycle ?? forum.current_cycle,
       currentMemberId: null,
     });
 
     orchestrator.wakeWaitingExecutors().catch(() => {});
   }
 
+  /** True while a cycle object for this forum is registered (running or draining). */
+  isCycleRegistered(forumId: string): boolean {
+    return this.cycles.has(forumId);
+  }
+
   /**
-   * Runs a complete sequential cycle of all members in round-robin order.
+   * Runs a complete sequential cycle of all active members in round-robin order.
    */
   async runCycle(forumId: string): Promise<void> {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) return;
 
-    const members = queries.getAgentForumMembers(forumId);
-    if (members.length < 2) {
-      console.warn(`[agent-forum] Forum ${forumId} has fewer than 2 members. Skipping cycle.`);
+    if (this.cycles.has(forumId)) {
+      console.warn(`[agent-forum] Forum ${forumId} already has a cycle in flight. Skipping.`);
       return;
     }
 
+    const members = queries.getActiveAgentForumMembers(forumId);
+    if (members.length < MIN_FORUM_PARTICIPANTS) {
+      console.warn(`[agent-forum] Forum ${forumId} has fewer than ${MIN_FORUM_PARTICIPANTS} active members. Skipping cycle.`);
+      return;
+    }
+
+    const generation = (this.generationCounters.get(forumId) ?? 0) + 1;
+    this.generationCounters.set(forumId, generation);
+    const cycle: ForumCycle = { generation, cancelled: false, activePids: new Set() };
+
     const nextCycleNumber = forum.current_cycle + 1;
-    this.abortControllers.set(forumId, false);
 
     queries.updateAgentForum(forumId, {
       status: 'running',
@@ -142,35 +217,61 @@ export class AgentForumOrchestrator {
       orderedMembers.push(members[(offset + i) % memberCount]);
     }
 
+    // Register the cycle and its run promise BEFORE any turn work starts, so a
+    // Stop landing on the very first tick still finds something to cancel and
+    // drain. The gate keeps `executeCycle` from running ahead of registration.
+    let openGate: () => void;
+    const gate = new Promise<void>((resolve) => { openGate = resolve; });
+
+    const run = (async () => {
+      await gate;
+      await this.executeCycle(forumId, cycle, orderedMembers, nextCycleNumber);
+    })();
+
+    this.cycles.set(forumId, cycle);
+    this.cycleRuns.set(forumId, run);
+    openGate!();
+
+    try {
+      await run;
+    } finally {
+      if (this.cycleRuns.get(forumId) === run) this.cycleRuns.delete(forumId);
+      if (this.cycles.get(forumId) === cycle) this.cycles.delete(forumId);
+    }
+  }
+
+  private async executeCycle(
+    forumId: string,
+    cycle: ForumCycle,
+    orderedMembers: queries.AgentForumMember[],
+    cycleNumber: number,
+  ): Promise<void> {
     try {
       for (let turnOrder = 0; turnOrder < orderedMembers.length; turnOrder++) {
-        if (this.abortControllers.get(forumId)) {
-          break;
-        }
-
-        const member = orderedMembers[turnOrder];
-        await this.runMemberTurn(forumId, member, nextCycleNumber, turnOrder);
+        if (!this.isCycleActive(forumId, cycle)) break;
+        await this.runMemberTurn(forumId, cycle, orderedMembers[turnOrder], cycleNumber, turnOrder);
       }
     } finally {
-      this.activePids.delete(forumId);
-      this.abortControllers.delete(forumId);
+      // A cancelled cycle does not own the terminal transition — `stopForum`
+      // performs it once the drain completes. A superseded cycle owns nothing.
+      if (this.isCycleActive(forumId, cycle)) {
+        const finalForum = queries.getAgentForumById(forumId);
+        if (finalForum && finalForum.status === 'running') {
+          queries.updateAgentForum(forumId, {
+            status: 'idle',
+            current_member_id: null,
+          });
 
-      const finalForum = queries.getAgentForumById(forumId);
-      if (finalForum && finalForum.status === 'running') {
-        queries.updateAgentForum(forumId, {
-          status: 'idle',
-          current_member_id: null,
-        });
+          broadcaster.broadcast({
+            type: 'forum:status-changed',
+            forumId,
+            status: 'idle',
+            currentCycle: cycleNumber,
+            currentMemberId: null,
+          });
 
-        broadcaster.broadcast({
-          type: 'forum:status-changed',
-          forumId,
-          status: 'idle',
-          currentCycle: nextCycleNumber,
-          currentMemberId: null,
-        });
-
-        orchestrator.wakeWaitingExecutors().catch(() => {});
+          orchestrator.wakeWaitingExecutors().catch(() => {});
+        }
       }
     }
   }
@@ -180,6 +281,7 @@ export class AgentForumOrchestrator {
    */
   private async runMemberTurn(
     forumId: string,
+    cycle: ForumCycle,
     member: queries.AgentForumMember,
     cycleNumber: number,
     turnOrder: number,
@@ -188,15 +290,6 @@ export class AgentForumOrchestrator {
     if (!forum) return;
 
     const project = forum.project_id ? (queries.getProjectById(forum.project_id) ?? null) : null;
-    let workDir: string;
-    if (project) {
-      workDir = project.path;
-    } else {
-      workDir = path.join(os.tmpdir(), 'aikombinat-forum', forumId);
-      if (!fs.existsSync(workDir)) {
-        fs.mkdirSync(workDir, { recursive: true });
-      }
-    }
 
     const turn = queries.createAgentForumTurn(forumId, member.id, cycleNumber, turnOrder);
 
@@ -248,7 +341,8 @@ export class AgentForumOrchestrator {
       availableTargetIds.add(msg.id);
     }
 
-    // 2. Build prompt
+    // 2. Build prompt. Project context is read server-side and embedded here —
+    //    the CLI never gets the project directory itself.
     const prompt = this.buildTurnPrompt(forum, member, project, allMessages, availableTargets);
 
     // 3. Resolve execution configuration & quota
@@ -257,113 +351,93 @@ export class AgentForumOrchestrator {
     let executionConfig: ResolvedExecutionConfig | null = null;
     let resolvedCliTool = cliTool;
 
-    if (member.execution_profile_id) {
-      const selection = await executorPool.selectExecutor({
-        executionProfileId: member.execution_profile_id,
-        excludeDiscussionId: forumId,
-        reserveOwnerId: forumId,
-      });
+    // The reservation owner is the turn, not the forum: concurrent turns must
+    // each hold their own provider slot for their whole process lifetime.
+    const reservationOwner = turn.id;
+    let reservationHeld = false;
+    let workDir: string | null = null;
+    let pid: number | null = null;
 
-      if (selection.status === 'waiting_executor' || selection.status === 'no_candidates') {
-        const errorMsg = selection.status === 'waiting_executor'
-          ? `[executor-pool] Waiting for executor capacity (profile "${selection.profileName}")`
-          : `[executor-pool] No eligible executors for profile "${selection.profileName}"`;
-
-        queries.updateAgentForumTurn(turn.id, {
-          status: 'failed',
-          error_message: errorMsg,
-          completed_at: new Date().toISOString(),
+    try {
+      // ── Admission ─────────────────────────────────────────────────────────
+      if (member.execution_profile_id) {
+        const selection = await executorPool.selectExecutor({
+          executionProfileId: member.execution_profile_id,
+          reserveOwnerId: reservationOwner,
         });
+        if (selection.status === 'selected') reservationHeld = true;
 
-        broadcaster.broadcast({
-          type: 'forum:turn-failed',
-          forumId,
-          turnId: turn.id,
-          memberId: member.id,
-          memberName: member.name,
-          error: errorMsg,
-        });
-        return;
-      }
+        // Async boundary crossed — the cycle may have been stopped or superseded.
+        if (!this.isCycleActive(forumId, cycle)) {
+          this.markTurnStopped(turn.id);
+          return;
+        }
 
-      executionConfig = selection.selectedConfig!;
-      resolvedCliTool = executionConfig.cliTool;
-    } else {
-      if (isAgentCliTool(cliTool) || member.cli_model_id || member.cli_effort) {
-        executionConfig = resolveExecutionConfig({
-          cliTool,
-          model: cliModel,
-          cliModelId: member.cli_model_id,
-          cliEffort: member.cli_effort,
-        });
+        if (selection.status === 'waiting_executor') {
+          this.markTurnSkipped(forumId, turn.id, member,
+            `Provider concurrency limit reached for execution profile "${selection.profileName}"`);
+          return;
+        }
+        if (selection.status === 'waiting_quota') {
+          this.markTurnSkipped(forumId, turn.id, member,
+            `Provider quota exhausted for execution profile "${selection.profileName}"`);
+          return;
+        }
+        if (selection.status === 'no_candidates') {
+          this.markTurnFailed(forumId, turn.id, member,
+            `No eligible executors for execution profile "${selection.profileName}"`);
+          return;
+        }
+
+        executionConfig = selection.selectedConfig!;
         resolvedCliTool = executionConfig.cliTool;
-      }
+      } else {
+        if (isAgentCliTool(cliTool) || member.cli_model_id || member.cli_effort) {
+          executionConfig = resolveExecutionConfig({
+            cliTool,
+            model: cliModel,
+            cliModelId: member.cli_model_id,
+            cliEffort: member.cli_effort,
+          });
+          resolvedCliTool = executionConfig.cliTool;
+        }
 
-      if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-        const quota = providerQuotaService.getQuotaState(resolvedCliTool);
-        if (quota.state === 'exhausted') {
+        if (isAgentCliTool(resolvedCliTool)) {
+          const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+          if (quota.state === 'exhausted') {
+            const adapter = getAdapter(resolvedCliTool);
+            this.markTurnSkipped(forumId, turn.id, member,
+              `Provider quota exhausted for ${adapter.displayName} (${quota.reason || 'quota exhausted'})`);
+            return;
+          }
+        }
+
+        reservationHeld = executorPool.reserveSlot(reservationOwner, resolvedCliTool);
+        if (!reservationHeld) {
           const adapter = getAdapter(resolvedCliTool);
-          const errorMsg = `Provider quota exhausted for ${adapter.displayName} (${quota.reason || 'quota exhausted'})`;
-
-          queries.updateAgentForumTurn(turn.id, {
-            status: 'failed',
-            error_message: errorMsg,
-            completed_at: new Date().toISOString(),
-          });
-
-          broadcaster.broadcast({
-            type: 'forum:turn-failed',
-            forumId,
-            turnId: turn.id,
-            memberId: member.id,
-            memberName: member.name,
-            error: errorMsg,
-          });
+          this.markTurnSkipped(forumId, turn.id, member,
+            `Provider concurrency limit reached for ${adapter.displayName}`);
           return;
         }
       }
 
-      const reserved = executorPool.reserveSlot(forumId, resolvedCliTool, { excludeDiscussionId: forumId });
-      if (!reserved) {
-        const adapter = getAdapter(resolvedCliTool);
-        const errorMsg = `Provider concurrency limit reached for ${adapter.displayName}`;
+      const snapshotStr = executionConfig
+        ? JSON.stringify(executionSnapshot(executionConfig))
+        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool });
 
-        queries.updateAgentForumTurn(turn.id, {
-          status: 'failed',
-          error_message: errorMsg,
-          completed_at: new Date().toISOString(),
-        });
+      queries.updateAgentForumTurn(turn.id, { execution_snapshot: snapshotStr });
 
-        broadcaster.broadcast({
-          type: 'forum:turn-failed',
-          forumId,
-          turnId: turn.id,
-          memberId: member.id,
-          memberName: member.name,
-          error: errorMsg,
-        });
+      // The reservation deliberately stays held from here until the CLI process
+      // has terminated (see `finally`), so a running forum turn is visible to
+      // provider concurrency accounting for its whole lifetime.
+
+      workDir = this.createTurnWorkDir(forumId, turn.id);
+
+      // Re-check immediately before spawning: Stop may have landed while the
+      // snapshot / scratch-dir work above was running.
+      if (!this.isCycleActive(forumId, cycle)) {
+        this.markTurnStopped(turn.id);
         return;
-      }
-    }
-
-    const snapshotStr = executionConfig
-      ? JSON.stringify(executionSnapshot(executionConfig))
-      : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool });
-
-    queries.updateAgentForumTurn(turn.id, { execution_snapshot: snapshotStr });
-    executorPool.releaseReservation(forumId);
-
-    const cliOptions = project?.claude_options || undefined;
-    const maxTurns = 5;
-
-    try {
-      assertTestRuntimePathAllowed(workDir);
-      const sandboxMode: SandboxMode = (project?.sandbox_mode as SandboxMode) || 'strict';
-
-      if (sandboxMode === 'strict' && resolvedCliTool === 'claude' && project && workDir !== project.path) {
-        try {
-          configureClaudeSandboxPermissions(workDir);
-        } catch { /* ignore */ }
       }
 
       const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
@@ -375,68 +449,98 @@ export class AgentForumOrchestrator {
         workDir,
         prompt,
         launchModel,
-        cliOptions,
+        // No project CLI options: a discussion run must not inherit flags meant
+        // for implementation tasks.
+        undefined,
         'headless',
         resolvedCliTool,
-        maxTurns,
-        project ? project.path : workDir,
-        sandboxMode,
-        undefined,
+        FORUM_MAX_TURNS,
+        // projectPath is the scratch dir, never the real project root — this is
+        // what keeps Codex's writable --add-dir off the project's .git directory.
+        workDir,
+        FORUM_SANDBOX_MODE,
+        false,
         undefined,
         undefined,
         launchEffort,
+        'discussion',
       );
 
-      this.activePids.set(forumId, result.pid);
+      pid = result.pid;
+      cycle.activePids.add(pid);
 
-      const outputBuffer: string[] = [];
-      if (typeof result.stdout.setEncoding === 'function') {
-        result.stdout.setEncoding('utf8');
-      }
-      if (typeof result.stderr.setEncoding === 'function') {
-        result.stderr.setEncoding('utf8');
+      // Post-spawn race: Stop may have completed its PID sweep before this
+      // process existed. Terminate it and refuse its output.
+      if (!this.isCycleActive(forumId, cycle)) {
+        await this.terminatePid(cycle, pid);
+        pid = null;
+        this.markTurnStopped(turn.id);
+        return;
       }
 
       const adapter = getAdapter(resolvedCliTool);
       const isJsonMode = adapter.outputFormat === 'stream-json';
 
-      result.stdout.on('data', (chunk: string) => {
-        if (isJsonMode) {
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const evt = JSON.parse(line);
-              if (evt.type === 'assistant') {
-                const contentArr = evt.message?.content as Array<Record<string, unknown>> | undefined;
-                if (contentArr) {
-                  for (const blk of contentArr) {
-                    if (blk.type === 'text' && typeof blk.text === 'string') {
-                      outputBuffer.push(blk.text);
-                    }
-                  }
+      const stdoutParts: string[] = [];
+      const stderrParts: string[] = [];
+
+      // Chunk-safe line assembly: a stream-json event can be split across
+      // several data chunks, and one chunk can carry several events plus a
+      // partial tail.
+      const stdoutReader = readLines(result.stdout, (line) => {
+        if (!isJsonMode) {
+          stdoutParts.push(line);
+          return;
+        }
+        try {
+          const evt = JSON.parse(line);
+          if (evt.type === 'assistant') {
+            const contentArr = evt.message?.content as Array<Record<string, unknown>> | undefined;
+            if (contentArr) {
+              for (const blk of contentArr) {
+                if (blk.type === 'text' && typeof blk.text === 'string') {
+                  stdoutParts.push(blk.text);
                 }
-              } else if (evt.type === 'content_block_delta' && evt.delta?.text) {
-                outputBuffer.push(evt.delta.text);
-              } else if (Array.isArray(evt.replies)) {
-                outputBuffer.push(line);
               }
-            } catch {
-              outputBuffer.push(line);
             }
+          } else if (evt.type === 'content_block_delta' && evt.delta?.text) {
+            stdoutParts.push(evt.delta.text);
+          } else if (Array.isArray(evt.replies)) {
+            stdoutParts.push(line);
           }
-        } else {
-          outputBuffer.push(chunk);
+        } catch {
+          stdoutParts.push(line);
         }
       });
 
-      const exitCode = await result.exitPromise;
-      this.activePids.delete(forumId);
+      const stderrReader = readLines(result.stderr, (line) => {
+        stderrParts.push(line);
+      });
 
-      const fullOutput = outputBuffer.join('\n').trim();
+      const exitCode = await result.exitPromise;
+      // Process exit and stream drain are independent events and exit can win
+      // the race, so wait for the streams before reading the collected output.
+      await drainReaders([stdoutReader, stderrReader]);
+      // Not every stream emits 'end'; flushing guarantees a trailing partial
+      // line is not lost either way.
+      stdoutReader.flush();
+      stderrReader.flush();
+
+      cycle.activePids.delete(pid);
+      pid = null;
+
+      // A stale completion belonging to a cancelled or superseded cycle must
+      // never mutate the current cycle's state.
+      if (!this.isCycleActive(forumId, cycle)) {
+        this.markTurnStopped(turn.id);
+        return;
+      }
+
+      const fullOutput = stdoutParts.join('\n').trim();
+      const errorOutput = stderrParts.join('\n').trim();
 
       if (exitCode === 0) {
-        if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+        if (isAgentCliTool(resolvedCliTool)) {
           providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
         }
 
@@ -450,21 +554,7 @@ export class AgentForumOrchestrator {
           });
         } catch (validationErr) {
           const errMsg = validationErr instanceof Error ? validationErr.message : String(validationErr);
-          queries.updateAgentForumTurn(turn.id, {
-            status: 'failed',
-            raw_output: fullOutput,
-            error_message: errMsg,
-            completed_at: new Date().toISOString(),
-          });
-
-          broadcaster.broadcast({
-            type: 'forum:turn-failed',
-            forumId,
-            turnId: turn.id,
-            memberId: member.id,
-            memberName: member.name,
-            error: errMsg,
-          });
+          this.markTurnFailed(forumId, turn.id, member, errMsg, fullOutput);
           return;
         }
 
@@ -523,9 +613,12 @@ export class AgentForumOrchestrator {
           });
         }
       } else {
-        const classification = classifyProviderFailure(resolvedCliTool, exitCode, fullOutput);
+        // Runtime failure classification must see stderr too: quota and auth
+        // rejections are frequently written there and nowhere else.
+        const combinedOutput = [fullOutput, errorOutput].filter(Boolean).join('\n');
+        const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
         if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
-          if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
+          if (isAgentCliTool(resolvedCliTool)) {
             providerQuotaService.markExhausted(resolvedCliTool, {
               source: 'runtime_rejection',
               reason: classification.reason,
@@ -534,40 +627,143 @@ export class AgentForumOrchestrator {
           }
         }
 
-        const errMsg = `Process failed with exit code ${exitCode}: ${classification.reason || fullOutput.slice(-300)}`;
-        queries.updateAgentForumTurn(turn.id, {
-          status: 'failed',
-          raw_output: fullOutput,
-          error_message: errMsg,
-          completed_at: new Date().toISOString(),
-        });
-
-        broadcaster.broadcast({
-          type: 'forum:turn-failed',
-          forumId,
-          turnId: turn.id,
-          memberId: member.id,
-          memberName: member.name,
-          error: errMsg,
-        });
+        const errMsg = `Process failed with exit code ${exitCode}: ${classification.reason || combinedOutput.slice(-300)}`;
+        this.markTurnFailed(forumId, turn.id, member, errMsg, combinedOutput);
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      queries.updateAgentForumTurn(turn.id, {
-        status: 'failed',
-        error_message: errMsg,
-        completed_at: new Date().toISOString(),
-      });
-
-      broadcaster.broadcast({
-        type: 'forum:turn-failed',
-        forumId,
-        turnId: turn.id,
-        memberId: member.id,
-        memberName: member.name,
-        error: errMsg,
-      });
+      if (this.isCycleActive(forumId, cycle)) {
+        this.markTurnFailed(forumId, turn.id, member, errMsg);
+      } else {
+        this.markTurnStopped(turn.id);
+      }
+    } finally {
+      if (pid !== null) cycle.activePids.delete(pid);
+      // Released only here: after process termination, after a startup failure,
+      // and on every stop / cancellation path. Never between admission and spawn.
+      if (reservationHeld) executorPool.releaseReservation(reservationOwner);
+      if (workDir) this.cleanupTurnWorkDir(workDir);
     }
+  }
+
+  // ── Cycle lifecycle helpers ────────────────────────────────────────────────
+
+  private isCycleActive(forumId: string, cycle: ForumCycle): boolean {
+    if (cycle.cancelled) return false;
+    return this.cycles.get(forumId) === cycle;
+  }
+
+  private async terminatePid(cycle: ForumCycle, pid: number): Promise<void> {
+    try {
+      await claudeManager.stopClaude(pid);
+    } catch { /* process may already be gone */ }
+    cycle.activePids.delete(pid);
+  }
+
+  private async terminateCyclePids(cycle: ForumCycle): Promise<void> {
+    for (const pid of Array.from(cycle.activePids)) {
+      await this.terminatePid(cycle, pid);
+    }
+  }
+
+  private async drain(run: Promise<void>): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, STOP_DRAIN_TIMEOUT_MS);
+      if (typeof timer.unref === 'function') timer.unref();
+    });
+    try {
+      await Promise.race([run.catch(() => { /* cycle errors surface elsewhere */ }), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // ── Turn outcome helpers ───────────────────────────────────────────────────
+
+  /**
+   * Transient, non-crash outcomes (provider busy / quota exhausted). Recorded as
+   * an observable `skipped` turn rather than an error, so the rest of the cycle
+   * keeps a consistent state and a transient capacity limit is never surfaced
+   * as an internal failure.
+   */
+  private markTurnSkipped(
+    forumId: string,
+    turnId: string,
+    member: queries.AgentForumMember,
+    reason: string,
+  ): void {
+    queries.updateAgentForumTurn(turnId, {
+      status: 'skipped',
+      error_message: reason,
+      completed_at: new Date().toISOString(),
+    });
+
+    broadcaster.broadcast({
+      type: 'forum:turn-skipped',
+      forumId,
+      turnId,
+      memberId: member.id,
+      memberName: member.name,
+      reason,
+    });
+  }
+
+  private markTurnFailed(
+    forumId: string,
+    turnId: string,
+    member: queries.AgentForumMember,
+    error: string,
+    rawOutput?: string,
+  ): void {
+    queries.updateAgentForumTurn(turnId, {
+      status: 'failed',
+      ...(rawOutput !== undefined ? { raw_output: rawOutput } : {}),
+      error_message: error,
+      completed_at: new Date().toISOString(),
+    });
+
+    broadcaster.broadcast({
+      type: 'forum:turn-failed',
+      forumId,
+      turnId,
+      memberId: member.id,
+      memberName: member.name,
+      error,
+    });
+  }
+
+  private markTurnStopped(turnId: string): void {
+    const turn = queries.getAgentForumTurnById(turnId);
+    if (!turn) return;
+    if (turn.status === 'completed' || turn.status === 'passed' || turn.status === 'failed' || turn.status === 'skipped') return;
+    queries.updateAgentForumTurn(turnId, {
+      status: 'stopped',
+      error_message: 'Turn stopped before completion',
+      completed_at: new Date().toISOString(),
+    });
+  }
+
+  // ── Scratch directory ──────────────────────────────────────────────────────
+
+  /**
+   * Every turn gets its own throwaway directory. AgentForum never runs a CLI
+   * with the real project root as cwd (or as a writable add-dir): provider
+   * agents may hold file and shell tools, and this experiment is discussion-only.
+   */
+  private createTurnWorkDir(forumId: string, turnId: string): string {
+    const workDir = path.join(FORUM_TEMP_ROOT, forumId, turnId);
+    assertTestRuntimePathAllowed(workDir);
+    fs.mkdirSync(workDir, { recursive: true });
+    return workDir;
+  }
+
+  private cleanupTurnWorkDir(workDir: string): void {
+    try {
+      const relative = path.relative(FORUM_TEMP_ROOT, workDir);
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return;
+      fs.rmSync(workDir, { recursive: true, force: true });
+    } catch { /* best-effort cleanup */ }
   }
 
   /**
@@ -580,7 +776,9 @@ export class AgentForumOrchestrator {
     allMessages: queries.AgentForumMessage[],
     availableTargets: AvailableTargetInfo[],
   ): string {
-    // 1. Shared Project Context (if project mode)
+    // 1. Shared Project Context (if project mode). Read here, on the server, and
+    //    embedded as text — the CLI is never pointed at the project itself.
+    //    Missing context files are normal, not an error.
     let projectContextBlock = '';
     if (project) {
       const filesToRead = ['AGENTS.md', 'PROJECT-MAP.md', 'README.md'];
@@ -594,12 +792,14 @@ export class AgentForumOrchestrator {
             const truncated = content.length > 8000 ? `${content.slice(0, 8000)}\n...(truncated)` : content;
             sections.push(`### ${fileName}\n${truncated}`);
           }
-        } catch { /* ignore */ }
+        } catch { /* unreadable context file is not an error */ }
       }
 
-      if (sections.length > 0) {
-        projectContextBlock = `## Shared Project Context\nProject Name: ${project.name}\n\n${sections.join('\n\n')}\n`;
-      }
+      projectContextBlock = `## Shared Project Context\nProject Name: ${project.name}\n`;
+      projectContextBlock += sections.length > 0
+        ? `\n${sections.join('\n\n')}\n`
+        : '(No AGENTS.md / PROJECT-MAP.md / README.md available for this project.)\n';
+      projectContextBlock += '\nThis context is provided as text only. You do not have the project checked out.\n';
     }
 
     // 2. Full Conversation History
@@ -632,6 +832,14 @@ export class AgentForumOrchestrator {
     const systemPrompt = member.system_prompt ? `\n\nPersona Instructions:\n${member.system_prompt}` : '';
 
     return `You are ${member.name}, ${memberRole} participating in a structured multi-agent forum discussion.${systemPrompt}
+
+## Execution Policy (MANDATORY)
+This is a discussion only. It is NOT an implementation task.
+- Do NOT create, edit, or delete any files.
+- Do NOT run implementation actions, builds, installs, or other shell side effects.
+- Do NOT commit or push anything to any repository.
+- Do NOT try to inspect the filesystem; everything you need is already in this prompt.
+- Return ONLY the structured forum JSON described below.
 
 ## Forum Rules
 ${forum.rules}

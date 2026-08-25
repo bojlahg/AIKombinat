@@ -611,6 +611,8 @@ export interface AgentForumMember {
   cli_effort: string | null;
   avatar_color: string | null;
   sort_order: number;
+  /** 0 = soft-disabled: keeps history, no longer takes turns. */
+  is_active: number;
   created_at: string;
 }
 
@@ -633,7 +635,7 @@ export interface AgentForumTurn {
   member_id: string;
   cycle_number: number;
   turn_order: number;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'passed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'passed' | 'skipped' | 'stopped';
   execution_snapshot: string | null;
   raw_output: string | null;
   error_message: string | null;

@@ -43,25 +43,31 @@ const AVATAR_COLORS = [
   '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
 ];
 
+// AgentForum is a forum of equal peers. The defaults deliberately assign nobody
+// the reviewer/critic/judge seat — the forum rules already require every
+// participant to object or add independently when there is something to say.
+// Users remain free to configure custom roles per participant.
+const NEUTRAL_PEER_ROLE = 'participant';
+
 const DEFAULT_MEMBERS = [
   {
     name: 'Claude',
-    role: 'architect',
-    system_prompt: 'You are an insightful systems architect. Focus on architectural coherence, separation of concerns, and concrete structural patterns.',
+    role: NEUTRAL_PEER_ROLE,
+    system_prompt: 'You are an equal participant in this discussion. Contribute where you can add value, and disagree when you disagree.',
     cli_tool: 'claude',
     avatar_color: '#8b5cf6',
   },
   {
     name: 'Codex',
-    role: 'developer',
-    system_prompt: 'You are a pragmatic senior developer. Focus on feasibility, simplicity, edge cases, and robust error handling.',
+    role: NEUTRAL_PEER_ROLE,
+    system_prompt: 'You are an equal participant in this discussion. Contribute where you can add value, and disagree when you disagree.',
     cli_tool: 'codex',
     avatar_color: '#10b981',
   },
   {
     name: 'Antigravity',
-    role: 'reviewer',
-    system_prompt: 'You are a rigorous critic and reviewer. Focus on unstated assumptions, missing trade-offs, and alternative approaches.',
+    role: NEUTRAL_PEER_ROLE,
+    system_prompt: 'You are an equal participant in this discussion. Contribute where you can add value, and disagree when you disagree.',
     cli_tool: 'antigravity',
     avatar_color: '#f97316',
   },
@@ -95,7 +101,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [editingMember, setEditingMember] = useState<AgentForumMember | null>(null);
   const [memberName, setMemberName] = useState('');
-  const [memberRole, setMemberRole] = useState('developer');
+  const [memberRole, setMemberRole] = useState(NEUTRAL_PEER_ROLE);
   const [memberPrompt, setMemberPrompt] = useState('');
   const [memberCliTool, setMemberCliTool] = useState<CliTool | ''>('claude');
   const [memberCliModel, setMemberCliModel] = useState('');
@@ -174,7 +180,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
         forumsApi.getAgentForum(currentForum.id).then(setCurrentForum).catch(() => {});
       }
 
-      if ((e.type === 'forum:turn-completed' || e.type === 'forum:turn-failed') && e.forumId === currentForum.id) {
+      if ((e.type === 'forum:turn-completed' || e.type === 'forum:turn-failed' || e.type === 'forum:turn-skipped') && e.forumId === currentForum.id) {
         forumsApi.getAgentForum(currentForum.id).then(setCurrentForum).catch(() => {});
       }
     });
@@ -261,7 +267,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Update Max Reply Length
   const handleMaxReplyLengthChange = async (len: number) => {
-    if (!currentForum) return;
+    if (!currentForum || currentForum.status === 'running') return;
     try {
       const updated = await forumsApi.updateAgentForum(currentForum.id, { max_reply_length: len });
       setCurrentForum(updated);
@@ -273,7 +279,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Update Project Link
   const handleProjectLinkChange = async (projectId: string) => {
-    if (!currentForum) return;
+    if (!currentForum || currentForum.status === 'running') return;
     try {
       const updated = await forumsApi.updateAgentForum(currentForum.id, { project_id: projectId || null });
       setCurrentForum(updated);
@@ -285,7 +291,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Save Rules
   const handleSaveRules = async () => {
-    if (!currentForum) return;
+    if (!currentForum || currentForum.status === 'running') return;
     try {
       const updated = await forumsApi.updateAgentForum(currentForum.id, { rules: rulesDraft });
       setCurrentForum(updated);
@@ -300,7 +306,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   const handleOpenAddMember = () => {
     setEditingMember(null);
     setMemberName('');
-    setMemberRole('developer');
+    setMemberRole(NEUTRAL_PEER_ROLE);
     setMemberPrompt('');
     setMemberCliTool('claude');
     setMemberCliModel('');
@@ -324,7 +330,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   };
 
   const handleSaveMember = async () => {
-    if (!currentForum || !memberName.trim()) return;
+    if (!currentForum || !memberName.trim() || currentForum.status === 'running') return;
     try {
       if (editingMember) {
         await forumsApi.updateAgentForumMember(currentForum.id, editingMember.id, {
@@ -358,8 +364,8 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    if (!currentForum) return;
-    if (currentForum.members.length <= 2) {
+    if (!currentForum || currentForum.status === 'running') return;
+    if (currentForum.members.filter((m) => m.is_active !== 0).length <= 2) {
       toastError(t('forum.minMembersWarning'));
       return;
     }
@@ -480,6 +486,9 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   }
 
   const isRunning = currentForum?.status === 'running';
+  // Removal is gated on ACTIVE participants: soft-disabled members still show in
+  // the bar (their history is intact) but no longer count towards the quorum.
+  const activeMemberCount = currentForum?.members.filter((m) => m.is_active !== 0).length ?? 0;
   const currentSpeakingMember = currentForum?.members.find((m) => m.id === currentForum.current_member_id);
 
   return (
@@ -526,7 +535,8 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             <select
               value={currentForum?.project_id || ''}
               onChange={(e) => handleProjectLinkChange(e.target.value)}
-              className="text-xs bg-theme-bg/60 border border-theme-border rounded-lg px-2.5 py-1 text-theme-text outline-none"
+              disabled={isRunning}
+              className="text-xs bg-theme-bg/60 border border-theme-border rounded-lg px-2.5 py-1 text-theme-text outline-none disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">{t('forum.standaloneOption')}</option>
               {projects.map((p) => (
@@ -544,7 +554,8 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
                 <button
                   key={len}
                   onClick={() => handleMaxReplyLengthChange(len)}
-                  className={`px-1.5 py-0.5 rounded text-2xs transition-colors ${
+                  disabled={isRunning}
+                  className={`px-1.5 py-0.5 rounded text-2xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     currentForum?.max_reply_length === len
                       ? 'bg-accent text-white font-semibold'
                       : 'text-theme-text-secondary hover:bg-theme-hover'
@@ -558,7 +569,8 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             {/* Rules button */}
             <button
               onClick={() => setShowRulesModal(true)}
-              className="flex items-center gap-1.5 text-xs bg-theme-bg/60 hover:bg-theme-hover border border-theme-border px-2.5 py-1 rounded-lg text-theme-text transition-colors"
+              disabled={isRunning}
+              className="flex items-center gap-1.5 text-xs bg-theme-bg/60 hover:bg-theme-hover border border-theme-border px-2.5 py-1 rounded-lg text-theme-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Sliders size={13} />
               {t('forum.rules')}
@@ -604,8 +616,10 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             {currentForum?.members.map((m) => (
               <div
                 key={m.id}
-                onClick={() => handleOpenEditMember(m)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg bg-theme-bg/80 border border-theme-border cursor-pointer hover:border-accent transition-colors ${
+                onClick={() => { if (!isRunning) handleOpenEditMember(m); }}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg bg-theme-bg/80 border border-theme-border transition-colors ${
+                  isRunning ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-accent'
+                } ${m.is_active === 0 ? 'opacity-50 line-through' : ''} ${
                   currentForum.current_member_id === m.id ? 'ring-2 ring-accent ring-offset-1 animate-pulse' : ''
                 }`}
               >
@@ -619,7 +633,8 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
             ))}
             <button
               onClick={handleOpenAddMember}
-              className="flex items-center gap-1 text-2xs px-2 py-1 rounded-lg border border-dashed border-theme-border hover:border-accent text-theme-text-secondary transition-colors"
+              disabled={isRunning}
+              className="flex items-center gap-1 text-2xs px-2 py-1 rounded-lg border border-dashed border-theme-border hover:border-accent text-theme-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus size={11} />
               {t('forum.addParticipant')}
@@ -832,7 +847,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               <button onClick={() => setShowRulesModal(false)} className="btn text-xs">
                 {t('header.cancel')}
               </button>
-              <button onClick={handleSaveRules} className="btn-primary text-xs">
+              <button onClick={handleSaveRules} disabled={isRunning} className="btn-primary text-xs">
                 {t('header.save')}
               </button>
             </div>
@@ -897,7 +912,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               <h3 className="text-base font-semibold text-theme-text">
                 {editingMember ? t('agents.edit') : t('agents.add')}
               </h3>
-              {editingMember && currentForum && currentForum.members.length > 2 && (
+              {editingMember && currentForum && activeMemberCount > 2 && !isRunning && (
                 <button
                   onClick={() => {
                     handleDeleteMember(editingMember.id);
@@ -998,7 +1013,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
               </button>
               <button
                 onClick={handleSaveMember}
-                disabled={!memberName.trim()}
+                disabled={!memberName.trim() || isRunning}
                 className="btn-primary text-xs"
               >
                 {t('header.save')}

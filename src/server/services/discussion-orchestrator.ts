@@ -7,6 +7,7 @@ import { isAgentCliTool } from './provider-types.js';
 import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
+import { readLines } from '../utils/line-stream.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
 import { broadcastProjectStatus } from './project-status.js';
@@ -710,9 +711,6 @@ Keep your response focused and under 2000 words.`;
     const adapter = getAdapter(cliTool);
     const isJsonMode = adapter.outputFormat === 'stream-json';
 
-    stdout.setEncoding('utf8' as BufferEncoding);
-    stderr.setEncoding('utf8' as BufferEncoding);
-
     /** Helper: push a parsed text line to output buffer, DB, and broadcast */
     const emitLine = (text: string, logType: 'output' | 'commit' = 'output') => {
       if (!text.trim()) return;
@@ -793,71 +791,29 @@ Keep your response focused and under 2000 words.`;
       }
     };
 
-    let stdoutBuf = '';
-    stdout.on('data', (chunk: string) => {
-      stdoutBuf += chunk;
-      const lines = stdoutBuf.split('\n');
-      stdoutBuf = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        if (isJsonMode) {
-          processJsonLine(line.trim());
-        } else {
-          emitLine(line);
-        }
+    // Chunk-safe line assembly (persistent buffer, partial tail carried over,
+    // flushed on end) — see utils/line-stream.ts.
+    readLines(stdout, (line) => {
+      if (isJsonMode) {
+        processJsonLine(line.trim());
+      } else {
+        emitLine(line);
       }
     });
 
-    stdout.on('end', () => {
-      if (stdoutBuf.trim()) {
-        if (isJsonMode) {
-          processJsonLine(stdoutBuf.trim());
-        } else {
-          emitLine(stdoutBuf.trim());
-        }
-      }
-    });
-
-    let stderrBuf = '';
-    stderr.on('data', (chunk: string) => {
-      stderrBuf += chunk;
-      const lines = stderrBuf.split('\n');
-      stderrBuf = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        if (isJsonMode) {
-          processJsonLine(line.trim());
-        } else {
-          queries.createDiscussionLog(discussionId, messageId, 'error', line.trim());
-          broadcaster.broadcast({
-            type: 'discussion:log',
-            discussionId,
-            messageId,
-            message: line.trim(),
-            logType: 'error',
-            agentName,
-          });
-        }
-      }
-    });
-
-    stderr.on('end', () => {
-      if (stderrBuf.trim()) {
-        if (isJsonMode) {
-          processJsonLine(stderrBuf.trim());
-        } else {
-          queries.createDiscussionLog(discussionId, messageId, 'error', stderrBuf.trim());
-          broadcaster.broadcast({
-            type: 'discussion:log',
-            discussionId,
-            messageId,
-            message: stderrBuf.trim(),
-            logType: 'error',
-            agentName,
-          });
-        }
+    readLines(stderr, (line) => {
+      if (isJsonMode) {
+        processJsonLine(line.trim());
+      } else {
+        queries.createDiscussionLog(discussionId, messageId, 'error', line.trim());
+        broadcaster.broadcast({
+          type: 'discussion:log',
+          discussionId,
+          messageId,
+          message: line.trim(),
+          logType: 'error',
+          agentName,
+        });
       }
     });
 

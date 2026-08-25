@@ -439,6 +439,7 @@ export function initDatabase(db: Database.Database): void {
       cli_effort TEXT,
       avatar_color TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -458,10 +459,10 @@ export function initDatabase(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS agent_forum_turns (
       id TEXT PRIMARY KEY,
       forum_id TEXT NOT NULL REFERENCES agent_forums(id) ON DELETE CASCADE,
-      member_id TEXT NOT NULL REFERENCES agent_forum_members(id) ON DELETE CASCADE,
+      member_id TEXT NOT NULL REFERENCES agent_forum_members(id) ON DELETE RESTRICT,
       cycle_number INTEGER NOT NULL,
       turn_order INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'passed')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'passed', 'skipped', 'stopped')),
       execution_snapshot TEXT,
       raw_output TEXT,
       error_message TEXT,
@@ -604,6 +605,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'schedules', column: 'max_review_rounds', definition: 'INTEGER' },
     { table: 'todo_execution_rounds', column: 'retry_of_round_id', definition: 'TEXT' },
     { table: 'todo_execution_rounds', column: 'attempt_index', definition: 'INTEGER NOT NULL DEFAULT 1' },
+    { table: 'agent_forum_members', column: 'is_active', definition: 'INTEGER NOT NULL DEFAULT 1' },
   ];
 
   for (const { table, column, definition } of migrations) {
@@ -719,6 +721,11 @@ export function initDatabase(db: Database.Database): void {
   // Normalize legacy Antigravity effort variant rows to canonical logical models
   // with provider_variants JSON and migrate existing execution profile executors.
   normalizeAntigravityCatalogAndExecutors(db);
+
+  // AgentForum V1 invariants: preserve turn history across participant removal
+  // and enforce the core "one reply per agent per target" rule in the DB.
+  migrateAgentForumTurnHistory(db);
+  enforceAgentForumUniqueIndexes(db);
 }
 function dropColumnIfPresent(db: Database.Database, table: string, column: string): void {
   const columns = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
@@ -1077,5 +1084,167 @@ export function enforceExecutionRoundUniqueIndexes(db: Database.Database): void 
     throw new Error(
       `Failed to enforce todo execution round uniqueness after legacy reconciliation: ${message}`
     );
+  }
+}
+
+/**
+ * AgentForum V1: participant removal must never destroy execution history.
+ *
+ * The initial release declared `agent_forum_turns.member_id ... ON DELETE
+ * CASCADE`, so deleting a participant silently erased that participant's turns
+ * and execution snapshots while their messages survived — leaving orphaned
+ * history. Rebuild the table with ON DELETE RESTRICT (removal is now expressed
+ * as a soft-disable via `agent_forum_members.is_active`) and widen the status
+ * CHECK to cover the transient non-success states.
+ *
+ * Idempotent: inspects the existing foreign key and CHECK before touching
+ * anything, and preserves every existing row.
+ */
+export function migrateAgentForumTurnHistory(db: Database.Database): void {
+  const tableRow = db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_forum_turns'`
+  ).get() as { sql: string } | undefined;
+  if (!tableRow) return;
+
+  const memberFk = (db.pragma('foreign_key_list(agent_forum_turns)') as Array<{ table: string; on_delete: string }>)
+    .find((fk) => fk.table === 'agent_forum_members');
+  const needsFkRebuild = !!memberFk && memberFk.on_delete.toUpperCase() !== 'RESTRICT';
+  const needsStatusRebuild = !tableRow.sql.includes("'skipped'");
+  if (!needsFkRebuild && !needsStatusRebuild) return;
+
+  const fkWasOn = (db.pragma('foreign_keys', { simple: true }) as number) === 1;
+  if (fkWasOn) db.pragma('foreign_keys = OFF');
+  try {
+    const rebuild = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE agent_forum_turns_migrated (
+          id TEXT PRIMARY KEY,
+          forum_id TEXT NOT NULL REFERENCES agent_forums(id) ON DELETE CASCADE,
+          member_id TEXT NOT NULL REFERENCES agent_forum_members(id) ON DELETE RESTRICT,
+          cycle_number INTEGER NOT NULL,
+          turn_order INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'passed', 'skipped', 'stopped')),
+          execution_snapshot TEXT,
+          raw_output TEXT,
+          error_message TEXT,
+          started_at DATETIME,
+          completed_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO agent_forum_turns_migrated
+          (id, forum_id, member_id, cycle_number, turn_order, status,
+           execution_snapshot, raw_output, error_message, started_at, completed_at, created_at)
+        SELECT id, forum_id, member_id, cycle_number, turn_order, status,
+               execution_snapshot, raw_output, error_message, started_at, completed_at, created_at
+        FROM agent_forum_turns;
+
+        DROP TABLE agent_forum_turns;
+        ALTER TABLE agent_forum_turns_migrated RENAME TO agent_forum_turns;
+        CREATE INDEX IF NOT EXISTS idx_agent_forum_turns_forum ON agent_forum_turns(forum_id, cycle_number);
+      `);
+    });
+    rebuild();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to migrate agent_forum_turns history retention: ${message}`);
+  } finally {
+    if (fkWasOn) db.pragma('foreign_keys = ON');
+  }
+}
+
+/**
+ * Enforces the two AgentForum V1 persistence invariants at the DB level, so
+ * they never depend on prompt compliance or extractor validation alone:
+ *
+ * 1. An agent may reply to a given target message at most once
+ *    — partial UNIQUE(forum_id, author_id, parent_message_id) over agent rows.
+ * 2. A logical turn identity is unique
+ *    — UNIQUE(forum_id, cycle_number, turn_order).
+ *
+ * Legacy rows written before the indexes existed are reconciled first so the
+ * migration cannot fail on an existing database: duplicate agent replies keep
+ * the oldest row and are re-parented to NULL, duplicate turn identities are
+ * pushed onto free turn_order slots.
+ */
+export function enforceAgentForumUniqueIndexes(db: Database.Database): void {
+  const messagesExist = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='agent_forum_messages'`
+  ).get();
+  const turnsExist = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='agent_forum_turns'`
+  ).get();
+
+  try {
+    if (messagesExist) {
+      const duplicateReplies = db.prepare(`
+        SELECT forum_id, author_id, parent_message_id
+        FROM agent_forum_messages
+        WHERE author_type = 'agent' AND author_id IS NOT NULL AND parent_message_id IS NOT NULL
+        GROUP BY forum_id, author_id, parent_message_id
+        HAVING COUNT(*) > 1
+      `).all() as Array<{ forum_id: string; author_id: string; parent_message_id: string }>;
+
+      if (duplicateReplies.length > 0) {
+        const reconcile = db.transaction(() => {
+          for (const dup of duplicateReplies) {
+            const rows = db.prepare(`
+              SELECT id FROM agent_forum_messages
+              WHERE forum_id = ? AND author_id = ? AND parent_message_id = ? AND author_type = 'agent'
+              ORDER BY created_at ASC, rowid ASC
+            `).all(dup.forum_id, dup.author_id, dup.parent_message_id) as Array<{ id: string }>;
+            // Keep the first reply attached; detach the rest to root so no
+            // historical message content is destroyed by the migration.
+            for (const row of rows.slice(1)) {
+              db.prepare(`UPDATE agent_forum_messages SET parent_message_id = NULL WHERE id = ?`).run(row.id);
+            }
+          }
+        });
+        reconcile();
+      }
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_forum_messages_agent_reply_unique
+          ON agent_forum_messages(forum_id, author_id, parent_message_id)
+          WHERE author_type = 'agent' AND author_id IS NOT NULL AND parent_message_id IS NOT NULL;
+      `);
+    }
+
+    if (turnsExist) {
+      const duplicateTurns = db.prepare(`
+        SELECT forum_id, cycle_number, turn_order
+        FROM agent_forum_turns
+        GROUP BY forum_id, cycle_number, turn_order
+        HAVING COUNT(*) > 1
+      `).all() as Array<{ forum_id: string; cycle_number: number; turn_order: number }>;
+
+      if (duplicateTurns.length > 0) {
+        const reconcile = db.transaction(() => {
+          for (const dup of duplicateTurns) {
+            const rows = db.prepare(`
+              SELECT id FROM agent_forum_turns
+              WHERE forum_id = ? AND cycle_number = ? AND turn_order = ?
+              ORDER BY created_at ASC, rowid ASC
+            `).all(dup.forum_id, dup.cycle_number, dup.turn_order) as Array<{ id: string }>;
+            const maxRow = db.prepare(
+              `SELECT COALESCE(MAX(turn_order), -1) AS max_order FROM agent_forum_turns WHERE forum_id = ? AND cycle_number = ?`
+            ).get(dup.forum_id, dup.cycle_number) as { max_order: number };
+            let nextOrder = maxRow.max_order + 1;
+            for (const row of rows.slice(1)) {
+              db.prepare(`UPDATE agent_forum_turns SET turn_order = ? WHERE id = ?`).run(nextOrder++, row.id);
+            }
+          }
+        });
+        reconcile();
+      }
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_forum_turns_identity_unique
+          ON agent_forum_turns(forum_id, cycle_number, turn_order);
+      `);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to enforce AgentForum uniqueness invariants: ${message}`);
   }
 }

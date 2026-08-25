@@ -5,7 +5,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
-import { getAdapter, type CliAdapter, type CliTool, type CliMode, type SandboxMode } from './cli-adapters.js';
+import { getAdapter, type CliAdapter, type CliTool, type CliMode, type PromptPolicy, type SandboxMode } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
@@ -156,6 +156,7 @@ export class ClaudeManager {
     ptyCols?: number,
     ptyRows?: number,
     effort?: string,
+    promptPolicy?: PromptPolicy,
   ): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
@@ -190,12 +191,12 @@ export class ClaudeManager {
       // '\r\n') to the PTY on ready, submitting the user's startupInputBuffer
       // type-ahead as if they pressed Enter.
       const stdinPrompt = adapter.needsStdin(mode) && prompt
-        ? adapter.formatStdinPrompt(prompt, mode)
+        ? adapter.formatStdinPrompt(prompt, mode, promptPolicy)
         : undefined;
       const result = await this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows);
       return { ...result, command: adapter.command, args };
     }
-    const result = await this.startWithSpawn(adapter, args, worktreePath, prompt, mode);
+    const result = await this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy);
     return { ...result, command: adapter.command, args };
   }
 
@@ -401,7 +402,7 @@ export class ClaudeManager {
   /**
    * Spawn using child_process for standard CLIs.
    */
-  private startWithSpawn(adapter: ReturnType<typeof getAdapter>, args: string[], cwd: string, prompt: string, mode: CliMode): Promise<{
+  private startWithSpawn(adapter: ReturnType<typeof getAdapter>, args: string[], cwd: string, prompt: string, mode: CliMode, promptPolicy?: PromptPolicy): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
     stderr: NodeJS.ReadableStream;
@@ -450,7 +451,7 @@ export class ClaudeManager {
 
       // Handle stdin based on mode
       if (needsStdin && child.stdin) {
-        child.stdin.write(adapter.formatStdinPrompt(prompt, mode));
+        child.stdin.write(adapter.formatStdinPrompt(prompt, mode, promptPolicy));
         if (mode === 'interactive') {
           this.stdinStreams.set(pid, child.stdin);
         } else {

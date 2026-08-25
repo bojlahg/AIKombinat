@@ -168,6 +168,14 @@ export interface AutoRespondRule {
   blocksInitialPrompt?: boolean;
 }
 
+/**
+ * Prompt policy for the trailing instruction block appended to a headless
+ * CLI prompt.
+ * - 'task-completion': coding-task workflow (default, backwards compatible).
+ * - 'discussion': read-only deliberation; no coding/commit completion suffix.
+ */
+export type PromptPolicy = 'task-completion' | 'discussion';
+
 export interface CliAdapter {
   /** Executable command name */
   command: string;
@@ -179,8 +187,16 @@ export interface CliAdapter {
   buildArgs(opts: { mode: CliMode; prompt: string; model?: string; effort?: string; extraOptions?: string; maxTurns?: number; workDir?: string; projectPath?: string; sandboxMode?: SandboxMode; continueSession?: boolean }): string[];
   /** Whether this mode needs stdin pipe */
   needsStdin(mode: CliMode): boolean;
-  /** Format prompt for stdin delivery */
-  formatStdinPrompt(prompt: string, mode?: CliMode): string;
+  /**
+   * Format prompt for stdin delivery.
+   *
+   * `promptPolicy` selects the trailing instruction block appended to the
+   * prompt. 'task-completion' (default) is the coding-task policy: work
+   * efficiently, commit, stop. 'discussion' is for read-only deliberation
+   * runs (e.g. AgentForum) where a commit/stop instruction contradicts the
+   * caller's own output contract, so no suffix is appended.
+   */
+  formatStdinPrompt(prompt: string, mode?: CliMode, promptPolicy?: PromptPolicy): string;
   /** Whether this CLI requires a TTY (pseudo-terminal) to run */
   requiresTty?: boolean;
   /** Output format: 'stream-json' for structured JSON lines, 'text' for plain text */
@@ -260,8 +276,9 @@ const claudeAdapter: CliAdapter = {
   needsStdin(_mode) {
     return true;
   },
-  formatStdinPrompt(prompt, mode) {
+  formatStdinPrompt(prompt, mode, promptPolicy) {
     if (mode === 'interactive') return prompt + '\n';
+    if (promptPolicy === 'discussion') return prompt + '\n';
     return prompt + TASK_COMPLETION_SUFFIX + '\n';
   },
   probeModels() {
