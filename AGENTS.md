@@ -87,6 +87,18 @@ The UI supports English, Korean, and Russian. Add new UI strings through the exi
 - Never use automatic conflict resolution, `git reset --hard`, force checkout, force push, or destructive cleanup to make the pull succeed.
 - Only begin task implementation after the pull completed successfully and the repository has no unresolved conflicts.
 
+### Intentional upstream integration
+- These rules apply only when the task **explicitly asks to integrate changes from an upstream repository**. They are a narrow exception to the normal rule that agents must stop on conflicted paths.
+- First complete the normal clean-state check and successful `git pull --ff-only` above. Never begin upstream integration from a dirty, conflicted, or stale checkout.
+- Perform upstream integration on a dedicated temporary/sync branch created from the freshly updated target branch. Do not experiment with upstream integration directly on `main`.
+- Fetch the requested upstream remote/ref first. Integrate only the upstream branch or specific upstream commits requested by the task, using a normal merge or cherry-pick as appropriate.
+- If that intentional merge/cherry-pick itself creates conflicts, the agent **may resolve only the conflicts created by that integration operation**. Inspect the base, our current AIKombinat code, and the upstream change before choosing the final content.
+- Preserve AIKombinat-specific behavior and repository contracts unless the task explicitly asks to replace them. Do not discard local functionality merely to make upstream apply cleanly.
+- Never use blanket conflict strategies such as `-X ours`, `-X theirs`, automatic whole-file conflict resolution, rebase, `git reset --hard`, force checkout, force push, or history rewriting.
+- If a conflict cannot be resolved confidently and locally, abort the intentional integration with `git merge --abort` or `git cherry-pick --abort` as appropriate, then report the conflicting files and the reason. Do not guess.
+- After resolving integration conflicts, review the resulting diff for accidental loss of local changes, run the validation requested by the task, commit the integration, and push the sync branch normally.
+- The usual completion rule still applies: the task is not complete until the resulting commit/merge has been pushed successfully.
+
 ### Efficiency
 - Use grep/glob to find relevant files FIRST. Do NOT read files one by one to explore.
 - Only read files you intend to modify or that are directly needed.
