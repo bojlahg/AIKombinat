@@ -1,5 +1,5 @@
 import { EyeOff, MousePointerClick, GitBranch, type LucideIcon } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import Modal from '../Modal';
 import { useI18n } from '../../i18n';
 
 interface Props {
@@ -28,9 +28,9 @@ export function VaultOnboardingModal({ saving, onIgnoreAll, onShowAll }: Props) 
     </div>
   );
 
-  return createPortal(
-    <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
-      <div className="bg-[var(--color-bg-card)] border border-warm-200 rounded-lg shadow-elevated w-[min(560px,90vw)] max-h-[85vh] overflow-y-auto flex flex-col">
+  return (
+    <Modal open onClose={() => {}} size="xl" disableEscClose disableBackdropClose>
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated max-h-[85vh] overflow-y-auto flex flex-col">
         <div className="px-5 py-4 border-b border-warm-200">
           <div className="text-sm font-semibold text-warm-800">{t('vault.onboarding.title')}</div>
           <p className="mt-1.5 text-xs text-warm-500 leading-relaxed">{t('vault.onboarding.intro')}</p>
@@ -61,7 +61,6 @@ export function VaultOnboardingModal({ saving, onIgnoreAll, onShowAll }: Props) 
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

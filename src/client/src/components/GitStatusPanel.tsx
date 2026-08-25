@@ -271,7 +271,7 @@ function ActionToolbar({
 
   const GitModal = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <Modal open onClose={closeModal} size="sm">
-      <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-80 max-w-[90vw]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-warm-100">
           <span className="text-sm font-semibold text-warm-700">{title}</span>
           <button onClick={closeModal} className="text-warm-400 hover:text-warm-600">
@@ -494,7 +494,7 @@ function StashModal({ projectId, busy, exec, inputValue, setInputValue }: {
 
   return (
     <Modal open onClose={() => setInputValue('')} size="sm">
-      <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-80 max-w-[90vw]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-warm-100">
           <span className="text-sm font-semibold text-warm-700">{t('git.stash')}</span>
         </div>
@@ -1400,7 +1400,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
       {/* Rename branch modal */}
       {renaming && (
         <Modal open onClose={() => setRenaming(null)} size="sm">
-          <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+          <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-80 max-w-[90vw]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-warm-100">
               <span className="text-sm font-semibold text-warm-700">{t('git.renameBranch')}</span>
               <button onClick={() => setRenaming(null)} className="text-warm-400 hover:text-warm-600">
@@ -1968,7 +1968,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
   return (
     <div className="animate-fade-in flex flex-col" style={{ height: 'calc(100vh - 260px)', minHeight: '400px' }}>
       {/* Action Toolbar */}
-      <div className="card mb-2 overflow-hidden">
+      <div className="card-static mb-2">
         <ActionToolbar
           projectId={project.id}
           projectName={project.name}
@@ -2042,7 +2042,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
           className={`shrink-0 flex flex-col gap-2 ${isMobile ? '' : 'min-h-0'}`}
         >
           {isMobile ? (
-            <div className="card p-2 flex items-center gap-2">
+            <div className="card-static p-2 flex items-center gap-2">
               <div className="flex-1 min-w-0">
                 <WorkspaceMenu
                   view={view}
@@ -2063,7 +2063,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
               </button>
             </div>
           ) : (
-            <div className="card p-3 shrink-0">
+            <div className="card-static p-3 shrink-0">
               <WorkspaceMenu
                 view={view}
                 onChange={setView}
@@ -2084,7 +2084,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
         {!isMobile && <Resizer axis="x" onResize={handleSidebarResize} />}
 
         {/* Main view */}
-        <div className="card flex-1 overflow-hidden flex flex-col min-h-0">
+        <div className="card-static flex-1 overflow-hidden flex flex-col min-h-0">
           {view === 'fileStatus' ? (
             <>
               {/* Checkout selector — main checkout vs session worktrees.

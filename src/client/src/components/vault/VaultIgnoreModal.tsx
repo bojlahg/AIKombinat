@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import Modal from '../Modal';
 import { getVaultIgnore, saveVaultIgnore } from '../../api/vault';
 
 interface Props {
@@ -24,26 +24,9 @@ export function VaultIgnoreHelpModal({ open, onClose, onOpenEditor }: {
   onClose: () => void;
   onOpenEditor: () => void;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-[var(--color-bg-card)] border border-warm-200 rounded-lg shadow-elevated w-[min(560px,90vw)] max-h-[80vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+  return (
+    <Modal open={open} onClose={onClose} size="xl">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated max-h-[80vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-warm-200">
           <div className="text-sm font-semibold text-warm-800">.vaultignore 사용법</div>
           <button
@@ -99,8 +82,7 @@ private/**        # 폴더 전체 숨김
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }
 
@@ -120,15 +102,6 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
       .finally(() => setLoading(false));
   }, [open, projectId]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -143,17 +116,9 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
     }
   };
 
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-[var(--color-bg-card)] border border-warm-200 rounded-lg shadow-elevated w-[min(600px,90vw)] max-h-[80vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+  return (
+    <Modal open={open} onClose={onClose} size="xl">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated max-h-[80vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-warm-200">
           <div className="text-sm font-semibold text-warm-800">.vaultignore</div>
           <button
@@ -204,7 +169,6 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

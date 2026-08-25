@@ -174,6 +174,15 @@
     opacity: 1;
   }
 
+  /* Card surface without the interactive hover lift/accent line — for layout
+     panes and toolbars that merely need the card background. */
+  .card-static {
+    background-color: var(--color-bg-card);
+    border: 1px solid var(--color-border-muted);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+    @apply rounded-xl overflow-hidden;
+  }
+
   /* Workspace tag-tinted card border (home view project cards) */
   .card-tagged {
     border-color: color-mix(in srgb, var(--tag-color) 35%, transparent);

@@ -422,7 +422,7 @@ export default function TaskNodeDetail({
             {/* Commits */}
             {resultData.commits.length > 0 && (
               <div>
-                <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider mb-1">{t('result.commitHistory')}</h4>
+                <h4 className="section-label mb-1">{t('result.commitHistory')}</h4>
                 <div className="space-y-0.5">
                   {resultData.commits.map((c, i) => (
                     <div key={i} className="flex items-start gap-1.5 text-2xs">
@@ -440,7 +440,7 @@ export default function TaskNodeDetail({
         {showDiff && diffData && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider">{t('todo.diffOutput')}</h4>
+              <h4 className="section-label">{t('todo.diffOutput')}</h4>
               <div className="flex gap-2 text-2xs">
                 <span className="text-status-success">+{diffData.stats.insertions}</span>
                 <span className="text-status-error">-{diffData.stats.deletions}</span>
@@ -461,7 +461,7 @@ export default function TaskNodeDetail({
 
         {/* Logs */}
         <div>
-          <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider mb-1">{t('todo.systemLog')}</h4>
+          <h4 className="section-label mb-1">{t('todo.systemLog')}</h4>
           <LogViewer
             logs={logs}
             interactive={isInteractive && todo.status === 'running'}

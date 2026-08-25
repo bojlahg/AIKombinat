@@ -188,12 +188,12 @@ export default function AnalyticsPanel({ projectId }: AnalyticsPanelProps) {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard label={t('analytics.totalTasks')} value={String(summary.totalTasks)} />
-        <SummaryCard label={t('analytics.successRate')} value={`${summary.successRate}%`} color={summary.successRate >= 70 ? '#34C759' : summary.successRate >= 40 ? '#FF9500' : '#FF3B30'} />
-        <SummaryCard label={t('analytics.totalCost')} value={formatCost(summary.totalCostUsd)} />
-        <SummaryCard label={t('analytics.totalTokens')} value={formatTokens(summary.totalTokens)} />
+      {/* Summary stats — a single quiet row, not a tile grid */}
+      <div className="panel flex flex-wrap gap-x-8 gap-y-2">
+        <SummaryStat label={t('analytics.totalTasks')} value={String(summary.totalTasks)} />
+        <SummaryStat label={t('analytics.successRate')} value={`${summary.successRate}%`} color={summary.successRate >= 70 ? '#34C759' : summary.successRate >= 40 ? '#FF9500' : '#FF3B30'} />
+        <SummaryStat label={t('analytics.totalCost')} value={formatCost(summary.totalCostUsd)} />
+        <SummaryStat label={t('analytics.totalTokens')} value={formatTokens(summary.totalTokens)} />
       </div>
 
       {/* Status donut + CLI tool stats */}
@@ -360,19 +360,10 @@ export default function AnalyticsPanel({ projectId }: AnalyticsPanelProps) {
           <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 text-theme-muted">
             {t('analytics.costBreakdown')}
           </h4>
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <div className="text-lg font-bold text-theme-accent">{formatCost(summary.totalCostUsd)}</div>
-              <div className="text-2xs uppercase tracking-wider text-theme-muted">{t('analytics.totalCost')}</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold">{formatCost(summary.avgCostPerTask)}</div>
-              <div className="text-2xs uppercase tracking-wider text-theme-muted">{t('analytics.avgPerTask')}</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold">{formatTokens(summary.totalTokens)}</div>
-              <div className="text-2xs uppercase tracking-wider text-theme-muted">{t('analytics.totalTokens')}</div>
-            </div>
+          <div className="flex flex-wrap gap-x-8 gap-y-2">
+            <SummaryStat label={t('analytics.totalCost')} value={formatCost(summary.totalCostUsd)} accent />
+            <SummaryStat label={t('analytics.avgPerTask')} value={formatCost(summary.avgCostPerTask)} />
+            <SummaryStat label={t('analytics.totalTokens')} value={formatTokens(summary.totalTokens)} />
           </div>
         </div>
       )}
@@ -380,11 +371,16 @@ export default function AnalyticsPanel({ projectId }: AnalyticsPanelProps) {
   );
 }
 
-function SummaryCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function SummaryStat({ label, value, color, accent }: { label: string; value: string; color?: string; accent?: boolean }) {
   return (
-    <div className="card p-3 text-center">
-      <div className="text-xl font-bold" style={color ? { color } : undefined}>{value}</div>
-      <div className="text-2xs uppercase tracking-wider mt-0.5 text-theme-muted">{label}</div>
+    <div>
+      <div className="text-xs text-theme-muted">{label}</div>
+      <div
+        className={`text-lg font-semibold tabular-nums ${accent ? 'text-theme-accent' : ''}`}
+        style={color ? { color } : undefined}
+      >
+        {value}
+      </div>
     </div>
   );
 }

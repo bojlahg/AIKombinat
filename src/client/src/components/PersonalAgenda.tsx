@@ -6,6 +6,7 @@ import * as personalApi from '../api/personal';
 import { getProjects } from '../api/projects';
 import HoverHelp from './HoverHelp';
 import ImageLightbox from './ImageLightbox';
+import Modal from './Modal';
 import MoveToPlannerButton from './MoveToPlannerButton';
 import { useI18n } from '../i18n';
 import { useDialog } from '../hooks/useDialog';
@@ -1263,8 +1264,8 @@ function CleanupModal({ items, defaultFrom, defaultTo, onClose, onDone }: {
   };
 
   return (
-    <div className="fixed inset-0 z-tooltip flex items-center justify-center p-6" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl shadow-xl flex flex-col" style={{ backgroundColor: 'var(--color-bg-card)', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+    <Modal open onClose={onClose} size="md">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }}>
         <div className="px-6 pt-6 pb-2">
           <h3 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--color-text-primary)' }}>
             <Trash2 size={16} />{t('agenda.cleanup.title')}
@@ -1312,7 +1313,7 @@ function CleanupModal({ items, defaultFrom, defaultTo, onClose, onDone }: {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1380,8 +1381,8 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
   const hintCls = 'mt-1 text-2xs leading-relaxed';
 
   return (
-    <div className="fixed inset-0 z-tooltip flex items-center justify-center p-6" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl shadow-xl flex flex-col" style={{ backgroundColor: 'var(--color-bg-card)', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+    <Modal open onClose={onClose} size="md">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }}>
         <div className="px-6 pt-6 pb-2">
           <h3 className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>{t('agenda.jira.settings')}</h3>
           <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{t('agenda.jira.subtitle')}</p>
@@ -1515,6 +1516,6 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

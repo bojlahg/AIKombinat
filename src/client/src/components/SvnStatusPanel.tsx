@@ -397,7 +397,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
       )}
       <div className="flex flex-1 min-h-0 gap-2">
         {/* Command list sidebar (TortoiseSVN-style) */}
-        <div className="card w-52 shrink-0 flex flex-col overflow-y-auto">
+        <div className="card-static w-52 shrink-0 flex flex-col overflow-y-auto">
           <div className="px-3 py-3 border-b border-warm-100">
             <div className="text-[11px] font-semibold text-warm-500 uppercase tracking-wider">SVN</div>
             {repoLine && (
@@ -430,7 +430,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
         </div>
 
         {/* Main */}
-        <div className="card flex-1 overflow-hidden flex flex-col min-w-0 min-h-0">
+        <div className="card-static flex-1 overflow-hidden flex flex-col min-w-0 min-h-0">
           {view === 'modifications' ? (
             <ModificationsView
               statusFiles={status?.files ?? []}
@@ -482,12 +482,10 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
 
       {/* Update to revision dialog */}
       <Modal open={showRevDialog} onClose={() => setShowRevDialog(false)} size="sm">
-        <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+        <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-80 max-w-[90vw]">
           <div className="px-4 py-3 border-b border-warm-100 flex items-center gap-2">
             <span className="text-sm font-semibold text-warm-700">{t('svn.updateToRevision')}</span>
-            <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-              {t('svn.remoteBadge')}
-            </span>
+            <RemoteBadge />
           </div>
           <div className="p-4 space-y-3">
             <input
@@ -519,7 +517,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
 
       {/* New changelist dialog */}
       <Modal open={clDialogFiles !== null} onClose={() => setClDialogFiles(null)} size="sm">
-        <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+        <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-80 max-w-[90vw]">
           <div className="px-4 py-3 border-b border-warm-100">
             <span className="text-sm font-semibold text-warm-700">{t('svn.newChangelist')}</span>
           </div>
@@ -553,7 +551,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
 
       {/* Rename changelist dialog */}
       <Modal open={renameTarget !== null} onClose={() => setRenameTarget(null)} size="sm">
-        <div className="bg-theme-card rounded-lg shadow-xl w-80 max-w-[90vw]">
+        <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-80 max-w-[90vw]">
           <div className="px-4 py-3 border-b border-warm-100">
             <span className="text-sm font-semibold text-warm-700">{t('svn.renameChangelist')}</span>
           </div>
@@ -617,6 +615,19 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
 
 // ── Sidebar primitives ──────────────────────────────────────────────────────
 
+// Amber "REMOTE" pill marking actions that contact the SVN server.
+function RemoteBadge({ title }: { title?: string }) {
+  const { t } = useI18n();
+  return (
+    <span
+      title={title}
+      className="shrink-0 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+    >
+      {t('svn.remoteBadge')}
+    </span>
+  );
+}
+
 function SidebarHeader({ label }: { label: string }) {
   return (
     <div className="px-3 pt-3 pb-1 text-[10px] font-semibold text-warm-400 uppercase tracking-wider">
@@ -642,14 +653,7 @@ function CmdButton({ label, active, remote, disabled, onClick }: {
       }`}
     >
       <span className="truncate flex-1">{label}</span>
-      {remote && (
-        <span
-          title={t('svn.remoteHint')}
-          className="shrink-0 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-        >
-          {t('svn.remoteBadge')}
-        </span>
-      )}
+      {remote && <RemoteBadge title={t('svn.remoteHint')} />}
     </button>
   );
 }
@@ -1113,9 +1117,7 @@ function ModificationsView(props: {
         <button onClick={props.onCheckRepository} disabled={props.busy}
           className="px-2 py-1 text-xs rounded border border-warm-200 hover:bg-warm-50 disabled:opacity-40 flex items-center gap-1">
           {props.remoteChecking ? t('svn.checking') : t('svn.checkRepository')}
-          <span className="text-[9px] uppercase tracking-wide px-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-            {t('svn.remoteBadge')}
-          </span>
+          <RemoteBadge />
         </button>
         {props.actionFlash && <span className="text-2xs text-status-success ml-1">{props.actionFlash}</span>}
         {props.error && <span className="text-2xs text-status-error ml-1">{props.error}</span>}
@@ -1520,7 +1522,7 @@ function PropertiesDialog({ projectId, file, onClose }: {
 
   return (
     <Modal open onClose={onClose} size="2xl">
-      <div className="bg-theme-card rounded-lg shadow-xl w-full max-h-[80vh] flex flex-col">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-full max-h-[80vh] flex flex-col overflow-hidden">
         <div className="px-4 py-3 border-b border-warm-100 flex items-center justify-between shrink-0">
           <span className="text-sm font-semibold text-warm-700 truncate" title={target}>
             {t('svn.propertiesOf').replace('{target}', target)}

@@ -843,7 +843,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
             {/* Description */}
             <section>
-              <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider mb-1.5">
+              <h4 className="section-label mb-1.5">
                 {t('todo.description')}
               </h4>
               <div className="rounded-lg border border-theme-border bg-theme-card/50 px-3 py-2">
@@ -858,7 +858,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
             {/* Attached Images */}
             {existingImages.length > 0 && (
               <section>
-                <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider mb-1.5">
+                <h4 className="section-label mb-1.5">
                   {t('todo.attachedImages')} <span className="text-warm-400 normal-case">({existingImages.length})</span>
                 </h4>
                 <div className="flex flex-wrap gap-1.5">
@@ -874,7 +874,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
             {/* Branch / Worktree / Dependencies */}
             {(parentTodo || todo.branch_name || childTodo) && (
               <section>
-                <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider mb-1.5">
+                <h4 className="section-label mb-1.5">
                   {t('todo.branch')}
                 </h4>
                 <div className="rounded-lg border border-theme-border bg-theme-card/50 px-3 py-2 space-y-1.5">
@@ -949,7 +949,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
             {/* Result Summary */}
             {hasResult && resultData && (
               <section>
-                <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider mb-1.5">
+                <h4 className="section-label mb-1.5">
                   {t('todo.result')}
                 </h4>
                 <div className="rounded-lg border border-theme-border bg-theme-card/50 px-3 py-2 space-y-2.5">
@@ -1066,7 +1066,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
             {showDiff && diffData && (
               <section>
                 <div className="flex items-center justify-between mb-1.5">
-                  <h4 className="text-2xs font-semibold text-warm-500 uppercase tracking-wider">
+                  <h4 className="section-label">
                     {t('todo.diffOutput')}
                   </h4>
                   <div className="flex items-center gap-1.5 text-2xs">
