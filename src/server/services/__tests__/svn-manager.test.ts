@@ -1,19 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createTestWorkspace } from '../../test-utils/workspace.js';
+
+let ws = createTestWorkspace('svn-test');
+const wcPath = ws.path.replace(/\\/g, '/');
 
 const STATUS_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <status>
-<target path="C:/wc">
-<entry path="C:/wc/src/plain.ts">
+<target path="${wcPath}">
+<entry path="${wcPath}/src/plain.ts">
 <wc-status item="modified" props="none" revision="10">
 </wc-status>
 </entry>
-<entry path="C:/wc/new.txt">
+<entry path="${wcPath}/new.txt">
 <wc-status item="unversioned" props="none">
 </wc-status>
 </entry>
 </target>
 <changelist name="ui&amp;fix">
-<entry path="C:/wc/src/App.tsx">
+<entry path="${wcPath}/src/App.tsx">
 <wc-status item="modified" props="none" revision="10">
 </wc-status>
 </entry>
@@ -30,12 +34,12 @@ const INFO_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </info>`;
 
 const UPDATE_STDOUT = [
-  "Updating 'C:/wc':",
-  'U    C:/wc/src/plain.ts',
-  'C    C:/wc/src/충돌.c',
-  ' C   C:/wc/props-conflict.txt',
-  '   C C:/wc/tree-dir',
-  'G    C:/wc/merged.txt',
+  `Updating '${wcPath}':`,
+  `U    ${wcPath}/src/plain.ts`,
+  `C    ${wcPath}/src/충돌.c`,
+  ` C   ${wcPath}/props-conflict.txt`,
+  `   C ${wcPath}/tree-dir`,
+  `G    ${wcPath}/merged.txt`,
   'Updated to revision 42.',
   'Summary of conflicts:',
   '  Text conflicts: 1',
@@ -55,7 +59,7 @@ import { svnManager } from '../svn-manager.js';
 
 describe('svnManager.getStatus changelist parsing', () => {
   it('attaches the changelist name to member files and leaves others without one', async () => {
-    const status = await svnManager.getStatus('C:/wc');
+    const status = await svnManager.getStatus(wcPath);
     const byPath = new Map(status.files.map((f) => [f.path, f]));
 
     // Member of <changelist name="ui&amp;fix"> — name captured and unescaped.
@@ -70,8 +74,9 @@ describe('svnManager.getStatus changelist parsing', () => {
 
 describe('svnManager.update conflict parsing', () => {
   it('collects text/prop/tree conflicts and skips clean/summary lines', async () => {
-    const result = await svnManager.update('C:/wc');
+    const result = await svnManager.update(wcPath);
     expect(result.revision).toBe('42');
     expect(result.conflicts).toEqual(['src/충돌.c', 'props-conflict.txt', 'tree-dir']);
   });
 });
+

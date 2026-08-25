@@ -1,4 +1,6 @@
 import { runSvn } from '../lib/svn.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
 
 /**
  * SVN working-copy manager.
@@ -257,22 +259,27 @@ class SvnManager {
   }
 
   async setProperty(dirPath: string, name: string, value: string, target?: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
+    if (target) assertTestRuntimePathAllowed(target);
     await runSvn(['propset', name, value, target ?? dirPath], dirPath);
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────
 
   async add(dirPath: string, files: string[]): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     if (files.length === 0) return;
     await runSvn(['add', '--parents', '--force', ...files], dirPath);
   }
 
   async revert(dirPath: string, files: string[]): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     if (files.length === 0) return;
     await runSvn(['revert', '-R', ...files], dirPath);
   }
 
   async remove(dirPath: string, files: string[], keepLocal = false): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     if (files.length === 0) return;
     const args = ['delete'];
     if (keepLocal) args.push('--keep-local');
@@ -281,18 +288,21 @@ class SvnManager {
   }
 
   async resolve(dirPath: string, files: string[], accept: 'working' | 'mine-full' | 'theirs-full' | 'base' = 'working'): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     if (files.length === 0) return;
     await runSvn(['resolve', `--accept=${accept}`, ...files], dirPath);
   }
 
   /** Assign files to a native changelist, or remove them from any (name === null). */
   async changelist(dirPath: string, name: string | null, files: string[]): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     if (files.length === 0) return;
     const args = name ? ['changelist', name, ...files] : ['changelist', '--remove', ...files];
     await runSvn(args, dirPath);
   }
 
   async commit(dirPath: string, message: string, files?: string[]): Promise<{ revision: string | null; output: string }> {
+    assertTestRuntimePathAllowed(dirPath);
     if (!message.trim()) throw new Error('Commit message is required');
     const args = ['commit', '-m', message];
     if (files && files.length > 0) args.push(...files);
@@ -304,6 +314,7 @@ class SvnManager {
   }
 
   async update(dirPath: string, revision?: string): Promise<{ revision: string | null; output: string; conflicts: string[] }> {
+    assertTestRuntimePathAllowed(dirPath);
     const args = ['update'];
     if (revision) args.push('-r', revision);
     args.push(dirPath);
@@ -321,8 +332,10 @@ class SvnManager {
   }
 
   async cleanup(dirPath: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     await runSvn(['cleanup', dirPath]);
   }
+
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

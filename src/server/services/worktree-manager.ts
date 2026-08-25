@@ -148,6 +148,7 @@ export class WorktreeManager {
    * Failures are logged but do not block worktree creation.
    */
   private async installDependencies(worktreePath: string): Promise<void> {
+    assertTestRuntimePathAllowed(worktreePath);
     // Root-level dependencies
     if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
       try {
@@ -172,6 +173,10 @@ export class WorktreeManager {
    * Remove a worktree and prune.
    */
   async removeWorktree(projectPath: string, worktreePath: string): Promise<void> {
+    assertTestRuntimePathAllowed(projectPath);
+    if (worktreePath) {
+      assertTestRuntimePathAllowed(worktreePath);
+    }
     const git = createGit(projectPath);
 
     try {
@@ -281,6 +286,7 @@ export class WorktreeManager {
    * This takes all commits from sourceBranch and applies them as a single commit on the target.
    */
   async squashMergeBranch(targetWorktreePath: string, sourceBranch: string): Promise<void> {
+    assertTestRuntimePathAllowed(targetWorktreePath);
     const git = createGit(targetWorktreePath);
     try {
       await git.raw(['merge', '--squash', sourceBranch]);
@@ -291,6 +297,7 @@ export class WorktreeManager {
       throw err;
     }
   }
+
 
   /**
    * List all worktrees for a project.
@@ -438,28 +445,33 @@ export class WorktreeManager {
   // --- Git action methods ---
 
   async gitStage(dirPath: string, files: string[]): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.add(files);
   }
 
   async gitUnstage(dirPath: string, files: string[]): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.reset(['--', ...files]);
   }
 
   async gitCommit(dirPath: string, message: string): Promise<string> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const result = await git.commit(message);
     return result.commit;
   }
 
   async gitPull(dirPath: string, remote = 'origin', branch?: string): Promise<string> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const result = await git.pull(remote, branch);
     return `${result.summary?.changes ?? 0} changes, ${result.summary?.insertions ?? 0} insertions, ${result.summary?.deletions ?? 0} deletions`;
   }
 
   async gitPush(dirPath: string, opts: GitPushOptions = {}): Promise<string> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const remote = opts.remote || 'origin';
     const pushAllTags = opts.pushAllTags === true;
@@ -504,6 +516,7 @@ export class WorktreeManager {
   }
 
   async gitFetch(dirPath: string, remote = 'origin', prune = false): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const args = ['fetch', remote];
     if (prune) args.push('--prune');
@@ -511,6 +524,7 @@ export class WorktreeManager {
   }
 
   async gitCreateBranch(dirPath: string, branchName: string, startPoint?: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     if (startPoint) {
       await git.checkoutBranch(branchName, startPoint);
@@ -520,14 +534,17 @@ export class WorktreeManager {
   }
 
   async gitDeleteBranch(dirPath: string, branchName: string, force = false): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.branch([force ? '-D' : '-d', branchName]);
   }
 
   async gitCheckout(dirPath: string, branchName: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.checkout(branchName);
   }
+
 
   /**
    * Detect an in-progress merge/rebase by looking at the repository's actual
@@ -551,6 +568,7 @@ export class WorktreeManager {
    * leave no MERGE_HEAD, so they re-throw as regular errors.
    */
   async gitMerge(dirPath: string, sourceBranch: string): Promise<{ result: string; conflict: boolean; conflictFiles: string[] }> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     try {
       const result = await git.merge([sourceBranch]);
@@ -569,6 +587,7 @@ export class WorktreeManager {
    * `checkout --ours/--theirs` fails — accept the deletion via `git rm`.
    */
   async gitResolveConflict(dirPath: string, file: string, side: 'ours' | 'theirs'): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const stages = await git.raw(['ls-files', '-u', '--', file]);
     if (!stages.trim()) throw new Error(`Not a conflicted file: ${file}`);
@@ -624,6 +643,7 @@ export class WorktreeManager {
    * process realistically never has.
    */
   async gitConflictContinue(dirPath: string): Promise<{ conflict: boolean; conflictFiles: string[] }> {
+    assertTestRuntimePathAllowed(dirPath);
     const { merging, rebasing } = await this.getGitOpState(dirPath);
     const git = createGit(dirPath, {
       config: ['core.editor=true'],
@@ -649,6 +669,7 @@ export class WorktreeManager {
   }
 
   async gitConflictAbort(dirPath: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const { merging, rebasing } = await this.getGitOpState(dirPath);
     const git = createGit(dirPath);
     if (merging) await git.raw(['merge', '--abort']);
@@ -657,6 +678,7 @@ export class WorktreeManager {
   }
 
   async gitStashPush(dirPath: string, message?: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const args = ['stash', 'push'];
     if (message) args.push('-m', message);
@@ -664,6 +686,7 @@ export class WorktreeManager {
   }
 
   async gitStashPop(dirPath: string, index = 0): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.raw(['stash', 'pop', `stash@{${index}}`]);
   }
@@ -675,17 +698,20 @@ export class WorktreeManager {
   }
 
   async gitDiscard(dirPath: string, files: string[]): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.checkout(['--', ...files]);
   }
 
   async gitDiscardAll(dirPath: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.checkout(['.']);
     await git.clean('f', ['-d']);
   }
 
   async gitCreateTag(dirPath: string, tagName: string, message?: string, commit?: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     const args = ['tag'];
     if (message) {
@@ -698,16 +724,19 @@ export class WorktreeManager {
   }
 
   async gitDeleteTag(dirPath: string, tagName: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.raw(['tag', '-d', tagName]);
   }
 
   async gitRenameBranch(dirPath: string, oldName: string, newName: string): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.branch(['-m', oldName, newName]);
   }
 
   async gitRebase(dirPath: string, onto: string): Promise<{ result: string; conflict: boolean; conflictFiles: string[] }> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     try {
       const result = await git.rebase([onto]);
@@ -727,6 +756,7 @@ export class WorktreeManager {
   // ponytail: no REVERT_HEAD/CHERRY_PICK_HEAD abort button; resolve-and-commit
   // covers it. Add a sequencer abort if users hit dead ends.
   async gitRevert(dirPath: string, commit: string): Promise<{ conflict: boolean; conflictFiles: string[] }> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     try {
       await git.raw(['revert', '--no-edit', commit]);
@@ -739,6 +769,7 @@ export class WorktreeManager {
   }
 
   async gitCherryPick(dirPath: string, commit: string): Promise<{ conflict: boolean; conflictFiles: string[] }> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     try {
       await git.raw(['cherry-pick', commit]);
@@ -751,9 +782,11 @@ export class WorktreeManager {
   }
 
   async gitReset(dirPath: string, commit: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
+    assertTestRuntimePathAllowed(dirPath);
     const git = createGit(dirPath);
     await git.raw(['reset', `--${mode}`, commit]);
   }
+
 
   async gitDiff(dirPath: string, file?: string, staged = false): Promise<string> {
     const git = createGit(dirPath);

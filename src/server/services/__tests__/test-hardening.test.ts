@@ -21,11 +21,18 @@ const { worktreeManager } = await import('../worktree-manager.js');
 const { debugLogger } = await import('../debug-logger.js');
 const { exportProjectWikiSync } = await import('../wiki-exporter.js');
 const { atomicWriteText } = await import('../../plugins/harness/io.js');
-const { UNEXPECTED_FS_WRITE_MESSAGE } = await import('../../utils/test-fs-guard.js');
 const { broadcaster } = await import('../../websocket/broadcaster.js');
 const cliStatus = await import('../cli-status.js');
 const { getAdapter } = await import('../cli-adapters.js');
+const { createGit } = await import('../../lib/git.js');
 const { discoverAntigravity, discoverModelCatalog, execCommand } = await import('../model-sync.js');
+const { UNEXPECTED_FS_WRITE_MESSAGE } = await import('../../utils/test-fs-guard.js');
+
+
+
+
+
+
 
 
 describe('Test Hardening & Boundary Guard Suite', () => {
@@ -446,6 +453,82 @@ describe('Test Hardening & Boundary Guard Suite', () => {
 
       expect(violations).toEqual([]);
     });
+
+    it('20. WorktreeManager mutating methods fail closed on unsafe paths BEFORE executing any git commands', async () => {
+      const unsafePath = process.platform === 'win32'
+        ? 'C:/aikombinat-forbidden-worktree-proj'
+        : '/aikombinat-forbidden-worktree-proj';
+
+      expect(fs.existsSync(unsafePath)).toBe(false);
+
+      // Verify fail-closed behavior on all mutating WorktreeManager methods
+      await expect(worktreeManager.removeWorktree(unsafePath, path.join(unsafePath, 'wt'))).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.squashMergeBranch(unsafePath, 'feature/test')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitDiscardAll(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitCheckout(unsafePath, 'main')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitCommit(unsafePath, 'test commit')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitMerge(unsafePath, 'feature/test')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitRebase(unsafePath, 'main')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitStashPush(unsafePath, 'test stash')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitStage(unsafePath, ['file.txt'])).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitUnstage(unsafePath, ['file.txt'])).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitPull(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitPush(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitFetch(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitCreateBranch(unsafePath, 'feature/test')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitDeleteBranch(unsafePath, 'feature/test')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitCreateTag(unsafePath, 'v1.0')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitDeleteTag(unsafePath, 'v1.0')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitRenameBranch(unsafePath, 'old', 'new')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitRevert(unsafePath, 'HEAD')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitCherryPick(unsafePath, 'HEAD')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitReset(unsafePath, 'HEAD', 'hard')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitConflictContinue(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitConflictAbort(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitStashPop(unsafePath)).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      await expect(worktreeManager.gitDiscard(unsafePath, ['file.txt'])).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // Verify no directory was created on disk
+      expect(fs.existsSync(unsafePath)).toBe(false);
+    });
+
+    it('21. WorktreeManager mutating operations succeed inside a real TestWorkspace git repository', async () => {
+      const gitWs = createTestWorkspace('wm-real-git');
+      const git = createGit(gitWs.path);
+      await git.init();
+      await git.addConfig('user.name', 'Test Runner');
+      await git.addConfig('user.email', 'test@example.com');
+
+      const testFile = gitWs.resolvePath('sample.txt');
+      fs.writeFileSync(testFile, 'initial content\n', 'utf8');
+
+      // Stage and commit using WorktreeManager
+      await expect(worktreeManager.gitStage(gitWs.path, ['sample.txt'])).resolves.not.toThrow();
+      await expect(worktreeManager.gitCommit(gitWs.path, 'initial commit')).resolves.toBeDefined();
+
+      // Create and checkout branch
+      await expect(worktreeManager.gitCreateBranch(gitWs.path, 'feature/sample')).resolves.not.toThrow();
+      await expect(worktreeManager.gitCheckout(gitWs.path, 'feature/sample')).resolves.not.toThrow();
+
+      // Modify file and test stash operations
+      fs.appendFileSync(testFile, 'modified line\n', 'utf8');
+      await expect(worktreeManager.gitStashPush(gitWs.path, 'stash test')).resolves.not.toThrow();
+      await expect(worktreeManager.gitStashPop(gitWs.path, 0)).resolves.not.toThrow();
+
+      // Commit the modified content so HEAD advances
+      await expect(worktreeManager.gitStage(gitWs.path, ['sample.txt'])).resolves.not.toThrow();
+      await expect(worktreeManager.gitCommit(gitWs.path, 'second commit')).resolves.toBeDefined();
+
+      // Test discard all (dirty uncommitted line is cleanly discarded)
+      fs.appendFileSync(testFile, 'dirty line\n', 'utf8');
+      await expect(worktreeManager.gitDiscardAll(gitWs.path)).resolves.not.toThrow();
+      expect(fs.readFileSync(testFile, 'utf8').replace(/\r\n/g, '\n')).toBe('initial content\nmodified line\n');
+
+      gitWs.cleanup();
+      expect(fs.existsSync(gitWs.path)).toBe(false);
+    });
+
   });
 });
+
 

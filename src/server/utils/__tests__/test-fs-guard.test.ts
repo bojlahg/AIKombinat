@@ -1,19 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
+import * as testFsGuard from '../test-fs-guard.js';
 import {
   isTestEnvironment,
   isTestRuntimePathAllowed,
   assertTestRuntimePathAllowed,
   UNEXPECTED_FS_WRITE_MESSAGE,
-  registerApprovedTestRoot,
-  unregisterApprovedTestRoot,
 } from '../test-fs-guard.js';
 import { createTestWorkspace } from '../../test-utils/workspace.js';
 
 describe('test-fs-guard', () => {
   it('isTestEnvironment returns true in test runner', () => {
     expect(isTestEnvironment()).toBe(true);
+  });
+
+  it('does not export custom approved root registration escape hatches', () => {
+    expect((testFsGuard as Record<string, unknown>).registerApprovedTestRoot).toBeUndefined();
+    expect((testFsGuard as Record<string, unknown>).unregisterApprovedTestRoot).toBeUndefined();
   });
 
   describe('isTestRuntimePathAllowed and assertTestRuntimePathAllowed', () => {
@@ -72,16 +77,33 @@ describe('test-fs-guard', () => {
       }
     });
 
-    it('supports custom registered test roots', () => {
-      const customRoot = path.resolve('data', 'custom-test-root');
-      expect(isTestRuntimePathAllowed(path.join(customRoot, 'test.txt'))).toBe(false);
+    it('detects and rejects symlink / junction escapes pointing outside tmpdir', () => {
+      const workspace = createTestWorkspace('symlink-check');
+      const externalTarget = path.resolve(process.cwd(), 'src');
+      const linkPath = path.join(workspace.path, 'evil-link');
 
-      registerApprovedTestRoot(customRoot);
-      expect(isTestRuntimePathAllowed(path.join(customRoot, 'test.txt'))).toBe(true);
-      expect(() => assertTestRuntimePathAllowed(path.join(customRoot, 'test.txt'))).not.toThrow();
+      let linkCreated = false;
+      try {
+        // Try creating directory junction / symlink
+        fs.symlinkSync(externalTarget, linkPath, 'junction');
+        linkCreated = true;
+      } catch {
+        try {
+          fs.symlinkSync(externalTarget, linkPath, 'dir');
+          linkCreated = true;
+        } catch {
+          // If OS unprivileged symlink creation is restricted, skip symlink creation
+        }
+      }
 
-      unregisterApprovedTestRoot(customRoot);
-      expect(isTestRuntimePathAllowed(path.join(customRoot, 'test.txt'))).toBe(false);
+      if (linkCreated) {
+        const escapedFile = path.join(linkPath, 'server', 'index.ts');
+        expect(isTestRuntimePathAllowed(escapedFile)).toBe(false);
+        expect(() => assertTestRuntimePathAllowed(escapedFile)).toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+      }
+
+      workspace.cleanup();
     });
   });
 });
+
