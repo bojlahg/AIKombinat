@@ -1768,4 +1768,82 @@ describe('Quota Awareness V1', () => {
 
     resolveExit(0);
   });
+
+  it('39. persisted exhaustion without resetAt schedules remaining cooldown on initialize()', async () => {
+    vi.useFakeTimers();
+    const t0 = 1700000000000;
+    vi.setSystemTime(t0);
+
+    const cooldownMs = 5 * 60 * 1000; // 5 minutes
+    providerQuotaService.setCooldownMs(cooldownMs);
+
+    // Persist exhausted state at T0
+    queries.upsertProviderQuotaState({
+      tool: 'claude',
+      state: 'exhausted',
+      source: 'runtime_rejection',
+      observed_at: new Date(t0).toISOString(),
+      reason: 'Rate limit',
+      reset_at: null,
+    });
+
+    // Advance to T0 + 4 minutes (240s elapsed, 60s remaining)
+    vi.setSystemTime(t0 + 4 * 60 * 1000);
+
+    let availableNotified = false;
+    providerQuotaService.setAvailabilityCallback(() => {
+      availableNotified = true;
+    });
+
+    // Server restart / initialization
+    providerQuotaService.initialize();
+
+    // After 30 seconds (T0 + 4.5m) -> must still be exhausted
+    vi.advanceTimersByTime(30 * 1000);
+    expect(availableNotified).toBe(false);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
+
+    // After another 35 seconds (T0 + 5m + 5s) -> cooldown expires around T0 + 5m (NOT T0 + 9m)
+    vi.advanceTimersByTime(35 * 1000);
+    expect(availableNotified).toBe(true);
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+
+    vi.useRealTimers();
+  });
+
+  it('40. persisted exhaustion without resetAt past deadline transitions immediately on initialize()', async () => {
+    vi.useFakeTimers();
+    const t0 = 1700000000000;
+    vi.setSystemTime(t0);
+
+    const cooldownMs = 5 * 60 * 1000; // 5 minutes
+    providerQuotaService.setCooldownMs(cooldownMs);
+
+    // Persist exhausted state at T0
+    queries.upsertProviderQuotaState({
+      tool: 'claude',
+      state: 'exhausted',
+      source: 'runtime_rejection',
+      observed_at: new Date(t0).toISOString(),
+      reason: 'Rate limit',
+      reset_at: null,
+    });
+
+    // Advance to T0 + 6 minutes (cooldown already expired while server was offline)
+    vi.setSystemTime(t0 + 6 * 60 * 1000);
+
+    let availableNotified = false;
+    providerQuotaService.setAvailabilityCallback(() => {
+      availableNotified = true;
+    });
+
+    // Server restart / initialization
+    providerQuotaService.initialize();
+
+    // Must be unknown and notified
+    expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+    expect(availableNotified).toBe(true);
+
+    vi.useRealTimers();
+  });
 });

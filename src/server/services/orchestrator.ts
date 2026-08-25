@@ -296,6 +296,10 @@ export class Orchestrator {
       throw new Error('Todo is already running');
     }
 
+    if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todoId)) {
+      throw new Error('Cannot start task while stopping.');
+    }
+
     if (todo.review_enabled) {
       const activeRound = queries.getActiveExecutionRound(todoId);
       if (!activeRound) {
@@ -480,6 +484,10 @@ export class Orchestrator {
 
     const project = queries.getProjectById(projectId);
     if (!project) return;
+
+    if (this.isStoppingProjects.has(projectId) || this.stoppingTodoIds.has(todoId)) {
+      return;
+    }
 
     const isContinue = !!continueOptions;
     const roundNumber = continueOptions?.roundNumber ?? (todo.round_count ?? 1);
@@ -1419,24 +1427,6 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Global wake mechanism: resume waiting_executor tasks across any project when executor capacity is freed.
-   * Uses coalescing / loop semantics so that wake requests arriving during an active pass are never dropped.
-   */
-  async wakeWaitingExecutors(): Promise<void> {
-    this.wakeRequested = true;
-    if (this.wakeRunning) return;
-    this.wakeRunning = true;
-    try {
-      while (this.wakeRequested) {
-        this.wakeRequested = false;
-        await this.processWaitingExecutors();
-      }
-    } finally {
-      this.wakeRunning = false;
-    }
-  }
-
   async wakeWaitingResources(): Promise<void> {
     this.resourceWakeRequested = true;
     if (this.resourceWakeRunning) return;
@@ -1451,6 +1441,24 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Global wake mechanism: resume waiting_executor and waiting_quota tasks across any project when executor capacity is freed.
+   * Uses coalescing / loop semantics so that wake requests arriving during an active pass are never dropped.
+   */
+  async wakeWaitingExecutors(): Promise<void> {
+    this.wakeRequested = true;
+    if (this.wakeRunning) return;
+    this.wakeRunning = true;
+    try {
+      while (this.wakeRequested) {
+        this.wakeRequested = false;
+        await this.processAdmissionWaitTasks();
+      }
+    } finally {
+      this.wakeRunning = false;
+    }
+  }
+
   async wakeWaitingQuota(): Promise<void> {
     this.quotaWakeRequested = true;
     if (this.quotaWakeRunning) return;
@@ -1458,17 +1466,20 @@ export class Orchestrator {
     try {
       while (this.quotaWakeRequested) {
         this.quotaWakeRequested = false;
-        await this.processWaitingQuota();
+        await this.processAdmissionWaitTasks();
       }
     } finally {
       this.quotaWakeRunning = false;
     }
   }
 
-  private async processWaitingQuota(): Promise<void> {
-    const waitingTodos = queries.getTodosByStatus('waiting_quota');
+  private async processAdmissionWaitTasks(): Promise<void> {
+    const waitingExecutors = queries.getTodosByStatus('waiting_executor');
+    const waitingQuotas = queries.getTodosByStatus('waiting_quota');
+    const waitingTodos = [...waitingExecutors, ...waitingQuotas];
     if (waitingTodos.length === 0) return;
 
+    // Deterministic cross-project ordering: created_at ASC, id ASC
     const sortedWaiting = [...waitingTodos].sort(
       (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
     );
@@ -1476,7 +1487,7 @@ export class Orchestrator {
     for (const todo of sortedWaiting) {
       if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todo.id)) continue;
       const freshTodo = queries.getTodoById(todo.id);
-      if (!freshTodo || freshTodo.status !== 'waiting_quota') continue;
+      if (!freshTodo || (freshTodo.status !== 'waiting_executor' && freshTodo.status !== 'waiting_quota')) continue;
 
       const project = queries.getProjectById(todo.project_id);
       if (!project) continue;
@@ -1511,37 +1522,6 @@ export class Orchestrator {
       if (running.length >= this.getMaxConcurrent(todo.project_id)) continue;
       if (!this.canStartNow(project, freshTodo, running).ok) continue;
       if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
-      await this.startSingleTodo(freshTodo.id, project.path, project.id, 'headless', true);
-    }
-  }
-
-  private async processWaitingExecutors(): Promise<void> {
-    const waitingTodos = queries.getTodosByStatus('waiting_executor');
-    if (waitingTodos.length === 0) return;
-
-    // Deterministic cross-project ordering: created_at ASC, id ASC
-    const sortedWaiting = [...waitingTodos].sort(
-      (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
-    );
-
-    for (const todo of sortedWaiting) {
-      if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todo.id)) continue;
-      const freshTodo = queries.getTodoById(todo.id);
-      if (!freshTodo || freshTodo.status !== 'waiting_executor') continue;
-
-      const project = queries.getProjectById(todo.project_id);
-      if (!project) continue;
-
-      const projectTodos = queries.getTodosByProjectId(todo.project_id);
-      const runningInProject = projectTodos.filter((t) => t.status === 'running');
-      const maxConcurrent = this.getMaxConcurrent(todo.project_id);
-      if (runningInProject.length >= maxConcurrent) continue;
-
-      const gate = this.canStartNow(project, freshTodo, runningInProject);
-      if (!gate.ok) continue;
-
-      if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
-
       await this.startSingleTodo(freshTodo.id, project.path, project.id, 'headless', true);
     }
   }

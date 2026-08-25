@@ -79,8 +79,8 @@ export class ExecutionRoundRetryService {
       throw new RetryConflictError('Only the latest failed/stopped execution round can be retried.');
     }
 
-    if (orchestrator.isStopping(todoId)) {
-      throw new RetryConflictError('Task is currently stopping.');
+    if (orchestrator.isStopping(todoId) || orchestrator.isStoppingProject(todo.project_id)) {
+      throw new RetryConflictError('Task or project is currently stopping.');
     }
 
     if (todo.process_pid && todo.process_pid > 0) {
@@ -108,6 +108,10 @@ export class ExecutionRoundRetryService {
     db.transaction(() => {
       const freshTodo = getTodoById(todoId);
       if (!freshTodo) throw new TodoNotFoundError('Todo not found');
+
+      if (orchestrator.isStopping(todoId) || orchestrator.isStoppingProject(freshTodo.project_id)) {
+        throw new RetryConflictError('Task or project is currently stopping.');
+      }
 
       if (freshTodo.status !== 'failed' && freshTodo.status !== 'stopped') {
         throw new RetryConflictError(`Task is not retryable from status ${freshTodo.status}. Only failed or stopped tasks can be retried.`);

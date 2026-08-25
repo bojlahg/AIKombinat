@@ -71,15 +71,28 @@ export class ProviderQuotaService {
     this.clearTimer(tool);
     if (record.state !== 'exhausted') return;
 
-    let delayMs = this.getCooldownMs();
+    const now = Date.now();
+    const cooldown = this.getCooldownMs();
+    let deadline: number;
+
     if (record.resetAt) {
       const resetTime = new Date(record.resetAt).getTime();
       if (!isNaN(resetTime)) {
-        delayMs = Math.max(0, resetTime - Date.now());
+        deadline = resetTime;
+      } else if (record.observedAt && !isNaN(new Date(record.observedAt).getTime())) {
+        deadline = new Date(record.observedAt).getTime() + cooldown;
+      } else {
+        deadline = now + cooldown;
       }
+    } else if (record.observedAt && !isNaN(new Date(record.observedAt).getTime())) {
+      deadline = new Date(record.observedAt).getTime() + cooldown;
+    } else {
+      deadline = now + cooldown;
     }
 
-    const timer = setTimeout(() => {
+    const delayMs = Math.max(0, deadline - now);
+
+    const onExpired = () => {
       this.resetTimers.delete(tool);
       const current = this.cache.get(tool);
       if (current && current.state === 'exhausted') {
@@ -116,7 +129,9 @@ export class ProviderQuotaService {
 
         this.notifyAvailable();
       }
-    }, Math.max(10, delayMs));
+    };
+
+    const timer = setTimeout(onExpired, delayMs);
 
     if (typeof timer.unref === 'function') {
       timer.unref();

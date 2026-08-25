@@ -109,6 +109,7 @@ const { reviewPipeline } = await import('../review-pipeline.js');
 const { executorPool } = await import('../executor-pool.js');
 const { resourceManager } = await import('../resource-manager.js');
 const { providerQuotaService } = await import('../provider-quota.js');
+const { claudeManager } = await import('../claude-manager.js');
 const { executionRoundRetryService, RetryConflictError } = await import('../execution-round-retry.js');
 
 describe('Execution Round Retry & Recovery V1', () => {
@@ -1353,6 +1354,230 @@ describe('Execution Round Retry & Recovery V1', () => {
     await orchestrator.startTodo(todo.id);
     expect(queries.getTodoById(todo.id)?.status).toBe('running');
     nextExitResolvers[0](0);
+  });
+
+  it('32. Stop Project race with explicit phase Retry and generic Start', async () => {
+    // 1. Todo A is running
+    const todoA = queries.createTodo(
+      project.id,
+      'Task A Running',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+    await orchestrator.startTodo(todoA.id);
+    expect(queries.getTodoById(todoA.id)?.status).toBe('running');
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // 2. Todo B is reviewed + failed with retryable latest round
+    const todoB = queries.createTodo(
+      project.id,
+      'Task B Failed',
+      'Desc',
+      1,
+      'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      'none',
+      null,
+      null,
+      undefined,
+      undefined,
+      null,
+      null,
+      '[]',
+      1,
+      reviewProfile.id,
+      reworkProfile.id,
+      3
+    );
+    reviewPipeline.ensureInitialRound(todoB.id);
+    const roundB1 = queries.getActiveExecutionRound(todoB.id)!;
+    queries.updateExecutionRound(roundB1.id, {
+      status: 'failed',
+      error_message: 'Failure before stop',
+      finished_at: new Date().toISOString(),
+    });
+    queries.updateTodoStatus(todoB.id, 'failed');
+
+    // 3. Mock stopClaude to hang until we resolve it
+    let resolveStopClaude: (value: boolean) => void;
+    const stopClaudePromise = new Promise<boolean>((resolve) => {
+      resolveStopClaude = resolve;
+    });
+    const stopSpy = vi.spyOn(claudeManager, 'stopClaude').mockReturnValueOnce(stopClaudePromise);
+
+    // 4. Call stopProject without awaiting
+    const stopProjectPromise = orchestrator.stopProject(project.id);
+    expect(orchestrator.isStoppingProject(project.id)).toBe(true);
+
+    // 5. Attempt explicit Retry Phase on Todo B while Stop Project is pending
+    await expect(
+      executionRoundRetryService.retryExecutionRound(todoB.id, roundB1.id)
+    ).rejects.toThrow('Task or project is currently stopping.');
+
+    // Verify no new round and no new process started for B
+    expect(queries.getExecutionRoundsByTodoId(todoB.id)).toHaveLength(1);
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    // 6. Attempt direct generic Start on Todo B while Stop Project is pending
+    await expect(orchestrator.startTodo(todoB.id)).rejects.toThrow('Cannot start task while stopping.');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    // 7. Resolve stopClaude so stopProject finishes
+    resolveStopClaude!(true);
+    await stopProjectPromise;
+
+    expect(orchestrator.isStoppingProject(project.id)).toBe(false);
+    expect(queries.getTodoById(todoA.id)?.status).toBe('stopped');
+    expect(queries.getTodoById(todoB.id)?.status).toBe('failed');
+
+    // 8. Now that Stop Project is completed, explicit retry succeeds normally
+    await executionRoundRetryService.retryExecutionRound(todoB.id, roundB1.id);
+    expect(queries.getTodoById(todoB.id)?.status).toBe('running');
+    expect(queries.getExecutionRoundsByTodoId(todoB.id)).toHaveLength(2);
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+
+    nextExitResolvers[initialStartsCount](0);
+    stopSpy.mockRestore();
+  });
+
+  it('33. Mixed busy + quota-blocked profile wakes when quota becomes available', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-mb', 'Claude 3.7 Sonnet MB');
+    const modelCodex = queries.addModel('codex', 'gpt-5-mb', 'GPT-5 MB');
+
+    const profile = queries.createExecutionProfile({
+      name: 'Mixed Busy Quota Profile',
+      slug: 'mixed-busy-quota',
+      description: 'Mixed profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+        { cli_model_id: modelCodex.id, priority: 2, is_enabled: 1 },
+      ],
+    });
+
+    // Claude is busy (limit = 0), Codex is quota-exhausted
+    executorPool.setLimit('claude', 0);
+    providerQuotaService.markExhausted('codex', { source: 'test', reason: 'codex rate limit' });
+
+    const todo = queries.createTodo(
+      project.id,
+      'Task Mixed Wake on Quota',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // Start todo -> admission wait (no process launched)
+    await orchestrator.startTodo(todo.id);
+    const waitingTodo = queries.getTodoById(todo.id)!;
+    expect(waitingTodo.status === 'waiting_executor' || waitingTodo.status === 'waiting_quota').toBe(true);
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    // Make Codex quota available while Claude remains busy
+    providerQuotaService.markUnknown('codex');
+
+    // Trigger normal quota wake
+    await orchestrator.wakeWaitingQuota();
+
+    // Todo automatically starts running with Codex (Candidate B) without manual start or executor-capacity event
+    expect(queries.getTodoById(todo.id)?.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+    expect(mockClaudeStarts[initialStartsCount].cliTool).toBe('codex');
+
+    nextExitResolvers[initialStartsCount](0);
+    executorPool.resetLimits();
+  });
+
+  it('34. Mixed busy + quota-blocked profile wakes when executor capacity frees', async () => {
+    const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-cap', 'Claude 3.7 Sonnet Cap');
+    const modelCodex = queries.addModel('codex', 'gpt-5-cap', 'GPT-5 Cap');
+
+    const profile = queries.createExecutionProfile({
+      name: 'Mixed Capacity Profile',
+      slug: 'mixed-cap-profile',
+      description: 'Mixed profile',
+      executors: [
+        { cli_model_id: modelClaude.id, priority: 1, is_enabled: 1 },
+        { cli_model_id: modelCodex.id, priority: 2, is_enabled: 1 },
+      ],
+    });
+
+    // Claude is busy (limit = 0), Codex is quota-exhausted
+    executorPool.setLimit('claude', 0);
+    providerQuotaService.markExhausted('codex', { source: 'test', reason: 'codex quota exhausted' });
+
+    const todo = queries.createTodo(
+      project.id,
+      'Task Mixed Wake on Capacity',
+      'Desc',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      profile.id,
+    );
+
+    const initialStartsCount = mockClaudeStarts.length;
+
+    // Start todo -> admission wait
+    await orchestrator.startTodo(todo.id);
+    const waitingTodo = queries.getTodoById(todo.id)!;
+    expect(waitingTodo.status === 'waiting_executor' || waitingTodo.status === 'waiting_quota').toBe(true);
+    expect(mockClaudeStarts.length).toBe(initialStartsCount);
+
+    // Free Claude capacity while Codex remains quota-exhausted
+    executorPool.setLimit('claude', 5);
+
+    // Trigger executor capacity wake
+    await orchestrator.wakeWaitingExecutors();
+
+    // Todo automatically starts running with Claude (Candidate A)
+    expect(queries.getTodoById(todo.id)?.status).toBe('running');
+    expect(mockClaudeStarts.length).toBe(initialStartsCount + 1);
+    expect(mockClaudeStarts[initialStartsCount].cliTool).toBe('claude');
+
+    nextExitResolvers[initialStartsCount](0);
+    executorPool.resetLimits();
   });
 });
 
