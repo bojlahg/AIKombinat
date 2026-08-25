@@ -24,18 +24,19 @@ describe('ClaudeManager', () => {
     });
   });
 
-  describe('startClaude pre-flight (Windows)', () => {
+  describe('startClaude fail-closed boundary', () => {
     afterEach(() => {
       vi.restoreAllMocks();
     });
 
-    it('rejects with an actionable message when the CLI is not installed', async () => {
-      if (process.platform !== 'win32') return; // pre-flight is win32-only
-      vi.spyOn(cliStatus, 'getToolStatus').mockResolvedValue({ tool: 'antigravity', installed: false, version: null });
+    it('rejects without mock in test mode before calling getToolStatus or spawning process', async () => {
+      const getStatusSpy = vi.spyOn(cliStatus, 'getToolStatus');
       const manager = new ClaudeManager();
       await expect(
         manager.startClaude(process.cwd(), 'hi', undefined, undefined, 'headless', 'antigravity')
-      ).rejects.toThrow(/not found on PATH/);
+      ).rejects.toThrow('Unexpected real CLI launch from test. Install an explicit mock for this test.');
+      expect(getStatusSpy).not.toHaveBeenCalled();
     });
   });
 });
+

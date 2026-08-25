@@ -167,9 +167,9 @@ describe('execution profiles', () => {
     expect(() => resolveExecutionConfig({ executionProfileId: profile.id })).toThrow('has no eligible executors');
   });
 
-  it.each(['Todo', 'Session'])('rejects direct launch with disabled execution profile for %s', (_context) => {
+  it.each(['Todo', 'Session', 'Discussion Agent'])('%s refuses to start with a disabled profile', (_context) => {
     const model = queries.addModel('codex', 'terra', 'Terra');
-    const profile = queries.createExecutionProfile({ slug: `disabled-${_context.toLowerCase()}`, name: `${_context} disabled`, description: '', executors: [
+    const profile = queries.createExecutionProfile({ slug: `disabled-${_context.toLowerCase().replace(/\s/g, '-')}`, name: `${_context} disabled`, description: '', executors: [
       { cli_model_id: model.id, effort_value: null, priority: 0 },
     ] });
     queries.updateExecutionProfile(profile.id, { is_enabled: 0 });

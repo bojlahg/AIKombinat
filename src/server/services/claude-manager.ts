@@ -141,7 +141,21 @@ export class ClaudeManager {
    * Uses node-pty for tools that require a TTY (e.g. Codex),
    * falls back to child_process.spawn for others.
    */
-  async startClaude(worktreePath: string, prompt: string, model?: string, extraOptions?: string, mode: CliMode = 'headless', tool: CliTool = 'claude', maxTurns?: number, projectPath?: string, sandboxMode?: SandboxMode, continueSession?: boolean, ptyCols?: number, ptyRows?: number, effort?: string): Promise<{
+  async startClaude(
+    worktreePath: string,
+    prompt: string,
+    model?: string,
+    extraOptions?: string,
+    mode: ClaudeMode = 'headless',
+    tool: CliTool = 'claude',
+    maxTurns?: number,
+    projectPath?: string,
+    sandboxMode: SandboxMode = 'strict',
+    continueSession = false,
+    ptyCols?: number,
+    ptyRows?: number,
+    effort?: string,
+  ): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
     stderr: NodeJS.ReadableStream;
@@ -150,6 +164,10 @@ export class ClaudeManager {
     command: string;
     args: string[];
   }> {
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+      throw new Error('Unexpected real CLI launch from test. Install an explicit mock for this test.');
+    }
+
     const adapter = getAdapter(tool);
     const args = adapter.buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession });
 
@@ -164,10 +182,6 @@ export class ClaudeManager {
           + `Install it first — or if it was installed after AIKombinat started, restart AIKombinat to pick up the updated PATH.`
         );
       }
-    }
-
-    if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
-      throw new Error('Unexpected real CLI launch from test. Install an explicit mock for this test.');
     }
 
     if (adapter.requiresTty || mode === 'interactive') {

@@ -32,6 +32,12 @@ const VCS_TOOLS = [
 ] as const;
 
 function checkTool(tool: string, command: string, isVcs = false): Promise<CliToolStatus> {
+  if (!isVcs && (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true')) {
+    return Promise.reject(
+      new Error('Unexpected real CLI launch from test. Install an explicit mock for this test.')
+    );
+  }
+
   return new Promise((resolve) => {
     const opts: { timeout: number; shell?: boolean } = { timeout: CHECK_TIMEOUT };
     // Windows needs shell:true to resolve .cmd shims (claude.cmd, agy.cmd, etc.)

@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import { PassThrough } from 'stream';
 import { claudeManager } from '../services/claude-manager.js';
+import * as cliStatus from '../services/cli-status.js';
 
 export const UNEXPECTED_CLI_LAUNCH_MESSAGE =
   'Unexpected real CLI launch from test. Install an explicit mock for this test.';
@@ -47,11 +48,21 @@ export function createMockCliResult(
 }
 
 /**
- * Installs fail-closed guard on `claudeManager.startClaude`.
+ * Installs fail-closed guard on `claudeManager.startClaude` and `cliStatus` probing.
  * Prevents any accidental execution of real AI CLIs (Claude, Codex, Antigravity).
  */
 export function installDefaultCliGuard(): void {
   vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
     throw new Error(UNEXPECTED_CLI_LAUNCH_MESSAGE);
   });
+  vi.spyOn(cliStatus, 'getToolStatus').mockImplementation(async (tool: string) => {
+    if (tool === 'raw-shell') {
+      return { tool: 'raw-shell', installed: true, version: 'raw-shell' };
+    }
+    throw new Error(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+  });
+  vi.spyOn(cliStatus, 'checkAllTools').mockImplementation(async () => {
+    throw new Error(UNEXPECTED_CLI_LAUNCH_MESSAGE);
+  });
 }
+
