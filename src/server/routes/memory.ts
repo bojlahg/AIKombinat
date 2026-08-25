@@ -15,6 +15,9 @@ import {
   resolveWikilinks,
 } from '../services/memory-wikilinks.js';
 import { dispatchWikiExport, exportProjectWikiSync, diffProjectWikiSync } from '../services/wiki-exporter.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
+
 
 const router = Router();
 
@@ -768,11 +771,13 @@ router.delete('/projects/:id/memory/raw-files', (req: Request<{ id: string }>, r
     }
 
     try {
+      assertTestRuntimePathAllowed(absPath);
       fs.unlinkSync(absPath);
     } catch (err) {
       res.status(500).json({ error: `Failed to delete file: ${err instanceof Error ? err.message : String(err)}` });
       return;
     }
+
 
     res.json({ deleted: relPathRaw, unlinkedNodeIds: unlinkedIds });
   } catch (err: unknown) {
@@ -882,6 +887,7 @@ router.post('/projects/:id/memory/assets', (req: Request<{ id: string }>, res: R
     }
 
     const dir = path.join(project.path, WIKI_ASSETS_DIR);
+    assertTestRuntimePathAllowed(dir);
     fs.mkdirSync(dir, { recursive: true });
     const slug = slugifyAssetName(typeof name === 'string' ? name : 'image');
     const filename = `${uuidv4().slice(0, 8)}-${slug}.${ext}`;
@@ -892,9 +898,11 @@ router.post('/projects/:id/memory/assets', (req: Request<{ id: string }>, res: R
       res.status(400).json({ error: 'Invalid filename' });
       return;
     }
+    assertTestRuntimePathAllowed(filePath);
     fs.writeFileSync(filePath, buffer);
     const relativePath = `${WIKI_ASSETS_DIR}/${filename}`;
     res.status(201).json({ filename, relativePath, size: buffer.length });
+
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
   }

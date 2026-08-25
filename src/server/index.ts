@@ -57,6 +57,9 @@ import { resolveBindHost } from './utils/bind-host.js';
 import { resourceManager } from './services/resource-manager.js';
 import { providerQuotaService } from './services/provider-quota.js';
 import { reviewPipeline } from './services/review-pipeline.js';
+import { assertTestRuntimePathAllowed } from './utils/test-fs-guard.js';
+
+
 
 const app = express();
 const server = createServer(app);
@@ -172,14 +175,17 @@ for (const p of getAllProjects()) {
   for (const dirName of ['.aikombinat', '.clitrigger']) {
     try {
       const projDir = path.join(p.path, dirName, 'paste-images');
+      assertTestRuntimePathAllowed(projDir);
       if (fs.existsSync(projDir)) fs.rmSync(projDir, { recursive: true, force: true });
     } catch { /* ignore */ }
     try {
       const worktreesRoot = path.join(p.path, '.worktrees');
+      assertTestRuntimePathAllowed(worktreesRoot);
       if (fs.existsSync(worktreesRoot)) {
         for (const wt of fs.readdirSync(worktreesRoot)) {
           try {
             const wtDir = path.join(worktreesRoot, wt, dirName, 'paste-images');
+            assertTestRuntimePathAllowed(wtDir);
             if (fs.existsSync(wtDir)) fs.rmSync(wtDir, { recursive: true, force: true });
           } catch { /* ignore */ }
         }
@@ -187,6 +193,7 @@ for (const p of getAllProjects()) {
     } catch { /* ignore */ }
   }
 }
+
 
 // Auto-cleanup old logs (default 30 days)
 const LOG_RETENTION_DAYS = parseInt(process.env.LOG_RETENTION_DAYS || '30', 10);

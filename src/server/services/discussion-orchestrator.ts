@@ -11,10 +11,12 @@ import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
 import { broadcastProjectStatus } from './project-status.js';
 import { executorPool } from './executor-pool.js';
-import { orchestrator } from './orchestrator.js';
+import { orchestrator, configureClaudeSandboxPermissions } from './orchestrator.js';
 import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
 
 function broadcastDiscussionProjectStatus(discussionId: string): void {
   try {
@@ -389,35 +391,18 @@ export class DiscussionOrchestrator {
     let exitPromise: Promise<number>;
 
     try {
+      assertTestRuntimePathAllowed(discussion.worktree_path);
       const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
 
       // Sandbox: generate Claude CLI permission settings
       if (sandboxMode === 'strict' && resolvedCliTool === 'claude' && discussion.worktree_path !== project.path) {
         try {
-          const claudeDir = path.join(discussion.worktree_path, '.claude');
-          const settingsPath = path.join(claudeDir, 'settings.json');
-          if (!fs.existsSync(claudeDir)) {
-            fs.mkdirSync(claudeDir, { recursive: true });
-          }
-          const existingSettings = fs.existsSync(settingsPath)
-            ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
-            : {};
-          // Claude's permission matcher normalizes paths to forward slashes; mixed separators
-          // (e.g. backslash dir + slash glob on Windows) silently fail to match.
-          const normalizedWorktreePath = discussion.worktree_path.replace(/\\/g, '/');
-          existingSettings.permissions = {
-            allow: [
-              `Read(${normalizedWorktreePath}/**)`,`Edit(${normalizedWorktreePath}/**)`,`Write(${normalizedWorktreePath}/**)`,
-              'Bash(*)','Glob(*)','Grep(*)',
-              'TodoRead','TodoWrite','WebFetch(*)',
-            ],
-            deny: [],
-          };
-          fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
+          configureClaudeSandboxPermissions(discussion.worktree_path);
         } catch {
           queries.createDiscussionLog(discussionId, messageId, 'warning', '[sandbox] Failed to configure permission settings');
         }
       }
+
 
       const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
       const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)

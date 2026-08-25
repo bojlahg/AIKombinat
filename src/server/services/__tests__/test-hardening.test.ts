@@ -13,14 +13,20 @@ vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
 
 const queries = await import('../../db/queries.js');
 const { claudeManager } = await import('../claude-manager.js');
-const { orchestrator } = await import('../orchestrator.js');
+const { orchestrator, configureClaudeSandboxPermissions } = await import('../orchestrator.js');
 const { sessionManager } = await import('../session-manager.js');
 const { executorPool } = await import('../executor-pool.js');
 const { resourceManager } = await import('../resource-manager.js');
+const { worktreeManager } = await import('../worktree-manager.js');
+const { debugLogger } = await import('../debug-logger.js');
+const { exportProjectWikiSync } = await import('../wiki-exporter.js');
+const { atomicWriteText } = await import('../../plugins/harness/io.js');
+const { UNEXPECTED_FS_WRITE_MESSAGE } = await import('../../utils/test-fs-guard.js');
 const { broadcaster } = await import('../../websocket/broadcaster.js');
 const cliStatus = await import('../cli-status.js');
 const { getAdapter } = await import('../cli-adapters.js');
 const { discoverAntigravity, discoverModelCatalog, execCommand } = await import('../model-sync.js');
+
 
 describe('Test Hardening & Boundary Guard Suite', () => {
   let workspace: TestWorkspace;
@@ -304,4 +310,142 @@ describe('Test Hardening & Boundary Guard Suite', () => {
       expect(fs.existsSync(freshWorkspace.path)).toBe(false);
     });
   });
+
+  describe('Runtime Filesystem Sandbox Boundary Suite', () => {
+    it('16. forgotten synthetic project path fails closed before any mkdir or write', async () => {
+      const forbiddenProjectDir = process.platform === 'win32'
+        ? 'C:/aikombinat-forbidden-test-proj'
+        : '/aikombinat-forbidden-test-proj';
+
+      // Prove destination does not exist prior to test
+      expect(fs.existsSync(forbiddenProjectDir)).toBe(false);
+
+      const mkdirSpy = vi.spyOn(fs, 'mkdirSync');
+      const writeFileSpy = vi.spyOn(fs, 'writeFileSync');
+      const startClaudeSpy = vi.spyOn(claudeManager, 'startClaude');
+
+      // 1. Direct call to sandbox configuration helper must throw fail-closed error
+      expect(() => configureClaudeSandboxPermissions(forbiddenProjectDir)).toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // 2. Orchestrator flow driving execution with forbidden project path
+      const project = queries.createProject('Forbidden Project', forbiddenProjectDir, 'main', 0);
+      const todo = queries.createTodo(project.id, 'Forbidden Todo', undefined, 0, 'claude');
+
+      await orchestrator.startTodo(todo.id);
+
+      // Assert: fs.mkdirSync was NEVER called for forbidden destination
+      const mkdirCalls = mkdirSpy.mock.calls.map(call => String(call[0]));
+      expect(mkdirCalls.some(p => p.includes('aikombinat-forbidden-test-proj'))).toBe(false);
+
+      // Assert: fs.writeFileSync was NEVER called for forbidden destination
+      const writeCalls = writeFileSpy.mock.calls.map(call => String(call[0]));
+      expect(writeCalls.some(p => p.includes('aikombinat-forbidden-test-proj'))).toBe(false);
+
+      // Assert: forbidden path was never created
+      expect(fs.existsSync(forbiddenProjectDir)).toBe(false);
+
+      // Assert: no real CLI was launched
+      expect(startClaudeSpy).not.toHaveBeenCalled();
+    });
+
+    it('17. valid TestWorkspace path configures .claude/settings.json and cleans up cleanly', () => {
+      const ws = createTestWorkspace('valid-sandbox');
+      const settingsPath = path.join(ws.path, '.claude', 'settings.json');
+
+      expect(() => configureClaudeSandboxPermissions(ws.path)).not.toThrow();
+      expect(fs.existsSync(settingsPath)).toBe(true);
+
+      const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      expect(parsed.permissions).toBeDefined();
+      expect(Array.isArray(parsed.permissions.allow)).toBe(true);
+
+      ws.cleanup();
+      expect(fs.existsSync(ws.path)).toBe(false);
+    });
+
+    it('18. representative runtime writers reject unsafe root paths in test mode and accept TestWorkspace paths', async () => {
+      const unsafePath = process.platform === 'win32'
+        ? 'C:/aikombinat-forbidden-runtime-proj'
+        : '/aikombinat-forbidden-runtime-proj';
+      const safeDir = workspace.createSubdir('safe-runtime-writers');
+
+      // 1. WorktreeManager.createWorktree
+      await expect(worktreeManager.createWorktree(unsafePath, 'feature/test')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // 2. WorktreeManager.cleanupWorktree
+      await expect(worktreeManager.cleanupWorktree(unsafePath, path.join(unsafePath, 'sub-wt'), 'feature/test')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // 3. WorktreeManager.resolveConflictWithContent
+      await expect(worktreeManager.resolveConflictWithContent(unsafePath, 'file.txt', 'data')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // 4. DebugLogger.startSession
+      expect(() => debugLogger.startSession({
+        todoId: 'todo-unsafe',
+        projectPath: unsafePath,
+        cliTool: 'claude',
+        command: 'claude',
+        args: [],
+        workDir: unsafePath,
+      })).toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // 5. Wiki Exporter (exportProjectWikiSync)
+      const unsafeProject = queries.createProject('Unsafe Wiki Proj', unsafePath, 'main', 0);
+      expect(() => exportProjectWikiSync(unsafeProject.id)).toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // 6. Harness atomicWriteText
+      await expect(atomicWriteText(path.join(unsafePath, 'file.txt'), 'hello')).rejects.toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+
+      // Now verify safe TestWorkspace paths succeed for each
+      const safeProject = queries.createProject('Safe Wiki Proj', safeDir, 'main', 0);
+      const wikiResult = exportProjectWikiSync(safeProject.id);
+      expect(wikiResult).not.toBeNull();
+      expect(fs.existsSync(path.join(safeDir, '.aikombinat', 'wiki', 'README.md'))).toBe(true);
+
+      const harnessFile = path.join(safeDir, 'harness.txt');
+      await expect(atomicWriteText(harnessFile, 'content')).resolves.not.toThrow();
+      expect(fs.readFileSync(harnessFile, 'utf8')).toBe('content');
+
+      const debugSession = debugLogger.startSession({
+        todoId: 'todo-safe',
+        projectPath: safeDir,
+        cliTool: 'claude',
+        command: 'claude',
+        args: [],
+        workDir: safeDir,
+      });
+      expect(fs.existsSync(debugSession.filePath)).toBe(true);
+      debugSession.finalize(0);
+    });
+
+    it('19. static source audit: scans server test files to ensure no hardcoded Windows drive root project fixtures', () => {
+      const serverDir = path.resolve(__dirname, '..', '..');
+      const testFiles: string[] = [];
+
+      function walk(dir: string) {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'dist') {
+            walk(full);
+          } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
+            testFiles.push(full);
+          }
+        }
+      }
+      walk(serverDir);
+
+      const violations: Array<{ file: string; match: string }> = [];
+      const forbiddenProjectPattern = /createProject\(\s*['"][^'"]*['"]\s*,\s*['"][A-Za-z]:[\\/]/;
+
+      for (const file of testFiles) {
+        const content = fs.readFileSync(file, 'utf8');
+        if (forbiddenProjectPattern.test(content)) {
+          const match = content.match(forbiddenProjectPattern);
+          violations.push({ file: path.relative(serverDir, file), match: match ? match[0] : '' });
+        }
+      }
+
+      expect(violations).toEqual([]);
+    });
+  });
 });
+

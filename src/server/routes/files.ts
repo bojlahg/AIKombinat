@@ -5,6 +5,8 @@ import { osOpenPath } from '../utils/open-path.js';
 import { isRealpathWithinRoot } from '../utils/path-safety.js';
 import { getProjectById } from '../db/queries.js';
 import { loadVaultIgnore } from '../services/file-scanner.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
 
 const router = Router();
 
@@ -256,12 +258,14 @@ router.put('/:id/files/content', (req: Request<{ id: string }>, res: Response) =
     }
 
     try {
+      assertTestRuntimePathAllowed(safe.abs);
       fs.writeFileSync(safe.abs, content, 'utf8');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'write failed';
       res.status(500).json({ error: message });
       return;
     }
+
 
     const after = fs.statSync(safe.abs);
     res.json({ path: relPath, size: after.size, mtime: after.mtimeMs });
@@ -392,8 +396,11 @@ router.post('/:id/files/move', (req: Request<{ id: string }>, res: Response) => 
       res.status(400).json({ error: 'Destination folder does not exist' });
       return;
     }
+    assertTestRuntimePathAllowed(src.abs);
+    assertTestRuntimePathAllowed(dst.abs);
     fs.renameSync(src.abs, dst.abs);
     res.json({ success: true, from: fromNorm, to: toNorm });
+
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: message });

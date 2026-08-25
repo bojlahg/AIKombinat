@@ -2,6 +2,8 @@ import { createGit } from '../lib/git.js';
 import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
 
 export interface PushBranchSpec {
   local: string;
@@ -74,7 +76,9 @@ export class WorktreeManager {
    * Appends the entry if not already present.
    */
   private ensureGitignore(projectPath: string, entry: string): void {
+    assertTestRuntimePathAllowed(projectPath);
     const gitignorePath = path.join(projectPath, '.gitignore');
+    assertTestRuntimePathAllowed(gitignorePath);
     try {
       const content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf-8') : '';
       const lines = content.split(/\r?\n/);
@@ -88,10 +92,12 @@ export class WorktreeManager {
   }
 
   async createWorktree(projectPath: string, branchName: string, autoInstall = false): Promise<{ worktreePath: string; branchName: string }> {
+    assertTestRuntimePathAllowed(projectPath);
     const git = createGit(projectPath);
 
     // Compute worktree directory
     const worktreeBase = path.resolve(projectPath, '.worktrees');
+    assertTestRuntimePathAllowed(worktreeBase);
     // Use the part after "feature/" for the directory name, or the whole branch name
     const baseDirName = branchName.replace(/\//g, '-');
 
@@ -99,6 +105,7 @@ export class WorktreeManager {
     if (!fs.existsSync(worktreeBase)) {
       fs.mkdirSync(worktreeBase, { recursive: true });
     }
+
 
     // Ensure .worktrees is in .gitignore
     this.ensureGitignore(projectPath, '.worktrees');
@@ -198,7 +205,13 @@ export class WorktreeManager {
       return result;
     }
 
+    assertTestRuntimePathAllowed(projectPath);
+    if (worktreePath) {
+      assertTestRuntimePathAllowed(worktreePath);
+    }
+
     const git = createGit(projectPath);
+
 
     // 1. Remove worktree. `worktree remove --force` does both the admin entry
     // and the directory; if that fails (locked file on Windows is common),
@@ -590,9 +603,13 @@ export class WorktreeManager {
   // Write the user's resolved content back and stage it, concluding the file's
   // conflict. The overall merge/rebase is finalized separately (commit / continue).
   async resolveConflictWithContent(dirPath: string, file: string, content: string): Promise<void> {
-    await fs.promises.writeFile(this.resolveInsideRepo(dirPath, file), content, 'utf8');
+    assertTestRuntimePathAllowed(dirPath);
+    const targetPath = this.resolveInsideRepo(dirPath, file);
+    assertTestRuntimePathAllowed(targetPath);
+    await fs.promises.writeFile(targetPath, content, 'utf8');
     await createGit(dirPath).raw(['add', '--', file]);
   }
+
 
   /**
    * Conclude an in-progress merge/rebase. Merge uses `commit --no-edit`

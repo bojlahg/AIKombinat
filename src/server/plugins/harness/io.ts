@@ -1,7 +1,10 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { assertTestRuntimePathAllowed } from '../../utils/test-fs-guard.js';
+
 
 export class HarnessPathError extends Error {
+
   constructor(message: string) {
     super(message);
     this.name = 'HarnessPathError';
@@ -57,11 +60,14 @@ export async function readJsonOrEmpty<T extends object>(filePath: string): Promi
 }
 
 export async function atomicWriteText(filePath: string, content: string): Promise<void> {
+  assertTestRuntimePathAllowed(filePath);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  assertTestRuntimePathAllowed(tmp);
   await fs.writeFile(tmp, content, 'utf8');
   await fs.rename(tmp, filePath);
 }
+
 
 export async function atomicWriteJson(filePath: string, obj: unknown): Promise<void> {
   const text = JSON.stringify(obj, null, 2) + '\n';

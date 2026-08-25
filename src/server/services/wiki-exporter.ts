@@ -3,6 +3,8 @@ import path from 'path';
 import * as queries from '../db/queries.js';
 import type { MemoryNode, MemoryEdge } from '../db/queries.js';
 import { regenerateIndexNode, WIKI_INDEX_TAG } from './wiki-index.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
 
 const WIKI_DIR_NAME = '.aikombinat';
 const WIKI_SUBDIR = 'wiki';
@@ -193,7 +195,9 @@ function walkMarkdownFiles(dir: string): string[] {
 }
 
 function writeReadme(baseDir: string): void {
+  assertTestRuntimePathAllowed(baseDir);
   const readmePath = path.join(baseDir, 'README.md');
+  assertTestRuntimePathAllowed(readmePath);
   if (fs.existsSync(readmePath)) return;
   const content = `# Project Wiki (auto-generated)
 
@@ -226,9 +230,11 @@ export interface ExportResult {
 export function exportProjectWikiSync(projectId: string): ExportResult | null {
   const project = queries.getProjectById(projectId);
   if (!project || !project.path) return null;
+  assertTestRuntimePathAllowed(project.path);
   if (!fs.existsSync(project.path)) return null;
 
   const baseDir = path.join(project.path, WIKI_DIR_NAME, WIKI_SUBDIR);
+  assertTestRuntimePathAllowed(baseDir);
   fs.mkdirSync(baseDir, { recursive: true });
   writeReadme(baseDir);
 
@@ -250,8 +256,10 @@ export function exportProjectWikiSync(projectId: string): ExportResult | null {
     const placement = filenameMap.get(n.id);
     if (!placement) continue;
     const subDir = placement.bucket ? path.join(baseDir, placement.bucket) : baseDir;
+    assertTestRuntimePathAllowed(subDir);
     fs.mkdirSync(subDir, { recursive: true });
     const filePath = path.join(subDir, placement.filename);
+    assertTestRuntimePathAllowed(filePath);
     // Path traversal guard
     const resolved = path.resolve(filePath);
     const resolvedBase = path.resolve(baseDir);
@@ -279,6 +287,7 @@ export function exportProjectWikiSync(projectId: string): ExportResult | null {
     if (path.basename(resolved) === 'README.md') continue;
     if (!expected.has(resolved)) {
       try {
+        assertTestRuntimePathAllowed(resolved);
         fs.unlinkSync(resolved);
         removed++;
       } catch { /* ignore */ }
@@ -295,6 +304,7 @@ export function exportProjectWikiSync(projectId: string): ExportResult | null {
     if (!entry.isDirectory()) continue;
     const dirPath = path.join(baseDir, entry.name);
     try {
+      assertTestRuntimePathAllowed(dirPath);
       const inner = fs.readdirSync(dirPath);
       if (inner.length === 0) {
         fs.rmdirSync(dirPath);
@@ -302,6 +312,7 @@ export function exportProjectWikiSync(projectId: string): ExportResult | null {
       }
     } catch { /* ignore */ }
   }
+
 
   return { baseDir, written, removed, removedDirs };
 }

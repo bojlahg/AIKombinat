@@ -7,13 +7,16 @@ import { broadcaster } from '../websocket/broadcaster.js';
 import { debugLogger, type DebugSession } from './debug-logger.js';
 import { dispatchWikiExport } from './wiki-exporter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 
 const RAW_DIR_NAME = '.aikombinat';
 const RAW_SUBDIR = 'raw';
 const VALID_SOURCE_TYPES = new Set(['todo', 'discussion', 'manual']);
 
 function ensureGitignore(projectPath: string, entry: string): void {
+  assertTestRuntimePathAllowed(projectPath);
   const gitignorePath = path.join(projectPath, '.gitignore');
+  assertTestRuntimePathAllowed(gitignorePath);
   try {
     const content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf-8') : '';
     const lines = content.split(/\r?\n/);
@@ -25,6 +28,7 @@ function ensureGitignore(projectPath: string, entry: string): void {
     // Non-fatal
   }
 }
+
 
 function slugify(input: string, maxLen = 40): string {
   if (!input) return 'untitled';
@@ -55,8 +59,10 @@ function writeRawSnapshot(
 ): string | null {
   if (!VALID_SOURCE_TYPES.has(sourceType)) return null;
   if (!project.path) return null;
+  assertTestRuntimePathAllowed(project.path);
   try {
     const baseDir = path.join(project.path, RAW_DIR_NAME, RAW_SUBDIR, sourceType);
+    assertTestRuntimePathAllowed(baseDir);
     fs.mkdirSync(baseDir, { recursive: true });
     // Only ignore the raw snapshot subdirectory — leave wiki/ trackable in git
     // so users can opt into committing the auto-exported markdown wiki.
@@ -67,6 +73,7 @@ function writeRawSnapshot(
     const slug = slugify(titleHint || sourceType);
     const filename = `${ts}${idPart}-${slug}.md`;
     const filePath = path.join(baseDir, filename);
+    assertTestRuntimePathAllowed(filePath);
 
     // Defensive: ensure final resolved path is still inside baseDir
     const resolvedFinal = path.resolve(filePath);
@@ -83,6 +90,7 @@ function writeRawSnapshot(
     return null;
   }
 }
+
 
 const WIKI_INDEX_TAG = '__wiki_index__';
 

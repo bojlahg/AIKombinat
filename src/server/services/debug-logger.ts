@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { PassThrough } from 'stream';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 
 const DEBUG_DIR = '.debug-logs';
 
@@ -25,13 +26,16 @@ class DebugLogger {
   }
 
   private ensureDir(dirPath: string): void {
+    assertTestRuntimePathAllowed(dirPath);
     if (!fs.existsSync(dirPath)) {
       fs.mkdirSync(dirPath, { recursive: true });
     }
   }
 
   private ensureGitignore(projectPath: string, entry: string): void {
+    assertTestRuntimePathAllowed(projectPath);
     const gitignorePath = path.join(projectPath, '.gitignore');
+    assertTestRuntimePathAllowed(gitignorePath);
     try {
       const content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf-8') : '';
       const lines = content.split(/\r?\n/);
@@ -43,6 +47,7 @@ class DebugLogger {
       // Non-fatal
     }
   }
+
 
   startSession(opts: {
     todoId: string;
@@ -61,6 +66,7 @@ class DebugLogger {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `${opts.todoId}_${ts}.log`;
     const filePath = path.join(debugDir, filename);
+    assertTestRuntimePathAllowed(filePath);
     const startTime = Date.now();
 
     // Write header
@@ -173,6 +179,7 @@ class DebugLogger {
   deleteLog(projectPath: string, filename: string): boolean {
     const safeName = path.basename(filename);
     const filePath = path.join(this.getDebugDir(projectPath), safeName);
+    assertTestRuntimePathAllowed(filePath);
     if (!fs.existsSync(filePath)) return false;
     fs.unlinkSync(filePath);
     return true;
@@ -180,30 +187,37 @@ class DebugLogger {
 
   deleteAllLogs(projectPath: string): number {
     const debugDir = this.getDebugDir(projectPath);
+    assertTestRuntimePathAllowed(debugDir);
     if (!fs.existsSync(debugDir)) return 0;
     const files = fs.readdirSync(debugDir).filter(f => f.endsWith('.log'));
     for (const f of files) {
-      try { fs.unlinkSync(path.join(debugDir, f)); } catch { /* ignore */ }
+      const logFile = path.join(debugDir, f);
+      assertTestRuntimePathAllowed(logFile);
+      try { fs.unlinkSync(logFile); } catch { /* ignore */ }
     }
     return files.length;
   }
 
   cleanupOldLogs(projectPath: string, retentionDays: number): number {
     const debugDir = this.getDebugDir(projectPath);
+    assertTestRuntimePathAllowed(debugDir);
     if (!fs.existsSync(debugDir)) return 0;
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     let cleaned = 0;
     for (const f of fs.readdirSync(debugDir).filter(n => n.endsWith('.log'))) {
+      const logFile = path.join(debugDir, f);
+      assertTestRuntimePathAllowed(logFile);
       try {
-        const stat = fs.statSync(path.join(debugDir, f));
+        const stat = fs.statSync(logFile);
         if (stat.mtime.getTime() < cutoff) {
-          fs.unlinkSync(path.join(debugDir, f));
+          fs.unlinkSync(logFile);
           cleaned++;
         }
       } catch { /* ignore */ }
     }
     return cleaned;
   }
+
 }
 
 export const debugLogger = new DebugLogger();

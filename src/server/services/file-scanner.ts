@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import ignore, { type Ignore } from 'ignore';
 import { parseWikilinks } from './memory-wikilinks.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
 
 export type VaultFileKind = 'md' | 'html' | 'pdf';
 
@@ -332,10 +334,12 @@ export function readVaultFile(projectRoot: string, relativePath: string): string
 }
 
 export function writeVaultFile(projectRoot: string, relativePath: string, content: string): boolean {
+  assertTestRuntimePathAllowed(projectRoot);
   const resolved = path.resolve(projectRoot);
   const abs = path.resolve(resolved, relativePath);
   if (!abs.startsWith(resolved + path.sep)) return false;
   if (!abs.endsWith('.md')) return false;
+  assertTestRuntimePathAllowed(abs);
   try {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, content, 'utf-8');
@@ -346,10 +350,12 @@ export function writeVaultFile(projectRoot: string, relativePath: string, conten
 }
 
 export function deleteVaultFile(projectRoot: string, relativePath: string): boolean {
+  assertTestRuntimePathAllowed(projectRoot);
   const resolved = path.resolve(projectRoot);
   const abs = path.resolve(resolved, relativePath);
   if (!abs.startsWith(resolved + path.sep)) return false;
   if (!abs.endsWith('.md')) return false;
+  assertTestRuntimePathAllowed(abs);
   try {
     fs.unlinkSync(abs);
     return true;
@@ -359,12 +365,15 @@ export function deleteVaultFile(projectRoot: string, relativePath: string): bool
 }
 
 export function renameVaultFile(projectRoot: string, oldPath: string, newPath: string): boolean {
+  assertTestRuntimePathAllowed(projectRoot);
   const resolved = path.resolve(projectRoot);
   const absOld = path.resolve(resolved, oldPath);
   const absNew = path.resolve(resolved, newPath);
   if (!absOld.startsWith(resolved + path.sep)) return false;
   if (!absNew.startsWith(resolved + path.sep)) return false;
   if (!absOld.endsWith('.md') || !absNew.endsWith('.md')) return false;
+  assertTestRuntimePathAllowed(absOld);
+  assertTestRuntimePathAllowed(absNew);
   try {
     fs.mkdirSync(path.dirname(absNew), { recursive: true });
     fs.renameSync(absOld, absNew);
@@ -373,6 +382,7 @@ export function renameVaultFile(projectRoot: string, oldPath: string, newPath: s
     return false;
   }
 }
+
 
 export function searchVault(projectRoot: string, query: string, excludePatterns?: string[]): VaultFile[] {
   if (!query.trim()) return [];

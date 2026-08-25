@@ -22,14 +22,43 @@ import type { ResolvedExecutionConfig } from './execution-config.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parseStoredResourceRequirements } from './resource-catalog.js';
 import { resourceManager } from './resource-manager.js';
-import { reviewPipeline, type AdvanceRoundResult } from './review-pipeline.js';
+import { reviewPipeline } from './review-pipeline.js';
 import * as queries from '../db/queries.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+
+
+/**
+ * Generates directory-scoped permission settings for Claude CLI in strict sandbox mode.
+ */
+export function configureClaudeSandboxPermissions(workDir: string): void {
+  const claudeDir = path.join(workDir, '.claude');
+  const settingsPath = path.join(claudeDir, 'settings.json');
+  assertTestRuntimePathAllowed(claudeDir);
+  assertTestRuntimePathAllowed(settingsPath);
+  if (!fs.existsSync(claudeDir)) {
+    fs.mkdirSync(claudeDir, { recursive: true });
+  }
+  const existingSettings = fs.existsSync(settingsPath)
+    ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+    : {};
+  const normalizedWorkDir = workDir.replace(/\\/g, '/');
+  existingSettings.permissions = {
+    allow: [
+      `Read(${normalizedWorkDir}/**)`, `Edit(${normalizedWorkDir}/**)`, `Write(${normalizedWorkDir}/**)`,
+      'Bash(*)', 'Glob(*)', 'Grep(*)',
+      'TodoRead', 'TodoWrite', 'WebFetch(*)',
+    ],
+    deny: [],
+  };
+  fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
+}
 
 const MAX_CONTEXT_SWITCHES = 3;
 
 const STALE_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 
 export class Orchestrator {
+
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private activeResourceRuns = new Map<string, string>();
   private isStoppingProjects = new Set<string>();
@@ -980,17 +1009,21 @@ export class Orchestrator {
         }
       }
 
+      assertTestRuntimePathAllowed(workDir);
+
       // Handle attached reference images: copy them into the task's worktree/dir
       if (todo.images) {
         try {
           const imagePaths = getTodoImagePaths(todoId);
           const imagesDir = path.join(workDir, '.task-images');
+          assertTestRuntimePathAllowed(imagesDir);
           if (!fs.existsSync(imagesDir)) {
             fs.mkdirSync(imagesDir, { recursive: true });
           }
           const copiedFiles: string[] = [];
           for (const { filename, filePath } of imagePaths) {
             const dest = path.join(imagesDir, filename);
+            assertTestRuntimePathAllowed(dest);
             fs.copyFileSync(filePath, dest);
             copiedFiles.push(`.task-images/${filename}`);
           }
@@ -1007,27 +1040,7 @@ export class Orchestrator {
       // Sandbox: generate Claude CLI permission settings (worktree or project root)
       if (sandboxMode === 'strict' && resolvedCliTool === 'claude') {
         try {
-          const claudeDir = path.join(workDir, '.claude');
-          const settingsPath = path.join(claudeDir, 'settings.json');
-          if (!fs.existsSync(claudeDir)) {
-            fs.mkdirSync(claudeDir, { recursive: true });
-          }
-          // Merge permissions into existing settings.json (may already exist from git checkout with hooks etc.)
-          const existingSettings = fs.existsSync(settingsPath)
-            ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
-            : {};
-          // Claude's permission matcher normalizes paths to forward slashes; mixed separators
-          // (e.g. backslash dir + slash glob on Windows) silently fail to match.
-          const normalizedWorkDir = workDir.replace(/\\/g, '/');
-          existingSettings.permissions = {
-            allow: [
-              `Read(${normalizedWorkDir}/**)`,`Edit(${normalizedWorkDir}/**)`,`Write(${normalizedWorkDir}/**)`,
-              'Bash(*)','Glob(*)','Grep(*)',
-              'TodoRead','TodoWrite','WebFetch(*)',
-            ],
-            deny: [],
-          };
-          fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
+          configureClaudeSandboxPermissions(workDir);
           queries.createTaskLog(todoId, 'output', `[sandbox] Configured .claude/settings.json with directory-scoped permissions`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -1037,6 +1050,7 @@ export class Orchestrator {
 
       // Sandbox: add prompt-level path restriction for strict mode
       if (sandboxMode === 'strict') {
+
         prompt += `\n\nIMPORTANT: Your working directory is ${workDir}. Do NOT access, read, write, or modify any files outside this directory, except for git operations that naturally access .git metadata.`;
       }
 

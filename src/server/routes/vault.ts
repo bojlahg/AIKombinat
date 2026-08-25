@@ -3,7 +3,9 @@ import fs from 'fs';
 import pathModule from 'path';
 import * as queries from '../db/queries.js';
 import { isRealpathWithinRoot } from '../utils/path-safety.js';
+import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import {
+
   scanVault,
   buildVaultGraph,
   readVaultFile,
@@ -240,6 +242,7 @@ router.post('/projects/:id/vault/ignore/unhide', (req: Request, res: Response) =
   } catch { /* absent — start from empty */ }
   const next = unhideInVaultIgnore(content, rel, isDir);
   try {
+    assertTestRuntimePathAllowed(igPath);
     fs.writeFileSync(igPath, next, 'utf-8');
     res.json({ success: true, content: next });
   } catch {
@@ -257,7 +260,9 @@ router.put('/projects/:id/vault/ignore', (req: Request, res: Response) => {
     return;
   }
   try {
-    fs.writeFileSync(pathModule.join(ctx.root, '.vaultignore'), content, 'utf-8');
+    const igPath = pathModule.join(ctx.root, '.vaultignore');
+    assertTestRuntimePathAllowed(igPath);
+    fs.writeFileSync(igPath, content, 'utf-8');
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Failed to write .vaultignore' });
@@ -265,3 +270,4 @@ router.put('/projects/:id/vault/ignore', (req: Request, res: Response) => {
 });
 
 export default router;
+
