@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { maybeTriggerSync } from './model-sync.js';
 import type { CliTool } from './cli-adapters.js';
-import { getRawShellInfo } from './cli-adapters.js';
+import { getRawShellInfo, parseCliHelpFlags } from './cli-adapters.js';
 import { getDatabase } from '../db/connection.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
@@ -9,6 +9,8 @@ export interface CliToolStatus {
   tool: string;
   installed: boolean;
   version: string | null;
+  /** Cached flags from provider help; omitted for non-AI tools and test mocks. */
+  capabilities?: string[];
 }
 
 interface CacheEntry {
@@ -22,8 +24,10 @@ const cache = new Map<string, CacheEntry>();
 
 const TOOLS = [
   { tool: 'claude', command: 'claude' },
-  { tool: 'antigravity', command: 'agy' },
-  { tool: 'codex', command: 'codex' },
+  { tool: 'antigravity', command: 'agy', helpArgs: ['--help'] },
+  // Resume owns --last while sandbox/approval flags belong to exec. Probe both
+  // once per cache lifetime so continued headless sessions are validated too.
+  { tool: 'codex', command: 'codex', helpArgs: ['exec', '--help'], secondaryHelpArgs: ['exec', 'resume', '--help'] },
 ] as const;
 
 // VCS tools listed alongside AI CLIs but skip model-sync — they're not
@@ -32,7 +36,23 @@ const VCS_TOOLS = [
   { tool: 'svn', command: 'svn' },
 ] as const;
 
-function checkTool(tool: string, command: string, isVcs = false): Promise<CliToolStatus> {
+function execProbe(command: string, args: string[]): Promise<{ error: Error | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const opts: { timeout: number; shell?: boolean } = { timeout: CHECK_TIMEOUT };
+    if (process.platform === 'win32') opts.shell = true;
+    execFile(command, args, opts, (error, stdout, stderr) => {
+      resolve({ error, stdout: stdout || '', stderr: stderr || '' });
+    });
+  });
+}
+
+async function checkTool(
+  tool: string,
+  command: string,
+  isVcs = false,
+  helpArgs?: readonly string[],
+  secondaryHelpArgs?: readonly string[],
+): Promise<CliToolStatus> {
   if (!isVcs) {
     try {
       assertExternalAiCliAllowed(command);
@@ -41,26 +61,30 @@ function checkTool(tool: string, command: string, isVcs = false): Promise<CliToo
     }
   }
 
-  return new Promise((resolve) => {
-    const opts: { timeout: number; shell?: boolean } = { timeout: CHECK_TIMEOUT };
-    // Windows needs shell:true to resolve .cmd shims (claude.cmd, agy.cmd, etc.)
-    if (process.platform === 'win32') opts.shell = true;
+  const probeArgs = [
+    ['--version'],
+    ...(helpArgs ? [helpArgs] : []),
+    ...(secondaryHelpArgs ? [secondaryHelpArgs] : []),
+  ];
+  const [versionProbe, ...helpProbes] = await Promise.all(
+    probeArgs.map((args) => execProbe(command, [...args])),
+  );
+  if (versionProbe.error) return { tool, installed: false, version: null };
 
-    execFile(command, ['--version'], opts, async (error, stdout) => {
-      if (error) {
-        resolve({ tool, installed: false, version: null });
-        return;
-      }
-      // Parse version from stdout (first line, trim whitespace)
-      const version = stdout.trim().split('\n')[0].trim() || null;
-      if (!isVcs) {
-        // Await model reconciliation so clients that read /api/models right
-        // after this request see the post-sync cli_models state.
-        await maybeTriggerSync(tool as CliTool, version);
-      }
-      resolve({ tool, installed: true, version });
-    });
-  });
+  const version = versionProbe.stdout.trim().split('\n')[0].trim() || null;
+  if (!isVcs) {
+    await maybeTriggerSync(tool as CliTool, version);
+  }
+  const helpText = helpProbes
+    .filter((probe) => !probe.error || probe.stdout || probe.stderr)
+    .map((probe) => `${probe.stdout}\n${probe.stderr}`)
+    .join('\n');
+  return {
+    tool,
+    installed: true,
+    version,
+    ...(helpArgs ? { capabilities: parseCliHelpFlags(helpText) } : {}),
+  };
 }
 
 /**
@@ -94,7 +118,13 @@ export async function getToolStatus(tool: string): Promise<CliToolStatus | null>
   if (!entry) return null;
   const cached = cache.get(tool);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.status;
-  const status = await checkTool(entry.tool, entry.command, false);
+  const status = await checkTool(
+    entry.tool,
+    entry.command,
+    false,
+    'helpArgs' in entry ? entry.helpArgs : undefined,
+    'secondaryHelpArgs' in entry ? entry.secondaryHelpArgs : undefined,
+  );
   cache.set(tool, { status, timestamp: Date.now() });
   return status;
 }
@@ -120,7 +150,13 @@ export async function checkAllTools(): Promise<CliToolStatus[]> {
   }
 
   const checked = await Promise.all([
-    ...aiNeeds.map((t) => checkTool(t.tool, t.command, false)),
+    ...aiNeeds.map((t) => checkTool(
+      t.tool,
+      t.command,
+      false,
+      'helpArgs' in t ? t.helpArgs : undefined,
+      'secondaryHelpArgs' in t ? t.secondaryHelpArgs : undefined,
+    )),
     ...vcsNeeds.map((t) => checkTool(t.tool, t.command, true)),
   ]);
   for (const status of checked) {

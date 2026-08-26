@@ -16,6 +16,10 @@ import type { LogRecord, LogSink } from '../../logging/types.js';
 
 const getToolStatus = vi.fn();
 
+vi.mock('../../utils/cli-guard.js', () => ({
+  assertExternalAiCliAllowed: vi.fn(),
+}));
+
 vi.mock('../cli-status.js', () => ({
   getToolStatus: (...args: unknown[]) => getToolStatus(...args),
   checkAllTools: vi.fn().mockResolvedValue([]),
@@ -104,5 +108,44 @@ describe('CLI spawn diagnostics', () => {
     // Covers the DEBUG `cli.spawn.requested` line too: it logs redacted argv,
     // never the prompt piped to the process.
     expect(rendered).not.toContain(secret);
+  });
+
+  it('fails before spawn and emits a unified compatibility error for unsupported required flags', async () => {
+    getToolStatus.mockResolvedValue({
+      tool: 'antigravity',
+      installed: true,
+      version: 'agy 0.9.0',
+      capabilities: ['--headless', '--sandbox'],
+    });
+
+    await expect(
+      claudeManager.startClaude(
+        workspace.path,
+        'Discuss safely',
+        undefined,
+        undefined,
+        'headless',
+        'antigravity',
+        undefined,
+        workspace.path,
+        'strict',
+        false,
+        undefined,
+        undefined,
+        undefined,
+        'discussion',
+      ),
+    ).rejects.toThrow(/required flag --print is not supported/);
+
+    const failures = sink.records.filter((record) => record.event === 'cli.compatibility.failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0].level).toBe('error');
+    expect(failures[0].fields).toMatchObject({
+      provider: 'antigravity',
+      unsupportedFlag: '--print',
+      detectedVersion: 'agy 0.9.0',
+    });
+    expect(sink.records.some((record) => record.event === 'cli.spawned')).toBe(false);
+    expect(sink.records.some((record) => record.event === 'cli.spawn.failed')).toBe(false);
   });
 });

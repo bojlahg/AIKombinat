@@ -1,0 +1,17 @@
+Usage: codex exec [OPTIONS] [PROMPT]
+       codex exec [OPTIONS] <COMMAND> [ARGS]
+
+Commands:
+  resume  Resume a previous session by id or pick the most recent with --last
+
+Options:
+  -c, --config <key=value>         Override a configuration value
+  -m, --model <MODEL>              Model the agent should use
+  -s, --sandbox <SANDBOX_MODE>     Select read-only, workspace-write, or danger-full-access
+      --approve-for-me             Route approval requests through automatic review using workspace-write
+      --dangerously-bypass-approvals-and-sandbox
+      --add-dir <DIR>              Additional writable directory
+      --skip-git-repo-check        Allow running outside a Git repository
+
+Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]
+      --last                       Resume the most recent recorded session

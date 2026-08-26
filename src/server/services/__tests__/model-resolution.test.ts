@@ -38,7 +38,7 @@ describe('explicit model resolution', () => {
       availability: 'available',
     });
     const args = getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', model: 'gemini-3.7-flash', effort: 'medium', sandboxMode: 'strict' });
-    expect(args).toEqual(['--headless', '--model', 'gemini-3.7-flash-medium']);
+    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--model', 'gemini-3.7-flash-medium']);
     expect(args).not.toContain('--effort');
   });
 
@@ -58,6 +58,6 @@ describe('explicit model resolution', () => {
       availability: 'available',
     });
     const args = getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', model: 'gpt-oss-120b-medium', sandboxMode: 'strict' });
-    expect(args).toEqual(['--headless', '--model', 'gpt-oss-120b-medium']);
+    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--model', 'gpt-oss-120b-medium']);
   });
 });

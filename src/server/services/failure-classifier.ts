@@ -136,7 +136,12 @@ export function classifyProviderFailure(
 
     const authReason = findMatchingReason(CLAUDE_AUTH_PATTERNS, cleanOutput);
     if (authReason) {
-      return { category: 'auth_error', reason: authReason };
+      return {
+        category: 'auth_error',
+        reason: /not logged in/i.test(authReason)
+          ? 'Claude CLI is not authenticated. Run `claude` interactively and use `/login`.'
+          : authReason,
+      };
     }
   }
 

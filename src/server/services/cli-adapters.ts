@@ -7,6 +7,20 @@ export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
 export type SandboxMode = 'strict' | 'permissive';
 
+export interface CliBuildOptions {
+  mode: CliMode;
+  prompt: string;
+  model?: string;
+  effort?: string;
+  extraOptions?: string;
+  maxTurns?: number;
+  workDir?: string;
+  projectPath?: string;
+  sandboxMode?: SandboxMode;
+  continueSession?: boolean;
+  promptPolicy?: PromptPolicy;
+}
+
 export interface ProbedModel {
   value: string;
   label: string;
@@ -44,6 +58,16 @@ export function parseHelpForModels(helpText: string): ProbedModel[] {
   }
 
   return Array.from(collected).map((value) => ({ value, label: value }));
+}
+
+/** Extract long and short option names from vendor help output. */
+export function parseCliHelpFlags(helpText: string): string[] {
+  if (!helpText || typeof helpText !== 'string') return [];
+  const flags = new Set<string>();
+  for (const match of helpText.matchAll(/(^|[\s,])(--?[a-zA-Z][a-zA-Z0-9-]*)(?=[\s,=]|$)/gm)) {
+    flags.add(match[2]);
+  }
+  return [...flags];
 }
 
 function runHelp(command: string): Promise<string | null> {
@@ -184,7 +208,9 @@ export interface CliAdapter {
   /** Whether this CLI supports long-lived interactive sessions */
   supportsInteractive?: boolean;
   /** Build the args array for spawning */
-  buildArgs(opts: { mode: CliMode; prompt: string; model?: string; effort?: string; extraOptions?: string; maxTurns?: number; workDir?: string; projectPath?: string; sandboxMode?: SandboxMode; continueSession?: boolean }): string[];
+  buildArgs(opts: CliBuildOptions): string[];
+  /** Known flags emitted by this adapter that must exist in the cached CLI help. */
+  compatibilityFlags?: readonly string[];
   /** Whether this mode needs stdin pipe */
   needsStdin(mode: CliMode): boolean;
   /**
@@ -291,42 +317,43 @@ const antigravityAdapter: CliAdapter = {
   displayName: 'Antigravity CLI',
   supportsInteractive: true,
   delayStdinUntilReady: true,
-  // PROVISIONAL (agy not yet installed for verification): Antigravity's TUI is
-  // an Ink-based rewrite like Gemini's, so \r\n is the likely Enter sequence.
-  // Confirm against a real `agy` session and adjust to '\r' if a lone CR submits.
+  // Antigravity's TUI uses CRLF to submit interactive input.
   stdinSubmitSequence: '\r\n',
-  // PROVISIONAL: welcome/ready tokens. Broadened to also match the generic
-  // cursor glyphs; refine once a real `agy` startup is captured in logs.
+  // Welcome/ready tokens plus generic cursor glyphs used across releases.
   readyIndicatorPattern: /Type your message|Shortcuts|ctrl\+y|›|>\s*$/i,
   autoRespondRules: [
     {
       name: 'antigravity-trust-folder',
-      // PROVISIONAL: first-run folder trust dialog. Option 1 = trust current dir.
+      // First-run folder trust dialog. Option 1 = trust current dir.
       pattern: /Do you trust the files in this folder\?|Trust folder/i,
       response: '1\r',
       blocksInitialPrompt: true,
     },
     {
-      // PROVISIONAL: decline updates to avoid unexpected CLI changes mid-session.
+      // Decline updates to avoid unexpected CLI changes mid-session.
       name: 'antigravity-update-prompt',
       pattern: /update available.*\(y\/n\)|install.*new.*version.*\?/i,
       response: 'n\r',
     },
   ],
-  buildArgs({ mode, prompt, model, effort, extraOptions, sandboxMode, continueSession }) {
+  compatibilityFlags: [
+    '--print', '--input-format', '--output-format', '--sandbox',
+    '--dangerously-skip-permissions', '--continue', '--model', '--effort',
+  ],
+  buildArgs({ mode, model, effort, extraOptions, sandboxMode, continueSession }) {
     // Antigravity CLI (`agy`):
-    //   --dangerously-skip-permissions auto-approves all tool actions (file writes, shell).
-    //   --headless enables non-interactive mode; the actual prompt is delivered via stdin pipe.
+    //   --print selects the official non-interactive mode. With text input, the
+    //   prompt is read from stdin when it is not present on the command line.
+    //   --sandbox enables terminal restrictions; permissive execution explicitly
+    //   opts into auto-approved tool actions.
     //   --continue resumes the most recent conversation.
-    // PROVISIONAL: verify with `agy --help` that --headless reads the prompt from
-    // stdin. If it instead requires `-p <prompt>` inline, move the prompt into
-    // args here and make needsStdin(mode) return only mode === 'interactive'.
     const normalizedModel = normalizeModel(model, 'antigravity', effort);
     const args: string[] = [];
-    // Preserve the legacy default when no mode is supplied, while respecting
-    // the project's explicit strict mode.
-    if (sandboxMode !== 'strict') args.push('--dangerously-skip-permissions');
-    if (mode !== 'interactive') args.push('--headless');
+    if (sandboxMode === 'strict') args.push('--sandbox');
+    else args.push('--dangerously-skip-permissions');
+    if (mode !== 'interactive') {
+      args.push('--print', '--input-format', 'text', '--output-format', 'text');
+    }
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
     if (effort) {
@@ -363,7 +390,11 @@ const codexAdapter: CliAdapter = {
   readyIndicatorPattern: /▍|›|>\s*$/,
   // No auto-respond rules yet — add once real startup/update prompts are captured.
   autoRespondRules: [],
-  buildArgs({ mode, prompt, model, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession }) {
+  compatibilityFlags: [
+    '--skip-git-repo-check', '--sandbox', '--approve-for-me',
+    '--dangerously-bypass-approvals-and-sandbox', '--add-dir', '--model', '--last', '-c',
+  ],
+  buildArgs({ mode, model, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession, promptPolicy }) {
     const normalizedModel = normalizeModel(model, 'codex');
     const args: string[] = [];
     if (mode !== 'interactive') {
@@ -371,15 +402,16 @@ const codexAdapter: CliAdapter = {
       // codex exec aborts in a non-trusted / non-git dir unless this is set;
       // worktrees & untrusted project paths can't show the interactive trust prompt.
       args.push('--skip-git-repo-check');
-      if (continueSession) {
-        args.push('resume', '--last');
-      }
     }
     if (sandboxMode === 'strict') {
-      // Use --full-auto (workspace-write sandbox) with --add-dir to allow git metadata access.
-      // Git worktree metadata lives at <projectPath>/.git/worktrees/, so we whitelist the .git dir.
-      args.push('--full-auto');
-      if (workDir && projectPath && workDir !== projectPath) {
+      // AgentForum is deliberation-only and must not grant write access. Normal
+      // task execution keeps the existing workspace-write/automatic-approval policy.
+      if (promptPolicy === 'discussion') {
+        args.push('--sandbox', 'read-only');
+      } else {
+        args.push('--sandbox', 'workspace-write', '--approve-for-me');
+      }
+      if (promptPolicy !== 'discussion' && workDir && projectPath && workDir !== projectPath) {
         const gitDir = path.join(projectPath, '.git');
         args.push('--add-dir', gitDir);
       }
@@ -390,6 +422,11 @@ const codexAdapter: CliAdapter = {
     if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
+    }
+    if (mode !== 'interactive' && continueSession) {
+      // Exec-level sandbox/approval flags must precede the resume subcommand.
+      // A literal '-' makes stdin prompt delivery explicit for resume mode.
+      args.push('resume', '--last', '-');
     }
     return args;
   },

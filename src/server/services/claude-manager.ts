@@ -66,6 +66,17 @@ interface PtyHandle {
   resize(cols: number, rows: number): void;
 }
 
+class CliCompatibilityError extends Error {
+  constructor(
+    message: string,
+    readonly unsupportedFlag: string,
+    readonly detectedVersion: string | null,
+  ) {
+    super(message);
+    this.name = 'CliCompatibilityError';
+  }
+}
+
 export class ClaudeManager {
   private processes: Map<number, ManagedProcess> = new Map();
   private stdinStreams: Map<number, NodeJS.WritableStream> = new Map();
@@ -171,7 +182,7 @@ export class ClaudeManager {
     assertExternalAiCliAllowed(tool);
 
     const adapter = getAdapter(tool);
-    const args = adapter.buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession });
+    const args = adapter.buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy });
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them
@@ -203,14 +214,27 @@ export class ClaudeManager {
     // Runs *inside* the spawn logging boundary below rather than ahead of it, so
     // a missing CLI produces the same single `cli.spawn.failed` record as every
     // other startup failure instead of throwing past the diagnostics.
-    const assertToolInstalled = async (): Promise<void> => {
-      if (process.platform !== 'win32') return;
+    const assertToolCompatible = async (): Promise<void> => {
+      const emittedCompatibilityFlags = (adapter.compatibilityFlags ?? [])
+        .filter((flag) => args.includes(flag));
+      if (process.platform !== 'win32' && emittedCompatibilityFlags.length === 0) return;
       const status = await getToolStatus(tool);
       if (status && !status.installed) {
         throw new Error(
           `${adapter.displayName} ('${adapter.command}') was not found on PATH. `
           + `Install it first — or if it was installed after AIKombinat started, restart AIKombinat to pick up the updated PATH.`
         );
+      }
+      if (status?.capabilities) {
+        const supported = new Set(status.capabilities);
+        const unsupportedFlag = emittedCompatibilityFlags.find((flag) => !supported.has(flag));
+        if (unsupportedFlag) {
+          throw new CliCompatibilityError(
+            `${adapter.displayName} ${status.version ?? '(unknown version)'} is incompatible with this execution mode: required flag ${unsupportedFlag} is not supported. Update the CLI or select another provider.`,
+            unsupportedFlag,
+            status.version,
+          );
+        }
       }
     };
 
@@ -225,7 +249,7 @@ export class ClaudeManager {
         : undefined;
       const result = await this.spawnAndLog(
         async () => {
-          await assertToolInstalled();
+          await assertToolCompatible();
           return this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows);
         },
         adapter,
@@ -236,7 +260,7 @@ export class ClaudeManager {
     }
     const result = await this.spawnAndLog(
       async () => {
-        await assertToolInstalled();
+        await assertToolCompatible();
         return this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy);
       },
       adapter,
@@ -261,6 +285,16 @@ export class ClaudeManager {
     try {
       result = await start();
     } catch (err) {
+      if (err instanceof CliCompatibilityError) {
+        logger.error('cli.compatibility.failed', {
+          msg: err.message,
+          ...spawnFields,
+          unsupportedFlag: err.unsupportedFlag,
+          detectedVersion: err.detectedVersion,
+          durationMs: Date.now() - startedAt,
+        });
+        throw err;
+      }
       logger.error('cli.spawn.failed', {
         msg: `${adapter.displayName} failed to start`,
         ...spawnFields,

@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
 
 vi.mock('../../db/queries.js', () => ({ getModelByValue: () => undefined }));
 
-import { getAdapter, supportsInteractiveMode, parseHelpForModels } from '../cli-adapters.js';
+import { getAdapter, supportsInteractiveMode, parseCliHelpFlags, parseHelpForModels } from '../cli-adapters.js';
+
+const agyHelp = readFileSync(new URL('./fixtures/agy-1.1.20-help.txt', import.meta.url), 'utf8');
+const codexExecHelp = readFileSync(new URL('./fixtures/codex-0.150.0-exec-help.txt', import.meta.url), 'utf8');
 
 describe('cli-adapters', () => {
   it('uses non-interactive exec mode for Codex', () => {
@@ -26,7 +30,8 @@ describe('cli-adapters', () => {
       sandboxMode: 'strict',
     });
 
-    expect(args).toEqual(['--headless']);
+    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text']);
+    expect(args).not.toContain('--headless');
   });
 
   it('skips Antigravity permissions in permissive mode', () => {
@@ -37,7 +42,8 @@ describe('cli-adapters', () => {
       sandboxMode: 'permissive',
     });
 
-    expect(args).toEqual(['--dangerously-skip-permissions', '--headless']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--print', '--input-format', 'text', '--output-format', 'text']);
+    expect(args).not.toContain('--headless');
   });
 
   it('uses --continue for Antigravity when continuing a session', () => {
@@ -49,7 +55,7 @@ describe('cli-adapters', () => {
       continueSession: true,
     });
 
-    expect(args).toEqual(['--dangerously-skip-permissions', '--headless', '--continue']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--print', '--input-format', 'text', '--output-format', 'text', '--continue']);
   });
 
   it('omits exec subcommand for Codex in interactive mode', () => {
@@ -74,7 +80,7 @@ describe('cli-adapters', () => {
       continueSession: true,
     });
 
-    expect(args).toEqual(['exec', '--skip-git-repo-check', 'resume', '--last', '--dangerously-bypass-approvals-and-sandbox', '--model', 'o3']);
+    expect(args).toEqual(['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox', '--model', 'o3', 'resume', '--last', '-']);
   });
 
   it('sends Codex prompts over stdin', () => {
@@ -86,8 +92,71 @@ describe('cli-adapters', () => {
 
   it('translates resolved effort for each CLI without touching global config', () => {
     expect(getAdapter('claude').buildArgs({ mode: 'headless', prompt: '', effort: 'high' })).toContain('high');
-    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium', sandboxMode: 'strict' })).toEqual(['--headless', '--effort', 'medium']);
+    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium', sandboxMode: 'strict' })).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--effort', 'medium']);
     expect(getAdapter('codex').buildArgs({ mode: 'headless', prompt: '', effort: 'xhigh' })).toEqual(expect.arrayContaining(['-c', 'model_reasoning_effort="xhigh"']));
+  });
+
+  it('builds current strict Codex task execution without --full-auto', () => {
+    const args = getAdapter('codex').buildArgs({
+      mode: 'headless',
+      prompt: 'Implement the fix',
+      model: 'o3',
+      effort: 'high',
+      sandboxMode: 'strict',
+    });
+
+    expect(args).toEqual([
+      'exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--approve-for-me',
+      '--model', 'o3', '-c', 'model_reasoning_effort="high"',
+    ]);
+    expect(args).not.toContain('--full-auto');
+  });
+
+  it('builds read-only AgentForum headless args for Codex', () => {
+    const args = getAdapter('codex').buildArgs({
+      mode: 'headless',
+      prompt: 'Discuss the design',
+      model: 'o3',
+      effort: 'medium',
+      sandboxMode: 'strict',
+      promptPolicy: 'discussion',
+      workDir: 'scratch',
+      projectPath: 'project',
+    });
+
+    expect(args).toEqual([
+      'exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--model', 'o3',
+      '-c', 'model_reasoning_effort="medium"',
+    ]);
+    expect(args).not.toContain('--approve-for-me');
+    expect(args).not.toContain('--add-dir');
+    expect(args).not.toContain('--full-auto');
+  });
+
+  it('matches generated headless flags against current CLI help fixtures', () => {
+    const fixtures = [
+      {
+        adapter: getAdapter('antigravity'),
+        help: agyHelp,
+        args: getAdapter('antigravity').buildArgs({
+          mode: 'headless', prompt: '', model: 'gemini-current', effort: 'high',
+          sandboxMode: 'permissive', continueSession: true,
+        }),
+      },
+      {
+        adapter: getAdapter('codex'),
+        help: codexExecHelp,
+        args: getAdapter('codex').buildArgs({
+          mode: 'headless', prompt: '', model: 'o3', effort: 'high', sandboxMode: 'strict',
+        }),
+      },
+    ];
+
+    for (const { adapter, help, args } of fixtures) {
+      const supported = new Set(parseCliHelpFlags(help));
+      const emitted = (adapter.compatibilityFlags ?? []).filter((flag) => args.includes(flag));
+      expect(emitted.filter((flag) => !supported.has(flag))).toEqual([]);
+    }
   });
 
   it('enables interactive mode for all CLI tools', () => {
