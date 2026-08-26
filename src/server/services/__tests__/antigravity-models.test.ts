@@ -235,7 +235,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       sandboxMode: 'strict',
     });
 
-    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--model', 'gemini-3.7-flash-medium']);
+    expect(args).toEqual(['--sandbox', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', 'gemini-3.7-flash-medium']);
     expect(args).not.toContain('--effort');
     expect(args).not.toContain('medium');
   });
@@ -438,7 +438,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       effort: 'medium',
       sandboxMode: 'strict',
     });
-    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--model', 'custom-model', '--effort', 'medium']);
+    expect(args).toEqual(['--sandbox', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', 'custom-model', '--effort', 'medium']);
 
     // Label-only edit preserves custom label but refresh still updates provider variants
     const rawStdout1 = 'gemini-3.5-flash-high  Gemini 3.5 Flash (High)\ngemini-3.5-flash-low   Gemini 3.5 Flash (Low)';
@@ -715,7 +715,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     });
 
     // Actual CLI args match snapshot.effectiveModel and do not produce conflicting --effort
-    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--model', 'gemini-3.7-flash-high']);
+    expect(args).toEqual(['--sandbox', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', 'gemini-3.7-flash-high']);
     expect(args).not.toContain('gemini-3.7-flash-mutated-afterwards');
     expect(args).not.toContain('--effort');
   });

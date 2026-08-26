@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import * as queries from '../db/queries.js';
-import type { CliTool } from './cli-adapters.js';
+import { getAdapter, type CliTool } from './cli-adapters.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 
 export interface ExtractedActionItem {
@@ -86,7 +86,7 @@ interface CliInvocation {
 function buildInvocation(cliTool: CliTool): CliInvocation {
   switch (cliTool) {
     case 'antigravity':
-      return { command: 'agy', args: ['--dangerously-skip-permissions', '--print', '--input-format', 'text', '--output-format', 'text'], displayName: 'Antigravity' };
+      return { command: 'agy', args: ['--dangerously-skip-permissions', '--input-format', 'stream-json', '--output-format', 'stream-json'], displayName: 'Antigravity' };
     case 'codex':
       return { command: 'codex', args: ['exec'], displayName: 'Codex' };
     case 'claude':
@@ -97,6 +97,8 @@ function buildInvocation(cliTool: CliTool): CliInvocation {
 
 function runHeadless(cliTool: CliTool, prompt: string, timeoutMs = 120_000): Promise<string> {
   const { command, args, displayName } = buildInvocation(cliTool);
+  const adapter = getAdapter(cliTool);
+  const outputDecoder = adapter.createOutputDecoder?.();
   assertExternalAiCliAllowed(command);
   return new Promise((resolve, reject) => {
     const isWin = process.platform === 'win32';
@@ -120,7 +122,11 @@ function runHeadless(cliTool: CliTool, prompt: string, timeoutMs = 120_000): Pro
       reject(new Error(`${displayName} extraction timed out`));
     }, timeoutMs);
 
-    proc.stdout.on('data', (c: Buffer) => { stdout += c.toString('utf8'); });
+    proc.stdout.on('data', (c: Buffer) => {
+      const chunk = c.toString('utf8');
+      stdout += chunk;
+      outputDecoder?.push(chunk);
+    });
     proc.stderr.on('data', (c: Buffer) => { stderr += c.toString('utf8'); });
     proc.on('error', (err) => {
       if (settled) return;
@@ -132,13 +138,15 @@ function runHeadless(cliTool: CliTool, prompt: string, timeoutMs = 120_000): Pro
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`${displayName} exited with code ${code}: ${stderr.trim().slice(0, 500)}`));
+      const decoded = outputDecoder?.finish(code ?? 1);
+      const effectiveExitCode = decoded?.exitCode ?? (code ?? 1);
+      if (effectiveExitCode === 0) resolve(decoded?.output ?? stdout);
+      else reject(new Error(`${displayName} exited with code ${effectiveExitCode}: ${(decoded?.diagnostic || stderr).trim().slice(-500)}`));
     });
 
     // Deliver prompt via stdin pipe to bypass Windows command-line length limits.
     try {
-      proc.stdin.write(prompt + '\n');
+      proc.stdin.write(adapter.encodeStdinPrompt?.(prompt, 'headless') ?? prompt + '\n');
       proc.stdin.end();
     } catch (err) {
       if (settled) return;

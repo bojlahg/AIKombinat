@@ -26,6 +26,17 @@ export interface ProbedModel {
   label: string;
 }
 
+export interface CliDecodedOutput {
+  output: string;
+  exitCode: number;
+  diagnostic?: string;
+}
+
+export interface CliOutputDecoder {
+  push(chunk: string): void;
+  finish(exitCode: number): CliDecodedOutput;
+}
+
 const PROBE_TIMEOUT_MS = 5_000;
 
 /**
@@ -213,6 +224,10 @@ export interface CliAdapter {
   compatibilityFlags?: readonly string[];
   /** Whether this mode needs stdin pipe */
   needsStdin(mode: CliMode): boolean;
+  /** Provider-specific stdin encoding; defaults to formatStdinPrompt. */
+  encodeStdinPrompt?(prompt: string, mode?: CliMode, promptPolicy?: PromptPolicy): string;
+  /** Provider-edge decoder that converts structured transport output to model text. */
+  createOutputDecoder?(): CliOutputDecoder;
   /**
    * Format prompt for stdin delivery.
    *
@@ -262,6 +277,93 @@ IMPORTANT: Work efficiently and stop when done.
 - Use grep/glob to find target files. Do NOT read every file or use Explore agents for simple tasks.
 - Only read files you need to modify. Make edits directly without re-reading.
 - Once complete, commit all changes and stop. No additional refactoring, testing, or review.`;
+
+export function encodeAntigravityStdinPrompt(prompt: string): string {
+  return JSON.stringify({
+    event: 'user',
+    message: { content: prompt },
+  }) + '\n';
+}
+
+const ANTIGRAVITY_DIAGNOSTIC_TAIL_CHARS = 1_000;
+
+export class AntigravityOutputDecoder implements CliOutputDecoder {
+  private lineBuffer = '';
+  private rawTail = '';
+  private resultSeen = false;
+  private resultStatus: string | null = null;
+  private resultResponse = '';
+  private resultError: string | null = null;
+  private malformedLines = 0;
+
+  push(chunk: string): void {
+    this.rawTail = (this.rawTail + chunk).slice(-ANTIGRAVITY_DIAGNOSTIC_TAIL_CHARS);
+    this.lineBuffer += chunk;
+    let newlineIndex = this.lineBuffer.indexOf('\n');
+    while (newlineIndex >= 0) {
+      const line = this.lineBuffer.slice(0, newlineIndex).replace(/\r$/, '');
+      this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
+      this.consumeLine(line);
+      newlineIndex = this.lineBuffer.indexOf('\n');
+    }
+  }
+
+  finish(exitCode: number): CliDecodedOutput {
+    if (this.lineBuffer) {
+      this.consumeLine(this.lineBuffer.replace(/\r$/, ''));
+      this.lineBuffer = '';
+    }
+
+    const successfulResult = this.resultSeen && this.resultStatus === 'SUCCESS';
+    if (successfulResult && exitCode === 0) {
+      return { output: this.resultResponse, exitCode };
+    }
+
+    const effectiveExitCode = exitCode === 0 ? 1 : exitCode;
+    const status = this.resultStatus ?? (this.resultSeen ? 'UNKNOWN' : 'MISSING_RESULT');
+    const details = [
+      `Antigravity stream failed: status=${status}`,
+      this.resultError ? `error=${this.resultError}` : null,
+      `exitCode=${exitCode}`,
+      this.malformedLines > 0 ? `malformedLines=${this.malformedLines}` : null,
+      this.rawTail ? `diagnosticTail=${this.rawTail}` : null,
+    ].filter(Boolean).join('; ');
+    return {
+      output: successfulResult ? this.resultResponse : '',
+      exitCode: effectiveExitCode,
+      diagnostic: details,
+    };
+  }
+
+  private consumeLine(line: string): void {
+    if (!line.trim()) return;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      this.malformedLines++;
+      return;
+    }
+    if (!event || typeof event !== 'object') return;
+    const record = event as Record<string, unknown>;
+    if (record.event !== 'result' || !record.result || typeof record.result !== 'object') return;
+    const result = record.result as Record<string, unknown>;
+    this.resultSeen = true;
+    this.resultStatus = typeof result.status === 'string' ? result.status : null;
+    this.resultResponse = typeof result.response === 'string' ? result.response : '';
+    if (typeof result.error === 'string') {
+      this.resultError = result.error;
+    } else if (result.error !== undefined && result.error !== null) {
+      try {
+        this.resultError = JSON.stringify(result.error);
+      } catch {
+        this.resultError = String(result.error);
+      }
+    } else {
+      this.resultError = null;
+    }
+  }
+}
 
 const claudeAdapter: CliAdapter = {
   command: 'claude',
@@ -337,13 +439,13 @@ const antigravityAdapter: CliAdapter = {
     },
   ],
   compatibilityFlags: [
-    '--print', '--input-format', '--output-format', '--sandbox',
+    '--input-format', '--output-format', '--sandbox',
     '--dangerously-skip-permissions', '--continue', '--model', '--effort',
   ],
   buildArgs({ mode, model, effort, extraOptions, sandboxMode, continueSession }) {
     // Antigravity CLI (`agy`):
-    //   --print selects the official non-interactive mode. With text input, the
-    //   prompt is read from stdin when it is not present on the command line.
+    //   stream-json input is the official stdin transport. Unlike --print,
+    //   neither the option parser nor the process listing can consume the prompt.
     //   --sandbox enables terminal restrictions; permissive execution explicitly
     //   opts into auto-approved tool actions.
     //   --continue resumes the most recent conversation.
@@ -352,7 +454,7 @@ const antigravityAdapter: CliAdapter = {
     if (sandboxMode === 'strict') args.push('--sandbox');
     else args.push('--dangerously-skip-permissions');
     if (mode !== 'interactive') {
-      args.push('--print', '--input-format', 'text', '--output-format', 'text');
+      args.push('--input-format', 'stream-json', '--output-format', 'stream-json');
     }
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
@@ -373,8 +475,14 @@ const antigravityAdapter: CliAdapter = {
   needsStdin(_mode) {
     return true;
   },
-  formatStdinPrompt(prompt) {
-    return prompt + '\n';
+  encodeStdinPrompt(prompt, mode) {
+    return mode === 'interactive' ? prompt + '\n' : encodeAntigravityStdinPrompt(prompt);
+  },
+  formatStdinPrompt(prompt, mode) {
+    return mode === 'interactive' ? prompt + '\n' : encodeAntigravityStdinPrompt(prompt);
+  },
+  createOutputDecoder() {
+    return new AntigravityOutputDecoder();
   },
   probeModels() {
     return probeViaHelp('agy');

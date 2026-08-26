@@ -30,8 +30,11 @@ describe('cli-adapters', () => {
       sandboxMode: 'strict',
     });
 
-    expect(args).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text']);
+    expect(args).toEqual(['--sandbox', '--input-format', 'stream-json', '--output-format', 'stream-json']);
     expect(args).not.toContain('--headless');
+    expect(args).not.toContain('--print');
+    expect(args).not.toContain('-p');
+    expect(args).not.toContain('Fix the login disclaimer');
   });
 
   it('skips Antigravity permissions in permissive mode', () => {
@@ -42,7 +45,7 @@ describe('cli-adapters', () => {
       sandboxMode: 'permissive',
     });
 
-    expect(args).toEqual(['--dangerously-skip-permissions', '--print', '--input-format', 'text', '--output-format', 'text']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--input-format', 'stream-json', '--output-format', 'stream-json']);
     expect(args).not.toContain('--headless');
   });
 
@@ -55,7 +58,7 @@ describe('cli-adapters', () => {
       continueSession: true,
     });
 
-    expect(args).toEqual(['--dangerously-skip-permissions', '--print', '--input-format', 'text', '--output-format', 'text', '--continue']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--input-format', 'stream-json', '--output-format', 'stream-json', '--continue']);
   });
 
   it('omits exec subcommand for Codex in interactive mode', () => {
@@ -92,7 +95,7 @@ describe('cli-adapters', () => {
 
   it('translates resolved effort for each CLI without touching global config', () => {
     expect(getAdapter('claude').buildArgs({ mode: 'headless', prompt: '', effort: 'high' })).toContain('high');
-    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium', sandboxMode: 'strict' })).toEqual(['--sandbox', '--print', '--input-format', 'text', '--output-format', 'text', '--effort', 'medium']);
+    expect(getAdapter('antigravity').buildArgs({ mode: 'headless', prompt: '', effort: 'medium', sandboxMode: 'strict' })).toEqual(['--sandbox', '--input-format', 'stream-json', '--output-format', 'stream-json', '--effort', 'medium']);
     expect(getAdapter('codex').buildArgs({ mode: 'headless', prompt: '', effort: 'xhigh' })).toEqual(expect.arrayContaining(['-c', 'model_reasoning_effort="xhigh"']));
   });
 
@@ -157,6 +160,18 @@ describe('cli-adapters', () => {
       const emitted = (adapter.compatibilityFlags ?? []).filter((flag) => args.includes(flag));
       expect(emitted.filter((flag) => !supported.has(flag))).toEqual([]);
     }
+  });
+
+  it('prevents the semantically invalid --print --input-format combination', () => {
+    const args = getAdapter('antigravity').buildArgs({
+      mode: 'headless', prompt: 'never place this prompt in argv', sandboxMode: 'strict',
+    });
+    const printIndex = args.findIndex((arg) => arg === '--print' || arg === '-p' || arg === '--prompt');
+    const inputIndex = args.indexOf('--input-format');
+
+    expect(printIndex).toBe(-1);
+    expect(inputIndex).toBeGreaterThanOrEqual(0);
+    expect(args).not.toContain('never place this prompt in argv');
   });
 
   it('enables interactive mode for all CLI tools', () => {

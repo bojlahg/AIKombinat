@@ -135,14 +135,14 @@ describe('CLI spawn diagnostics', () => {
         undefined,
         'discussion',
       ),
-    ).rejects.toThrow(/required flag --print is not supported/);
+    ).rejects.toThrow(/required flag --input-format is not supported/);
 
     const failures = sink.records.filter((record) => record.event === 'cli.compatibility.failed');
     expect(failures).toHaveLength(1);
     expect(failures[0].level).toBe('error');
     expect(failures[0].fields).toMatchObject({
       provider: 'antigravity',
-      unsupportedFlag: '--print',
+      unsupportedFlag: '--input-format',
       detectedVersion: 'agy 0.9.0',
     });
     expect(sink.records.some((record) => record.event === 'cli.spawned')).toBe(false);

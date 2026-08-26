@@ -14,6 +14,7 @@ const queries = await import('../../db/queries.js');
 const { extractStructuredReplies, AgentForumValidationError } = await import('../agent-forum-extractor.js');
 const { AgentForumOrchestrator } = await import('../agent-forum-orchestrator.js');
 const { claudeManager } = await import('../claude-manager.js');
+const { getAdapter } = await import('../cli-adapters.js');
 
 describe('AgentForum Extractor & Validation', () => {
   const availableTargetIds = new Set(['msg-user-1', 'msg-agent-a1', 'msg-agent-b1']);
@@ -254,6 +255,52 @@ describe('AgentForum Orchestrator & State Machine', () => {
     const updatedForum = queries.getAgentForumById(forum.id)!;
     expect(updatedForum.status).toBe('idle');
     expect(updatedForum.current_cycle).toBe(1);
+  });
+
+  it('creates a reply from a captured Antigravity NDJSON result after provider-edge decoding', async () => {
+    const forum = queries.createAgentForum('Antigravity Transport Forum', undefined, 1024);
+    queries.createAgentForumMember(forum.id, 'AgentA', 'architect', '', { cliTool: 'antigravity' });
+    queries.createAgentForumMember(forum.id, 'AgentB', 'developer', '', { cliTool: 'antigravity' });
+    queries.createAgentForumMember(forum.id, 'AgentC', 'reviewer', '', { cliTool: 'antigravity' });
+    const userMsg = queries.createAgentForumMessage(
+      forum.id, 'user', null, 'User', 'User', 'Поздоровайся.',
+    );
+
+    let turn = 0;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async () => {
+      turn++;
+      const stdout = new EventEmitter();
+      const stderr = new EventEmitter();
+      const response = turn === 1
+        ? JSON.stringify({ replies: [{ replyTo: userMsg.id, content: 'Привет' }] })
+        : JSON.stringify({ replies: [] });
+      const captured = [
+        JSON.stringify({ event: 'init', session: 'captured-session' }),
+        JSON.stringify({ event: 'step_update', step: { text: 'working' } }),
+        JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response } }),
+      ].join('\n') + '\n';
+      const decoder = getAdapter('antigravity').createOutputDecoder!();
+      decoder.push(captured.slice(0, 23));
+      decoder.push(captured.slice(23, -5));
+      decoder.push(captured.slice(-5));
+      const decoded = decoder.finish(0);
+
+      const exitPromise = new Promise<number>((resolve) => {
+        setTimeout(() => {
+          stdout.emit('data', decoded.output);
+          resolve(decoded.exitCode);
+        }, 5);
+      });
+      return { pid: 1500 + turn, stdout, stderr, exitPromise };
+    });
+
+    await orchestrator.runCycle(forum.id);
+
+    const reply = queries.getAgentForumMessages(forum.id).find((message) => message.author_name === 'AgentA');
+    expect(reply).toMatchObject({
+      parent_message_id: userMsg.id,
+      content: 'Привет',
+    });
   });
 
   it('prevents agent from replying to its own message and from replying twice to the same message', async () => {

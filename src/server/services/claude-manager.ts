@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
-import { Readable, Writable } from 'stream';
+import { PassThrough, Readable, Writable } from 'stream';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -245,7 +245,8 @@ export class ClaudeManager {
       // '\r\n') to the PTY on ready, submitting the user's startupInputBuffer
       // type-ahead as if they pressed Enter.
       const stdinPrompt = adapter.needsStdin(mode) && prompt
-        ? adapter.formatStdinPrompt(prompt, mode, promptPolicy)
+        ? (adapter.encodeStdinPrompt?.(prompt, mode, promptPolicy)
+          ?? adapter.formatStdinPrompt(prompt, mode, promptPolicy))
         : undefined;
       const result = await this.spawnAndLog(
         async () => {
@@ -585,7 +586,10 @@ export class ClaudeManager {
 
       // Handle stdin based on mode
       if (needsStdin && child.stdin) {
-        child.stdin.write(adapter.formatStdinPrompt(prompt, mode, promptPolicy));
+        child.stdin.write(
+          adapter.encodeStdinPrompt?.(prompt, mode, promptPolicy)
+          ?? adapter.formatStdinPrompt(prompt, mode, promptPolicy),
+        );
         if (mode === 'interactive') {
           this.stdinStreams.set(pid, child.stdin);
         } else {
@@ -595,19 +599,53 @@ export class ClaudeManager {
         child.stdin.end();
       }
 
-      const exitPromise = new Promise<number>((resolveExit) => {
-        child.on('exit', (code) => {
-          this.processes.delete(pid);
-          this.stdinStreams.delete(pid);
-          resolveExit(code ?? 1);
+      const outputDecoder = mode === 'interactive' ? undefined : adapter.createOutputDecoder?.();
+      let stdout: NodeJS.ReadableStream = child.stdout!;
+      let stderr: NodeJS.ReadableStream = child.stderr!;
+      let exitPromise: Promise<number>;
+
+      if (outputDecoder) {
+        const decodedStdout = new PassThrough();
+        const decodedStderr = new PassThrough();
+        stdout = decodedStdout;
+        stderr = decodedStderr;
+
+        child.stdout!.on('data', (chunk: Buffer | string) => {
+          outputDecoder.push(chunk.toString());
         });
-      });
+        child.stderr!.on('data', (chunk: Buffer | string) => {
+          decodedStderr.write(chunk);
+        });
+
+        // `close` runs after stdio has drained, so fragmented final NDJSON is
+        // complete before the effective provider exit status is resolved.
+        exitPromise = new Promise<number>((resolveExit) => {
+          child.on('close', (code) => {
+            const decoded = outputDecoder.finish(code ?? 1);
+            if (decoded.output) decodedStdout.write(decoded.output);
+            if (decoded.diagnostic) decodedStderr.write(decoded.diagnostic);
+            decodedStdout.end();
+            decodedStderr.end();
+            this.processes.delete(pid);
+            this.stdinStreams.delete(pid);
+            resolveExit(decoded.exitCode);
+          });
+        });
+      } else {
+        exitPromise = new Promise<number>((resolveExit) => {
+          child.on('exit', (code) => {
+            this.processes.delete(pid);
+            this.stdinStreams.delete(pid);
+            resolveExit(code ?? 1);
+          });
+        });
+      }
 
       setImmediate(() => {
         resolve({
           pid,
-          stdout: child.stdout!,
-          stderr: child.stderr!,
+          stdout,
+          stderr,
           stdin: child.stdin ?? null,
           exitPromise,
         });

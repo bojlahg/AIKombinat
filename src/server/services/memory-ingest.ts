@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import * as queries from '../db/queries.js';
-import type { CliTool } from './cli-adapters.js';
+import { getAdapter, type CliTool } from './cli-adapters.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import { debugLogger, type DebugSession } from './debug-logger.js';
 import { dispatchWikiExport } from './wiki-exporter.js';
@@ -201,7 +201,7 @@ function safeParseLintIssues(raw: string): LintIssue[] {
 
 function buildInvocation(cliTool: CliTool): { command: string; args: string[] } {
   switch (cliTool) {
-    case 'antigravity': return { command: 'agy', args: ['--dangerously-skip-permissions', '--print', '--input-format', 'text', '--output-format', 'text'] };
+    case 'antigravity': return { command: 'agy', args: ['--dangerously-skip-permissions', '--input-format', 'stream-json', '--output-format', 'stream-json'] };
     case 'codex': return { command: 'codex', args: ['exec'] };
     case 'claude':
     default: return { command: 'claude', args: ['--print'] };
@@ -248,6 +248,8 @@ export function runHeadless(
   debugSession?: DebugSession,
 ): Promise<string> {
   const { command, args } = buildInvocation(cliTool);
+  const adapter = getAdapter(cliTool);
+  const outputDecoder = adapter.createOutputDecoder?.();
   assertExternalAiCliAllowed(command);
   return new Promise((resolve, reject) => {
     const isWin = process.platform === 'win32';
@@ -278,7 +280,11 @@ export function runHeadless(
       reject(new Error('Memory ingest timed out'));
     }, timeoutMs);
 
-    proc.stdout.on('data', (c: Buffer) => { stdout += c.toString('utf8'); });
+    proc.stdout.on('data', (c: Buffer) => {
+      const chunk = c.toString('utf8');
+      stdout += chunk;
+      outputDecoder?.push(chunk);
+    });
     proc.stderr.on('data', (c: Buffer) => { stderr += c.toString('utf8'); });
     proc.on('error', (err) => {
       if (settled) return;
@@ -292,12 +298,14 @@ export function runHeadless(
       settled = true;
       clearTimeout(timer);
       try { debugSession?.finalize(code ?? 0); } catch { /* ignore */ }
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`CLI exited with code ${code}: ${stderr.trim().slice(0, 300)}`));
+      const decoded = outputDecoder?.finish(code ?? 1);
+      const effectiveExitCode = decoded?.exitCode ?? (code ?? 1);
+      if (effectiveExitCode === 0) resolve(decoded?.output ?? stdout);
+      else reject(new Error(`CLI exited with code ${effectiveExitCode}: ${(decoded?.diagnostic || stderr).trim().slice(-300)}`));
     });
 
     try {
-      proc.stdin.write(prompt + '\n');
+      proc.stdin.write(adapter.encodeStdinPrompt?.(prompt, 'headless') ?? prompt + '\n');
       proc.stdin.end();
       try { debugSession?.writeStdin(prompt); } catch { /* ignore */ }
     } catch (err) {
