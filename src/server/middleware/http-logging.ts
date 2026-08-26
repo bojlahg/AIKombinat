@@ -1,6 +1,8 @@
-import type { ErrorRequestHandler, RequestHandler, Request } from 'express';
+import type { ErrorRequestHandler, RequestHandler, Request, Response } from 'express';
 import { logger } from '../logging/logger.js';
 import { normalizeError } from '../logging/normalize-error.js';
+import { redactString } from '../logging/redact.js';
+import { clampLine } from '../logging/truncate.js';
 import type { LogLevel } from '../logging/types.js';
 
 /**
@@ -30,26 +32,70 @@ export function routePattern(req: Request): string {
   return (req.originalUrl || req.url || '').split('?')[0];
 }
 
+/** Cap for the extracted reason — a diagnostic hint, never a payload dump. */
+export const MAX_FAILURE_REASON_CHARS = 300;
+
+/**
+ * Pulls a safe, human-readable reason out of a failure response body.
+ *
+ * Deliberately narrow: only a top-level string `error` or `message`, which is
+ * the shape every route in this codebase uses for its failure payloads. Nothing
+ * else is read, so a route that happens to return records, tokens or file
+ * contents alongside its error cannot leak them into the log.
+ */
+export function extractFailureReason(body: unknown): string | undefined {
+  if (typeof body === 'string') return clampReason(body);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const record = body as Record<string, unknown>;
+  const candidate = typeof record.error === 'string'
+    ? record.error
+    : typeof record.message === 'string'
+      ? record.message
+      : undefined;
+  return candidate === undefined ? undefined : clampReason(candidate);
+}
+
+function clampReason(value: string): string | undefined {
+  const reason = clampLine(redactString(value), MAX_FAILURE_REASON_CHARS);
+  return reason.length > 0 ? reason : undefined;
+}
+
 /**
  * Logs failed responses, including the ones routes produce directly with
- * `res.status(409).json(...)` — those never reach an error handler.
+ * `res.status(409).json(...)` — those never reach an error handler, so without
+ * this their reason would exist only inside the HTTP response.
  */
 export const httpStatusLogger: RequestHandler = (req, res, next) => {
   const startedAt = Date.now();
+
+  // Intercept only to read a failure reason back out; the body itself is passed
+  // through untouched and is never logged.
+  const originalJson = res.json.bind(res) as Response['json'];
+  res.json = function loggedJson(this: Response, body?: unknown) {
+    if (res.statusCode >= 400 && res.locals.failureReason === undefined) {
+      res.locals.failureReason = extractFailureReason(body);
+    }
+    return originalJson(body);
+  } as Response['json'];
+
   res.on('finish', () => {
     const level = levelForStatus(res.statusCode);
     if (!level) return;
     // A thrown error is reported in full by `httpErrorLogger`; don't double-log.
     if (res.locals.loggedByErrorHandler) return;
+    const reason = res.locals.failureReason as string | undefined;
+    const route = routePattern(req);
     logger[level]('http.response', {
       scope: '[http]',
-      msg: `${req.method} ${routePattern(req)} -> ${res.statusCode}`,
+      msg: `${req.method} ${route} -> ${res.statusCode}`,
       method: req.method,
-      route: routePattern(req),
+      route,
       status: res.statusCode,
+      ...(reason ? { message: reason } : {}),
       durationMs: Date.now() - startedAt,
     });
   });
+
   next();
 };
 
@@ -64,13 +110,15 @@ export const httpErrorLogger: ErrorRequestHandler = (err, req, res, next) => {
     : 500;
 
   res.locals.loggedByErrorHandler = true;
+  const route = routePattern(req);
   const level = levelForStatus(status) ?? 'error';
   logger[level]('http.error', {
     scope: '[http]',
-    msg: `${req.method} ${routePattern(req)} -> ${status} ${normalized.message}`,
+    msg: `${req.method} ${route} -> ${status} ${normalized.message}`,
     method: req.method,
-    route: routePattern(req),
+    route,
     status,
+    message: clampLine(normalized.message, MAX_FAILURE_REASON_CHARS),
     errorName: normalized.name,
     errorCode: normalized.code,
     detail: normalized.stack,

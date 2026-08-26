@@ -10,6 +10,7 @@ import { runWithLogContext, tag } from '../context.js';
 import { normalizeError, formatErrorSummary } from '../normalize-error.js';
 import { tailOf, clampLine, DEFAULT_OUTPUT_TAIL_BYTES } from '../truncate.js';
 import { redactString, redactFields, redactArgs, isSecretKey, resetRedactionCache, REDACTED } from '../redact.js';
+import { sanitizeLogScope, sanitizeLogLine, MAX_SCOPE_LENGTH } from '../scope.js';
 import { rotatedFileName, resolveLogDir, LOG_FILE_NAME } from '../paths.js';
 import type { LogRecord, LogSink } from '../types.js';
 
@@ -186,6 +187,11 @@ describe('logger', () => {
       expect(out.nested).toEqual({ password: REDACTED, model: 'opus' });
     });
 
+    it('stops a redacted value at a bracket so scope structure survives', () => {
+      expect(redactString('[forum:a token=leakedsecret9999][Claude]'))
+        .toBe(`[forum:a token=${REDACTED}][Claude]`);
+    });
+
     it('scrubs credentials embedded in free-form strings', () => {
       expect(redactString('Authorization: Bearer abcdef1234567890')).not.toContain('abcdef1234567890');
       expect(redactString('token=abcdef123456 next')).toContain(REDACTED);
@@ -260,6 +266,55 @@ describe('logger', () => {
     it('shortens an over-long tag label', () => {
       expect(tag('forum', 'a'.repeat(80))).toBe(`[forum:${'a'.repeat(40)}...]`);
       expect(tag('forum', '')).toBe('[forum]');
+    });
+
+    it('redacts a secret pasted into a scope tag', () => {
+      runWithLogContext({ scope: '[forum:token=verysecret123456]' }, () => {
+        logger.info('forum.cycle.started', { msg: 'cycle #1 started' });
+      });
+      const record = sink.records[0];
+      expect(record.scope).not.toContain('verysecret123456');
+      expect(record.scope).toContain(REDACTED);
+      expect(renderConsoleLine(record)).not.toContain('verysecret123456');
+      expect(renderFileLine(record)).not.toContain('verysecret123456');
+    });
+
+    it('cannot forge a second log line through a scope containing CR/LF', () => {
+      logger.info('forum.turn.started', {
+        scope: '[Agent\nERROR [server] everything is on fire]',
+        msg: 'turn started',
+      });
+      const record = sink.records[0];
+      expect(record.scope).not.toMatch(/[\r\n]/);
+      expect(record.scope).toBe('[Agent ERROR [server] everything is on fire]');
+      expect(renderConsoleLine(record).split('\n')).toHaveLength(1);
+      expect(renderFileLine(record).split('\n')).toHaveLength(1);
+    });
+
+    it('sanitizes ambient and child scopes, not just the explicit field', () => {
+      runWithLogContext({ scope: '[forum:bad\r\ntitle]' }, () => {
+        logger.child('[Agent\u0007X]').warn('forum.turn.skipped', { msg: 'SKIPPED' });
+      });
+      const record = sink.records[0];
+      expect(record.scope).toBe('[forum:bad title][Agent X]');
+      expect(record.scope).not.toMatch(/[\r\n\u0007]/);
+    });
+
+    it('keeps a message from fabricating its own record line', () => {
+      logger.error('todo.execution.failed', { msg: 'boom\nERROR forged', detail: 'line one\nline two' });
+      const record = sink.records[0];
+      expect(record.msg).toBe('boom ERROR forged');
+      // `detail` stays multi-line by design; it is rendered as an indented block.
+      expect(record.detail).toBe('line one\nline two');
+      expect(renderConsoleLine(record)).toContain('\n  line one\n  line two');
+    });
+
+    it('leaves an ordinary scope tag untouched and caps a runaway one', () => {
+      expect(sanitizeLogScope('[forum:test][Claude]')).toBe('[forum:test][Claude]');
+      expect(sanitizeLogScope(undefined)).toBe('');
+      const long = sanitizeLogScope(`[forum:${'z'.repeat(400)}]`);
+      expect(long.length).toBe(MAX_SCOPE_LENGTH + 3);
+      expect(sanitizeLogLine('a\r\nb')).toBe('a  b');
     });
 
     it('scopes a child logger without touching the parent', () => {

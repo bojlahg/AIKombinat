@@ -4,6 +4,7 @@ import { getLogContext, joinScopes } from './context.js';
 import { normalizeError } from './normalize-error.js';
 import { resolveLogDir } from './paths.js';
 import { redactFields, redactString } from './redact.js';
+import { sanitizeLogLine, sanitizeLogScope } from './scope.js';
 import { clampLine } from './truncate.js';
 import { levelRank, parseLogLevel, type LogFields, type LogLevel, type LogRecord, type LogSink } from './types.js';
 
@@ -118,7 +119,11 @@ class Logger implements LoggerLike {
     const merged: LogFields = { ...(context?.fields ?? {}), ...(fields ?? {}) };
 
     const { msg, scope, detail, err, ...rest } = merged;
-    const scopeTag = joinScopes(context?.scope, typeof scope === 'string' ? scope : undefined) ?? '';
+    // Scope is assembled from user-controlled titles and agent names, so it is
+    // redacted and flattened to one line here rather than at any call site.
+    const scopeTag = sanitizeLogScope(
+      joinScopes(context?.scope, typeof scope === 'string' ? scope : undefined),
+    );
 
     const extra: Record<string, unknown> = { ...rest };
     let detailBlock = typeof detail === 'string' && detail ? redactString(detail) : undefined;
@@ -140,7 +145,7 @@ class Logger implements LoggerLike {
       level,
       event,
       scope: scopeTag,
-      msg: typeof msg === 'string' && msg ? redactString(msg) : event,
+      msg: typeof msg === 'string' && msg ? sanitizeLogLine(redactString(msg)) : event,
       detail: detailBlock,
       fields: redactFields(extra),
     };

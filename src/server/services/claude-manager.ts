@@ -175,8 +175,10 @@ export class ClaudeManager {
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them
-    // re-implement this. The prompt itself is never logged — it carries project
-    // context, memory and user messages.
+    // re-implement this. The unified logger never records the prompt itself —
+    // it carries project context, memory and user messages. (The separate,
+    // opt-in `project.debug_logging` facility does capture it, into its own
+    // per-project `.debug-logs/` file — never into logs/aikombinat.log.)
     const startedAt = Date.now();
     const spawnFields = {
       provider: tool,
@@ -197,7 +199,12 @@ export class ClaudeManager {
     // Pre-flight on Windows only: spawn goes through cmd.exe (shell:true), so
     // a missing CLI never fires ENOENT — cmd exits 1 with a localized (often
     // mojibake) message. POSIX already surfaces ENOENT via the 'error' event.
-    if (process.platform === 'win32') {
+    //
+    // Runs *inside* the spawn logging boundary below rather than ahead of it, so
+    // a missing CLI produces the same single `cli.spawn.failed` record as every
+    // other startup failure instead of throwing past the diagnostics.
+    const assertToolInstalled = async (): Promise<void> => {
+      if (process.platform !== 'win32') return;
       const status = await getToolStatus(tool);
       if (status && !status.installed) {
         throw new Error(
@@ -205,7 +212,7 @@ export class ClaudeManager {
           + `Install it first — or if it was installed after AIKombinat started, restart AIKombinat to pick up the updated PATH.`
         );
       }
-    }
+    };
 
     if (adapter.requiresTty || mode === 'interactive') {
       // Empty prompt (sessions stash the real prompt in pendingInitialPrompts and
@@ -217,7 +224,10 @@ export class ClaudeManager {
         ? adapter.formatStdinPrompt(prompt, mode, promptPolicy)
         : undefined;
       const result = await this.spawnAndLog(
-        () => this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows),
+        async () => {
+          await assertToolInstalled();
+          return this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows);
+        },
         adapter,
         spawnFields,
         startedAt,
@@ -225,7 +235,10 @@ export class ClaudeManager {
       return { ...result, command: adapter.command, args };
     }
     const result = await this.spawnAndLog(
-      () => this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy),
+      async () => {
+        await assertToolInstalled();
+        return this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy);
+      },
       adapter,
       spawnFields,
       startedAt,

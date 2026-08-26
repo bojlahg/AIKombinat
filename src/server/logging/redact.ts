@@ -88,7 +88,13 @@ export function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key.toLowerCase());
 }
 
-/** `--api-key sk-xyz`, `token=abc`, `"password": "hunter2"`, `Bearer xyz`, … */
+/**
+ * `--api-key sk-xyz`, `token=abc`, `"password": "hunter2"`, `Bearer xyz`, …
+ *
+ * Square brackets terminate a matched value: they delimit scope tags
+ * (`[forum:x][Claude]`), so letting them into the match would swallow the
+ * surrounding structure along with the secret.
+ */
 const INLINE_SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, `Bearer ${REDACTED}`],
   [
@@ -96,7 +102,7 @@ const INLINE_SECRET_PATTERNS: Array<[RegExp, string]> = [
     `$1${REDACTED}`,
   ],
   [
-    /((?:"|')?\b(?:authorization|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|password|passwd|secret|cookie)\b(?:"|')?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}]+)/gi,
+    /((?:"|')?\b(?:authorization|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|password|passwd|secret|cookie)\b(?:"|')?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}\]\[]+)/gi,
     `$1${REDACTED}`,
   ],
   [/\bsk-[A-Za-z0-9_-]{12,}/g, REDACTED],

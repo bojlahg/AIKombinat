@@ -212,6 +212,27 @@ describe('AgentForum diagnostics', () => {
     expect(findRecord(sink, 'forum.cycle.stopped')?.level).toBe('warn');
   });
 
+  it('sanitizes a hostile forum title and member name in the scope tag', async () => {
+    const forum = queries.createAgentForum('bad\ntitle token=leakedsecret9999', undefined, 1024);
+    queries.createAgentForumMember(forum.id, 'Agent\nERROR forged', 'architect');
+    queries.createAgentForumMember(forum.id, 'Codex', 'developer');
+    queries.createAgentForumMessage(forum.id, 'user', null, 'User', 'User', 'Question?');
+    mockTurns([{ stdout: JSON.stringify({ replies: [] }), exitCode: 0 }]);
+
+    await orchestrator.runCycle(forum.id);
+
+    const turnStarted = findRecord(sink, 'forum.turn.started')!;
+    expect(turnStarted).toBeDefined();
+    expect(turnStarted.scope).not.toMatch(/[\r\n]/);
+    expect(turnStarted.scope).not.toContain('leakedsecret9999');
+    expect(turnStarted.scope).toBe('[forum:bad title token=***redacted***][Agent ERROR forged]');
+
+    for (const record of sink.records) {
+      expect(record.scope).not.toMatch(/[\r\n]/);
+      expect(record.scope).not.toContain('leakedsecret9999');
+    }
+  });
+
   it('never writes the prompt or the full provider output to the log', async () => {
     const { forum, userMsg } = seedForum('secret project');
     const hugeOutput = 'X'.repeat(50_000);

@@ -3,6 +3,16 @@ import path from 'path';
 import { PassThrough } from 'stream';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 
+/**
+ * Opt-in raw execution capture, enabled per project via `project.debug_logging`.
+ *
+ * Deliberately separate from the unified logger in `src/server/logging/`: this
+ * one *does* persist the full prompt and the untruncated stdout/stderr, because
+ * that is the whole point of turning it on. It writes only to
+ * `<project>/.debug-logs/`, never to `logs/aikombinat.log`, so the unified
+ * console/file stream keeps its "no prompts, bounded output" guarantee whether
+ * or not this is enabled.
+ */
 const DEBUG_DIR = '.debug-logs';
 
 export interface DebugSession {

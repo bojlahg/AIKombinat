@@ -630,7 +630,16 @@ export class SessionManager {
           broadcastProjectStatus(session.project_id);
           orchestrator.wakeWaitingExecutors().catch(() => {});
         }
-      }).catch(() => {
+      }).catch((err) => {
+        // The completion handler itself threw: the session is force-failed below
+        // and the original exception would otherwise be lost entirely.
+        logger.error('session.handler-failed', {
+          scope: tag('session', session.title),
+          msg: 'session completion handler failed - forcing the session to failed',
+          sessionId,
+          projectId: session.project_id,
+          err,
+        });
         this.flushAndForgetRaw(runToken);
         this.runInitialPrompts.delete(runToken);
         this.runStartupBuffers.delete(runToken);

@@ -661,6 +661,12 @@ export class Orchestrator {
     // and follow-ups are often short/conversational); just ensure it's non-empty.
     if (isContinue) {
       if (!taskContent) {
+        logger.warn('todo.continue.empty-prompt', {
+          msg: 'continue refused: the follow-up prompt is empty',
+          todoId,
+          projectId,
+          round: roundNumber,
+        });
         queries.updateTodoStatus(todoId, 'failed');
         queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
         queries.createTaskLog(todoId, 'error', 'Follow-up prompt is empty.', roundNumber);
@@ -691,6 +697,14 @@ export class Orchestrator {
       } else if (currentRound.phase === 'review') {
         effectiveProfileId = todo.review_profile_id ?? project.default_review_profile_id;
         if (!effectiveProfileId) {
+          logger.error('todo.review.profile-missing', {
+            msg: 'review phase cannot start: no review profile is configured',
+            todoId,
+            projectId,
+            phase: 'review',
+            round: currentRound.round_index,
+            detail: 'Set a review profile on the task, or a default review profile on the project.',
+          });
           queries.updateTodoStatus(todoId, 'failed');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0, pipeline_phase: 'review' });
           queries.createTaskLog(
@@ -820,6 +834,14 @@ export class Orchestrator {
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
+        logger.error('todo.selection.failed', {
+          msg: 'execution profile selection failed',
+          todoId,
+          projectId,
+          profileId: effectiveProfileId,
+          ...(currentRound ? { phase: currentRound.phase, round: currentRound.round_index } : { round: roundNumber }),
+          err,
+        });
         queries.updateTodoStatus(todoId, 'failed');
         queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
         if (currentRound) {
@@ -1096,6 +1118,14 @@ export class Orchestrator {
           prompt += `\n\nReference images are attached at the following paths (relative to working directory):\n${copiedFiles.map(f => `- ${f}`).join('\n')}`;
           queries.createTaskLog(todoId, 'output', `Copied ${copiedFiles.length} image(s) to worktree.`);
         } catch (err) {
+          // The run continues without the images, so the agent silently works
+          // from an incomplete brief unless this is visible outside the DB.
+          logger.warn('todo.images.copy-failed', {
+            msg: 'attached reference images could not be copied into the work directory',
+            todoId,
+            projectId,
+            message: clampLine(err instanceof Error ? err.message : String(err)),
+          });
           const msg = err instanceof Error ? err.message : String(err);
           queries.createTaskLog(todoId, 'error', `Failed to copy images: ${msg}`);
         }
@@ -1109,6 +1139,15 @@ export class Orchestrator {
           configureClaudeSandboxPermissions(workDir);
           queries.createTaskLog(todoId, 'output', `[sandbox] Configured .claude/settings.json with directory-scoped permissions`);
         } catch (err) {
+          // Strict mode without its settings file means the CLI runs less
+          // constrained than the project asked for — never a silent condition.
+          logger.warn('todo.sandbox.config-failed', {
+            msg: 'strict sandbox permission settings could not be written',
+            todoId,
+            projectId,
+            provider: resolvedCliTool,
+            message: clampLine(err instanceof Error ? err.message : String(err)),
+          });
           const msg = err instanceof Error ? err.message : String(err);
           queries.createTaskLog(todoId, 'error', `[sandbox] Failed to create permission settings: ${msg}`);
         }
@@ -1306,7 +1345,16 @@ export class Orchestrator {
               process_pid: 0,
               ...(tokenUsage ? { token_usage: JSON.stringify(tokenUsage) } : {}),
             });
-            this.restartWithNextCli(todoId, projectId, resolvedCliTool, fallback, autoChain).catch(() => {
+            this.restartWithNextCli(todoId, projectId, resolvedCliTool, fallback, autoChain).catch((err) => {
+              logger.error('todo.context-switch.failed', {
+                msg: `context switch to ${fallback.cliTool} failed`,
+                todoId,
+                projectId,
+                from: resolvedCliTool,
+                to: fallback.cliTool,
+                round: roundNumber,
+                err,
+              });
               try {
                 if (todo.review_enabled && currentRound) {
                   reviewPipeline.handleRoundFailure(todoId, currentRound.id, 'Context switch restart failed.');
@@ -1365,7 +1413,15 @@ export class Orchestrator {
                 `[quota] Switching to next candidate in profile after ${adapter.displayName} quota exhaustion...`,
                 roundNumber,
               );
-              this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions).catch(() => {
+              this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions).catch((err) => {
+                logger.error('todo.quota-switch.failed', {
+                  msg: 'switching to the next profile candidate after quota exhaustion failed',
+                  todoId,
+                  projectId,
+                  provider: resolvedCliTool,
+                  round: roundNumber,
+                  err,
+                });
                 try {
                   if (todo.review_enabled && currentRound) {
                     reviewPipeline.handleRoundFailure(todoId, currentRound.id, 'Profile candidate switch failed.');
@@ -1556,7 +1612,16 @@ export class Orchestrator {
       this.wakeWaitingExecutors().catch(() => {
         // Ignore errors
       });
-    }).catch(() => {
+    }).catch((err) => {
+      // The completion handler itself threw: the task is being force-failed
+      // below and the original exception would otherwise vanish entirely.
+      logger.error('todo.execution.handler-failed', {
+        msg: 'execution completion handler failed - forcing the task to failed',
+        todoId,
+        projectId,
+        round: roundNumber,
+        err,
+      });
       try {
         if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
       } catch { /* ignore */ }
@@ -1597,6 +1662,14 @@ export class Orchestrator {
     const switchCount = (currentTodo.context_switch_count ?? 0) + 1;
 
     if (switchCount > MAX_CONTEXT_SWITCHES) {
+      logger.error('todo.context-switch.limit-reached', {
+        scope: tag('todo', currentTodo.title),
+        msg: `maximum context switches (${MAX_CONTEXT_SWITCHES}) exceeded - stopping the task`,
+        todoId,
+        projectId,
+        switchCount,
+        to: toCli,
+      });
       queries.updateTodoStatus(todoId, 'failed');
       queries.createTaskLog(todoId, 'error',
         `Maximum context switches (${MAX_CONTEXT_SWITCHES}) exceeded. Stopping task.`);

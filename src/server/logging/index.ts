@@ -1,5 +1,6 @@
 export { logger, type LoggerLike, type LoggerConfigureOptions } from './logger.js';
 export { runWithLogContext, getLogContext, tag, joinScopes, type LogContext } from './context.js';
+export { sanitizeLogScope, sanitizeLogLine, MAX_SCOPE_LENGTH } from './scope.js';
 export { normalizeError, formatErrorSummary, type NormalizedError } from './normalize-error.js';
 export {
   tailOf,

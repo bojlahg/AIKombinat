@@ -74,7 +74,7 @@ Checklist:
 Config via `.env` (see `.env.example`), `~/.aikombinat/config.json` (or legacy `~/.clitrigger/config.json`), or Electron `userData/config.json`.
 Key vars: `PORT` (default 3000), `DB_PATH`, `TUNNEL_ENABLED`, `HEADLESS`, `DISABLE_AUTH`.
 
-Runtime diagnostics go to the console **and** to a rotating log file (`<app data>/logs/aikombinat.log`, or `<repo>/logs/` in development). Use the shared logger in `src/server/logging/` — `logger.info('event.name', { msg, scope, ...fields })` — instead of adding `console.*` calls; it handles console/file formatting, secret redaction and output caps. `AIKOMBINAT_LOG_LEVEL` (default `info`) and `AIKOMBINAT_LOG_DIR` control it. Never log prompts or full provider output.
+Runtime diagnostics go to the console **and** to a rotating log file (`<app data>/logs/aikombinat.log`, or `<repo>/logs/` in development). Use the shared logger in `src/server/logging/` — `logger.info('event.name', { msg, scope, ...fields })` — instead of adding `console.*` calls; it handles console/file formatting, secret redaction and output caps. `AIKOMBINAT_LOG_LEVEL` (default `info`) and `AIKOMBINAT_LOG_DIR` control it. The unified logger never records prompts, project context or full provider output — failures carry a bounded stderr/stdout tail instead. The separate, opt-in `project.debug_logging` facility is a different mechanism: it writes raw stdin/stdout/stderr (prompt included) to `<project>/.debug-logs/`, and never into `logs/aikombinat.log`.
 
 ## Language
 

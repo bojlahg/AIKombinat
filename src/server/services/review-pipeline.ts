@@ -229,6 +229,15 @@ When done, ensure all tests pass.`);
       const reviewProfileId = todo.review_profile_id ?? project.default_review_profile_id;
       if (!reviewProfileId) {
         const errorMsg = 'Configuration error: Review profile is not configured (todo.review_profile_id is null and project has no default_review_profile_id).';
+        logger.error('review.profile-missing', {
+          scope: tag('todo', todo.title),
+          msg: 'implementation finished but the review phase cannot start: no review profile is configured',
+          todoId,
+          roundId: currentRoundId,
+          phase: 'review',
+          round: currentRound.round_index,
+          detail: 'Set a review profile on the task, or a default review profile on the project.',
+        });
         db.transaction(() => {
           updateExecutionRound(currentRoundId, {
             status: 'failed',
@@ -890,6 +899,15 @@ When done, ensure all tests pass.`);
       }
 
       // Process is dead
+      logger.warn('review.round.reconciled', {
+        scope: tag('todo', todo.title),
+        msg: `${round.phase} round ${round.round_index} was interrupted by a restart - marking it failed`,
+        todoId: todo.id,
+        roundId: round.id,
+        phase: round.phase,
+        round: round.round_index,
+        pid: todo.process_pid ?? undefined,
+      });
       db.transaction(() => {
         updateExecutionRound(round.id, {
           status: 'failed',

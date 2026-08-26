@@ -306,6 +306,14 @@ export class DiscussionOrchestrator {
         reserveOwnerId: discussionId,
       });
       if (selection.status === 'waiting_executor') {
+        logger.warn('discussion.admission.waiting-executor', {
+          scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+          msg: 'turn paused: waiting_executor (provider concurrency limit reached)',
+          discussionId,
+          round: message.round_number,
+          profile: selection.profileName,
+          reason: clampLine(selection.rejectionSummary),
+        });
         queries.updateDiscussionStatus(discussionId, 'paused');
         queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
         queries.updateDiscussionMessage(messageId, { status: 'pending' });
@@ -319,6 +327,14 @@ export class DiscussionOrchestrator {
         return;
       }
       if (selection.status === 'no_candidates') {
+        logger.error('discussion.admission.no-candidates', {
+          scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+          msg: `no eligible executors for execution profile "${selection.profileName}"`,
+          discussionId,
+          round: message.round_number,
+          profile: selection.profileName,
+          detail: selection.rejectionSummary,
+        });
         queries.updateDiscussionStatus(discussionId, 'failed');
         queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
         queries.updateDiscussionMessage(messageId, { status: 'failed', completed_at: new Date().toISOString() });
@@ -349,6 +365,14 @@ export class DiscussionOrchestrator {
         const quota = providerQuotaService.getQuotaState(resolvedCliTool);
         if (quota.state === 'exhausted') {
           const adapter = getAdapter(resolvedCliTool);
+          logger.warn('discussion.admission.waiting-quota', {
+            scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+            msg: 'turn paused: provider quota exhausted',
+            discussionId,
+            round: message.round_number,
+            provider: resolvedCliTool,
+            ...(quota.reason ? { reason: clampLine(quota.reason) } : {}),
+          });
           queries.updateDiscussionStatus(discussionId, 'paused');
           queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
           queries.updateDiscussionMessage(messageId, { status: 'pending' });
@@ -366,6 +390,13 @@ export class DiscussionOrchestrator {
       const reserved = executorPool.reserveSlot(discussionId, resolvedCliTool, { excludeDiscussionId: discussionId });
       if (!reserved) {
         const adapter = getAdapter(resolvedCliTool);
+        logger.warn('discussion.admission.waiting-executor', {
+          scope: `${tag('discussion', discussion.title)}[${message.agent_name}]`,
+          msg: 'turn paused: provider concurrency limit reached',
+          discussionId,
+          round: message.round_number,
+          provider: resolvedCliTool,
+        });
         queries.updateDiscussionStatus(discussionId, 'paused');
         queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
         queries.updateDiscussionMessage(messageId, { status: 'pending' });
