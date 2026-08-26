@@ -192,7 +192,10 @@ export const ko = {
     'forum.createFailed': '포럼 생성 실패',
     'forum.deleted': '포럼이 삭제되었습니다',
     'forum.deleteFailed': '포럼 삭제 실패',
+    'forum.send': '보내기',
+    'forum.skipTurn': '차례 건너뛰기',
     'forum.sendFailed': '메시지 전송 실패',
+    'forum.skipFailed': '차례 건너뛰기 실패',
     'forum.projectLinked': '프로젝트 컨텍스트가 연결되었습니다',
     'forum.standaloneMode': '독립 실행 모드가 활성화되었습니다',
 

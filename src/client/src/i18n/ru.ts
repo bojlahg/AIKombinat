@@ -192,7 +192,10 @@ export const ru = {
     'forum.createFailed': 'Не удалось создать форум',
     'forum.deleted': 'Форум удален',
     'forum.deleteFailed': 'Не удалось удалить форум',
+    'forum.send': 'Отправить',
+    'forum.skipTurn': 'Пропустить ход',
     'forum.sendFailed': 'Не удалось отправить сообщение',
+    'forum.skipFailed': 'Не удалось пропустить ход',
     'forum.projectLinked': 'Контекст проекта подключен',
     'forum.standaloneMode': 'Автономный режим активирован',
 

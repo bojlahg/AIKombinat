@@ -213,7 +213,7 @@ describe('AgentForumView UI Component', () => {
     fireEvent.change(textarea, { target: { value: 'What cache expiration TTL do you recommend?' } });
 
     // Submit
-    const sendButton = screen.getByRole('button', { name: /Save/i });
+    const sendButton = screen.getByRole('button', { name: /^Send$/i });
     fireEvent.click(sendButton);
 
     await waitFor(() => {
@@ -327,6 +327,144 @@ describe('AgentForumView UI Component', () => {
           body: JSON.stringify({ max_reply_length: 512 }),
         })
       );
+    });
+  });
+
+  describe('skipping the user turn', () => {
+    /** Serves an idle forum and records how POST /continue was answered. */
+    function mockContinue(response: { status: number; body: unknown } = { status: 202, body: { ...mockForum, status: 'running' } }) {
+      fetchMock.mockImplementation(async (input: string | Request | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+        if (urlStr === '/api/projects') return jsonResponse([]);
+        if (urlStr === '/api/agent-forums') return jsonResponse([mockForum]);
+        if (urlStr === '/api/agent-forums/forum-1/continue' && init?.method === 'POST') {
+          return jsonResponse(response.body, response.status);
+        }
+        if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(mockForum);
+        if (urlStr.startsWith('/api/models')) return jsonResponse({});
+        if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+        return jsonResponse({});
+      });
+    }
+
+    it('offers Send and Skip turn side by side', async () => {
+      renderForumView();
+
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      // The composer submits, it does not "Save".
+      expect(screen.getByRole('button', { name: /^Send$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Skip turn/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Skip turn/i })).toBeEnabled();
+    });
+
+    it('continues the discussion without sending a message and keeps the draft', async () => {
+      mockContinue();
+      renderForumView();
+
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      const textarea = screen.getByPlaceholderText(/Type a message/i);
+      fireEvent.change(textarea, { target: { value: 'And think about the race condition...' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /Skip turn/i }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/agent-forums/forum-1/continue',
+          expect.objectContaining({ method: 'POST' })
+        );
+      });
+
+      // No message was posted for the skip.
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/messages'))).toBe(false);
+
+      // The draft survives so the user can still send it later.
+      await waitFor(() => {
+        expect((screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement).value)
+          .toBe('And think about the race condition...');
+      });
+    });
+
+    it('does not fire a second request while the first skip is in flight', async () => {
+      let resolveContinue: (value: unknown) => void = () => {};
+      const pending = new Promise((resolve) => { resolveContinue = resolve; });
+      fetchMock.mockImplementation(async (input: string | Request | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+        if (urlStr === '/api/projects') return jsonResponse([]);
+        if (urlStr === '/api/agent-forums') return jsonResponse([mockForum]);
+        if (urlStr === '/api/agent-forums/forum-1/continue' && init?.method === 'POST') {
+          await pending;
+          return jsonResponse({ ...mockForum, status: 'running' }, 202);
+        }
+        if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(mockForum);
+        if (urlStr.startsWith('/api/models')) return jsonResponse({});
+        if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+        return jsonResponse({});
+      });
+
+      renderForumView();
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      const skipButton = screen.getByRole('button', { name: /Skip turn/i });
+      fireEvent.click(skipButton);
+
+      // Both composer buttons are locked for the duration of the request.
+      await waitFor(() => expect(skipButton).toBeDisabled());
+      expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled();
+
+      fireEvent.click(skipButton);
+      fireEvent.click(skipButton);
+
+      resolveContinue(null);
+
+      await waitFor(() => {
+        const skips = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/continue'));
+        expect(skips).toHaveLength(1);
+      });
+    });
+
+    it('disables both composer buttons while a cycle is running', async () => {
+      const runningForum = { ...mockForum, status: 'running' as const, current_member_id: 'm1' };
+      fetchMock.mockImplementation(async (input: string | Request | URL) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+        if (urlStr === '/api/projects') return jsonResponse([]);
+        if (urlStr === '/api/agent-forums') return jsonResponse([runningForum]);
+        if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(runningForum);
+        if (urlStr.startsWith('/api/models')) return jsonResponse({});
+        if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+        return jsonResponse({});
+      });
+
+      renderForumView();
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: /Skip turn/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled();
+
+      fireEvent.click(screen.getByRole('button', { name: /Skip turn/i }));
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/continue'))).toBe(false);
+      });
+    });
+
+    it('disables Skip turn while the forum awaits recovery', async () => {
+      const errorForum = { ...mockForum, status: 'error' as const, current_member_id: null };
+      fetchMock.mockImplementation(async (input: string | Request | URL) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+        if (urlStr === '/api/projects') return jsonResponse([]);
+        if (urlStr === '/api/agent-forums') return jsonResponse([errorForum]);
+        if (urlStr === '/api/agent-forums/forum-1') return jsonResponse(errorForum);
+        if (urlStr.startsWith('/api/models')) return jsonResponse({});
+        if (urlStr.startsWith('/api/execution-profiles')) return jsonResponse([]);
+        return jsonResponse({});
+      });
+
+      renderForumView();
+      expect(await screen.findByText('Architecture Forum')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: /Skip turn/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled();
     });
   });
 

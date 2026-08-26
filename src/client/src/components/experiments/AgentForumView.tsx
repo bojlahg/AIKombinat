@@ -90,6 +90,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
   const [userInput, setUserInput] = useState('');
   const [replyTarget, setReplyTarget] = useState<AgentForumMessage | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [stopping, setStopping] = useState(false);
 
   // Top Bar Edit States
@@ -236,7 +237,7 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
 
   // Send message
   const handleSendMessage = async () => {
-    if (!currentForum || !userInput.trim() || submitting || currentForum.status !== 'idle') return;
+    if (!currentForum || !userInput.trim() || submitting || skipping || currentForum.status !== 'idle') return;
     setSubmitting(true);
     try {
       await forumsApi.postUserMessage(currentForum.id, {
@@ -252,6 +253,23 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
       toastError(err instanceof Error ? err.message : t('forum.sendFailed'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Skip the user's turn: no message is posted, the agents just run another
+  // cycle over the history they already have. The draft is deliberately left
+  // untouched so the user can still send it later.
+  const handleSkipTurn = async () => {
+    if (!currentForum || submitting || skipping || currentForum.status !== 'idle') return;
+    setSkipping(true);
+    try {
+      await forumsApi.continueAgentForum(currentForum.id);
+      const updated = await forumsApi.getAgentForum(currentForum.id);
+      setCurrentForum(updated);
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('forum.skipFailed'));
+    } finally {
+      setSkipping(false);
     }
   };
 
@@ -820,40 +838,54 @@ export default function AgentForumView({ onEvent, connected }: AgentForumViewPro
           </div>
         )}
 
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={textareaRef}
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-            placeholder={
-              needsRecovery
-                ? t('forum.recoveryRequired')
-                : isRunning
-                ? t('forum.cycleRunning')
-                : replyTarget
-                ? `${t('forum.replyToPlaceholder')} @${replyTarget.author_name}...`
-                : t('forum.inputPlaceholder')
+        <textarea
+          ref={textareaRef}
+          value={userInput}
+          onChange={(e) => setUserInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSendMessage();
             }
-            disabled={isLocked || submitting}
-            rows={2}
-            className="input-field flex-1 resize-none text-sm py-2"
-          />
+          }}
+          placeholder={
+            needsRecovery
+              ? t('forum.recoveryRequired')
+              : isRunning
+              ? t('forum.cycleRunning')
+              : replyTarget
+              ? `${t('forum.replyToPlaceholder')} @${replyTarget.author_name}...`
+              : t('forum.inputPlaceholder')
+          }
+          disabled={isLocked || submitting || skipping}
+          rows={2}
+          className="input-field w-full resize-none text-sm py-2"
+        />
+
+        <div className="flex gap-2 justify-end">
+          {/* Skip does not touch the draft: no message is sent and nothing is
+              cleared, the agents just take another cycle. */}
+          <button
+            onClick={handleSkipTurn}
+            disabled={isLocked || submitting || skipping}
+            className="btn-secondary px-4 py-2.5 flex items-center justify-center gap-1.5 h-[42px] disabled:opacity-50"
+          >
+            {skipping ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <span>{t('forum.skipTurn')}</span>
+            )}
+          </button>
 
           <button
             onClick={handleSendMessage}
-            disabled={!userInput.trim() || isLocked || submitting}
+            disabled={!userInput.trim() || isLocked || submitting || skipping}
             className="btn-primary px-4 py-2.5 flex items-center justify-center gap-1.5 h-[42px] disabled:opacity-50"
           >
             {submitting ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
-              <span>{t('agenda.save')}</span>
+              <span>{t('forum.send')}</span>
             )}
           </button>
         </div>

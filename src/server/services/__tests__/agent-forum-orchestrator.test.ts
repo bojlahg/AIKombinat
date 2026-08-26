@@ -12,7 +12,7 @@ vi.mock('../../db/connection.js', () => ({
 
 const queries = await import('../../db/queries.js');
 const { extractStructuredReplies, AgentForumValidationError } = await import('../agent-forum-extractor.js');
-const { AgentForumOrchestrator } = await import('../agent-forum-orchestrator.js');
+const { AgentForumOrchestrator, ForumNotIdleError } = await import('../agent-forum-orchestrator.js');
 const { claudeManager } = await import('../claude-manager.js');
 const { getAdapter } = await import('../cli-adapters.js');
 
@@ -439,5 +439,183 @@ describe('AgentForum Orchestrator & State Machine', () => {
     expect(orderLog[0]).toEqual(['AgentA', 'AgentB', 'AgentC']);
     expect(orderLog[1]).toEqual(['AgentB', 'AgentC', 'AgentA']);
     expect(orderLog[2]).toEqual(['AgentC', 'AgentA', 'AgentB']);
+  });
+});
+
+/**
+ * Skipping a user turn is a control action, not a message: it must reuse the
+ * ordinary cycle machinery (counter, round-robin offset, reply constraints,
+ * lifecycle guards) and write nothing to `agent_forum_messages`.
+ *
+ * No test here reaches a real Claude/Antigravity/Codex binary - every run goes
+ * through a mocked `claudeManager.startClaude`.
+ */
+describe('AgentForum user turn skip', () => {
+  let workspace: TestWorkspace;
+  let orchestrator: InstanceType<typeof AgentForumOrchestrator>;
+  /** Every cycle the orchestrator started, so a test can await it. */
+  let startedCycles: Promise<void>[];
+
+  beforeEach(() => {
+    workspace = createTestWorkspace('forum-skip-test');
+    testDb = new Database(':memory:');
+    testDb.pragma('journal_mode = WAL');
+    initDatabase(testDb);
+    orchestrator = new AgentForumOrchestrator();
+    startedCycles = [];
+    const realRunCycle = orchestrator.runCycle.bind(orchestrator);
+    vi.spyOn(orchestrator, 'runCycle').mockImplementation((forumId, trigger) => {
+      const run = realRunCycle(forumId, trigger);
+      startedCycles.push(run);
+      return run;
+    });
+  });
+
+  afterEach(() => {
+    testDb.close();
+    workspace.cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** A forum whose first cycle already happened: user asked, AgentA answered. */
+  function seedDiscussedForum() {
+    const forum = queries.createAgentForum('Provider Accounts', undefined, 1024);
+    const a = queries.createAgentForumMember(forum.id, 'AgentA', 'roleA', '', { sortOrder: 0 });
+    const b = queries.createAgentForumMember(forum.id, 'AgentB', 'roleB', '', { sortOrder: 1 });
+    const c = queries.createAgentForumMember(forum.id, 'AgentC', 'roleC', '', { sortOrder: 2 });
+
+    const userMsg = queries.createAgentForumMessage(
+      forum.id, 'user', null, 'User', 'User', 'Discuss the Provider Accounts architecture.',
+    );
+    const aMsg = queries.createAgentForumMessage(
+      forum.id, 'agent', a.id, 'AgentA', 'roleA', 'AgentA: one account per provider.', userMsg.id,
+    );
+    queries.updateAgentForum(forum.id, { current_cycle: 1 });
+
+    return { forum: queries.getAgentForumById(forum.id)!, a, b, c, userMsg, aMsg };
+  }
+
+  /** Names the speaking agent from the prompt the orchestrator built. */
+  function speakerOf(prompt: string): string {
+    for (const name of ['AgentA', 'AgentB', 'AgentC']) {
+      if (prompt.includes(`You are ${name}`)) return name;
+    }
+    return '';
+  }
+
+  function mockCli(respond: (prompt: string) => unknown[]) {
+    const prompts: string[] = [];
+    let call = 0;
+    vi.spyOn(claudeManager, 'startClaude').mockImplementation(async (_dir, prompt) => {
+      prompts.push(prompt);
+      call++;
+      const stdout = new EventEmitter();
+      const stderr = new EventEmitter();
+      const replies = respond(prompt);
+      const exitPromise = new Promise<number>((resolve) => {
+        setTimeout(() => {
+          stdout.emit('data', JSON.stringify({ replies }));
+          resolve(0);
+        }, 5);
+      });
+      return { pid: 7000 + call, stdout, stderr, exitPromise };
+    });
+    return prompts;
+  }
+
+  it('runs the next cycle over the existing history without creating a user message', async () => {
+    const { forum, aMsg } = seedDiscussedForum();
+
+    const prompts = mockCli((prompt) => (
+      speakerOf(prompt) === 'AgentB'
+        ? [{ replyTo: aMsg.id, content: 'AgentB: per-account quota needs a shared limiter.' }]
+        : []
+    ));
+
+    const returned = orchestrator.continueWithoutUserMessage(forum.id);
+    expect(returned.status).toBe('running');
+    await Promise.all(startedCycles);
+
+    const messages = queries.getAgentForumMessages(forum.id);
+    const userMessages = messages.filter((m) => m.author_type === 'user');
+
+    // No artificial "skip"/"pass"/empty user message was persisted.
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0].content).toBe('Discuss the Provider Accounts architecture.');
+
+    // The ordinary counter advanced and the forum settled back to idle.
+    const updated = queries.getAgentForumById(forum.id)!;
+    expect(updated.current_cycle).toBe(2);
+    expect(updated.status).toBe('idle');
+
+    // Round-robin moved on: cycle #2 starts with the second member.
+    expect(prompts.map(speakerOf)).toEqual(['AgentB', 'AgentC', 'AgentA']);
+
+    // Agents saw the whole existing history.
+    expect(prompts[0]).toContain('Discuss the Provider Accounts architecture.');
+    expect(prompts[0]).toContain('AgentA: one account per provider.');
+
+    // And an agent answered another agent, not the user.
+    const bMsg = messages.find((m) => m.author_name === 'AgentB')!;
+    expect(bMsg).toBeDefined();
+    expect(bMsg.parent_message_id).toBe(aMsg.id);
+    expect(queries.getAgentForumTurns(forum.id).filter((t) => t.cycle_number === 2)).toHaveLength(3);
+  });
+
+  it('rejects a skip while a cycle is running', async () => {
+    const { forum } = seedDiscussedForum();
+    queries.updateAgentForum(forum.id, { status: 'running' });
+
+    expect(() => orchestrator.continueWithoutUserMessage(forum.id)).toThrow(ForumNotIdleError);
+    try {
+      orchestrator.continueWithoutUserMessage(forum.id);
+    } catch (err) {
+      expect((err as InstanceType<typeof ForumNotIdleError>).code).toBe('forum_running');
+    }
+    expect(orchestrator.runCycle).not.toHaveBeenCalled();
+    expect(queries.getAgentForumById(forum.id)!.current_cycle).toBe(1);
+  });
+
+  it('rejects a skip on a forum awaiting recovery and leaves it in error', async () => {
+    const { forum } = seedDiscussedForum();
+    queries.updateAgentForum(forum.id, { status: 'error' });
+
+    try {
+      orchestrator.continueWithoutUserMessage(forum.id);
+      throw new Error('expected the skip to be refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ForumNotIdleError);
+      expect((err as InstanceType<typeof ForumNotIdleError>).code).toBe('forum_recovery_required');
+    }
+
+    // Not silently downgraded to idle.
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    expect(orchestrator.runCycle).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start a cycle when there are too few active participants', async () => {
+    const forum = queries.createAgentForum('Lonely Forum', undefined, 1024);
+    queries.createAgentForumMember(forum.id, 'AgentA', 'roleA', '', { sortOrder: 0 });
+    const startClaude = vi.spyOn(claudeManager, 'startClaude');
+
+    expect(() => orchestrator.continueWithoutUserMessage(forum.id))
+      .toThrow(/at least 2 active participants/);
+    expect(orchestrator.runCycle).not.toHaveBeenCalled();
+    expect(startClaude).not.toHaveBeenCalled();
+    expect(queries.getAgentForumById(forum.id)!.current_cycle).toBe(0);
+  });
+
+  it('does not start two cycles for two near-simultaneous skips', async () => {
+    const { forum } = seedDiscussedForum();
+    mockCli(() => []);
+
+    orchestrator.continueWithoutUserMessage(forum.id);
+    expect(() => orchestrator.continueWithoutUserMessage(forum.id)).toThrow(ForumNotIdleError);
+
+    await Promise.all(startedCycles);
+
+    expect(startedCycles).toHaveLength(1);
+    expect(queries.getAgentForumById(forum.id)!.current_cycle).toBe(2);
+    expect(queries.getAgentForumTurns(forum.id).filter((t) => t.cycle_number === 3)).toHaveLength(0);
   });
 });

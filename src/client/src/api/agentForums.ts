@@ -56,6 +56,14 @@ export async function postUserMessage(forumId: string, data: PostMessageInput): 
   return post<AgentForumMessage>(`/api/agent-forums/${forumId}/messages`, data);
 }
 
+/**
+ * The user skips their turn: the next agent cycle runs over the existing
+ * history and no user message is created.
+ */
+export async function continueAgentForum(forumId: string): Promise<AgentForum> {
+  return post<AgentForum>(`/api/agent-forums/${forumId}/continue`);
+}
+
 export async function stopAgentForum(forumId: string): Promise<AgentForum> {
   return post<AgentForum>(`/api/agent-forums/${forumId}/stop`);
 }

@@ -115,6 +115,7 @@ describe('AgentForum diagnostics', () => {
     expect(started.level).toBe('info');
     expect(started.scope).toBe('[forum:test]');
     expect(started.msg).toBe('cycle #1 started');
+    expect(started.fields.trigger).toBe('user_message');
 
     const turnStarted = findRecord(sink, 'forum.turn.started')!;
     expect(turnStarted.scope).toBe('[forum:test][Claude]');
@@ -124,6 +125,27 @@ describe('AgentForum diagnostics', () => {
     expect(summary.level).toBe('info');
     expect(summary.msg).toBe('cycle #1 finished');
     expect(summary.fields).toMatchObject({ completed: 1, passed: 1, skipped: 0, failed: 0 });
+  });
+
+  it('logs a skipped user turn and tags the cycle it triggers', async () => {
+    const { forum, userMsg } = seedForum();
+    queries.createAgentForumMessage(
+      forum.id, 'agent', queries.getAgentForumMembers(forum.id)[0].id,
+      'Claude', 'architect', 'Use an LRU.', userMsg.id,
+    );
+    mockTurns([{ stdout: JSON.stringify({ replies: [] }), exitCode: 0 }]);
+
+    orchestrator.continueWithoutUserMessage(forum.id);
+    await vi.waitUntil(() => queries.getAgentForumById(forum.id)!.status === 'idle');
+
+    const skipped = findRecord(sink, 'forum.user-turn.skipped')!;
+    expect(skipped.level).toBe('info');
+    expect(skipped.scope).toBe('[forum:test]');
+    expect(skipped.msg).toBe('user skipped their turn; continuing agent discussion');
+    expect(skipped.fields.forumId).toBe(forum.id);
+
+    const started = findRecord(sink, 'forum.cycle.started')!;
+    expect(started.fields.trigger).toBe('user_skip');
   });
 
   it('logs a non-zero exit as a turn failure and downgrades the cycle summary', async () => {

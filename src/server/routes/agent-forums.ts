@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as queries from '../db/queries.js';
-import { agentForumOrchestrator, ForumStopIncompleteError } from '../services/agent-forum-orchestrator.js';
+import { agentForumOrchestrator, ForumNotIdleError, ForumStopIncompleteError } from '../services/agent-forum-orchestrator.js';
 import { normalizeExecutionSelection, ExecutionSelectionError } from '../services/execution-selection.js';
 
 const router = Router();
@@ -258,6 +258,36 @@ router.post('/agent-forums/:id/messages', async (req: Request<{ id: string }>, r
 
     res.status(201).json(message);
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
+  }
+});
+
+// POST /api/agent-forums/:id/continue - user skips their turn, agents continue
+//
+// A skipped turn is a control action, not a message: no `agent_forum_messages`
+// row is written. The next cycle runs over the history that already exists, so
+// the agents can keep answering each other without another user prompt.
+router.post('/agent-forums/:id/continue', (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const forum = queries.getAgentForumById(req.params.id);
+    if (!forum) {
+      res.status(404).json({ error: 'Agent forum not found' });
+      return;
+    }
+
+    // The UI disables the button, but the UI is not the protection: a running
+    // forum (or one awaiting recovery) is refused here, and the orchestrator
+    // re-checks independently before it starts anything.
+    if (rejectIfLocked(forum, res, 'Skipping your turn')) return;
+
+    const updated = agentForumOrchestrator.continueWithoutUserMessage(forum.id);
+    res.status(202).json(updated);
+  } catch (err) {
+    if (err instanceof ForumNotIdleError) {
+      res.status(409).json({ error: err.message, code: err.code });
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(400).json({ error: message });
   }

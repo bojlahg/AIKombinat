@@ -14,6 +14,7 @@ vi.mock('../../db/connection.js', () => ({
 const orchestratorMocks = vi.hoisted(() => ({
   stopForum: vi.fn(async () => {}),
   postUserMessage: vi.fn(),
+  continueWithoutUserMessage: vi.fn(),
   isCycleRegistered: vi.fn(() => false),
 }));
 
@@ -36,15 +37,27 @@ vi.mock('../../services/agent-forum-orchestrator.js', () => {
       this.name = 'ForumRecoveryPendingError';
     }
   }
+  class ForumNotIdleError extends Error {
+    constructor(
+      public readonly forumId: string,
+      message: string,
+      public readonly code: 'forum_running' | 'forum_recovery_required',
+    ) {
+      super(message);
+      this.name = 'ForumNotIdleError';
+    }
+  }
   return {
     agentForumOrchestrator: orchestratorMocks,
     ForumStopIncompleteError,
     ForumStopTimeoutError,
     ForumRecoveryPendingError,
+    ForumNotIdleError,
   };
 });
 
 const queries = await import('../../db/queries.js');
+const { ForumNotIdleError } = await import('../../services/agent-forum-orchestrator.js');
 const router = (await import('../agent-forums.js')).default;
 
 let server: Server;
@@ -509,5 +522,86 @@ describe('AgentForum routes - cycle start requires a quorum', () => {
     const body = await response.json();
     expect(body.error).toMatch(/at least 2 active participants/i);
     expect(queries.getAgentForumMessages(forum.id)).toHaveLength(0);
+  });
+});
+
+describe('AgentForum continue (user skips their turn)', () => {
+  it('starts the next cycle without creating a user message', async () => {
+    const { forum } = seedForum();
+    const running = { ...forum, status: 'running' as const, current_cycle: forum.current_cycle + 1 };
+    orchestratorMocks.continueWithoutUserMessage.mockReturnValue(running);
+
+    const res = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/continue`, { method: 'POST' });
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ id: forum.id, status: 'running' });
+    expect(orchestratorMocks.continueWithoutUserMessage).toHaveBeenCalledWith(forum.id);
+    // A skip is a control action: it must never go through the message path.
+    expect(orchestratorMocks.postUserMessage).not.toHaveBeenCalled();
+    expect(queries.getAgentForumMessages(forum.id)).toHaveLength(0);
+  });
+
+  it('404s for an unknown forum', async () => {
+    const res = await fetch(`${baseUrl}/api/agent-forums/does-not-exist/continue`, { method: 'POST' });
+    expect(res.status).toBe(404);
+    expect(orchestratorMocks.continueWithoutUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a skip on a running forum with 409', async () => {
+    const { forum } = seedForum('running');
+
+    const res = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/continue`, { method: 'POST' });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'forum_running' });
+    expect(orchestratorMocks.continueWithoutUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a skip on a forum awaiting recovery with 409', async () => {
+    const { forum } = seedForum('error');
+
+    const res = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/continue`, { method: 'POST' });
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe('forum_recovery_required');
+    expect(body.error).toMatch(/recovery/i);
+    // Not silently downgraded to idle.
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('error');
+    expect(orchestratorMocks.continueWithoutUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a skip when a cycle is registered even though the row says idle', async () => {
+    const { forum } = seedForum();
+    orchestratorMocks.isCycleRegistered.mockReturnValue(true);
+
+    const res = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/continue`, { method: 'POST' });
+
+    expect(res.status).toBe(409);
+    expect(orchestratorMocks.continueWithoutUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the orchestrator's own state refusal as 409", async () => {
+    const { forum } = seedForum();
+    orchestratorMocks.continueWithoutUserMessage.mockImplementation(() => {
+      throw new ForumNotIdleError(forum.id, 'Forum is currently running an agent cycle.', 'forum_running');
+    });
+
+    const res = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/continue`, { method: 'POST' });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'forum_running' });
+  });
+
+  it('rejects a skip when there are too few active participants', async () => {
+    const { forum } = seedForum();
+    orchestratorMocks.continueWithoutUserMessage.mockImplementation(() => {
+      throw new Error('Forum needs at least 2 active participants to start a cycle (currently 1).');
+    });
+
+    const res = await fetch(`${baseUrl}/api/agent-forums/${forum.id}/continue`, { method: 'POST' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/at least 2 active participants/);
   });
 });

@@ -88,6 +88,28 @@ export class ForumRecoveryPendingError extends ForumStopIncompleteError {
 }
 
 /**
+ * Raised when a control action that would start a cycle is refused because the
+ * forum is not in a normal `idle` state. `code` mirrors the codes the routes
+ * already use for the same two situations.
+ */
+export class ForumNotIdleError extends Error {
+  constructor(
+    public readonly forumId: string,
+    message: string,
+    public readonly code: 'forum_running' | 'forum_recovery_required',
+  ) {
+    super(message);
+    this.name = 'ForumNotIdleError';
+  }
+}
+
+/**
+ * What caused a cycle to start. Recorded on `forum.cycle.started` so a skipped
+ * user turn is distinguishable from a cycle a user message triggered.
+ */
+export type ForumCycleTrigger = 'user_message' | 'user_skip';
+
+/**
  * Live state for one forum cycle. Each `runCycle` call gets a fresh object and
  * a monotonically increasing generation; identity comparison against
  * `this.cycles.get(forumId)` is what makes a superseded cycle's late completion
@@ -188,6 +210,70 @@ export class AgentForumOrchestrator {
     });
 
     return userMsg;
+  }
+
+  /**
+   * The user skips their turn: run the next cycle with no new user message.
+   *
+   * Skipping is a control action, not a message — nothing is written to
+   * `agent_forum_messages`. The agents simply receive the forum history that
+   * already exists and decide, under the unchanged reply constraints, whether to
+   * answer each other or PASS. The cycle counter, the round-robin offset and the
+   * whole stop/recovery lifecycle come from `runCycle`, which stays the single
+   * cycle state machine.
+   *
+   * The guards mirror `postUserMessage` exactly, so a skip can never start a
+   * cycle that a user message could not: `running` (or a registered cycle) and
+   * the unrecovered `error` state are both refused, and the participant quorum
+   * is the same. Two near-simultaneous skips cannot both start a cycle — the
+   * checks and `runCycle`'s registration run in one synchronous stretch, so the
+   * second request always observes the first cycle.
+   */
+  continueWithoutUserMessage(forumId: string): queries.AgentForum {
+    const forum = queries.getAgentForumById(forumId);
+    if (!forum) throw new Error('Agent forum not found');
+
+    if (forum.status === 'running' || this.cycles.has(forumId)) {
+      throw new ForumNotIdleError(
+        forumId,
+        'Forum is currently running an agent cycle. Please wait for it to complete.',
+        'forum_running',
+      );
+    }
+
+    if (forum.status !== 'idle') {
+      throw new ForumNotIdleError(
+        forumId,
+        'Forum requires recovery before continuing. Run Stop to finish cleaning up the previous cycle.',
+        'forum_recovery_required',
+      );
+    }
+
+    const activeMembers = queries.getActiveAgentForumMembers(forumId);
+    if (activeMembers.length < MIN_FORUM_PARTICIPANTS) {
+      throw new Error(
+        `Forum needs at least ${MIN_FORUM_PARTICIPANTS} active participants to start a cycle (currently ${activeMembers.length}).`
+      );
+    }
+
+    logger.info('forum.user-turn.skipped', {
+      scope: tag('forum', forum.title),
+      msg: 'user skipped their turn; continuing agent discussion',
+      forumId,
+    });
+
+    this.runCycle(forumId, 'user_skip').catch((err) => {
+      logger.error('forum.cycle.error', {
+        scope: tag('forum', forum.title),
+        msg: 'cycle failed',
+        forumId,
+        err,
+      });
+    });
+
+    // `runCycle` registers the cycle and flips the forum to `running`
+    // synchronously, so this already reflects the started cycle.
+    return queries.getAgentForumById(forumId) ?? forum;
   }
 
   /**
@@ -337,7 +423,7 @@ export class AgentForumOrchestrator {
   /**
    * Runs a complete sequential cycle of all active members in round-robin order.
    */
-  async runCycle(forumId: string): Promise<void> {
+  async runCycle(forumId: string, trigger: ForumCycleTrigger = 'user_message'): Promise<void> {
     const forum = queries.getAgentForumById(forumId);
     if (!forum) return;
 
@@ -409,7 +495,7 @@ export class AgentForumOrchestrator {
       // quota lines — inherits this forum's tag and correlation ids.
       await runWithLogContext(
         { scope: forumScope, fields: { forumId } },
-        () => this.executeCycle(forumId, cycle, orderedMembers, nextCycleNumber),
+        () => this.executeCycle(forumId, cycle, orderedMembers, nextCycleNumber, trigger),
       );
     })();
 
@@ -430,12 +516,14 @@ export class AgentForumOrchestrator {
     cycle: ForumCycle,
     orderedMembers: queries.AgentForumMember[],
     cycleNumber: number,
+    trigger: ForumCycleTrigger,
   ): Promise<void> {
     const cycleStartedAt = Date.now();
     logger.info('forum.cycle.started', {
       msg: `cycle #${cycleNumber} started`,
       cycleNumber,
       participants: orderedMembers.length,
+      trigger,
     });
     try {
       for (let turnOrder = 0; turnOrder < orderedMembers.length; turnOrder++) {

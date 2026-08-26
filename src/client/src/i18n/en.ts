@@ -190,7 +190,10 @@ export const en = {
     'forum.createFailed': 'Failed to create forum',
     'forum.deleted': 'Forum deleted',
     'forum.deleteFailed': 'Failed to delete forum',
+    'forum.send': 'Send',
+    'forum.skipTurn': 'Skip turn',
     'forum.sendFailed': 'Failed to send message',
+    'forum.skipFailed': 'Failed to skip the turn',
     'forum.projectLinked': 'Project context linked',
     'forum.standaloneMode': 'Standalone mode activated',
 
