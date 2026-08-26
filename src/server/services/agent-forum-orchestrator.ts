@@ -4,7 +4,7 @@ import path from 'path';
 import { claudeManager } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './provider-types.js';
-import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
+import { executionSnapshot, launchSelection, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
 import { executorPool } from './executor-pool.js';
@@ -659,15 +659,12 @@ export class AgentForumOrchestrator {
         return;
       }
 
-      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
-      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
-        ? undefined
-        : executionConfig?.effort.nativeEffort;
+      const launch = launchSelection(executionConfig);
 
       const result = await claudeManager.startClaude(
         workDir,
         prompt,
-        launchModel,
+        launch,
         // No project CLI options: a discussion run must not inherit flags meant
         // for implementation tasks.
         undefined,
@@ -681,7 +678,7 @@ export class AgentForumOrchestrator {
         false,
         undefined,
         undefined,
-        launchEffort,
+        launch.effort,
         'discussion',
       );
 

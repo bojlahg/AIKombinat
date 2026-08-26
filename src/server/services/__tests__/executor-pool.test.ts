@@ -545,11 +545,12 @@ describe('Executor Pool V1', () => {
       effort: 'high',
     });
 
-    // Verify startClaude was called with the effective model slug
+    // Verify startClaude was handed the resolved launch selection carrying the
+    // frozen provider slug (not a logical model for the adapter to re-resolve)
     expect(startSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      'gemini-3.7-flash-high',
+      { model: 'gemini-3.7-flash', effectiveModel: 'gemini-3.7-flash-high', effort: 'high' },
       undefined,
       'headless',
       'antigravity',
@@ -559,7 +560,7 @@ describe('Executor Pool V1', () => {
       false,
       undefined,
       undefined,
-      undefined, // launchEffort undefined when effectiveModel slug encodes the effort
+      'high', // the adapter drops --effort itself when the slug already encodes it
     );
 
     resolveExit(0);

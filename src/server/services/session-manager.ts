@@ -2,7 +2,7 @@ import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
 import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './provider-types.js';
-import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
+import { executionSnapshot, launchSelection, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
@@ -497,10 +497,7 @@ export class SessionManager {
         this.pendingBaseSnapshots.set(sessionId, snapshot);
       }
 
-      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
-      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
-        ? undefined
-        : executionConfig?.effort.nativeEffort;
+      const launch = launchSelection(executionConfig);
       const startRawSeq = queries.getMaxSessionRawSeq(sessionId) + 1;
       const startLogRowid = queries.getMaxSessionLogRowid(sessionId);
 
@@ -512,10 +509,10 @@ export class SessionManager {
       }
 
       const result = await claudeManager.startClaude(
-        workDir, '', launchModel, undefined, 'interactive', resolvedCliTool,
+        workDir, '', launch, undefined, 'interactive', resolvedCliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
-        launchEffort,
+        launch.effort,
       );
       const pid = result.pid;
       const exitPromise = result.exitPromise;

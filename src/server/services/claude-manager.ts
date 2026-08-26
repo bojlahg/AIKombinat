@@ -5,7 +5,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
-import { getAdapter, type CliAdapter, type CliTool, type CliMode, type PromptPolicy, type SandboxMode } from './cli-adapters.js';
+import { getAdapter, type CliAdapter, type CliTool, type CliMode, type LaunchModelSelection, type PromptPolicy, type SandboxMode } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
@@ -154,11 +154,16 @@ export class ClaudeManager {
    * Start a CLI tool in a worktree directory.
    * Uses node-pty for tools that require a TTY (e.g. Codex),
    * falls back to child_process.spawn for others.
+   *
+   * `model` accepts either a bare logical model name (legacy / manual callers)
+   * or a `LaunchModelSelection` carrying the already-frozen provider slug from
+   * `resolveExecutionConfig()`. In the latter case the slug reaches the CLI
+   * verbatim — no second trip through the logical Model Catalog.
    */
   async startClaude(
     worktreePath: string,
     prompt: string,
-    model?: string,
+    model?: string | LaunchModelSelection,
     extraOptions?: string,
     mode: ClaudeMode = 'headless',
     tool: CliTool = 'claude',
@@ -182,7 +187,8 @@ export class ClaudeManager {
     assertExternalAiCliAllowed(tool);
 
     const adapter = getAdapter(tool);
-    const args = adapter.buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy });
+    const selection: LaunchModelSelection = typeof model === 'string' ? { model } : (model ?? {});
+    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy });
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them
@@ -191,11 +197,14 @@ export class ClaudeManager {
     // opt-in `project.debug_logging` facility does capture it, into its own
     // per-project `.debug-logs/` file — never into logs/aikombinat.log.)
     const startedAt = Date.now();
+    const launchedModel = selection.effectiveModel ?? selection.model;
     const spawnFields = {
       provider: tool,
       mode,
       sandbox: sandboxMode,
-      ...(model ? { model } : {}),
+      // Report the slug that actually reaches the CLI, so cli.spawned lines up
+      // with the effective model the feature already logged at admission.
+      ...(launchedModel ? { model: launchedModel } : {}),
       ...(effort ? { effort } : {}),
       continueSession,
     };

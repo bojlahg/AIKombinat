@@ -1,5 +1,5 @@
 import * as queries from '../db/queries.js';
-import { resolveExecutionModel, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
+import { resolveExecutionModel, supportsInteractiveMode, type CliTool, type LaunchModelSelection } from './cli-adapters.js';
 
 export interface ResolvedExecutionConfig {
   cliTool: CliTool;
@@ -87,6 +87,28 @@ export function resolveExecutionConfig(input: {
     modelAvailability: resolved.availability,
     effort: effortConf,
     warnings: [], resolvedAt,
+  };
+}
+
+/**
+ * Everything a spawn needs from an already-resolved execution config.
+ *
+ * This is the single launch boundary shared by every feature (AgentForum,
+ * Discussion, Todo/Review/Rework, Session). `effectiveModel` is the frozen
+ * provider slug resolution picked at admission and is what the CLI actually
+ * receives; `model` is kept alongside it only so the provider adapter can tell
+ * a grouped variant slug (effort already encoded) from a plain one. Neither is
+ * resolved again at spawn time.
+ */
+export interface LaunchSelection extends LaunchModelSelection {
+  effort?: string;
+}
+
+export function launchSelection(config: ResolvedExecutionConfig | null | undefined): LaunchSelection {
+  return {
+    model: config?.model ?? undefined,
+    effectiveModel: config?.effectiveModel ?? undefined,
+    effort: config?.effort.nativeEffort,
   };
 }
 

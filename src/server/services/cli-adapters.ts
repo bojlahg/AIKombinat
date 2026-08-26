@@ -7,10 +7,27 @@ export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
 export type SandboxMode = 'strict' | 'permissive';
 
-export interface CliBuildOptions {
+/**
+ * Model identity for one launch attempt.
+ *
+ * The two fields are deliberately distinct:
+ * - `model` is the *logical* Model Catalog entry that was requested.
+ * - `effectiveModel` is the *exact provider slug* that model resolution already
+ *   chose for this attempt (e.g. the Antigravity `provider_variants` entry for
+ *   the selected effort).
+ *
+ * Resolution happens exactly once, in `resolveExecutionConfig()`. Once
+ * `effectiveModel` is set it is frozen for the attempt and is used verbatim —
+ * see `resolveLaunchModel()` for why re-resolving it is wrong.
+ */
+export interface LaunchModelSelection {
+  model?: string;
+  effectiveModel?: string;
+}
+
+export interface CliBuildOptions extends LaunchModelSelection {
   mode: CliMode;
   prompt: string;
-  model?: string;
   effort?: string;
   extraOptions?: string;
   maxTurns?: number;
@@ -181,6 +198,44 @@ export function resolveExecutionModel(
 function normalizeModel(model: string | undefined, cliTool: CliTool, effort?: string): string | undefined {
   if (!model) return undefined;
   return resolveExecutionModel(model, cliTool, true, effort).effectiveModel;
+}
+
+export interface ResolvedLaunchModel {
+  /** Exact provider slug to hand to `--model`, or undefined when no model was selected. */
+  slug: string | undefined;
+  /**
+   * True when the slug itself already encodes the chosen effort (an Antigravity
+   * `provider_variants` entry). Such a launch must not also carry `--effort`.
+   */
+  effortEncodedInSlug: boolean;
+}
+
+/**
+ * The single launch-time boundary between a logical catalog model and the
+ * provider slug actually spawned.
+ *
+ * When `effectiveModel` is present the caller already resolved this attempt
+ * (admission time) and the slug is used VERBATIM: the logical Model Catalog is
+ * deliberately not consulted again. Re-resolving here would be wrong twice
+ * over — it would break execution-snapshot reproducibility (a catalog refresh
+ * between admission and spawn could silently change the model that actually
+ * runs), and it would fail outright for grouped Antigravity models, whose
+ * effective slug is a legacy sibling row that grouping intentionally leaves
+ * `status = 'missing'` / superseded.
+ *
+ * Without `effectiveModel` (legacy or manual callers that never went through
+ * `resolveExecutionConfig`) the existing logical resolution path still runs.
+ */
+export function resolveLaunchModel(
+  { model, effectiveModel }: LaunchModelSelection,
+  cliTool: CliTool,
+  effort?: string,
+): ResolvedLaunchModel {
+  if (effectiveModel) {
+    return { slug: effectiveModel, effortEncodedInSlug: !!model && effectiveModel !== model };
+  }
+  const slug = normalizeModel(model, cliTool, effort);
+  return { slug, effortEncodedInSlug: !!slug && !!model && slug !== model };
 }
 
 /**
@@ -380,8 +435,8 @@ const claudeAdapter: CliAdapter = {
       blocksInitialPrompt: true,
     },
   ],
-  buildArgs({ mode, prompt, model, effort, extraOptions, maxTurns, sandboxMode, continueSession }) {
-    const normalizedModel = normalizeModel(model, 'claude');
+  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, sandboxMode, continueSession }) {
+    const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'claude');
     const args: string[] = [];
     if (sandboxMode === 'strict') {
       args.push('--permission-mode', 'dontAsk');
@@ -442,14 +497,14 @@ const antigravityAdapter: CliAdapter = {
     '--input-format', '--output-format', '--sandbox',
     '--dangerously-skip-permissions', '--continue', '--model', '--effort',
   ],
-  buildArgs({ mode, model, effort, extraOptions, sandboxMode, continueSession }) {
+  buildArgs({ mode, model, effectiveModel, effort, extraOptions, sandboxMode, continueSession }) {
     // Antigravity CLI (`agy`):
     //   stream-json input is the official stdin transport. Unlike --print,
     //   neither the option parser nor the process listing can consume the prompt.
     //   --sandbox enables terminal restrictions; permissive execution explicitly
     //   opts into auto-approved tool actions.
     //   --continue resumes the most recent conversation.
-    const normalizedModel = normalizeModel(model, 'antigravity', effort);
+    const { slug: normalizedModel, effortEncodedInSlug } = resolveLaunchModel({ model, effectiveModel }, 'antigravity', effort);
     const args: string[] = [];
     if (sandboxMode === 'strict') args.push('--sandbox');
     else args.push('--dangerously-skip-permissions');
@@ -458,15 +513,10 @@ const antigravityAdapter: CliAdapter = {
     }
     if (continueSession) args.push('--continue');
     if (normalizedModel) args.push('--model', normalizedModel);
-    if (effort) {
-      let entry: ReturnType<typeof getModelByValue>;
-      try { entry = model ? getModelByValue('antigravity', model) : undefined; } catch { entry = undefined; }
-      const hasVariants = !!entry?.provider_variants && Object.keys(JSON.parse(entry.provider_variants || '{}')).length > 0;
-      const isConcreteVariantSlug = !!model && /-(low|medium|high)$/i.test(model);
-      if (!hasVariants && !isConcreteVariantSlug) {
-        args.push('--effort', effort);
-      }
-    }
+    // A grouped model's provider slug already carries the effort; adding
+    // --effort on top would contradict it. Singleton / custom Antigravity
+    // models, where effort is a real separate CLI flag, still get it.
+    if (effort && !effortEncodedInSlug) args.push('--effort', effort);
     if (extraOptions) {
       args.push(...sanitizeExtraOptions(extraOptions));
     }
@@ -502,8 +552,8 @@ const codexAdapter: CliAdapter = {
     '--skip-git-repo-check', '--sandbox', '--approve-for-me',
     '--dangerously-bypass-approvals-and-sandbox', '--add-dir', '--model', '--last', '-c',
   ],
-  buildArgs({ mode, model, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession, promptPolicy }) {
-    const normalizedModel = normalizeModel(model, 'codex');
+  buildArgs({ mode, model, effectiveModel, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession, promptPolicy }) {
+    const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'codex');
     const args: string[] = [];
     if (mode !== 'interactive') {
       args.push('exec');

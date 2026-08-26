@@ -4,7 +4,7 @@ import { worktreeManager } from './worktree-manager.js';
 import { claudeManager } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './provider-types.js';
-import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
+import { executionSnapshot, launchSelection, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
 import { readLines } from '../utils/line-stream.js';
@@ -444,11 +444,8 @@ export class DiscussionOrchestrator {
       }
 
 
-      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
-      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
-        ? undefined
-        : executionConfig?.effort.nativeEffort;
-      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, launchModel, cliOptions, 'headless', resolvedCliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, launchEffort);
+      const launch = launchSelection(executionConfig);
+      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, launch, cliOptions, 'headless', resolvedCliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, launch.effort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 

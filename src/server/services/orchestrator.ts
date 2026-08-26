@@ -4,7 +4,7 @@ import { worktreeManager } from './worktree-manager.js';
 import { claudeManager, type ClaudeMode } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './provider-types.js';
-import { executionSnapshot, resolveExecutionConfig } from './execution-config.js';
+import { executionSnapshot, launchSelection, resolveExecutionConfig } from './execution-config.js';
 import { logStreamer } from './log-streamer.js';
 import { getTodoImagePaths } from '../routes/images.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
@@ -1210,18 +1210,16 @@ export class Orchestrator {
         queries.createTaskLog(todoId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`, roundNumber);
       }
 
-      const launchModel = executionConfig?.effectiveModel ?? executionConfig?.model;
-      const launchEffort = (resolvedCliTool === 'antigravity' && executionConfig?.effectiveModel && executionConfig.effectiveModel !== executionConfig.model)
-        ? undefined
-        : executionConfig?.effort.nativeEffort;
+      const launch = launchSelection(executionConfig);
+      const launchedModel = launch.effectiveModel ?? launch.model;
 
       logger.info('todo.execution.started', {
         msg: `${isContinue ? 'rework' : (currentRound?.phase ?? 'implementation')} started`,
         phase: currentRound?.phase ?? (isContinue ? 'rework' : 'implementation'),
         round: roundNumber,
         provider: resolvedCliTool,
-        ...(launchModel ? { model: launchModel } : {}),
-        ...(launchEffort ? { effort: launchEffort } : {}),
+        ...(launchedModel ? { model: launchedModel } : {}),
+        ...(launch.effort ? { effort: launch.effort } : {}),
         ...(executionConfig?.profileName ? { profile: executionConfig.profileName } : {}),
         mode,
       });
@@ -1229,7 +1227,7 @@ export class Orchestrator {
       // Establish the current-run classification boundary immediately before starting provider process
       executionStartRowid = queries.getMaxTaskLogRowid(todoId);
 
-      const result = await claudeManager.startClaude(workDir, prompt, launchModel, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launchEffort);
+      const result = await claudeManager.startClaude(workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launch.effort);
       pid = result.pid;
       exitPromise = result.exitPromise;
 
@@ -1252,7 +1250,7 @@ export class Orchestrator {
         debugSession = debugLogger.startSession({
           todoId, projectPath, cliTool: resolvedCliTool,
           command: result.command, args: result.args,
-          workDir, model: launchModel, sandboxMode,
+          workDir, model: launchedModel, sandboxMode,
         });
         debugSession.writeStdin(prompt);
         stdout = debugSession.teeStdout(result.stdout);

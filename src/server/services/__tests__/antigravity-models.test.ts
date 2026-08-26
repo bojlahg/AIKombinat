@@ -9,7 +9,7 @@ let testDb: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => testDb }));
 
 const queries = await import('../../db/queries.js');
-const { resolveExecutionConfig, executionSnapshot } = await import('../execution-config.js');
+const { resolveExecutionConfig, executionSnapshot, launchSelection } = await import('../execution-config.js');
 const { parseAntigravityModels, discoverAntigravity, refreshModelCatalog } = await import('../model-sync.js');
 const { getAdapter, resolveExecutionModel } = await import('../cli-adapters.js');
 const executionProfilesRoute = (await import('../../routes/execution-profiles.js')).default;
@@ -699,18 +699,17 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
       provider_variants: { low: 'gemini-3.7-flash-low', high: 'gemini-3.7-flash-mutated-afterwards' },
     });
 
-    // Spawn uses the frozen resolution (effectiveModel) from executionConfig
-    const launchModel = config.effectiveModel ?? config.model;
-    const launchEffort = (config.effectiveModel && config.effectiveModel !== config.model)
-      ? undefined
-      : config.effort.nativeEffort;
+    // Spawn uses the frozen resolution (effectiveModel) from executionConfig,
+    // handed to the adapter as a resolved launch selection rather than as a
+    // logical model to look up again.
+    const launch = launchSelection(config);
+    expect(launch).toEqual({ model: 'gemini-3.7-flash', effectiveModel: 'gemini-3.7-flash-high', effort: 'high' });
 
     const adapter = getAdapter('antigravity');
     const args = adapter.buildArgs({
       mode: 'headless',
       prompt: 'Task prompt',
-      model: launchModel,
-      effort: launchEffort,
+      ...launch,
       sandboxMode: 'strict',
     });
 
