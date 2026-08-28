@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Pencil } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import Button from '../../components/Button';
 
 interface HooksPanelProps {
   // Raw hooks block from .claude/settings.json. Undefined → no hooks key.
@@ -62,14 +63,15 @@ export default function HooksPanel({ hooks, filePath, saving, onSave }: HooksPan
         <div className="flex items-center gap-2 min-w-0">
           <code className="text-[10px] text-warm-400 truncate" title={filePath}>{filePath}</code>
           {!editing && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-warm-500 hover:text-warm-700 hover:bg-warm-100 rounded transition-colors flex-shrink-0"
+              className="flex-shrink-0"
             >
               <Pencil size={12} />
               {t('harness.hooks.editJson') || 'Edit JSON'}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -84,25 +86,20 @@ export default function HooksPanel({ hooks, filePath, saving, onSave }: HooksPan
           />
           {jsonError && <p className="text-xs text-status-error">{jsonError}</p>}
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-1.5 text-xs rounded-lg bg-accent text-white hover:bg-accent-dark disabled:opacity-50 transition-colors"
-            >
+            <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
               {saving ? t('harness.saving') : t('harness.save')}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setDraft(JSON.stringify(hooks ?? {}, null, 2));
                 setJsonError(null);
                 setEditing(false);
               }}
-              className="px-3 py-1.5 text-xs rounded-lg text-warm-500 hover:bg-warm-100 transition-colors"
             >
               {t('harness.cancel')}
-            </button>
+            </Button>
           </div>
         </>
       ) : !hasHooks ? (

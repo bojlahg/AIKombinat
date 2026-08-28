@@ -4,6 +4,7 @@ import type { MemoryNode } from '../types';
 import { useI18n } from '../i18n';
 import { parseMemoryTags } from '../api/memory';
 import WikilinkAutocomplete from './WikilinkAutocomplete';
+import Button from './Button';
 
 interface MemoryFormProps {
   editNode?: MemoryNode | null;
@@ -143,19 +144,17 @@ export default function MemoryForm({ editNode, allNodes = [], onSave, onCancel }
       </div>
 
       <div className="flex gap-2 mt-5">
-        <button
+        <Button
+          variant="primary"
+          size="md"
           onClick={handleSubmit}
           disabled={!title.trim() || saving}
-          className="px-4 py-2 rounded-lg bg-warm-700 text-warm-50 text-sm font-medium hover:bg-warm-800 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saving ? t('wiki.saving') : t('wiki.save')}
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100"
-        >
+        </Button>
+        <Button size="md" onClick={onCancel}>
           {t('wiki.cancel')}
-        </button>
+        </Button>
       </div>
     </div>
   );

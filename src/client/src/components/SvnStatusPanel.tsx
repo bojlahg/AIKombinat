@@ -8,6 +8,7 @@ import type { CommitFile, GitLogEntry, GitStatusFile } from '../api/projects';
 import { getCliStatus } from '../api/cli-status';
 import { useI18n } from '../i18n';
 import Modal from './Modal';
+import Button from './Button';
 import { CommitDiffViewer, CommitFileList } from './DiffViewer';
 
 interface SvnStatusPanelProps {
@@ -497,19 +498,22 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <div className="flex gap-2">
-              <button
-                className="flex-1 px-3 py-2 text-sm rounded border border-warm-200 hover:bg-warm-50"
+              <Button
+                size="md"
+                className="flex-1"
                 onClick={() => setShowRevDialog(false)}
               >
                 {t('svn.cancel')}
-              </button>
-              <button
-                className="flex-1 px-3 py-2 text-sm font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                className="flex-1"
                 disabled={!revInput.trim() || busy}
                 onClick={handleUpdateToRevision}
               >
                 {t('svn.update')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -531,19 +535,22 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <div className="flex gap-2">
-              <button
-                className="flex-1 px-3 py-2 text-sm rounded border border-warm-200 hover:bg-warm-50"
+              <Button
+                size="md"
+                className="flex-1"
                 onClick={() => setClDialogFiles(null)}
               >
                 {t('svn.cancel')}
-              </button>
-              <button
-                className="flex-1 px-3 py-2 text-sm font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                className="flex-1"
                 disabled={!clNameInput.trim() || busy}
                 onClick={handleNewChangelist}
               >
                 {clDialogFiles?.length ? t('svn.moveToChangelist') : t('svn.createChangelist')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -565,19 +572,22 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <div className="flex gap-2">
-              <button
-                className="flex-1 px-3 py-2 text-sm rounded border border-warm-200 hover:bg-warm-50"
+              <Button
+                size="md"
+                className="flex-1"
                 onClick={() => setRenameTarget(null)}
               >
                 {t('svn.cancel')}
-              </button>
-              <button
-                className="flex-1 px-3 py-2 text-sm font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                className="flex-1"
                 disabled={!renameInput.trim() || busy}
                 onClick={handleRenameChangelist}
               >
                 {t('svn.saveProperty')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1110,15 +1120,13 @@ function ModificationsView(props: {
   return (
     <>
       <div className="px-3 py-2 border-b border-warm-100 flex items-center gap-2 shrink-0 flex-wrap">
-        <button onClick={props.onRefresh} disabled={props.busy}
-          className="px-2 py-1 text-xs rounded border border-warm-200 hover:bg-warm-50 disabled:opacity-40">
+        <Button size="sm" onClick={props.onRefresh} disabled={props.busy}>
           {props.statusLoading ? t('svn.checking') : t('svn.refresh')}
-        </button>
-        <button onClick={props.onCheckRepository} disabled={props.busy}
-          className="px-2 py-1 text-xs rounded border border-warm-200 hover:bg-warm-50 disabled:opacity-40 flex items-center gap-1">
+        </Button>
+        <Button size="sm" onClick={props.onCheckRepository} disabled={props.busy}>
           {props.remoteChecking ? t('svn.checking') : t('svn.checkRepository')}
           <RemoteBadge />
-        </button>
+        </Button>
         {props.actionFlash && <span className="text-2xs text-status-success ml-1">{props.actionFlash}</span>}
         {props.error && <span className="text-2xs text-status-error ml-1">{props.error}</span>}
       </div>
@@ -1221,13 +1229,15 @@ function ModificationsView(props: {
                 style={{ height: commitMessageHeight }}
                 rows={3}
               />
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={props.onCommit}
                 disabled={props.busy || !props.commitMessage.trim()}
-                className="mt-2 w-full px-3 py-1.5 text-xs font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
+                className="mt-2 w-full"
               >
                 {props.busy ? t('svn.committing') : t('svn.commit')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1266,14 +1276,15 @@ function LogView(props: {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-xs text-warm-400 max-w-xs">{t('svn.logEmptyHint')}</p>
-        <button
+        <Button
+          variant="primary"
+          size="md"
           onClick={props.onLoad}
           disabled={props.loading}
-          className="px-4 py-2 text-xs font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40 flex items-center gap-2"
         >
           {props.loading ? t('svn.checking') : t('svn.loadLog')}
           <span className="text-[9px] uppercase tracking-wide px-1 rounded bg-white/20">{t('svn.remoteBadge')}</span>
-        </button>
+        </Button>
         {props.error && <span className="text-2xs text-status-error">{props.error}</span>}
       </div>
     );
@@ -1282,10 +1293,9 @@ function LogView(props: {
   return (
     <>
       <div className="px-3 py-2 border-b border-warm-100 flex items-center gap-2 shrink-0">
-        <button onClick={props.onLoad} disabled={props.loading}
-          className="px-2 py-1 text-xs rounded border border-warm-200 hover:bg-warm-50 disabled:opacity-40">
+        <Button size="sm" onClick={props.onLoad} disabled={props.loading}>
           {props.loading ? t('svn.checking') : t('svn.refresh')}
-        </button>
+        </Button>
         {props.error && <span className="text-2xs text-status-error ml-1">{props.error}</span>}
       </div>
       <div className="flex-1 grid grid-cols-[1fr_1fr] min-h-0">
@@ -1562,20 +1572,21 @@ function PropertiesDialog({ projectId, file, onClose }: {
                         className="mt-1 w-full text-2xs font-mono text-warm-700 bg-warm-50 dark:bg-warm-800/40 rounded p-2 border border-accent/40 focus:outline-none focus:border-accent resize-y"
                       />
                       <div className="mt-1 flex justify-end gap-2">
-                        <button
+                        <Button
+                          size="sm"
                           onClick={() => setEditing(null)}
                           disabled={saving}
-                          className="px-2.5 py-1 text-2xs rounded border border-warm-200 hover:bg-warm-50 disabled:opacity-40"
                         >
                           {t('svn.cancel')}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
                           onClick={() => save(p.name)}
                           disabled={saving}
-                          className="px-2.5 py-1 text-2xs font-semibold rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
                         >
                           {t('svn.saveProperty')}
-                        </button>
+                        </Button>
                       </div>
                     </>
                   ) : (
@@ -1589,9 +1600,9 @@ function PropertiesDialog({ projectId, file, onClose }: {
           )}
         </div>
         <div className="px-4 py-3 border-t border-warm-100 shrink-0 text-right">
-          <button onClick={onClose} className="px-3 py-1.5 text-xs rounded border border-warm-200 hover:bg-warm-50">
+          <Button size="sm" onClick={onClose}>
             {t('svn.close')}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

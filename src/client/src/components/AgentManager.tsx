@@ -4,6 +4,7 @@ import type { DiscussionAgent } from '../types';
 import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
 import * as discussionsApi from '../api/discussions';
+import Button from './Button';
 import EmptyState from './EmptyState';
 
 const ROLE_OPTIONS = ['architect', 'developer', 'reviewer', 'pm', 'tester', 'custom'] as const;
@@ -199,13 +200,9 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
               <label className="block text-xs font-medium text-warm-500 mb-2">{t('agents.presets')}</label>
               <div className="flex flex-wrap gap-2">
                 {PRESET_AGENTS.map((preset) => (
-                  <button
-                    key={preset.role}
-                    onClick={() => handlePreset(preset)}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-warm-50 text-warm-600 hover:bg-warm-100 border border-warm-150 hover:border-warm-300 transition-colors font-medium"
-                  >
+                  <Button key={preset.role} size="sm" onClick={() => handlePreset(preset)}>
                     {lang === 'ko' ? preset.nameKo : preset.name}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>

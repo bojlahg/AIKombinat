@@ -35,6 +35,7 @@ import { getDiscussions } from '../api/discussions';
 import Modal from './Modal';
 import MemoryNetworkGraph from './MemoryNetworkGraph';
 import RawFileViewer from './RawFileViewer';
+import Button from './Button';
 
 const WIKI_SCHEMA_TAG = '__wiki_schema__';
 const WIKI_INDEX_TAG = '__wiki_index__';
@@ -227,25 +228,19 @@ export default function MemoryList({ projectId }: MemoryListProps) {
           </button>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <button
+          <Button
+            size="sm"
             onClick={() => setShowDiskDiff(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-warm-300 text-warm-700 text-xs font-medium hover:bg-warm-100"
             title={t('wiki.diskDiff.tooltip')}
           >
             <FolderSync size={12} /> {t('wiki.diskDiff.button')}
-          </button>
-          <button
-            onClick={() => setShowLint(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-warm-300 text-warm-700 text-xs font-medium hover:bg-warm-100"
-          >
+          </Button>
+          <Button size="sm" onClick={() => setShowLint(true)}>
             <Wrench size={12} /> {t('wiki.lint')}
-          </button>
-          <button
-            onClick={() => setShowIngest(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-warm-300 text-warm-700 text-xs font-medium hover:bg-warm-100"
-          >
+          </Button>
+          <Button size="sm" onClick={() => setShowIngest(true)}>
             <Download size={12} /> {t('wiki.ingest')}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -712,14 +707,10 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
         />
         <div className="flex items-center gap-1 flex-shrink-0">
           {dirty && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-warm-700 text-warm-50 text-xs font-medium hover:bg-warm-800 disabled:opacity-50"
-            >
+            <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
               {t('wiki.save')}
-            </button>
+            </Button>
           )}
           {node.source_path && (
             <button
@@ -877,7 +868,7 @@ function RawSourceModal({ node, onClose }: RawSourceModalProps) {
           <pre className="text-xs text-warm-800 bg-warm-100 rounded-lg p-3 max-h-[60vh] overflow-auto whitespace-pre-wrap font-mono">{content}</pre>
         )}
         <div className="flex justify-end mt-4">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100">{t('wiki.close')}</button>
+          <Button size="md" onClick={onClose}>{t('wiki.close')}</Button>
         </div>
       </div>
     </Modal>
@@ -920,7 +911,7 @@ function ConnectionKindModal({ fromNode, toNode, onClose, onChoose }: Connection
           </button>
         </div>
         <div className="flex justify-end mt-4">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100">{t('wiki.cancel')}</button>
+          <Button size="md" onClick={onClose}>{t('wiki.cancel')}</Button>
         </div>
       </div>
     </Modal>
@@ -959,11 +950,11 @@ function EdgeEditModal({ edge, onClose, onSave, onDelete }: EdgeEditModalProps) 
           </div>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={async () => { if (saving) return; setSaving(true); try { await onSave(edge.id, relation, label); } finally { setSaving(false); } }} disabled={saving} className="px-4 py-2 rounded-lg bg-warm-700 text-warm-50 text-sm font-medium hover:bg-warm-800 disabled:opacity-50">
+          <Button variant="primary" size="md" onClick={async () => { if (saving) return; setSaving(true); try { await onSave(edge.id, relation, label); } finally { setSaving(false); } }} disabled={saving}>
             {t('wiki.save')}
-          </button>
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100">{t('wiki.cancel')}</button>
-          <button onClick={async () => { if (await confirm({ message: t('wiki.edge.deleteConfirm'), danger: true })) await onDelete(edge.id); }} className="ml-auto px-4 py-2 rounded-lg text-red-600 text-sm hover:bg-red-50 dark:hover:bg-red-900/20">{t('wiki.delete')}</button>
+          </Button>
+          <Button size="md" onClick={onClose}>{t('wiki.cancel')}</Button>
+          <Button variant="danger" size="md" className="ml-auto" onClick={async () => { if (await confirm({ message: t('wiki.edge.deleteConfirm'), danger: true })) await onDelete(edge.id); }}>{t('wiki.delete')}</Button>
         </div>
       </div>
     </Modal>
@@ -1108,11 +1099,11 @@ function IngestModal({ projectId, onClose, onDone }: IngestModalProps) {
         {error && <p className="mt-3 text-xs text-status-error">{error}</p>}
         {result && <IngestResultView result={result} />}
         <div className="flex justify-end gap-2 mt-4">
-          <button onClick={onClose} disabled={running} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100 disabled:opacity-50">{t('wiki.cancel')}</button>
-          <button onClick={handleRun} disabled={!canRun || running} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-warm-700 text-warm-50 text-sm font-medium hover:bg-warm-800 disabled:opacity-50">
+          <Button size="md" onClick={onClose} disabled={running}>{t('wiki.cancel')}</Button>
+          <Button variant="primary" size="md" onClick={handleRun} disabled={!canRun || running}>
             {running && <Loader2 size={14} className="animate-spin" />}
             {running ? t('wiki.ingest.running') : t('wiki.ingest.run')}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -1265,7 +1256,7 @@ function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
           </ul>
         )}
         <div className="flex justify-end mt-4">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100">{t('wiki.lint.close')}</button>
+          <Button size="md" onClick={onClose}>{t('wiki.lint.close')}</Button>
         </div>
       </div>
     </Modal>
@@ -1290,24 +1281,20 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
   const titles = issue.node_titles;
   const disabled = anyBusy && !busy;
 
-  const btnBase = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-40';
-  const btnNeutral = `${btnBase} border-warm-300 bg-warm-50 text-warm-700 hover:bg-warm-100`;
-  const btnDanger = `${btnBase} border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40`;
-
   if (issue.type === 'duplicate' && titles.length >= 2) {
     const a = titles[0];
     const b = titles[1];
     if (!findNode(a) || !findNode(b)) return null;
     return (
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <button disabled={disabled || busy} onClick={() => onMerge(idx, a, b)} className={btnNeutral}>
+        <Button size="sm" disabled={disabled || busy} onClick={() => onMerge(idx, a, b)}>
           {busy ? <Loader2 size={10} className="animate-spin" /> : null}
           {t('wiki.lint.action.mergeKeep').replace('{keep}', a).replace('{absorb}', b)}
-        </button>
-        <button disabled={disabled || busy} onClick={() => onMerge(idx, b, a)} className={btnNeutral}>
+        </Button>
+        <Button size="sm" disabled={disabled || busy} onClick={() => onMerge(idx, b, a)}>
           {busy ? <Loader2 size={10} className="animate-spin" /> : null}
           {t('wiki.lint.action.mergeKeep').replace('{keep}', b).replace('{absorb}', a)}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -1319,10 +1306,10 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
     const otherNodes = nodes.filter(n => n.id !== orphan.id && !isSchemaNode(n));
     return (
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button disabled={disabled || busy} onClick={() => onDelete(idx, orphanTitle)} className={btnDanger}>
+        <Button variant="danger" size="sm" disabled={disabled || busy} onClick={() => onDelete(idx, orphanTitle)}>
           {busy ? <Loader2 size={10} className="animate-spin" /> : null}
           {t('wiki.lint.action.delete')}
-        </button>
+        </Button>
         {otherNodes.length > 0 && (
           <>
             <select
@@ -1334,14 +1321,14 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
               <option value="">{t('wiki.lint.action.linkTo')}</option>
               {otherNodes.map(n => <option key={n.id} value={n.id}>{n.title}</option>)}
             </select>
-            <button
+            <Button
+              size="sm"
               disabled={disabled || busy || !linkTarget}
               onClick={() => { if (linkTarget) { onAddLink(idx, orphanTitle, linkTarget); setLinkTarget(''); } }}
-              className={btnNeutral}
             >
               {busy ? <Loader2 size={10} className="animate-spin" /> : null}
               {t('wiki.lint.action.link')}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -1354,10 +1341,10 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
     return (
       <div className="mt-2 flex flex-wrap gap-1.5">
         {valid.map(tt => (
-          <button key={tt} disabled={disabled || busy} onClick={() => onDelete(idx, tt)} className={btnDanger}>
+          <Button key={tt} variant="danger" size="sm" disabled={disabled || busy} onClick={() => onDelete(idx, tt)}>
             {busy ? <Loader2 size={10} className="animate-spin" /> : null}
             {t('wiki.lint.action.deleteTitle').replace('{title}', tt)}
-          </button>
+          </Button>
         ))}
       </div>
     );
@@ -1517,23 +1504,25 @@ function DiskDiffModal({ projectId, onClose, onRebuilt }: { projectId: string; o
 
         <div className="flex items-center gap-2 mt-4">
           {diff.length > 0 && !running && (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleRebuild}
               disabled={rebuilding}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-warm-700 text-warm-50 text-xs font-medium hover:bg-warm-800 disabled:opacity-50"
               title={t('wiki.diskDiff.rebuildTooltip')}
             >
               {rebuilding && <Loader2 size={12} className="animate-spin" />}
               {t('wiki.diskDiff.rebuild')}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            size="md"
+            className="ml-auto"
             onClick={onClose}
             disabled={running || rebuilding}
-            className="ml-auto px-4 py-2 rounded-lg border border-warm-300 text-warm-700 text-sm hover:bg-warm-100 disabled:opacity-50"
           >
             {t('wiki.diskDiff.close')}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -1613,13 +1602,15 @@ function ActivityPanel({ logs, loaded, allNodes, onReload, onSelectNode, onSelec
             </button>
           ))}
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
           onClick={onReload}
-          className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-warm-600 hover:text-warm-800 hover:bg-warm-100 rounded-md"
           title={t('wiki.activity.refresh')}
         >
           <RefreshCw size={11} /> {t('wiki.activity.refresh')}
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">

@@ -5,6 +5,7 @@ import type { DiscussionInput } from '../api/discussions';
 import { useI18n } from '../i18n';
 import VaultInjectControl from './VaultInjectControl';
 import type { VaultInjectMode } from '../api/vault';
+import Button from './Button';
 
 export interface DiscussionFormValues {
   title: string;
@@ -237,22 +238,20 @@ export default function DiscussionForm({
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <button
-                            type="button"
+                          <Button
+                            size="sm"
                             onClick={() => moveAgent(agent.id, -1)}
                             disabled={isFirst}
-                            className="px-2.5 py-1.5 rounded-lg border border-warm-200 bg-warm-50 text-[11px] font-medium text-warm-600 hover:bg-warm-100 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {lang === 'ko' ? '앞으로' : 'Earlier'}
-                          </button>
-                          <button
-                            type="button"
+                          </Button>
+                          <Button
+                            size="sm"
                             onClick={() => moveAgent(agent.id, 1)}
                             disabled={isLast}
-                            className="px-2.5 py-1.5 rounded-lg border border-warm-200 bg-warm-50 text-[11px] font-medium text-warm-600 hover:bg-warm-100 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {lang === 'ko' ? '뒤로' : 'Later'}
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     );

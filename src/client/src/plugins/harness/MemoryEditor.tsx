@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Maximize2, Minimize2, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import Button from '../../components/Button';
 
 interface MemoryEditorProps {
   filePath: string;
@@ -220,14 +221,14 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() => dirty && !saving && onSave(draft)}
           disabled={!dirty || saving}
-          className="px-4 py-1.5 text-xs rounded-lg bg-accent text-white hover:bg-accent-dark disabled:opacity-50 transition-colors"
         >
           {saving ? t('harness.saving') : t('harness.save')}
-        </button>
+        </Button>
         {!dirty && <span className="text-xs text-warm-400">{t('harness.noChanges')}</span>}
       </div>
     </div>

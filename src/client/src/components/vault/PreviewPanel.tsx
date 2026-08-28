@@ -22,6 +22,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useToast } from '../../hooks/useToast';
 import { useVaultZoom, DEFAULT_VAULT_FONT_SIZE } from '../../hooks/useVaultZoom';
 import MarkdownContent from '../MarkdownContent';
+import Button from '../Button';
 import { editBuffer } from './vault-edit-buffer';
 import { getDraft, saveDraft, clearDraft } from './vault-draft';
 import {
@@ -547,41 +548,44 @@ export function PreviewPanel({
         <div className="ml-auto flex items-center gap-1">
           {editMode ? (
             <>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleSave}
                 disabled={!dirty || saving}
-                className="px-1.5 py-1 rounded text-warm-700 hover:bg-warm-100 disabled:opacity-40 disabled:hover:bg-transparent inline-flex items-center gap-1"
                 title={`${t('files.editor.save')} (Ctrl+S)`}
               >
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 <span>{t('files.editor.save')}</span>
-              </button>
+              </Button>
               {savedFlash && (
                 <span className="inline-flex items-center gap-1 text-status-success text-xs transition-opacity duration-200">
                   <Check className="w-3.5 h-3.5" />
                   <span>{t('files.editor.saved')}</span>
                 </span>
               )}
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleCancelEdit}
                 disabled={saving}
-                className="px-1.5 py-1 rounded text-warm-500 hover:bg-warm-100 hover:text-warm-700 disabled:opacity-40 inline-flex items-center gap-1"
                 title={`${t('files.editor.done')} (Ctrl+E)`}
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>{t('files.editor.done')}</span>
-              </button>
+              </Button>
             </>
           ) : (
             editable && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleEnterEdit}
-                className="px-1.5 py-1 rounded hover:bg-warm-100 text-warm-500 hover:text-warm-700 inline-flex items-center gap-1"
                 title={`${t('files.editor.edit')} (Ctrl+E)`}
               >
                 <Pencil className="w-3.5 h-3.5" />
                 <span>{t('files.editor.edit')}</span>
-              </button>
+              </Button>
             )
           )}
           {canAnnotate && (

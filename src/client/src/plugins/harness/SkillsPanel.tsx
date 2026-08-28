@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import Button from '../../components/Button';
 import type { HarnessSkill } from './types';
 
 interface SkillsPanelProps {
@@ -69,14 +70,14 @@ export default function SkillsPanel({ skills, saving, onSave }: SkillsPanelProps
                       className="w-full h-80 px-3 py-2 text-xs font-mono leading-relaxed border border-warm-200 rounded-lg bg-warm-50 text-warm-700 focus:ring-1 focus:ring-accent focus:border-accent resize-y"
                     />
                     <div className="flex items-center gap-3">
-                      <button
-                        type="button"
+                      <Button
+                        variant="primary"
+                        size="sm"
                         onClick={() => dirty && !saving && onSave(skill.name, draft)}
                         disabled={!dirty || saving}
-                        className="px-4 py-1.5 text-xs rounded-lg bg-accent text-white hover:bg-accent-dark disabled:opacity-50 transition-colors"
                       >
                         {saving ? t('harness.saving') : t('harness.save')}
-                      </button>
+                      </Button>
                       {!dirty && <span className="text-xs text-warm-400">{t('harness.noChanges')}</span>}
                     </div>
                   </div>

@@ -4,6 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Check, RotateCcw
 import type { PersonalItem, Agenda, JiraAgendaEntry, AgendaJiraConfig, ImageMeta, Project } from '../types';
 import * as personalApi from '../api/personal';
 import { getProjects } from '../api/projects';
+import Button from './Button';
 import HoverHelp from './HoverHelp';
 import ImageLightbox from './ImageLightbox';
 import Modal from './Modal';
@@ -1303,14 +1304,14 @@ function CleanupModal({ items, defaultFrom, defaultTo, onClose, onDone }: {
 
         <div className="flex justify-end gap-2 px-6 py-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
           <button onClick={onClose} className="btn-ghost text-sm">{t('agenda.cancel')}</button>
-          <button
+          <Button
+            variant="danger"
             onClick={confirm}
             disabled={busy || count === 0}
-            className="btn-primary text-sm disabled:opacity-40"
-            style={{ backgroundColor: 'var(--color-status-error, #ef4444)' }}
+            className="text-sm"
           >
             {t('agenda.cleanup.confirm')}{count > 0 ? ` (${count})` : ''}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -1451,15 +1452,14 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
                 <label className={labelCls} style={{ color: 'var(--color-text-secondary)', marginBottom: 0 }}>{t('agenda.jira.statuses')}</label>
-                <button
-                  type="button"
+                <Button
                   onClick={loadStatuses}
                   disabled={statusLoading}
-                  className="text-2xs px-2 py-0.5 rounded border disabled:opacity-40"
+                  className="text-2xs px-2 py-0.5 rounded"
                   style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}
                 >
                   {statusLoading ? t('agenda.jira.statusesLoading') : t('agenda.jira.statusesLoad')}
-                </button>
+                </Button>
               </div>
               <p className={hintCls} style={{ color: 'var(--color-text-muted)', marginBottom: 6 }}>{t('agenda.jira.statusesHint')}</p>
 

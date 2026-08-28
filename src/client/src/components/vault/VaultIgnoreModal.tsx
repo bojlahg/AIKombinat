@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import Modal from '../Modal';
+import Button from '../Button';
 import { getVaultIgnore, saveVaultIgnore } from '../../api/vault';
 
 interface Props {
@@ -66,20 +67,12 @@ private/**        # 폴더 전체 숨김
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-warm-200">
-          <button
-            type="button"
-            onClick={onOpenEditor}
-            className="px-3 py-1.5 rounded-md text-xs text-warm-700 hover:bg-warm-200"
-          >
+          <Button variant="ghost" size="sm" onClick={onOpenEditor}>
             .vaultignore 직접 편집
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-xs bg-accent text-white hover:bg-accent-dark"
-          >
+          </Button>
+          <Button variant="primary" size="sm" onClick={onClose}>
             닫기
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -152,21 +145,17 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-warm-200">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-xs text-warm-700 hover:bg-warm-200"
-          >
+          <Button variant="ghost" size="sm" onClick={onClose}>
             취소
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleSave}
             disabled={loading || saving}
-            className="px-3 py-1.5 rounded-md text-xs bg-accent text-white hover:bg-accent-dark disabled:opacity-50"
           >
             {saving ? '저장 중…' : '저장'}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

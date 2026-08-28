@@ -1,5 +1,6 @@
 import { EyeOff, MousePointerClick, GitBranch, type LucideIcon } from 'lucide-react';
 import Modal from '../Modal';
+import Button from '../Button';
 import { useI18n } from '../../i18n';
 
 interface Props {
@@ -43,22 +44,24 @@ export function VaultOnboardingModal({ saving, onIgnoreAll, onShowAll }: Props) 
         </div>
 
         <div className="flex flex-col gap-2 px-5 py-4 border-t border-warm-200">
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={onIgnoreAll}
             disabled={saving}
-            className="w-full px-3 py-2.5 rounded-md text-xs font-semibold bg-accent text-white hover:bg-accent-dark disabled:opacity-50"
+            className="w-full"
           >
             {saving ? t('vault.onboarding.saving') : t('vault.onboarding.startIgnoreAll')}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={onShowAll}
             disabled={saving}
-            className="w-full px-3 py-2 rounded-md text-xs text-warm-600 hover:bg-warm-200 disabled:opacity-50"
+            className="w-full"
           >
             {t('vault.onboarding.startShowAll')}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

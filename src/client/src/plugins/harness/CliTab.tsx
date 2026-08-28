@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { useDialog } from '../../hooks/useDialog';
 import * as harnessApi from '../../api/harness';
+import Button from '../../components/Button';
 import SettingsForm from './SettingsForm';
 import MemoryEditor from './MemoryEditor';
 import HooksPanel from './HooksPanel';
@@ -167,14 +168,15 @@ export default function CliTab({ projectId, cli, snapshot, onChange }: CliTabPro
       {cli !== 'claude' && (
         <div className="flex items-center justify-between gap-3 p-3 border border-warm-200 rounded-lg bg-warm-50">
           <p className="text-xs text-warm-500">{t('harness.port.note')}</p>
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handlePortFromClaude}
             disabled={porting}
-            className="shrink-0 px-4 py-1.5 text-xs rounded-lg bg-accent text-white hover:bg-accent-dark disabled:opacity-50 transition-colors"
+            className="shrink-0"
           >
             {porting ? t('harness.port.running') : t('harness.port.button')}
-          </button>
+          </Button>
         </div>
       )}
 
