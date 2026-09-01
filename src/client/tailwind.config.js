@@ -1,27 +1,41 @@
 /** @type {import('tailwindcss').Config} */
+
+/**
+ * Wrap a CSS custom property so Tailwind's opacity modifier works on it.
+ * A plain 'var(--x)' color silently drops `/50` — Tailwind emits no rule at
+ * all, so the class is a no-op. color-mix keeps the variable indirection
+ * (themes still swap at runtime) while honouring the modifier.
+ */
+const themeVar = (name) => ({ opacityValue }) => {
+  // No modifier, or the legacy bg-opacity-* variable form: use the raw value.
+  if (opacityValue === undefined || String(opacityValue).startsWith('var(')) {
+    return `var(${name})`;
+  }
+  return `color-mix(in srgb, var(${name}) ${Number(opacityValue) * 100}%, transparent)`;
+};
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
         warm: {
-          0: 'var(--color-bg-card)',
-          50: 'var(--color-bg-secondary)',
-          100: 'var(--color-bg-primary)',
-          200: 'var(--color-bg-tertiary)',
-          300: 'var(--color-border-strong)',
-          400: 'var(--color-text-faint)',
-          500: 'var(--color-text-muted)',
-          600: 'var(--color-text-tertiary)',
-          700: 'var(--color-text-secondary)',
-          800: 'var(--color-text-primary)',
-          900: 'var(--color-selection-text)',
+          0: themeVar('--color-bg-card'),
+          50: themeVar('--color-bg-secondary'),
+          100: themeVar('--color-bg-primary'),
+          200: themeVar('--color-bg-tertiary'),
+          300: themeVar('--color-border-strong'),
+          400: themeVar('--color-text-faint'),
+          500: themeVar('--color-text-muted'),
+          600: themeVar('--color-text-tertiary'),
+          700: themeVar('--color-text-secondary'),
+          800: themeVar('--color-text-primary'),
+          900: themeVar('--color-selection-text'),
         },
         accent: {
-          DEFAULT: 'var(--color-accent)',
-          light: 'var(--color-accent-light)',
-          dark: 'var(--color-accent-dark)',
-          amber: 'var(--color-accent-amber)',
+          DEFAULT: themeVar('--color-accent'),
+          light: themeVar('--color-accent-light'),
+          dark: themeVar('--color-accent-dark'),
+          amber: themeVar('--color-accent-amber'),
         },
         status: {
           success: '#34C759',
@@ -32,23 +46,23 @@ export default {
           merged: '#AF52DE',
         },
         theme: {
-          bg: 'var(--color-bg-primary)',
-          'bg-secondary': 'var(--color-bg-secondary)',
-          'bg-tertiary': 'var(--color-bg-tertiary)',
-          card: 'var(--color-bg-card)',
-          input: 'var(--color-bg-input)',
-          hover: 'var(--color-bg-hover)',
-          active: 'var(--color-bg-active)',
-          text: 'var(--color-text-primary)',
-          'text-secondary': 'var(--color-text-secondary)',
-          'text-tertiary': 'var(--color-text-tertiary)',
-          muted: 'var(--color-text-muted)',
-          faint: 'var(--color-text-faint)',
-          border: 'var(--color-border)',
-          'border-strong': 'var(--color-border-strong)',
-          accent: 'var(--color-accent)',
-          'accent-light': 'var(--color-accent-light)',
-          'accent-dark': 'var(--color-accent-dark)',
+          bg: themeVar('--color-bg-primary'),
+          'bg-secondary': themeVar('--color-bg-secondary'),
+          'bg-tertiary': themeVar('--color-bg-tertiary'),
+          card: themeVar('--color-bg-card'),
+          input: themeVar('--color-bg-input'),
+          hover: themeVar('--color-bg-hover'),
+          active: themeVar('--color-bg-active'),
+          text: themeVar('--color-text-primary'),
+          'text-secondary': themeVar('--color-text-secondary'),
+          'text-tertiary': themeVar('--color-text-tertiary'),
+          muted: themeVar('--color-text-muted'),
+          faint: themeVar('--color-text-faint'),
+          border: themeVar('--color-border'),
+          'border-strong': themeVar('--color-border-strong'),
+          accent: themeVar('--color-accent'),
+          'accent-light': themeVar('--color-accent-light'),
+          'accent-dark': themeVar('--color-accent-dark'),
         },
       },
       fontFamily: {

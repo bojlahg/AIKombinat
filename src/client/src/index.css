@@ -84,12 +84,6 @@
     line-height: 1.6;
   }
 
-  /* Single icon weight across the app. A CSS rule beats lucide's inline
-     stroke-width presentation attribute, so this holds without per-icon props. */
-  .lucide {
-    stroke-width: 1.5;
-  }
-
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold tracking-tight;
     color: var(--color-text-primary);
@@ -593,4 +587,12 @@
    SessionTerminal의 좌하단 IME 오버레이에서만 표시한다. */
 .xterm .composition-view {
   display: none !important;
+}
+
+/* Single icon weight across the app. A CSS rule beats lucide's inline
+   stroke-width presentation attribute, so this holds without per-icon props.
+   Kept outside @layer: lucide attaches .lucide at runtime, so Tailwind's
+   content scan never sees the class and would drop the rule from a layer. */
+.lucide {
+  stroke-width: 1.5;
 }
