@@ -356,7 +356,7 @@ export default function PlannerList({
           <EmptyState icon={LayoutList} title={t('planner.empty')} description={t('planner.emptyHint')} />
         ) : (
           filteredItems.map((item, index) => (
-            <div key={item.id} className="animate-slide-up" style={{ animationDelay: `${index * 20}ms` }}>
+            <div key={item.id}>
               <PlannerItemRow
                 item={item}
                 tagColors={tagColorMap}

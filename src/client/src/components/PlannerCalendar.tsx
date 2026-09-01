@@ -317,7 +317,7 @@ function PlannerCalendarCard({ item, tagColors, onEdit, onConvert, onDelete }: {
           <MoreVertical size={14} />
         </button>
         {menuOpen && createPortal(
-          <div ref={dropRef} className={`fixed z-tooltip min-w-[160px] rounded-xl py-1 shadow-elevated${positioned ? ' animate-scale-in' : ''}`}
+          <div ref={dropRef} className={`fixed z-tooltip min-w-[160px] rounded-xl py-1 shadow-elevated${positioned ? '' : ''}`}
             style={{ top: pos.top, left: pos.left, opacity: positioned ? 1 : 0, backgroundColor: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}
             onClick={() => setMenuOpen(false)}
           >

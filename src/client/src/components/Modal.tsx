@@ -7,7 +7,6 @@ interface ModalProps {
   onClose: () => void;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   position?: 'center' | 'top';
-  animation?: 'scale' | 'slide-up';
   disableEscClose?: boolean;
   disableBackdropClose?: boolean;
   children: React.ReactNode;
@@ -21,17 +20,11 @@ const SIZE_CLASSES: Record<NonNullable<ModalProps['size']>, string> = {
   '2xl': 'max-w-2xl',
 };
 
-const ANIMATION_CLASSES: Record<NonNullable<ModalProps['animation']>, string> = {
-  scale: 'animate-scale-in',
-  'slide-up': 'animate-slide-up',
-};
-
 export default function Modal({
   open,
   onClose,
   size = 'md',
   position = 'center',
-  animation = 'scale',
   disableEscClose = false,
   disableBackdropClose = false,
   children,
@@ -60,7 +53,7 @@ export default function Modal({
         if (!disableBackdropClose && e.target === overlayRef.current) onClose();
       }}
     >
-      <div className={cn('w-full', SIZE_CLASSES[size], ANIMATION_CLASSES[animation])}>
+      <div className={cn('w-full', SIZE_CLASSES[size])}>
         {children}
       </div>
     </div>,

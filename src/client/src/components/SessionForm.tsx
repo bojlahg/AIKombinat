@@ -155,7 +155,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   return (
     <form
       onSubmit={handleSubmit}
-      className="card p-4 space-y-3 animate-scale-in"
+      className="card p-4 space-y-3"
     >
       <input
         ref={titleRef}

@@ -113,7 +113,7 @@ function MoreMenu({ children }: { children: React.ReactNode }) {
       {open && createPortal(
         <div
           ref={dropRef}
-          className={`fixed z-tooltip min-w-[160px] rounded-xl py-1 shadow-elevated${positioned ? ' animate-scale-in' : ''}`}
+          className={`fixed z-tooltip min-w-[160px] rounded-xl py-1 shadow-elevated${positioned ? '' : ''}`}
           style={{
             top: pos.top,
             left: pos.left,
@@ -720,7 +720,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
       {/* Schedule Picker (inline, below header) */}
       {showSchedulePicker && (
-        <div className="border-t border-theme-border px-5 py-3 bg-theme-bg-secondary/50 animate-fade-in">
+        <div className="border-t border-theme-border px-5 py-3 bg-theme-bg-secondary/50">
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-xs font-medium text-theme-text-secondary">{t('todo.scheduleAt')}</label>
             <input
@@ -758,7 +758,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
       {/* Continue Input (inline, below header) */}
       {showContinueInput && (
-        <div className="border-t border-theme-border px-5 py-3 bg-theme-bg-secondary/50 animate-fade-in">
+        <div className="border-t border-theme-border px-5 py-3 bg-theme-bg-secondary/50">
           <div className="flex flex-col gap-2">
             <label className="text-xs font-medium text-theme-text-secondary">
               {t('todo.continuePromptLabel')}
@@ -799,7 +799,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
       {/* Reset Schedule Input (inline, below header) */}
       {showResetSchedule && resetsAt && (
-        <div className="border-t border-theme-border px-5 py-3 bg-theme-bg-secondary/50 animate-fade-in">
+        <div className="border-t border-theme-border px-5 py-3 bg-theme-bg-secondary/50">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-theme-text-secondary">{t('todo.scheduleOnResetLabel')}</label>
@@ -838,7 +838,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
       {/* Expanded content */}
       {expanded && (
-        <div className="animate-fade-in overflow-hidden border-t border-theme-border">
+        <div className="overflow-hidden border-t border-theme-border">
           <div className="px-4 py-3 space-y-3">
 
             {/* Description */}
@@ -1111,13 +1111,13 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
 
       {/* Drop zone indicator */}
       {dropZoneActive && (
-        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-accent/50 bg-accent/5 animate-fade-in">
+        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-accent/50 bg-accent/5">
           <Link size={14} className="text-accent flex-shrink-0" />
           <span className="text-xs font-medium text-accent">{t('dnd.dropHint')}</span>
         </div>
       )}
       {dropZoneInvalid && (
-        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-red-300 bg-red-50/50 animate-fade-in">
+        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-red-300 bg-red-50/50">
           <Ban size={14} className="text-red-400 flex-shrink-0" />
           <span className="text-xs font-medium text-red-400">{t('dnd.cyclicWarning')}</span>
         </div>

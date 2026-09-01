@@ -205,7 +205,7 @@ export default function SessionList({
     <div
       // min-h so the blank space under a short list still belongs to this
       // container — right-click there should offer "new terminal" too.
-      className="space-y-4 animate-fade-in min-h-[50vh]"
+      className="space-y-4 min-h-[50vh]"
       // Empty-area right-click → "new terminal" menu. Rows stopPropagation and
       // open their own menu; text fields / terminals keep the native menu.
       onContextMenu={(e) => {
@@ -279,8 +279,7 @@ export default function SessionList({
             return (
               <div
                 key={session.id}
-                className={`card overflow-hidden animate-slide-up ${isEditing ? 'border-l-4 border-accent bg-warm-100/30' : ''}`}
-                style={{ animationDelay: `${index * 50}ms` }}
+                className={`card overflow-hidden ${isEditing ? 'border-l-4 border-accent bg-warm-100/30' : ''}`}
                 onContextMenu={(e) => {
                   if (isNativeContextMenuTarget(e)) return;
                   e.preventDefault();

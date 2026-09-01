@@ -52,7 +52,7 @@ export default function PlannerConvertDialog({
   };
 
   return (
-    <Modal open onClose={onClose} size="md" position="top" animation="slide-up">
+    <Modal open onClose={onClose} size="md" position="top">
       <div className="card p-6">
         <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>
           {mode === 'todo' ? t('plannerConvert.toTask') : mode === 'session' ? t('plannerConvert.toTerminal') : t('plannerConvert.toSchedule')}

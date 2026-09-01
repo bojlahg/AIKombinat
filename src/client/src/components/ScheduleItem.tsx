@@ -217,7 +217,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
 
       {/* Expanded content */}
       {expanded && (
-        <div className="border-t border-warm-200 px-5 py-5 space-y-4 animate-fade-in bg-warm-50/50">
+        <div className="border-t border-warm-200 px-5 py-5 space-y-4 bg-warm-50/50">
           {/* Description */}
           {schedule.description && (
             <div>

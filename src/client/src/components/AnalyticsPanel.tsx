@@ -165,7 +165,7 @@ export default function AnalyticsPanel({ projectId }: AnalyticsPanelProps) {
   const axisStyle = { fontSize: 10, fill: 'var(--color-text-muted)' };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       {/* Period selector */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-theme-muted">

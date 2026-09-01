@@ -439,7 +439,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
         const failedMessage = discussion.messages.find((m) => m.status === 'failed');
         const failedAgent = failedMessage ? agentMap.get(failedMessage.agent_id) : null;
         return (
-          <div className="mb-4 rounded-xl border border-status-error/30 bg-status-error/5 overflow-hidden animate-slide-up">
+          <div className="mb-4 rounded-xl border border-status-error/30 bg-status-error/5 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 bg-status-error/10 border-b border-status-error/20">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={16} className="text-status-error" />

@@ -465,9 +465,9 @@ export default function LogViewer({ logs, interactive, todoId, onSendInput, embe
           {interactive && waitingForResponse && (
             <div className="mb-0.5 leading-relaxed">
               <span className="inline-flex gap-1" style={{ color: '#569cd6' }}>
-                <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1.2s' }}>&#x25CF;</span>
-                <span className="animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1.2s' }}>&#x25CF;</span>
-                <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1.2s' }}>&#x25CF;</span>
+                <span className="animate-pulse" style={{ animationDelay: '0ms', animationDuration: '1.2s' }}>&#x25CF;</span>
+                <span className="animate-pulse" style={{ animationDelay: '200ms', animationDuration: '1.2s' }}>&#x25CF;</span>
+                <span className="animate-pulse" style={{ animationDelay: '400ms', animationDuration: '1.2s' }}>&#x25CF;</span>
               </span>
               <span className="ml-2" style={{ color: '#6a9955', fontSize: '0.65rem' }}>{t('log.waitingResponse')}</span>
             </div>

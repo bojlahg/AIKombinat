@@ -155,7 +155,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
   };
 
   return (
-    <div className="card p-5 animate-slide-up" style={{ borderColor: 'var(--color-accent)', borderWidth: '1px' }}>
+    <div className="card p-5" style={{ borderColor: 'var(--color-accent)', borderWidth: '1px' }}>
       <input
         ref={titleRef}
         className="input-field text-sm w-full mb-3"

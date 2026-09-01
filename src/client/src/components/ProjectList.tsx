@@ -206,17 +206,17 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
                       handleDeleteProject(project.id, e, true);
                     }
                   },
-                  className: 'card card-tagged group block p-5 opacity-50 relative cursor-pointer animate-fade-in',
+                  className: 'card card-tagged group block p-5 opacity-50 relative cursor-pointer',
                 }
               : {
                   to: `/projects/${project.id}`,
-                  className: 'card card-tagged group block p-5 relative animate-fade-in',
+                  className: 'card card-tagged group block p-5 relative',
                 };
             return (
               <CardWrapper
                 key={project.id}
                 {...cardProps as any}
-                style={{ animationDelay: `${index * 50}ms`, '--tag-color': tagColor } as React.CSSProperties}
+                style={{ '--tag-color': tagColor } as React.CSSProperties}
               >
                 {/* Delete button */}
                 <IconButton

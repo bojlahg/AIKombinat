@@ -379,7 +379,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
   }, [status, updateConflicts]);
 
   return (
-    <div className="animate-fade-in flex flex-col" style={{ height: 'calc(100vh - 260px)', minHeight: '400px' }}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 260px)', minHeight: '400px' }}>
       {svnInstalled === false && (
         <div className="card mb-2 px-3 py-2 bg-status-warning/10 border border-status-warning/30 text-2xs text-status-warning">
           {t('svn.cliMissing')}

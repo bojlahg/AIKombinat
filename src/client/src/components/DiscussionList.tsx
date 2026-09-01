@@ -75,7 +75,7 @@ export default function DiscussionList({
     <div
       // min-h so the blank space under a short list still catches the
       // right-click → "new discussion" menu.
-      className="space-y-4 animate-fade-in min-h-[50vh]"
+      className="space-y-4 min-h-[50vh]"
       onContextMenu={(e) => {
         if (isNativeContextMenuTarget(e)) return;
         e.preventDefault();
@@ -133,9 +133,8 @@ export default function DiscussionList({
             return (
               <div
                 key={discussion.id}
-                className="card p-4 hover:shadow-md transition-all cursor-pointer animate-slide-up"
+                className="card p-4 hover:shadow-md transition-all cursor-pointer"
                 onClick={() => navigate(`/projects/${projectId}/discussions/${discussion.id}`)}
-                style={{ animationDelay: `${index * 50}ms` }}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">

@@ -1966,7 +1966,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
   const graphNodes = useMemo(() => computeGraphLanes(commits), [commits]);
 
   return (
-    <div className="animate-fade-in flex flex-col" style={{ height: 'calc(100vh - 260px)', minHeight: '400px' }}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 260px)', minHeight: '400px' }}>
       {/* Action Toolbar */}
       <div className="card-static mb-2">
         <ActionToolbar

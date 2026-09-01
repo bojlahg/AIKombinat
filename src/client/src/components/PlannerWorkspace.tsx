@@ -187,7 +187,7 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
       {showPicker && createPortal(
         <div
           data-template-picker
-          className="fixed z-tooltip rounded-xl py-1 shadow-elevated animate-scale-in"
+          className="fixed z-tooltip rounded-xl py-1 shadow-elevated"
           style={{ top: pickerPos.top, left: pickerPos.left, width: PICKER_W, backgroundColor: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}
         >
           {PAGE_TEMPLATES.map((tpl) => (

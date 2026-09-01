@@ -275,7 +275,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
 
       {/* Settings panel */}
       {showSettings && (
-        <div className="mt-3 card p-6 animate-fade-in">
+        <div className="mt-3 card p-6">
           {/* Settings section tabs */}
           <div className="flex gap-1 mb-5 p-0.5 rounded-lg" style={{ backgroundColor: 'var(--color-bg-tertiary)' }}>
             {[

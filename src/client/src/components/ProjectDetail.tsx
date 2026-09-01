@@ -727,7 +727,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
   if (notFound || !project) {
     return (
       <div className="px-6 py-6 sm:px-8 sm:py-8">
-        <div className="card p-16 text-center animate-fade-in">
+        <div className="card p-16 text-center">
           <p className="text-status-error font-medium text-lg">{t('detail.notFound')}</p>
           <Link
             to="/"
