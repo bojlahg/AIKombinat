@@ -115,7 +115,7 @@ export function CommitDiffViewer({
         <button
           onClick={() => setWrap((w) => !w)}
           title={t('git.wrapLines') || 'Wrap lines'}
-          className={`p-1 rounded shrink-0 hover:bg-gray-700 ${wrap ? 'text-accent' : 'text-gray-500'}`}
+          className={`p-1 rounded-md shrink-0 hover:bg-gray-700 ${wrap ? 'text-accent' : 'text-gray-500'}`}
         >
           <WrapText size={14} />
         </button>

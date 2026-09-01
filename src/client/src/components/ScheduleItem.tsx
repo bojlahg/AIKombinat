@@ -283,7 +283,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
                           <button
                             onClick={() => handleMergeRun(run)}
                             disabled={isActing}
-                            className="p-1 text-status-merged/60 hover:text-status-merged hover:bg-status-merged/10 rounded transition-colors disabled:opacity-30"
+                            className="p-1 text-status-merged/60 hover:text-status-merged hover:bg-status-merged/10 rounded-md transition-colors disabled:opacity-30"
                             title={t('todo.merge')}
                           >
                             <GitMerge size={12} />
@@ -293,7 +293,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
                           <button
                             onClick={() => handleCleanupRun(run)}
                             disabled={isActing}
-                            className="p-1 text-status-warning/60 hover:text-status-warning hover:bg-status-warning/10 rounded transition-colors disabled:opacity-30"
+                            className="p-1 text-status-warning/60 hover:text-status-warning hover:bg-status-warning/10 rounded-md transition-colors disabled:opacity-30"
                             title={t('todo.cleanup')}
                           >
                             <Trash2 size={12} />

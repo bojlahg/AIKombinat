@@ -186,7 +186,7 @@ export default function TodoForm({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded text-2xs font-medium text-warm-400 hover:text-warm-600 hover:bg-warm-100 transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-medium text-warm-400 hover:text-warm-600 hover:bg-warm-100 transition-colors"
           >
             <ImageIcon size={14} />
             {t('todoForm.addImage')}

@@ -296,7 +296,7 @@ export default function SessionList({
                       <div className="flex items-center gap-2">
                         {session.tag_id && tagsById.get(session.tag_id) && (
                           <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-2xs font-medium"
                             style={{
                               backgroundColor: `${tagsById.get(session.tag_id)!.color}22`,
                               color: tagsById.get(session.tag_id)!.color,
@@ -346,7 +346,7 @@ export default function SessionList({
                       {isPopped && (
                         <button
                           onClick={() => recallPopout(session.id)}
-                          className="p-1.5 text-violet-500 hover:bg-violet-500/10 rounded transition-colors"
+                          className="p-1.5 text-violet-500 hover:bg-violet-500/10 rounded-md transition-colors"
                           title={t('session.recallToMain')}
                         >
                           <Maximize2 size={16} />
@@ -355,7 +355,7 @@ export default function SessionList({
                       {canStart && (
                         <button
                           onClick={() => openOrFocus(session.id, 'start')}
-                          className="p-1.5 text-status-success hover:bg-status-success/10 rounded transition-colors"
+                          className="p-1.5 text-status-success hover:bg-status-success/10 rounded-md transition-colors"
                           title={t('session.start')}
                         >
                           <Play size={16} />
@@ -364,7 +364,7 @@ export default function SessionList({
                       {canResume && (
                         <button
                           onClick={() => openOrFocus(session.id, 'resume')}
-                          className="p-1.5 text-accent hover:bg-accent/10 rounded transition-colors"
+                          className="p-1.5 text-accent hover:bg-accent/10 rounded-md transition-colors"
                           title={t('session.resumeHint') || t('session.resume')}
                         >
                           <RotateCcw size={16} />
@@ -373,7 +373,7 @@ export default function SessionList({
                       <button
                         onClick={() => startEdit(session.id)}
                         disabled={!canEdit}
-                        className="p-1.5 text-warm-500 hover:text-warm-800 hover:bg-warm-100 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-warm-500"
+                        className="p-1.5 text-warm-500 hover:text-warm-800 hover:bg-warm-100 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-warm-500"
                         title={canEdit ? t('session.edit') : t('session.editDisabledRunning')}
                       >
                         <Edit2 size={16} />
@@ -381,7 +381,7 @@ export default function SessionList({
                       {canStop && (
                         <button
                           onClick={() => onStopSession(session.id)}
-                          className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-colors"
+                          className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition-colors"
                           title={t('session.stop')}
                         >
                           <Square size={16} />
@@ -395,7 +395,7 @@ export default function SessionList({
                               : false;
                             onCleanupSession(session.id, deleteBranch);
                           }}
-                          className="p-1.5 text-warm-400 hover:text-amber-600 rounded transition-colors"
+                          className="p-1.5 text-warm-400 hover:text-amber-600 rounded-md transition-colors"
                           title={t('session.cleanup')}
                         >
                           <Archive size={16} />
@@ -403,7 +403,7 @@ export default function SessionList({
                       )}
                       <button
                         onClick={() => onDeleteSession(session.id)}
-                        className="p-1.5 text-warm-400 hover:text-status-error rounded transition-colors"
+                        className="p-1.5 text-warm-400 hover:text-status-error rounded-md transition-colors"
                         title={t('session.delete')}
                       >
                         <Trash2 size={16} />

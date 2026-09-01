@@ -332,7 +332,7 @@ export default function DiscussionForm({
                   type="checkbox"
                   checked={values.use_worktree}
                   onChange={(e) => setField('use_worktree', e.target.checked)}
-                  className="rounded border-warm-300 text-accent focus:ring-accent"
+                  className="rounded-md border-warm-300 text-accent focus:ring-accent"
                 />
                 <GitBranch size={14} className="text-warm-500" />
                 <span className="text-xs font-medium text-warm-500">
@@ -380,7 +380,7 @@ export default function DiscussionForm({
                     implement_agent_id: checked ? prev.implement_agent_id : '',
                   }));
                 }}
-                className="rounded border-warm-300 text-accent focus:ring-accent"
+                className="rounded-md border-warm-300 text-accent focus:ring-accent"
               />
               <span className="text-xs font-medium text-warm-500">{t('discussions.autoImplement')}</span>
             </label>

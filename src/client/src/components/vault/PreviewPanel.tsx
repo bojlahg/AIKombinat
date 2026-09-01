@@ -591,7 +591,7 @@ export function PreviewPanel({
           {canAnnotate && (
             <button
               onClick={toggleAnnotate}
-              className={`p-1 rounded inline-flex items-center ${annotateMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+              className={`p-1 rounded-md inline-flex items-center ${annotateMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
               title={`${annotateMode ? t('annotate.stop') : t('annotate.start')} (Ctrl+Shift+D)`}
               aria-pressed={annotateMode}
             >
@@ -600,21 +600,21 @@ export function PreviewPanel({
           )}
           <button
             onClick={openInOS}
-            className="p-1 rounded hover:bg-warm-100 text-warm-500 hover:text-warm-700"
+            className="p-1 rounded-md hover:bg-warm-100 text-warm-500 hover:text-warm-700"
             title={`${t('files.openInOS')} (Ctrl+Shift+O)`}
           >
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={revealInOS}
-            className="p-1 rounded hover:bg-warm-100 text-warm-500 hover:text-warm-700"
+            className="p-1 rounded-md hover:bg-warm-100 text-warm-500 hover:text-warm-700"
             title={`${t('files.revealInExplorer')} (Ctrl+Shift+E)`}
           >
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={copyPath}
-            className="p-1 rounded hover:bg-warm-100 text-warm-500 hover:text-warm-700"
+            className="p-1 rounded-md hover:bg-warm-100 text-warm-500 hover:text-warm-700"
             title={`${t('files.copyPath')} (Alt+Shift+C)`}
           >
             <Copy className="w-3.5 h-3.5" />
@@ -629,7 +629,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('select')}
             title={`${t('annotate.select')} (V)`}
             aria-pressed={annotateTool === 'select'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'select' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded-md inline-flex items-center gap-1 ${annotateTool === 'select' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <MousePointer2 className="w-3 h-3" />
             <span>{t('annotate.select')}</span>
@@ -640,7 +640,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('pen')}
             title={`${t('annotate.pen')} (P)`}
             aria-pressed={annotateTool === 'pen'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'pen' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded-md inline-flex items-center gap-1 ${annotateTool === 'pen' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <Pencil className="w-3 h-3" />
             <span>{t('annotate.pen')}</span>
@@ -650,7 +650,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('highlighter')}
             title={`${t('annotate.highlighter')} (H)`}
             aria-pressed={annotateTool === 'highlighter'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'highlighter' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded-md inline-flex items-center gap-1 ${annotateTool === 'highlighter' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <Highlighter className="w-3 h-3" />
             <span>{t('annotate.highlighter')}</span>
@@ -660,7 +660,7 @@ export function PreviewPanel({
             onClick={() => setAnnotateTool('eraser')}
             title={`${t('annotate.eraser')} (E)`}
             aria-pressed={annotateTool === 'eraser'}
-            className={`p-1 rounded inline-flex items-center gap-1 ${annotateTool === 'eraser' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
+            className={`p-1 rounded-md inline-flex items-center gap-1 ${annotateTool === 'eraser' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'text-warm-500 hover:bg-warm-100 hover:text-warm-700'}`}
           >
             <Eraser className="w-3 h-3" />
             <span>{t('annotate.eraser')}</span>
@@ -685,7 +685,7 @@ export function PreviewPanel({
             onClick={() => overlayRef.current?.undo()}
             disabled={!canUndo}
             title={`${t('annotate.undo')} (Ctrl+Z)`}
-            className={`p-1 rounded inline-flex items-center gap-1 ${canUndo ? 'text-warm-500 hover:bg-warm-100 hover:text-warm-700' : 'text-warm-300 cursor-not-allowed'}`}
+            className={`p-1 rounded-md inline-flex items-center gap-1 ${canUndo ? 'text-warm-500 hover:bg-warm-100 hover:text-warm-700' : 'text-warm-300 cursor-not-allowed'}`}
           >
             <Undo2 className="w-3 h-3" />
             <span>{t('annotate.undo')}</span>
@@ -695,7 +695,7 @@ export function PreviewPanel({
             onClick={() => overlayRef.current?.redo()}
             disabled={!canRedo}
             title={`${t('annotate.redo')} (Ctrl+Shift+Z)`}
-            className={`p-1 rounded inline-flex items-center gap-1 ${canRedo ? 'text-warm-500 hover:bg-warm-100 hover:text-warm-700' : 'text-warm-300 cursor-not-allowed'}`}
+            className={`p-1 rounded-md inline-flex items-center gap-1 ${canRedo ? 'text-warm-500 hover:bg-warm-100 hover:text-warm-700' : 'text-warm-300 cursor-not-allowed'}`}
           >
             <Redo2 className="w-3 h-3" />
             <span>{t('annotate.redo')}</span>
@@ -705,7 +705,7 @@ export function PreviewPanel({
             type="button"
             onClick={() => overlayRef.current?.clearAll()}
             title={`${t('annotate.clear')} (Shift+Delete)`}
-            className="p-1 rounded text-warm-500 hover:bg-warm-100 hover:text-warm-700 inline-flex items-center gap-1"
+            className="p-1 rounded-md text-warm-500 hover:bg-warm-100 hover:text-warm-700 inline-flex items-center gap-1"
           >
             <Trash2 className="w-3 h-3" />
             <span>{t('annotate.clear')}</span>
@@ -845,7 +845,7 @@ export function PreviewPanel({
             <a
               href={getBinaryFileUrl(projectId, path)}
               download={entry.name}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-warm-100 hover:bg-warm-200 text-warm-700"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-warm-100 hover:bg-warm-200 text-warm-700"
             >
               <ExternalLink className="w-3 h-3" /> {t('files.download')}
             </a>

@@ -33,7 +33,7 @@ export function VaultIgnoreHelpModal({ open, onClose, onOpenEditor }: {
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded hover:bg-warm-200 text-warm-500 hover:text-warm-800"
+            className="p-1 rounded-md hover:bg-warm-200 text-warm-500 hover:text-warm-800"
             aria-label="close"
           >
             <X className="w-4 h-4" />
@@ -117,7 +117,7 @@ export function VaultIgnoreModal({ open, projectId, onClose, onSaved }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded hover:bg-warm-200 text-warm-500 hover:text-warm-800"
+            className="p-1 rounded-md hover:bg-warm-200 text-warm-500 hover:text-warm-800"
             aria-label="close"
           >
             <X className="w-4 h-4" />

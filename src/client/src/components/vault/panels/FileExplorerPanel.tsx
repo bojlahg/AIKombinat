@@ -95,7 +95,7 @@ function TreeRow({
       }}
       onDoubleClick={() => { if (isDir) onSelect(fullPath, entry); }}
       onContextMenu={(e) => onContextMenu(e, fullPath, entry)}
-      className={`w-full flex items-center gap-1.5 py-0.5 px-1 text-xs text-left rounded transition-colors ${
+      className={`w-full flex items-center gap-1.5 py-0.5 px-1 text-xs text-left rounded-md transition-colors ${
         isDropTarget
           ? 'bg-accent/25 ring-1 ring-accent'
           : isSelected ? 'bg-accent/15 text-warm-800' : 'hover:bg-warm-100 text-warm-700'
@@ -268,7 +268,7 @@ function PinnedSection({
             type="button"
             onClick={() => onSelect(item.path, entry)}
             onContextMenu={(e) => onContextMenu(e, item.path, entry)}
-            className={`w-full flex items-center gap-1.5 py-0.5 px-1 text-xs text-left rounded transition-colors ${
+            className={`w-full flex items-center gap-1.5 py-0.5 px-1 text-xs text-left rounded-md transition-colors ${
               isSelected ? 'bg-accent/15 text-warm-800' : 'hover:bg-warm-100 text-warm-700'
             }`}
             style={{ paddingLeft: 4 }}
@@ -672,14 +672,14 @@ export function FileExplorerPanel({ projectId, activeFile, onSelectFile, onVault
         <span className="text-warm-400 shrink-0">{totalEntries}</span>
         <button
           onClick={() => setShowHidden((v) => !v)}
-          className="p-1 rounded hover:bg-warm-100 text-warm-500 hover:text-warm-700"
+          className="p-1 rounded-md hover:bg-warm-100 text-warm-500 hover:text-warm-700"
           title={showHidden ? t('files.hideHidden') : t('files.showHidden')}
         >
           {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
         </button>
         <button
           onClick={loadRoot}
-          className="p-1 rounded hover:bg-warm-100 text-warm-500 hover:text-warm-700"
+          className="p-1 rounded-md hover:bg-warm-100 text-warm-500 hover:text-warm-700"
           title={t('files.refresh')}
           disabled={rootLoading}
         >

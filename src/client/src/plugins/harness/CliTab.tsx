@@ -153,7 +153,7 @@ export default function CliTab({ projectId, cli, snapshot, onChange }: CliTabPro
         <div className="p-3 border border-status-warning/30 rounded-lg bg-status-warning/5 text-xs text-warm-600">
           <p className="font-semibold mb-1">{t('harness.warning.codexTrustLevel.title')}</p>
           <p className="mb-2">{t('harness.warning.codexTrustLevel.body')}</p>
-          <pre className="px-2 py-1 bg-warm-50 border border-warm-150 rounded text-[11px] font-mono whitespace-pre-wrap break-all">
+          <pre className="px-2 py-1 bg-warm-50 border border-warm-150 rounded-md text-[11px] font-mono whitespace-pre-wrap break-all">
 {`[projects."${snapshot.filePaths.settings.replace(/[\\/]\.codex[\\/]config\.toml$/, '').replace(/\\/g, '\\\\')}"]\ntrust_level = "trusted"`}
           </pre>
         </div>

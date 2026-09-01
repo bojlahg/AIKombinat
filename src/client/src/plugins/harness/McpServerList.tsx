@@ -82,11 +82,11 @@ export default function McpServerList({ servers, saving, onUpsert, onRemove }: M
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <code className="text-xs font-semibold text-warm-700">{server.alias}</code>
-                    <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-warm-200 text-warm-500">
+                    <span className="text-[10px] uppercase px-1.5 py-0.5 rounded-md bg-warm-200 text-warm-500">
                       {server.transport}
                     </span>
                     {hasSecrets && (
-                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-warm-150 text-warm-500">
+                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded-md bg-warm-150 text-warm-500">
                         env
                       </span>
                     )}

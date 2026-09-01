@@ -845,7 +845,7 @@ export default function PersonalAgenda() {
                 return (
                   <div key={e.id} onContextMenu={(ev) => openItemMenu(item, ev)} className="group flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
                     <button onClick={() => toggleDone(item)} className="mt-0.5 flex-shrink-0" title={t('agenda.toggleDone')}>
-                      <span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}>
+                      <span className="w-4 h-4 rounded-md border flex items-center justify-center" style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}>
                         {item.status === 'done' && <Check size={12} />}
                       </span>
                     </button>
@@ -940,7 +940,7 @@ export default function PersonalAgenda() {
               {backlog.map((item) => (
                 <div key={item.id} onContextMenu={(e) => openItemMenu(item, e)} className="group flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
                   <button onClick={() => toggleDone(item)} className="mt-0.5 flex-shrink-0">
-                    <span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}>
+                    <span className="w-4 h-4 rounded-md border flex items-center justify-center" style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}>
                       {item.status === 'done' && <Check size={12} />}
                     </span>
                   </button>
@@ -1090,7 +1090,7 @@ export default function PersonalAgenda() {
                       className="btn-ghost text-xs px-2.5 py-1.5 flex items-center gap-1.5"
                       style={fDone ? { color: 'var(--color-accent)' } : undefined}
                     >
-                      <span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: 'var(--color-border)' }}>
+                      <span className="w-4 h-4 rounded-md border flex items-center justify-center" style={{ borderColor: 'var(--color-border)' }}>
                         {fDone && <Check size={12} />}
                       </span>
                       {t(fDone ? 'agenda.status.done' : 'agenda.status.pending')}
@@ -1136,7 +1136,7 @@ export default function PersonalAgenda() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs btn-ghost"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs btn-ghost"
                   >
                     <ImageIcon size={14} />
                     {t('plannerForm.addImage')}
@@ -1287,11 +1287,11 @@ function CleanupModal({ items, defaultFrom, defaultTo, onClose, onDone }: {
           </div>
 
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            <input type="checkbox" checked={doneOnly} onChange={(e) => setDoneOnly(e.target.checked)} className="rounded" />
+            <input type="checkbox" checked={doneOnly} onChange={(e) => setDoneOnly(e.target.checked)} className="rounded-md" />
             {t('agenda.cleanup.doneOnly')}
           </label>
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            <input type="checkbox" checked={includeBacklog} onChange={(e) => setIncludeBacklog(e.target.checked)} className="rounded" />
+            <input type="checkbox" checked={includeBacklog} onChange={(e) => setIncludeBacklog(e.target.checked)} className="rounded-md" />
             {t('agenda.cleanup.includeBacklog')}
           </label>
 
@@ -1391,7 +1391,7 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
 
         <div className="px-6 overflow-auto flex flex-col gap-4 py-2">
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="rounded" />
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="rounded-md" />
             {t('agenda.jira.enable')}
           </label>
 
@@ -1436,11 +1436,11 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
             <p className={hintCls} style={{ color: 'var(--color-text-muted)', marginBottom: 8 }}>{t('agenda.jira.criteriaHint')}</p>
 
             <label className="flex items-center gap-2 text-sm mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              <input type="checkbox" checked={assigneeMe} onChange={(e) => setAssigneeMe(e.target.checked)} className="rounded" />
+              <input type="checkbox" checked={assigneeMe} onChange={(e) => setAssigneeMe(e.target.checked)} className="rounded-md" />
               {t('agenda.jira.assigneeMe')}
             </label>
             <label className="flex items-center gap-2 text-sm mb-3" style={{ color: 'var(--color-text-secondary)', opacity: statuses.length ? 0.4 : 1 }}>
-              <input type="checkbox" checked={includeDone} disabled={statuses.length > 0} onChange={(e) => setIncludeDone(e.target.checked)} className="rounded" />
+              <input type="checkbox" checked={includeDone} disabled={statuses.length > 0} onChange={(e) => setIncludeDone(e.target.checked)} className="rounded-md" />
               {t('agenda.jira.includeDone')}
             </label>
 
@@ -1455,7 +1455,7 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
                 <Button
                   onClick={loadStatuses}
                   disabled={statusLoading}
-                  className="text-2xs px-2 py-0.5 rounded"
+                  className="text-2xs px-2 py-0.5 rounded-md"
                   style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}
                 >
                   {statusLoading ? t('agenda.jira.statusesLoading') : t('agenda.jira.statusesLoad')}
@@ -1483,7 +1483,7 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
                       .filter((o) => o.name.toLowerCase().includes(statusFilter.trim().toLowerCase()))
                       .map((o) => (
                         <label key={o.name} className="flex items-center gap-2 text-sm px-2.5 py-1.5 cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-                          <input type="checkbox" checked={statuses.includes(o.name)} onChange={() => toggleStatus(o.name)} className="rounded" />
+                          <input type="checkbox" checked={statuses.includes(o.name)} onChange={() => toggleStatus(o.name)} className="rounded-md" />
                           <span>{o.name}</span>
                           {o.category && <span className="text-2xs ml-auto" style={{ color: 'var(--color-text-muted)' }}>{o.category}</span>}
                         </label>

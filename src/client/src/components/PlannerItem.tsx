@@ -262,12 +262,12 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
         {/* Tags */}
         <div className="hidden sm:flex items-center gap-1 w-[160px] flex-shrink-0 overflow-hidden">
           {images.length > 0 && (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warm-100 text-warm-500 whitespace-nowrap">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-warm-100 text-warm-500 whitespace-nowrap">
               <ImageIcon size={12} />{images.length}
             </span>
           )}
           {tags.map((tag) => (
-            <span key={tag} className={`px-2 py-0.5 rounded text-2xs font-medium whitespace-nowrap ${getTagStyle(tagColors.get(tag) || 'default')}`}>{tag}</span>
+            <span key={tag} className={`px-2 py-0.5 rounded-md text-2xs font-medium whitespace-nowrap ${getTagStyle(tagColors.get(tag) || 'default')}`}>{tag}</span>
           ))}
         </div>
 
@@ -362,7 +362,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-warm-400 hover:text-warm-600 hover:bg-warm-100 transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-warm-400 hover:text-warm-600 hover:bg-warm-100 transition-colors"
                 >
                   <ImageIcon size={12} />
                   {t('plannerForm.addImage')}
@@ -413,7 +413,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                 {editTags.map((tag) => (
                   <div key={tag} className="relative">
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-2xs font-medium cursor-pointer hover:ring-1 hover:ring-warm-400 transition-all ${getTagStyle(tagColors.get(tag) || 'default')}`}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-2xs font-medium cursor-pointer hover:ring-1 hover:ring-warm-400 transition-all ${getTagStyle(tagColors.get(tag) || 'default')}`}
                       onClick={(e) => { colorPickAnchorRef.current = e.currentTarget; setColorPickTag(colorPickTag === tag ? null : tag); }}
                     >
                       {tag}
@@ -433,7 +433,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                               className={`aspect-square rounded-md flex items-center justify-center transition-all ${tagColors.get(tag) === colorKey ? 'ring-2 ring-accent ring-offset-1' : 'hover:scale-110'}`}
                               title={t(`plannerTag.color.${colorKey}`)}
                             >
-                              <div className={`w-5 h-5 rounded ${TAG_COLOR_MAP[colorKey].swatch}`} />
+                              <div className={`w-5 h-5 rounded-md ${TAG_COLOR_MAP[colorKey].swatch}`} />
                             </button>
                           ))}
                         </div>
@@ -460,7 +460,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                     <AnchoredPopover anchorRef={tagRef} width={160} onClose={() => setShowTagDrop(false)} className="rounded-lg shadow-elevated z-tooltip py-1 max-h-32 overflow-y-auto" style={{ backgroundColor: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}>
                       {tagSuggestions.slice(0, 8).map((s) => (
                         <button key={s} className="flex items-center w-full px-2 py-1 hover:bg-warm-100/50 transition-colors text-left" onMouseDown={() => addTag(s)}>
-                          <span className={`px-2 py-0.5 rounded text-2xs font-medium ${getTagStyle(tagColors.get(s) || 'default')}`}>{s}</span>
+                          <span className={`px-2 py-0.5 rounded-md text-2xs font-medium ${getTagStyle(tagColors.get(s) || 'default')}`}>{s}</span>
                         </button>
                       ))}
                     </AnchoredPopover>

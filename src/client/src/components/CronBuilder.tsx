@@ -309,7 +309,7 @@ export default function CronBuilder({ value, onChange }: CronBuilderProps) {
       {state.mode !== 'custom' && currentCron && (
         <div className="flex items-center gap-2 text-[11px]">
           <span className="text-warm-400">{t('cron.expression')}:</span>
-          <code className="px-2 py-0.5 rounded bg-warm-100 text-warm-600 font-mono">{currentCron}</code>
+          <code className="px-2 py-0.5 rounded-md bg-warm-100 text-warm-600 font-mono">{currentCron}</code>
         </div>
       )}
     </div>

@@ -179,7 +179,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-warm-400 hover:text-warm-600 hover:bg-warm-100 transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-warm-400 hover:text-warm-600 hover:bg-warm-100 transition-colors"
         >
           <ImageIcon size={14} />
           {t('plannerForm.addImage')}
@@ -248,7 +248,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
         <label className="text-xs font-medium text-warm-500 mb-1.5 block">{t('plannerForm.tags')}</label>
         <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl" style={{ backgroundColor: 'var(--color-bg-input)', border: '1px solid var(--color-border-strong)' }}>
           {tags.map((tag) => (
-            <span key={tag} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${getTagStyle(tagColorMap.get(tag) || 'default')}`}>
+            <span key={tag} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${getTagStyle(tagColorMap.get(tag) || 'default')}`}>
               {tag}
               <button onClick={() => removeTag(tag)} className="opacity-60 hover:opacity-100"><X size={12} /></button>
             </span>
@@ -272,7 +272,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
               <AnchoredPopover anchorRef={tagInputRef} width={208} onClose={() => setShowTagDrop(false)} className="rounded-lg shadow-elevated z-tooltip py-1.5 max-h-48 overflow-y-auto" style={{ backgroundColor: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}>
                 {suggestions.slice(0, 10).map((tagObj) => (
                   <button key={tagObj.name} className="flex items-center w-full px-2.5 py-1 hover:bg-warm-100/50 transition-colors text-left" onMouseDown={() => addTag(tagObj.name)}>
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${getTagStyle(tagObj.color)}`}>{tagObj.name}</span>
+                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-medium ${getTagStyle(tagObj.color)}`}>{tagObj.name}</span>
                   </button>
                 ))}
                 {tagInput.trim() && !existingTags.some(t => t.name === tagInput.trim()) && (

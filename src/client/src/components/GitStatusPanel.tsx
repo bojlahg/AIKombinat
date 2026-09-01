@@ -132,7 +132,7 @@ function RefBadge({ refStr }: { refStr: string }) {
   }
 
   return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-2xs font-medium whitespace-nowrap ${classes}`}>
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-2xs font-medium whitespace-nowrap ${classes}`}>
       {label}
     </span>
   );
@@ -256,7 +256,7 @@ function ActionToolbar({
     <button
       onClick={onClick}
       disabled={busy}
-      className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded hover:bg-warm-50 transition-colors disabled:opacity-50 relative"
+      className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md hover:bg-warm-50 transition-colors disabled:opacity-50 relative"
       title={label}
     >
       <div className="h-5 w-5 flex items-center justify-center text-warm-500">{icon}</div>
@@ -365,7 +365,7 @@ function ActionToolbar({
       {activeModal === 'commit' && (
         <GitModal title={t('git.commit')}>
           <textarea
-            className="w-full border border-warm-200 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+            className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-accent"
             rows={3}
             placeholder={t('git.commitMessage')}
             value={inputValue}
@@ -385,7 +385,7 @@ function ActionToolbar({
       {activeModal === 'branch' && (
         <GitModal title={t('git.newBranch')}>
           <input
-            className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+            className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             placeholder={t('git.branchName')}
             value={inputValue}
             onChange={e => setInputValue(e.target.value)}
@@ -405,7 +405,7 @@ function ActionToolbar({
               <p className="text-2xs text-warm-400 uppercase tracking-wider mb-1">{t('git.selectBranch')}</p>
               <div className="max-h-32 overflow-y-auto space-y-px">
                 {localBranches.filter(b => !b.current).map(b => (
-                  <div key={b.name} className="flex items-center justify-between px-2 py-1 text-xs hover:bg-warm-50 rounded group">
+                  <div key={b.name} className="flex items-center justify-between px-2 py-1 text-xs hover:bg-warm-50 rounded-md group">
                     <button
                       className="truncate text-warm-600 hover:text-accent"
                       onClick={() => exec(() => projectsApi.gitCheckout(projectId, b.name))}
@@ -433,7 +433,7 @@ function ActionToolbar({
             {localBranches.filter(b => !b.current).map(b => (
               <button
                 key={b.name}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-warm-50 rounded text-warm-600 truncate"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-warm-50 rounded-md text-warm-600 truncate"
                 disabled={busy}
                 onClick={() => exec(() => projectsApi.gitMerge(projectId, b.name))}
               >
@@ -451,14 +451,14 @@ function ActionToolbar({
       {activeModal === 'tag' && (
         <GitModal title={t('git.tag')}>
           <input
-            className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+            className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             placeholder={t('git.tagName')}
             value={inputValue}
             onChange={e => setInputValue(e.target.value)}
             autoFocus
           />
           <input
-            className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+            className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             placeholder={t('git.tagMessage')}
             value={inputValue2}
             onChange={e => setInputValue2(e.target.value)}
@@ -501,7 +501,7 @@ function StashModal({ projectId, busy, exec, inputValue, setInputValue }: {
         <div className="p-4 space-y-3">
           <div className="flex gap-2">
             <input
-              className="flex-1 border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+              className="flex-1 border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
               placeholder={t('git.stashMessage')}
               value={inputValue}
               onChange={e => setInputValue(e.target.value)}
@@ -519,7 +519,7 @@ function StashModal({ projectId, busy, exec, inputValue, setInputValue }: {
           {stashes.length > 0 ? (
             <div className="space-y-px max-h-40 overflow-y-auto">
               {stashes.map(s => (
-                <div key={s.index} className="flex items-center justify-between px-2 py-1.5 text-xs hover:bg-warm-50 rounded">
+                <div key={s.index} className="flex items-center justify-between px-2 py-1.5 text-xs hover:bg-warm-50 rounded-md">
                   <span className="text-warm-600 truncate flex-1">{s.message || `stash@{${s.index}}`}</span>
                   <button
                     className="text-accent hover:underline text-[11px] ml-2 shrink-0"
@@ -595,7 +595,7 @@ function ChangedFileRow({
         className="h-3 w-3 shrink-0 cursor-pointer"
         aria-label={file.path}
       />
-      <span className={`shrink-0 w-4 h-4 flex items-center justify-center rounded text-[10px] font-mono font-bold ${
+      <span className={`shrink-0 w-4 h-4 flex items-center justify-center rounded-md text-[10px] font-mono font-bold ${
         pane === 'staged' ? 'bg-emerald-500/15' : 'bg-warm-200'
       } ${finalStatus.color}`}>
         {pane === 'staged' ? '+' : finalStatus.label === 'U' ? '+' : '−'}
@@ -852,10 +852,10 @@ function WorkingChangesView({
                     selectedKey === `conflict::${f.path}` ? 'bg-accent/15 text-accent' : 'hover:bg-warm-50 text-warm-700'
                   }`}
                 >
-                  <span className="shrink-0 w-4 h-4 flex items-center justify-center rounded text-[10px] font-mono font-bold bg-status-error/15 text-status-error">C</span>
+                  <span className="shrink-0 w-4 h-4 flex items-center justify-center rounded-md text-[10px] font-mono font-bold bg-status-error/15 text-status-error">C</span>
                   <span className="truncate flex-1" title={f.path}>{f.path}</span>
                   <button
-                    className="shrink-0 text-2xs px-1.5 py-0.5 rounded border border-warm-300 text-warm-600 hover:bg-warm-100 disabled:opacity-40"
+                    className="shrink-0 text-2xs px-1.5 py-0.5 rounded-md border border-warm-300 text-warm-600 hover:bg-warm-100 disabled:opacity-40"
                     disabled={busy}
                     onClick={e => {
                       e.stopPropagation();
@@ -865,7 +865,7 @@ function WorkingChangesView({
                     {t('git.acceptOurs')}
                   </button>
                   <button
-                    className="shrink-0 text-2xs px-1.5 py-0.5 rounded border border-warm-300 text-warm-600 hover:bg-warm-100 disabled:opacity-40"
+                    className="shrink-0 text-2xs px-1.5 py-0.5 rounded-md border border-warm-300 text-warm-600 hover:bg-warm-100 disabled:opacity-40"
                     disabled={busy}
                     onClick={e => {
                       e.stopPropagation();
@@ -1158,7 +1158,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
           {localBranches.map(b => (
             <div
               key={b.name}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs truncate cursor-context-menu select-none ${
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs truncate cursor-context-menu select-none ${
                 b.current ? 'text-sky-700 dark:text-sky-300 font-semibold bg-sky-500/10' : 'text-warm-600 hover:bg-warm-50'
               }`}
               onContextMenu={e => handleContextMenu(e, b.name, false, !!b.current)}
@@ -1192,7 +1192,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
               {remoteBranches.map(b => (
                 <div
                   key={b.name}
-                  className="px-2 py-1 text-xs text-warm-500 truncate hover:bg-warm-50 rounded cursor-context-menu select-none"
+                  className="px-2 py-1 text-xs text-warm-500 truncate hover:bg-warm-50 rounded-md cursor-context-menu select-none"
                   onContextMenu={e => handleContextMenu(e, b.name, true, false)}
                 >
                   {b.name.replace('remotes/', '')}
@@ -1209,7 +1209,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
           {expandedSections.has('tags') && (
             <div className="pl-1 space-y-px">
               {tags.map(tag => (
-                <div key={tag} className="flex items-center gap-1.5 px-2 py-1 text-xs text-warm-500 truncate hover:bg-warm-50 rounded">
+                <div key={tag} className="flex items-center gap-1.5 px-2 py-1 text-xs text-warm-500 truncate hover:bg-warm-50 rounded-md">
                   <svg className="h-3 w-3 text-violet-600/80 dark:text-violet-400/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
@@ -1230,7 +1230,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
               {worktrees.map(wt => (
                 <div
                   key={wt.path}
-                  className="group flex items-center gap-1.5 px-2 py-1 text-xs text-warm-600 hover:bg-warm-50 dark:hover:bg-warm-800/50 rounded"
+                  className="group flex items-center gap-1.5 px-2 py-1 text-xs text-warm-600 hover:bg-warm-50 dark:hover:bg-warm-800/50 rounded-md"
                 >
                   <svg className="h-3 w-3 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -1412,7 +1412,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
             <div className="p-4 space-y-3">
               <p className="text-xs text-warm-500">{renaming} →</p>
               <input
-                className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent bg-transparent"
+                className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent bg-transparent"
                 placeholder={t('git.newBranchName')}
                 value={renameValue}
                 onChange={e => setRenameValue(e.target.value)}
@@ -1478,7 +1478,7 @@ function WorkspaceMenu({
     return (
       <button
         onClick={() => onChange(id)}
-        className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded transition-colors ${
+        className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
           horizontal ? 'flex-1 justify-center' : 'w-full'
         } ${
           active
@@ -1546,7 +1546,7 @@ function Resizer({ axis, onResize }: { axis: 'x' | 'y'; onResize: (clientX: numb
       aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'}
       className={
         axis === 'x'
-          ? 'w-1 mx-1 shrink-0 cursor-col-resize bg-warm-200/60 hover:bg-accent transition-colors rounded'
+          ? 'w-1 mx-1 shrink-0 cursor-col-resize bg-warm-200/60 hover:bg-accent transition-colors rounded-md'
           : 'h-1 my-0.5 shrink-0 cursor-row-resize bg-warm-200/60 hover:bg-accent transition-colors'
       }
     />
@@ -1983,7 +1983,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
 
       {/* In-progress merge/rebase + conflicts */}
       {(opState.merging || opState.rebasing || opState.conflicted.length > 0) && (
-        <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2 rounded border border-amber-200 dark:border-amber-800">
+        <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2 rounded-md border border-amber-200 dark:border-amber-800">
           <span className="font-semibold shrink-0">
             {opState.merging ? t('git.conflictMergeInProgress')
               : opState.rebasing ? t('git.conflictRebaseInProgress')
@@ -1996,7 +1996,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
           </span>
           {view !== 'fileStatus' && opState.conflicted.length > 0 && (
             <button
-              className="shrink-0 px-2 py-1 rounded border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+              className="shrink-0 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
               onClick={() => setView('fileStatus')}
             >
               {t('git.viewConflicts')}
@@ -2005,14 +2005,14 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
           {(opState.merging || opState.rebasing) && (
             <>
               <button
-                className="shrink-0 px-2 py-1 rounded border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40"
+                className="shrink-0 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40"
                 disabled={busy || opState.conflicted.length > 0}
                 onClick={() => runConflictAction(() => projectsApi.gitConflictContinue(project.id))}
               >
                 {t('git.conflictContinue')}
               </button>
               <button
-                className="shrink-0 px-2 py-1 rounded border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40"
+                className="shrink-0 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40"
                 disabled={busy}
                 onClick={async () => {
                   if (await confirm({ message: t('git.confirmConflictAbort'), danger: true })) {
@@ -2029,7 +2029,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
 
       {/* Sidebar error (branch/tag actions) */}
       {sidebarError && (
-        <div className="mb-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center justify-between rounded border border-red-200 dark:border-red-800">
+        <div className="mb-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center justify-between rounded-md border border-red-200 dark:border-red-800">
           <span>{sidebarError}</span>
           <button onClick={() => setSidebarError(null)} className="ml-2 shrink-0 hover:text-red-800 dark:hover:text-red-300">&times;</button>
         </div>
@@ -2094,7 +2094,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
                 <div className="flex items-center gap-2 px-4 py-2 border-b border-warm-100 shrink-0">
                   <span className="text-2xs text-warm-400 uppercase tracking-wider shrink-0">{t('git.statusTarget')}</span>
                   <select
-                    className="text-xs border border-warm-200 rounded px-2 py-1 text-warm-700 focus:outline-none focus:ring-1 focus:ring-accent min-w-0 max-w-full"
+                    className="text-xs border border-warm-200 rounded-md px-2 py-1 text-warm-700 focus:outline-none focus:ring-1 focus:ring-accent min-w-0 max-w-full"
                     style={{ backgroundColor: 'var(--color-bg-card)' }}
                     value={statusWorktree ?? ''}
                     onChange={(e) => setStatusWorktree(e.target.value || null)}

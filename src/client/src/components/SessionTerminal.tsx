@@ -1091,7 +1091,7 @@ export default function SessionTerminal({
               type="button"
               title={b.title}
               onClick={b.onClick}
-              className="px-1.5 rounded hover:bg-white/10"
+              className="px-1.5 rounded-md hover:bg-white/10"
               style={{ color: CMD.bright, lineHeight: '18px' }}
             >{b.label}</button>
           ))}
@@ -1204,19 +1204,19 @@ export default function SessionTerminal({
                 type="button"
                 disabled={!ctxMenu.hasSelection}
                 onClick={doCopy}
-                className="w-full text-left px-3 py-1.5 rounded hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full text-left px-3 py-1.5 rounded-md hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ color: CMD.bright }}
               >복사</button>
               <button
                 type="button"
                 onClick={doPaste}
-                className="w-full text-left px-3 py-1.5 rounded hover:bg-white/10"
+                className="w-full text-left px-3 py-1.5 rounded-md hover:bg-white/10"
                 style={{ color: CMD.bright }}
               >붙여넣기</button>
               <button
                 type="button"
                 onClick={doSelectAll}
-                className="w-full text-left px-3 py-1.5 rounded hover:bg-white/10"
+                className="w-full text-left px-3 py-1.5 rounded-md hover:bg-white/10"
                 style={{ color: CMD.bright }}
               >전체 선택</button>
             </div>

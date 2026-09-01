@@ -77,7 +77,7 @@ export default function MemoryForm({ editNode, allNodes = [], onSave, onCancel }
         <h3 className="text-base font-semibold text-warm-800">
           {editNode ? t('wiki.form.editTitle') : t('wiki.form.newTitle')}
         </h3>
-        <button onClick={onCancel} className="p-1 hover:bg-warm-200 rounded">
+        <button onClick={onCancel} className="p-1 hover:bg-warm-200 rounded-md">
           <X size={16} />
         </button>
       </div>

@@ -212,7 +212,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
             type="checkbox"
             checked={useWorktree}
             onChange={(e) => setUseWorktree(e.target.checked)}
-            className="rounded border-warm-300"
+            className="rounded-md border-warm-300"
           />
           <GitBranch size={14} />
           {t('session.worktree')}

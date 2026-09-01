@@ -748,7 +748,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                 type="checkbox"
                 checked={keepOriginalOnSchedule}
                 onChange={(e) => setKeepOriginalOnSchedule(e.target.checked)}
-                className="rounded border-accent/40 text-accent focus:ring-accent"
+                className="rounded-md border-accent/40 text-accent focus:ring-accent"
               />
               {t('todo.scheduleKeepOriginal')}
             </label>
@@ -881,7 +881,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                   {parentTodo && (
                     <div className="flex items-start gap-2 text-xs">
                       <span className="text-warm-400 w-24 flex-shrink-0 pt-0.5">{t('todo.dependsOn')}</span>
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-accent/10 text-accent text-2xs font-medium">{parentTodo.title}</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-accent/10 text-accent text-2xs font-medium">{parentTodo.title}</span>
                     </div>
                   )}
                   {todo.branch_name && (
@@ -1008,7 +1008,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                       <h5 className="text-2xs font-semibold text-warm-400 uppercase tracking-wider mb-1">{t('result.commitHistory')}</h5>
                       <div className="space-y-0.5">
                         {resultData.commits.map((c, i) => (
-                          <div key={i} className="flex items-center gap-2 px-1.5 py-1 text-xs rounded hover:bg-theme-hover">
+                          <div key={i} className="flex items-center gap-2 px-1.5 py-1 text-xs rounded-md hover:bg-theme-hover">
                             <code className="font-mono text-accent flex-shrink-0">{c.hash.slice(0, 7) || '-------'}</code>
                             <span className="text-warm-700 truncate flex-1">{c.message}</span>
                             <span className="text-2xs text-warm-400 flex-shrink-0">{new Date(c.date).toLocaleTimeString()}</span>
@@ -1043,7 +1043,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                             'bg-warm-200 text-warm-600';
                           return (
                             <div key={i} className="flex items-center gap-2 px-1.5 py-0.5 text-xs">
-                              <span className={`inline-flex items-center justify-center w-5 h-4 rounded text-[10px] font-bold ${statusClass}`}>{f.status}</span>
+                              <span className={`inline-flex items-center justify-center w-5 h-4 rounded-md text-[10px] font-bold ${statusClass}`}>{f.status}</span>
                               <span className="text-warm-700 font-mono text-2xs break-all flex-1">{f.file}</span>
                               {f.renamedFrom && <span className="text-warm-400 text-2xs flex-shrink-0">← {f.renamedFrom}</span>}
                             </div>
@@ -1071,8 +1071,8 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                   </h4>
                   <div className="flex items-center gap-1.5 text-2xs">
                     <span className="text-warm-500">{diffData.stats.files_changed} {t('todo.files')}</span>
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-status-success/10 text-status-success font-mono">+{diffData.stats.insertions}</span>
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-status-error/10 text-status-error font-mono">-{diffData.stats.deletions}</span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-status-success/10 text-status-success font-mono">+{diffData.stats.insertions}</span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-status-error/10 text-status-error font-mono">-{diffData.stats.deletions}</span>
                   </div>
                 </div>
                 <div className="max-h-80 overflow-y-auto rounded-lg border border-theme-border bg-theme-card/50 px-3 py-2 font-mono text-xs leading-tight">

@@ -349,7 +349,7 @@
   }
 
   .badge {
-    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium whitespace-nowrap flex-shrink-0 cursor-default;
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-2xs font-medium whitespace-nowrap flex-shrink-0 cursor-default;
   }
 
   /* Section label for list headers */
@@ -400,7 +400,7 @@
   .markdown-content li { @apply mb-0.5; }
   .markdown-content code {
     background-color: var(--color-bg-tertiary);
-    @apply px-1 py-0.5 rounded text-xs font-mono;
+    @apply px-1 py-0.5 rounded-md text-xs font-mono;
   }
   .markdown-content pre {
     background-color: var(--color-bg-tertiary);
@@ -500,7 +500,7 @@
   .markdown-content-dark code {
     background: rgba(255,255,255,0.08);
     color: #ce9178;
-    @apply px-1 py-0.5 rounded text-xs;
+    @apply px-1 py-0.5 rounded-md text-xs;
   }
   .markdown-content-dark pre {
     background: rgba(0,0,0,0.3);

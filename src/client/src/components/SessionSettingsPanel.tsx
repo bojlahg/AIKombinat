@@ -262,7 +262,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             checked={defaultUseWorktree}
             disabled={savingWorktree || !loaded}
             onChange={(e) => handleToggleWorktree(e.target.checked)}
-            className="rounded border-warm-300"
+            className="rounded-md border-warm-300"
           />
           <span className="text-sm text-warm-600">{t('sessionSettings.worktree.label')}</span>
         </label>
@@ -314,7 +314,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             type="color"
             value={newColor}
             onChange={(e) => setNewColor(e.target.value)}
-            className="w-9 h-9 rounded cursor-pointer border border-warm-200"
+            className="w-9 h-9 rounded-md cursor-pointer border border-warm-200"
             title={t('sessionSettings.tags.color')}
           />
           <input
@@ -355,7 +355,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         type="color"
                         value={editColor}
                         onChange={(e) => setEditColor(e.target.value)}
-                        className="w-7 h-7 rounded cursor-pointer border border-warm-200"
+                        className="w-7 h-7 rounded-md cursor-pointer border border-warm-200"
                       />
                       <input
                         type="text"
@@ -373,7 +373,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         type="button"
                         onClick={handleSaveEdit}
                         disabled={savingEdit || !editName.trim()}
-                        className="p-1.5 text-status-success hover:bg-status-success/10 rounded"
+                        className="p-1.5 text-status-success hover:bg-status-success/10 rounded-md"
                         title={t('sessionSettings.tags.save')}
                       >
                         <Check size={14} />
@@ -381,7 +381,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                       <button
                         type="button"
                         onClick={cancelEdit}
-                        className="p-1.5 text-warm-400 hover:bg-warm-100 rounded"
+                        className="p-1.5 text-warm-400 hover:bg-warm-100 rounded-md"
                         title={t('sessionSettings.tags.cancel')}
                       >
                         <X size={14} />
@@ -397,7 +397,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                       <button
                         type="button"
                         onClick={() => startEdit(tag)}
-                        className="p-1.5 text-warm-400 hover:text-warm-700 hover:bg-warm-100 rounded"
+                        className="p-1.5 text-warm-400 hover:text-warm-700 hover:bg-warm-100 rounded-md"
                         title={t('sessionSettings.tags.edit')}
                       >
                         <Pencil size={14} />
@@ -405,7 +405,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                       <button
                         type="button"
                         onClick={() => handleDelete(tag)}
-                        className="p-1.5 text-warm-400 hover:text-status-error hover:bg-warm-100 rounded"
+                        className="p-1.5 text-warm-400 hover:text-status-error hover:bg-warm-100 rounded-md"
                         title={t('sessionSettings.tags.delete')}
                       >
                         <Trash2 size={14} />
@@ -491,7 +491,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                         type="button"
                         onClick={handleSaveAliasEdit}
                         disabled={savingAliasEdit || !editAliasName.trim() || !editAliasCmd.trim()}
-                        className="p-1.5 text-status-success hover:bg-status-success/10 rounded"
+                        className="p-1.5 text-status-success hover:bg-status-success/10 rounded-md"
                         title={t('common.save')}
                       >
                         <Check size={14} />
@@ -499,7 +499,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                       <button
                         type="button"
                         onClick={cancelEditAlias}
-                        className="p-1.5 text-warm-400 hover:bg-warm-100 rounded"
+                        className="p-1.5 text-warm-400 hover:bg-warm-100 rounded-md"
                         title={t('common.cancel')}
                       >
                         <X size={14} />
@@ -512,7 +512,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                       <button
                         type="button"
                         onClick={() => startEditAlias(alias)}
-                        className="p-1.5 text-warm-400 hover:text-warm-700 hover:bg-warm-100 rounded"
+                        className="p-1.5 text-warm-400 hover:text-warm-700 hover:bg-warm-100 rounded-md"
                         title={t('common.edit')}
                       >
                         <Pencil size={14} />
@@ -520,7 +520,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
                       <button
                         type="button"
                         onClick={() => handleDeleteAlias(alias)}
-                        className="p-1.5 text-warm-400 hover:text-status-error hover:bg-warm-100 rounded"
+                        className="p-1.5 text-warm-400 hover:text-status-error hover:bg-warm-100 rounded-md"
                         title={t('common.delete')}
                       >
                         <Trash2 size={14} />
@@ -545,7 +545,7 @@ export default function SessionSettingsPanel({ onClose }: PanelProps) {
             checked={imeDebug}
             disabled={savingImeDebug || !loaded}
             onChange={(e) => handleToggleImeDebug(e.target.checked)}
-            className="rounded border-warm-300"
+            className="rounded-md border-warm-300"
           />
           <span className="text-sm text-warm-600">한글 입력(IME) 진단 로그 기록</span>
         </label>

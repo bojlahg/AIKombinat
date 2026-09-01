@@ -135,7 +135,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
           <button
             type="button"
             onClick={openFind}
-            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded transition-colors flex-shrink-0"
+            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded-md transition-colors flex-shrink-0"
             title={t('harness.find.open')}
           >
             <Search size={14} />
@@ -143,7 +143,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
           <button
             type="button"
             onClick={() => { setExpanded((v) => !v); setHeight(null); }}
-            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded transition-colors flex-shrink-0"
+            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded-md transition-colors flex-shrink-0"
             title={expanded ? (t('harness.memory.collapse') || 'Collapse') : (t('harness.memory.expand') || 'Expand')}
           >
             {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -171,7 +171,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
             type="button"
             onClick={() => step(-1)}
             disabled={!matches.length}
-            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded transition-colors"
+            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded-md transition-colors"
             title={t('harness.find.prev')}
           >
             <ChevronUp size={14} />
@@ -180,7 +180,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
             type="button"
             onClick={() => step(1)}
             disabled={!matches.length}
-            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded transition-colors"
+            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded-md transition-colors"
             title={t('harness.find.next')}
           >
             <ChevronDown size={14} />
@@ -188,7 +188,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
           <button
             type="button"
             onClick={closeFind}
-            className="p-0.5 text-warm-400 hover:text-warm-600 rounded transition-colors"
+            className="p-0.5 text-warm-400 hover:text-warm-600 rounded-md transition-colors"
             title={t('harness.find.close')}
           >
             <X size={14} />

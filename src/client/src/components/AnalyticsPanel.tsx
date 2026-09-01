@@ -306,13 +306,13 @@ export default function AnalyticsPanel({ projectId }: AnalyticsPanelProps) {
             <div className="flex gap-1">
               <button
                 onClick={() => setActiveChart('cost')}
-                className={`px-2 py-0.5 text-2xs rounded font-medium transition-colors ${activeChart === 'cost' ? 'bg-accent text-white' : 'text-theme-muted hover:bg-theme-hover'}`}
+                className={`px-2 py-0.5 text-2xs rounded-md font-medium transition-colors ${activeChart === 'cost' ? 'bg-accent text-white' : 'text-theme-muted hover:bg-theme-hover'}`}
               >
                 {t('analytics.cost') || 'Cost'}
               </button>
               <button
                 onClick={() => setActiveChart('tokens')}
-                className={`px-2 py-0.5 text-2xs rounded font-medium transition-colors ${activeChart === 'tokens' ? 'bg-accent text-white' : 'text-theme-muted hover:bg-theme-hover'}`}
+                className={`px-2 py-0.5 text-2xs rounded-md font-medium transition-colors ${activeChart === 'tokens' ? 'bg-accent text-white' : 'text-theme-muted hover:bg-theme-hover'}`}
               >
                 {t('analytics.tokens') || 'Tokens'}
               </button>

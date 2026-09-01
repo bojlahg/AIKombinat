@@ -708,7 +708,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
                   <span className="truncate flex-1 text-left">{favorite.name}</span>
                   <span
                     onClick={(e) => handleEditFavorite(favorite, e)}
-                    className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-theme-hover cursor-pointer"
+                    className="flex-shrink-0 p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-theme-hover cursor-pointer"
                     style={{ color: 'var(--color-text-muted)' }}
                     title={t('favorites.edit')}
                   >
@@ -716,7 +716,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
                   </span>
                   <span
                     onClick={(e) => handleDeleteFavorite(favorite.id, e)}
-                    className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-status-error/10 cursor-pointer"
+                    className="flex-shrink-0 p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-status-error/10 cursor-pointer"
                     style={{ color: 'var(--color-text-muted)' }}
                     title={t('favorites.delete')}
                   >

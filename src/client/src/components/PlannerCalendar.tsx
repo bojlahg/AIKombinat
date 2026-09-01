@@ -308,7 +308,7 @@ function PlannerCalendarCard({ item, tagColors, onEdit, onConvert, onDelete }: {
             {t(`plannerStatus.${item.status}`)}
           </span>
           {tags.map((tag) => (
-            <span key={tag} className={`px-1.5 py-0.5 rounded text-2xs font-medium ${getTagStyle(tagColors.get(tag) || 'default')}`}>{tag}</span>
+            <span key={tag} className={`px-1.5 py-0.5 rounded-md text-2xs font-medium ${getTagStyle(tagColors.get(tag) || 'default')}`}>{tag}</span>
           ))}
         </div>
       </button>

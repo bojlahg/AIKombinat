@@ -512,7 +512,7 @@ function SidebarItem({ node, selected, onClick, onDelete, icon }: {
       {hovered && (
         <button
           onClick={e => { e.stopPropagation(); onDelete(node); }}
-          className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 flex-shrink-0"
+          className="p-0.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 flex-shrink-0"
         >
           <Trash2 size={12} />
         </button>
@@ -715,7 +715,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
           {node.source_path && (
             <button
               onClick={() => setShowRaw(true)}
-              className="p-1.5 rounded hover:bg-warm-200 text-warm-500"
+              className="p-1.5 rounded-md hover:bg-warm-200 text-warm-500"
               title={t('wiki.viewRaw')}
             >
               <FileText size={14} />
@@ -723,7 +723,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
           )}
           <button
             onClick={() => onDelete(node)}
-            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+            className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
             title={t('wiki.delete')}
           >
             <Trash2 size={14} />
@@ -1016,7 +1016,7 @@ function IngestResultView({ result }: { result: IngestResultData }) {
       {result.rawResponseSnippet && (
         <details className="mt-1">
           <summary className="cursor-pointer text-warm-500 hover:text-warm-700">{t('wiki.ingest.rawSnippet')}</summary>
-          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-warm-50 p-2 text-2xs text-warm-700 border border-warm-200">{result.rawResponseSnippet}</pre>
+          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-warm-50 p-2 text-2xs text-warm-700 border border-warm-200">{result.rawResponseSnippet}</pre>
         </details>
       )}
     </div>
@@ -1676,7 +1676,7 @@ function ActivityRow({ log, expanded, onToggle, allNodes, onSelectNode, onSelect
             </span>
             <span className="text-[10px] text-warm-400">{formatRelativeTime(log.created_at)}</span>
             {log.source_type && (
-              <span className="text-[10px] text-warm-400 px-1 rounded bg-warm-100">{log.source_type}</span>
+              <span className="text-[10px] text-warm-400 px-1 rounded-md bg-warm-100">{log.source_type}</span>
             )}
             {log.source_title && (
               <span className="text-[10px] text-warm-500 truncate max-w-[260px]">{log.source_title}</span>
@@ -1700,7 +1700,7 @@ function ActivityRow({ log, expanded, onToggle, allNodes, onSelectNode, onSelect
             </button>
           )}
           {expanded && meta && (
-            <pre className="mt-2 text-[10px] text-warm-700 bg-warm-100 rounded p-2 overflow-auto max-h-48 font-mono whitespace-pre-wrap">
+            <pre className="mt-2 text-[10px] text-warm-700 bg-warm-100 rounded-md p-2 overflow-auto max-h-48 font-mono whitespace-pre-wrap">
               {JSON.stringify(meta, null, 2)}
             </pre>
           )}

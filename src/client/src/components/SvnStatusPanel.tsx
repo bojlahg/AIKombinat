@@ -495,7 +495,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               onChange={(e) => setRevInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateToRevision(); }}
               placeholder={t('svn.revisionPlaceholder')}
-              className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <div className="flex gap-2">
               <Button
@@ -532,7 +532,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               onChange={(e) => setClNameInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleNewChangelist(); }}
               placeholder={t('svn.changelistNamePlaceholder')}
-              className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <div className="flex gap-2">
               <Button
@@ -569,7 +569,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               onChange={(e) => setRenameInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleRenameChangelist(); }}
               placeholder={t('svn.changelistNamePlaceholder')}
-              className="w-full border border-warm-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full border border-warm-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
             />
             <div className="flex gap-2">
               <Button
@@ -631,7 +631,7 @@ function RemoteBadge({ title }: { title?: string }) {
   return (
     <span
       title={title}
-      className="shrink-0 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+      className="shrink-0 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
     >
       {t('svn.remoteBadge')}
     </span>
@@ -796,7 +796,7 @@ function ConflictResolveButton({ onResolve, onOpen }: {
         ref={btnRef}
         draggable={false}
         onClick={open}
-        className="shrink-0 text-2xs px-1.5 py-0.5 rounded bg-status-error/15 text-status-error hover:bg-status-error/25 font-medium"
+        className="shrink-0 text-2xs px-1.5 py-0.5 rounded-md bg-status-error/15 text-status-error hover:bg-status-error/25 font-medium"
       >
         {t('svn.resolve')} ▾
       </button>
@@ -1140,7 +1140,7 @@ function ModificationsView(props: {
               <button
                 onClick={toggleGroup}
                 title={groupByDir ? t('svn.viewFlat') : t('svn.groupByDir')}
-                className="text-warm-400 hover:text-warm-700 p-0.5 rounded hover:bg-warm-100"
+                className="text-warm-400 hover:text-warm-700 p-0.5 rounded-md hover:bg-warm-100"
               >
                 {groupByDir ? <List className="w-3.5 h-3.5" /> : <FolderTree className="w-3.5 h-3.5" />}
               </button>
@@ -1225,7 +1225,7 @@ function ModificationsView(props: {
                 onChange={(e) => props.onCommitMessageChange(e.target.value)}
                 onKeyDown={handleKey}
                 placeholder={t('svn.commitMessagePlaceholder')}
-                className="block w-full text-xs p-2 border border-warm-200 rounded resize-none focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none"
+                className="block w-full text-xs p-2 border border-warm-200 rounded-md resize-none focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none"
                 style={{ height: commitMessageHeight }}
                 rows={3}
               />
@@ -1283,7 +1283,7 @@ function LogView(props: {
           disabled={props.loading}
         >
           {props.loading ? t('svn.checking') : t('svn.loadLog')}
-          <span className="text-[9px] uppercase tracking-wide px-1 rounded bg-white/20">{t('svn.remoteBadge')}</span>
+          <span className="text-[9px] uppercase tracking-wide px-1 rounded-md bg-white/20">{t('svn.remoteBadge')}</span>
         </Button>
         {props.error && <span className="text-2xs text-status-error">{props.error}</span>}
       </div>
@@ -1569,7 +1569,7 @@ function PropertiesDialog({ projectId, file, onClose }: {
                         onChange={(e) => setDraft(e.target.value)}
                         rows={Math.min(12, Math.max(3, draft.split('\n').length + 1))}
                         spellCheck={false}
-                        className="mt-1 w-full text-2xs font-mono text-warm-700 bg-warm-50 dark:bg-warm-800/40 rounded p-2 border border-accent/40 focus:outline-none focus:border-accent resize-y"
+                        className="mt-1 w-full text-2xs font-mono text-warm-700 bg-warm-50 dark:bg-warm-800/40 rounded-md p-2 border border-accent/40 focus:outline-none focus:border-accent resize-y"
                       />
                       <div className="mt-1 flex justify-end gap-2">
                         <Button
@@ -1590,7 +1590,7 @@ function PropertiesDialog({ projectId, file, onClose }: {
                       </div>
                     </>
                   ) : (
-                    <pre className="mt-1 text-2xs font-mono text-warm-600 bg-warm-50 dark:bg-warm-800/40 rounded p-2 whitespace-pre-wrap break-all">
+                    <pre className="mt-1 text-2xs font-mono text-warm-600 bg-warm-50 dark:bg-warm-800/40 rounded-md p-2 whitespace-pre-wrap break-all">
                       {p.value || '—'}
                     </pre>
                   )}

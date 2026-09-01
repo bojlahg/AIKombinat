@@ -156,7 +156,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 <span className="text-sm font-semibold text-warm-700 truncate">{agent.name}</span>
                 {!!agent.can_implement && (
                   <span
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-2xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800"
                     title={t('agents.canImplementHelp')}
                   >
                     <Hammer size={12} />
@@ -269,7 +269,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                 type="checkbox"
                 checked={canImplement}
                 onChange={(e) => setCanImplement(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-warm-300 text-warm-600 focus:ring-warm-400"
+                className="mt-0.5 w-4 h-4 rounded-md border-warm-300 text-warm-600 focus:ring-warm-400"
               />
               <div className="flex-1">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-warm-700">

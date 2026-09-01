@@ -383,7 +383,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                       <p className="text-xs font-medium text-status-warning">
                         {t('header.cliNotInstalled').replace('{tool}', CLI_TOOLS.find((c) => c.value === cliTool)?.label || cliTool)}
                       </p>
-                      <code className="block mt-1 text-2xs text-warm-500 bg-warm-100 px-2 py-1 rounded select-all">
+                      <code className="block mt-1 text-2xs text-warm-500 bg-warm-100 px-2 py-1 rounded-md select-all">
                         {t(`header.cliInstallHint.${cliTool}`)}
                       </code>
                     </div>
@@ -457,7 +457,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                 type="checkbox"
                 checked={!!autoDelegate}
                 onChange={(e) => setAutoDelegate(e.target.checked ? { from: 'claude', to: 'codex' } : null)}
-                className="rounded border-warm-300"
+                className="rounded-md border-warm-300"
               />
               <span className="text-xs text-warm-600">{t('header.autoReviewerEnable')}</span>
             </label>
@@ -601,7 +601,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                     checked={npmAutoInstall}
                     disabled={!useWorktree}
                     onChange={(e) => setNpmAutoInstall(e.target.checked)}
-                    className="mt-0.5 rounded"
+                    className="mt-0.5 rounded-md"
                   />
                   <div>
                     <div className="text-xs font-medium text-warm-700">{t('header.npmAutoInstallLabel')}</div>
@@ -621,7 +621,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                 type="checkbox"
                 checked={showTokenUsage}
                 onChange={(e) => setShowTokenUsage(e.target.checked)}
-                className="rounded"
+                className="rounded-md"
               />
               <span className="text-xs text-warm-600">{t('header.showTokenUsageEnable')}</span>
             </label>
@@ -636,7 +636,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                 type="checkbox"
                 checked={debugLogging}
                 onChange={(e) => setDebugLogging(e.target.checked)}
-                className="rounded"
+                className="rounded-md"
               />
               <span className="text-xs text-warm-600">{t('header.debugLoggingEnable')}</span>
             </label>
@@ -657,7 +657,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
                 type="checkbox"
                 checked={svnEnabled}
                 onChange={(e) => setSvnEnabled(e.target.checked)}
-                className="rounded"
+                className="rounded-md"
               />
               <span className="text-xs text-warm-600">{t('header.svnEnable')}</span>
             </label>

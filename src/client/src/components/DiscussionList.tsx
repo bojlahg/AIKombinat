@@ -140,7 +140,7 @@ export default function DiscussionList({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-semibold text-warm-700 truncate">{discussion.title}</h3>
-                      <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold uppercase ${STATUS_COLORS[discussion.status] || ''}`}>
+                      <span className={`px-1.5 py-0.5 rounded-md text-2xs font-semibold uppercase ${STATUS_COLORS[discussion.status] || ''}`}>
                         {t(`status.${discussion.status}`) || discussion.status}
                       </span>
                     </div>
@@ -167,7 +167,7 @@ export default function DiscussionList({
                     {canStart && (
                       <button
                         onClick={() => onStartDiscussion(discussion.id)}
-                        className="p-1.5 text-status-success hover:bg-status-success/10 rounded transition-colors"
+                        className="p-1.5 text-status-success hover:bg-status-success/10 rounded-md transition-colors"
                         title={t('header.runAll')}
                       >
                         <Play size={16} />
@@ -176,7 +176,7 @@ export default function DiscussionList({
                     {canStop && (
                       <button
                         onClick={() => onStopDiscussion(discussion.id)}
-                        className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-colors"
+                        className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition-colors"
                         title={t('discussions.pause')}
                       >
                         <Pause size={16} />
@@ -184,7 +184,7 @@ export default function DiscussionList({
                     )}
                     <button
                       onClick={() => onDeleteDiscussion(discussion.id)}
-                      className="p-1.5 text-warm-400 hover:text-status-error rounded transition-colors"
+                      className="p-1.5 text-warm-400 hover:text-status-error rounded-md transition-colors"
                       title={t('todo.delete')}
                     >
                       <Trash2 size={16} />

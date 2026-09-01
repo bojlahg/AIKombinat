@@ -394,7 +394,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
         </Link>
         <span className="text-warm-300">/</span>
         <span className="text-sm font-medium text-warm-700 truncate">{discussion.title}</span>
-        <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold uppercase ${STATUS_COLORS[discussion.status]}`}>
+        <span className={`px-1.5 py-0.5 rounded-md text-2xs font-semibold uppercase ${STATUS_COLORS[discussion.status]}`}>
           {t(`status.${discussion.status}`) || discussion.status}
         </span>
         {discussion.status === 'running' && (
@@ -447,7 +447,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
                   {t('discussions.failureTitle')}
                 </h4>
                 {failedAgent && (
-                  <span className="inline-flex items-center gap-1 text-2xs font-mono px-1.5 py-0.5 rounded bg-status-error/15 text-status-error">
+                  <span className="inline-flex items-center gap-1 text-2xs font-mono px-1.5 py-0.5 rounded-md bg-status-error/15 text-status-error">
                     <span
                       className="w-3 h-3 rounded-full inline-block"
                       style={{ backgroundColor: failedAgent.avatar_color || '#94a3b8' }}
@@ -456,7 +456,7 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
                   </span>
                 )}
                 {failedMessage && (
-                  <span className="text-2xs font-mono px-1.5 py-0.5 rounded bg-status-error/15 text-status-error">
+                  <span className="text-2xs font-mono px-1.5 py-0.5 rounded-md bg-status-error/15 text-status-error">
                     {t('discussions.round')} {failedMessage.round_number}
                   </span>
                 )}
@@ -767,13 +767,13 @@ export default function DiscussionDetail({ onEvent, connected }: DiscussionDetai
                         value={item.description}
                         onChange={(e) => setExtractItems((prev) => prev.map((it, i) => i === idx ? { ...it, description: e.target.value } : it))}
                         rows={2}
-                        className="w-full text-xs text-warm-500 bg-transparent border border-warm-200 rounded p-1.5 focus:border-accent outline-none min-h-[48px] max-h-[240px] resize-y [field-sizing:content]"
+                        className="w-full text-xs text-warm-500 bg-transparent border border-warm-200 rounded-md p-1.5 focus:border-accent outline-none min-h-[48px] max-h-[240px] resize-y [field-sizing:content]"
                         placeholder={t('plannerForm.descPlaceholder')}
                       />
                       <select
                         value={item.priority}
                         onChange={(e) => setExtractItems((prev) => prev.map((it, i) => i === idx ? { ...it, priority: Number(e.target.value) } : it))}
-                        className="text-xs bg-transparent border border-warm-200 rounded px-2 py-1"
+                        className="text-xs bg-transparent border border-warm-200 rounded-md px-2 py-1"
                       >
                         <option value={0}>{t('discussions.priorityLow')}</option>
                         <option value={1}>{t('discussions.priorityMedium')}</option>

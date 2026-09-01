@@ -116,12 +116,12 @@ export default function HooksPanel({ hooks, filePath, saving, onSave }: HooksPan
                     {entries.map((entry, i) => (
                       <div key={i} className="text-[11px]">
                         {entry.matcher !== undefined && entry.matcher !== '' && (
-                          <span className="inline-block px-1.5 py-0.5 mr-1.5 rounded bg-warm-200/60 text-warm-600 font-mono">
+                          <span className="inline-block px-1.5 py-0.5 mr-1.5 rounded-md bg-warm-200/60 text-warm-600 font-mono">
                             {entry.matcher}
                           </span>
                         )}
                         {(entry.hooks ?? []).map((h, j) => (
-                          <code key={j} className="block mt-0.5 px-2 py-1 rounded bg-theme-card border border-warm-150 text-warm-600 font-mono whitespace-pre-wrap break-all">
+                          <code key={j} className="block mt-0.5 px-2 py-1 rounded-md bg-theme-card border border-warm-150 text-warm-600 font-mono whitespace-pre-wrap break-all">
                             {h.command ?? JSON.stringify(h)}
                           </code>
                         ))}

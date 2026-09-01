@@ -296,7 +296,7 @@ export default function ReviewCard({
               <div className="text-center">{t(reasonKey(diffData.reason))}</div>
               {diffData.debug && (
                 <pre
-                  className="text-xs font-mono whitespace-pre-wrap break-all p-2 rounded"
+                  className="text-xs font-mono whitespace-pre-wrap break-all p-2 rounded-md"
                   style={{ backgroundColor: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)' }}
                 >
 {`worktree_path: ${diffData.debug.worktree_path ?? '(null)'}
