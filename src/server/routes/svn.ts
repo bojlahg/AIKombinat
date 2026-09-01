@@ -120,7 +120,12 @@ router.get('/:id/svn-diff', async (req: Request<{ id: string }>, res: Response) 
   if (!r.ok) return;
   try {
     const file = req.query.file as string | undefined;
-    const diff = await svnManager.getDiff(r.path, file);
+    const revision = req.query.revision as string | undefined;
+    if (revision !== undefined && !/^\d+$/.test(revision)) {
+      res.status(400).json({ error: 'Valid revision is required' });
+      return;
+    }
+    const diff = await svnManager.getDiff(r.path, file, revision);
     res.json({ diff });
   } catch (err) { fail(res, err); }
 });

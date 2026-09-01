@@ -68,6 +68,21 @@ describe('svnManager.getStatus changelist parsing', () => {
   });
 });
 
+describe('svnManager.getDiff against a revision', () => {
+  it('passes -r REV so the working copy is compared to that revision', async () => {
+    const { runSvn } = await import('../../lib/svn.js');
+    await svnManager.getDiff('C:/wc', undefined, '40');
+    expect(vi.mocked(runSvn)).toHaveBeenCalledWith(
+      ['diff', '--internal-diff', '-r', '40', 'C:/wc'],
+      'C:/wc',
+    );
+  });
+
+  it('rejects a non-numeric revision', async () => {
+    await expect(svnManager.getDiff('C:/wc', undefined, '40; rm')).rejects.toThrow('Invalid revision');
+  });
+});
+
 describe('svnManager.update conflict parsing', () => {
   it('collects text/prop/tree conflicts and skips clean/summary lines', async () => {
     const result = await svnManager.update('C:/wc');

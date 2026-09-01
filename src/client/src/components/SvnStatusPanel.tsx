@@ -9,6 +9,7 @@ import { getCliStatus } from '../api/cli-status';
 import { useI18n } from '../i18n';
 import Modal from './Modal';
 import Button from './Button';
+import CursorContextMenu, { ctxMenuItemClass } from './CursorContextMenu';
 import { CommitDiffViewer, CommitFileList } from './DiffViewer';
 
 interface SvnStatusPanelProps {
@@ -332,6 +333,16 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
     return () => { cancelled = true; };
   }, [project.id, selectedRev, revSelectedFile, revFiles]);
 
+  // ── Log revision context menu + revision diff modal ──────────────────────
+  const [logCtxMenu, setLogCtxMenu] = useState<{ x: number; y: number; rev: string } | null>(null);
+  const [revDiffModal, setRevDiffModal] = useState<{ mode: 'commit' | 'working'; rev: string } | null>(null);
+
+  const openLogCtxMenu = (e: React.MouseEvent, rev: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLogCtxMenu({ x: e.clientX, y: e.clientY, rev });
+  };
+
   // ── Row context menu ──────────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; target: SvnCtxTarget } | null>(null);
 
@@ -469,6 +480,7 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
               onLoadMore={() => loadLog(logEntries.length)}
               selectedRev={selectedRev}
               onSelectRev={selectRevision}
+              onRevContextMenu={openLogCtxMenu}
               revFiles={revFiles}
               revFilesLoading={revFilesLoading}
               selectedFile={revSelectedFile}
@@ -618,6 +630,33 @@ export default function SvnStatusPanel({ project, refreshTrigger }: SvnStatusPan
 
       {propsTarget && (
         <PropertiesDialog projectId={project.id} file={propsTarget.file} onClose={() => setPropsTarget(null)} />
+      )}
+
+      {/* Log revision context menu */}
+      {logCtxMenu && (
+        <CursorContextMenu x={logCtxMenu.x} y={logCtxMenu.y} onClose={() => setLogCtxMenu(null)}>
+          <button
+            className={ctxMenuItemClass}
+            onClick={() => setRevDiffModal({ mode: 'commit', rev: logCtxMenu.rev })}
+          >
+            {t('svn.showRevisionChanges')}
+          </button>
+          <button
+            className={ctxMenuItemClass}
+            onClick={() => setRevDiffModal({ mode: 'working', rev: logCtxMenu.rev })}
+          >
+            {t('svn.compareRevisionWithWorking')}
+          </button>
+        </CursorContextMenu>
+      )}
+
+      {revDiffModal && (
+        <RevisionDiffModal
+          projectId={project.id}
+          mode={revDiffModal.mode}
+          revision={revDiffModal.rev}
+          onClose={() => setRevDiffModal(null)}
+        />
       )}
     </div>
   );
@@ -1261,6 +1300,7 @@ function LogView(props: {
   onLoadMore: () => void;
   selectedRev: string | null;
   onSelectRev: (rev: string) => void;
+  onRevContextMenu: (e: React.MouseEvent, rev: string) => void;
   revFiles: CommitFile[];
   revFilesLoading: boolean;
   selectedFile: string | null;
@@ -1309,6 +1349,7 @@ function LogView(props: {
               <div
                 key={e.hash}
                 onClick={() => props.onSelectRev(e.hash)}
+                onContextMenu={(ev) => props.onRevContextMenu(ev, e.hash)}
                 className={`px-3 py-2 cursor-pointer text-xs border-b border-warm-50 hover:bg-warm-50/50 ${
                   props.selectedRev === e.hash ? 'bg-accent/10 border-l-2 border-accent' : ''
                 }`}
@@ -1486,6 +1527,59 @@ function FileContextMenu(props: {
       )}
     </div>,
     document.body
+  );
+}
+
+// ── Revision diff modal (SERVER) ──────────────────────────────────────────────
+// mode 'commit'  = the revision's own changes (svn diff -r rev-1:rev)
+// mode 'working' = that revision vs the current working copy (svn diff -r rev)
+
+function RevisionDiffModal({ projectId, mode, revision, onClose }: {
+  projectId: string;
+  mode: 'commit' | 'working';
+  revision: string;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [diff, setDiff] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const req = mode === 'commit'
+      ? svnApi.getSvnCommitDiff(projectId, revision)
+      : svnApi.getSvnDiff(projectId, undefined, revision);
+    req
+      .then((r) => { if (!cancelled) setDiff(r.diff); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Diff failed'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [projectId, mode, revision]);
+
+  const title = t(mode === 'commit' ? 'svn.revisionChangesTitle' : 'svn.compareWithWorkingTitle')
+    .replace('{rev}', revision);
+
+  return (
+    <Modal open onClose={onClose} size="4xl">
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated w-full h-[80vh] flex flex-col overflow-hidden">
+        <div className="px-4 py-3 border-b border-warm-100 flex items-center gap-2 shrink-0">
+          <span className="text-sm font-semibold text-warm-700 truncate" title={title}>{title}</span>
+          <RemoteBadge />
+          <div className="flex-1" />
+          <button onClick={onClose} className="text-warm-400 hover:text-warm-600 shrink-0"><X size={14} /></button>
+        </div>
+        <div className="flex-1 min-h-0">
+          {error ? (
+            <p className="p-4 text-status-error text-xs whitespace-pre-wrap break-all">{error}</p>
+          ) : (
+            <CommitDiffViewer fileHeaders diff={diff} loading={loading} selectedFile={title} />
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

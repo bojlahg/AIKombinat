@@ -50,9 +50,10 @@ export function getSvnCommitDiff(id: string, revision: string, file?: string, st
   return get(`/api/projects/${id}/svn-commit-diff?${params}`);
 }
 
-export function getSvnDiff(id: string, file?: string): Promise<{ diff: string }> {
+export function getSvnDiff(id: string, file?: string, revision?: string): Promise<{ diff: string }> {
   const params = new URLSearchParams();
   if (file) params.set('file', file);
+  if (revision) params.set('revision', revision);
   const qs = params.toString();
   return get(`/api/projects/${id}/svn-diff${qs ? `?${qs}` : ''}`);
 }

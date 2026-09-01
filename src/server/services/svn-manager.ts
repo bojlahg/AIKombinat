@@ -235,8 +235,13 @@ class SvnManager {
 
   // ── Diff ─────────────────────────────────────────────────────────────────
 
-  async getDiff(dirPath: string, file?: string): Promise<string> {
+  async getDiff(dirPath: string, file?: string, revision?: string): Promise<string> {
     const args = ['diff', '--internal-diff'];
+    if (revision) {
+      if (!/^\d+$/.test(revision)) throw new Error('Invalid revision');
+      // Single -r REV (no colon) compares that revision to the working copy.
+      args.push('-r', revision);
+    }
     if (file) args.push(file);
     else args.push(dirPath);
     const { stdout } = await runSvn(args, dirPath);
