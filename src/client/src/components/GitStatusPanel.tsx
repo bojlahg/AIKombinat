@@ -121,14 +121,14 @@ function RefBadge({ refStr }: { refStr: string }) {
 
   if (isTag) {
     label = refStr.replace('tag: ', '');
-    classes = 'bg-violet-500/10 text-violet-600 dark:text-violet-400';
+    classes = 'bg-status-merged/10 text-status-merged';
   } else if (isHead) {
     label = refStr.replace('HEAD -> ', '');
-    classes = 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-semibold';
+    classes = 'bg-status-success/10 text-status-success font-semibold';
   } else if (isRemote) {
-    classes = 'bg-sky-500/10 text-sky-700 dark:text-sky-400';
+    classes = 'bg-status-running/10 text-status-running';
   } else {
-    classes = 'bg-amber-500/10 text-amber-700 dark:text-amber-400';
+    classes = 'bg-status-warning/10 text-status-warning';
   }
 
   return (
@@ -552,8 +552,8 @@ function fileStatusName(index: string, working_dir: string): { label: string; co
   let label = ch;
   if (ch === 'A') color = 'text-status-success';
   else if (ch === 'D') color = 'text-status-error';
-  else if (ch === 'R') color = 'text-violet-600 dark:text-violet-400';
-  else if (ch === 'C') color = 'text-blue-500';
+  else if (ch === 'R') color = 'text-status-merged';
+  else if (ch === 'C') color = 'text-accent';
   else { color = 'text-accent'; label = 'M'; }
   return { label, color, type: staged ? 'staged' : 'unstaged' };
 }
@@ -596,7 +596,7 @@ function ChangedFileRow({
         aria-label={file.path}
       />
       <span className={`shrink-0 w-4 h-4 flex items-center justify-center rounded-md text-[10px] font-mono font-bold ${
-        pane === 'staged' ? 'bg-emerald-500/15' : 'bg-warm-200'
+        pane === 'staged' ? 'bg-status-success/15' : 'bg-warm-200'
       } ${finalStatus.color}`}>
         {pane === 'staged' ? '+' : finalStatus.label === 'U' ? '+' : '−'}
       </span>
@@ -1159,7 +1159,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
             <div
               key={b.name}
               className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs truncate cursor-context-menu select-none ${
-                b.current ? 'text-sky-700 dark:text-sky-300 font-semibold bg-sky-500/10' : 'text-warm-600 hover:bg-warm-50'
+                b.current ? 'text-status-running font-semibold bg-status-running/10' : 'text-warm-600 hover:bg-warm-50'
               }`}
               onContextMenu={e => handleContextMenu(e, b.name, false, !!b.current)}
             >
@@ -1172,10 +1172,10 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
               {(!!b.ahead || !!b.behind) && (
                 <span className="ml-auto shrink-0 flex items-center gap-1 px-1.5 rounded-full border border-warm-300 dark:border-warm-600 text-[10px] font-semibold leading-tight">
                   {!!b.ahead && (
-                    <span className="text-emerald-700 dark:text-emerald-400" title={`${b.ahead} ${t('git.ahead')}`}>{b.ahead}↑</span>
+                    <span className="text-status-success" title={`${b.ahead} ${t('git.ahead')}`}>{b.ahead}↑</span>
                   )}
                   {!!b.behind && (
-                    <span className="text-amber-700 dark:text-amber-400" title={`${b.behind} ${t('git.behind')}`}>{b.behind}↓</span>
+                    <span className="text-status-warning" title={`${b.behind} ${t('git.behind')}`}>{b.behind}↓</span>
                   )}
                 </span>
               )}
@@ -1210,7 +1210,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
             <div className="pl-1 space-y-px">
               {tags.map(tag => (
                 <div key={tag} className="flex items-center gap-1.5 px-2 py-1 text-xs text-warm-500 truncate hover:bg-warm-50 rounded-md">
-                  <svg className="h-3 w-3 text-violet-600/80 dark:text-violet-400/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="h-3 w-3 text-status-merged shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
                   </svg>
@@ -1232,7 +1232,7 @@ function RefsSidebar({ branches, tags, stashCount, projectId, busy, setBusy, onR
                   key={wt.path}
                   className="group flex items-center gap-1.5 px-2 py-1 text-xs text-warm-600 hover:bg-warm-50 dark:hover:bg-warm-800/50 rounded-md"
                 >
-                  <svg className="h-3 w-3 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="h-3 w-3 text-status-warning shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                   </svg>
                   <span className="truncate flex-1" title={wt.path}>{wt.branch}</span>
@@ -1983,7 +1983,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
 
       {/* In-progress merge/rebase + conflicts */}
       {(opState.merging || opState.rebasing || opState.conflicted.length > 0) && (
-        <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2 rounded-md border border-amber-200 dark:border-amber-800">
+        <div className="mb-2 px-3 py-2 bg-status-warning/10 text-status-warning text-xs flex items-center gap-2 rounded-md border border-status-warning/30">
           <span className="font-semibold shrink-0">
             {opState.merging ? t('git.conflictMergeInProgress')
               : opState.rebasing ? t('git.conflictRebaseInProgress')
@@ -1996,7 +1996,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
           </span>
           {view !== 'fileStatus' && opState.conflicted.length > 0 && (
             <button
-              className="shrink-0 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+              className="shrink-0 px-2 py-1 rounded-md border border-status-warning/30 hover:bg-status-warning/10"
               onClick={() => setView('fileStatus')}
             >
               {t('git.viewConflicts')}
@@ -2005,14 +2005,14 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
           {(opState.merging || opState.rebasing) && (
             <>
               <button
-                className="shrink-0 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40"
+                className="shrink-0 px-2 py-1 rounded-md border border-status-warning/30 hover:bg-status-warning/10 disabled:opacity-40"
                 disabled={busy || opState.conflicted.length > 0}
                 onClick={() => runConflictAction(() => projectsApi.gitConflictContinue(project.id))}
               >
                 {t('git.conflictContinue')}
               </button>
               <button
-                className="shrink-0 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40"
+                className="shrink-0 px-2 py-1 rounded-md border border-status-warning/30 hover:bg-status-warning/10 disabled:opacity-40"
                 disabled={busy}
                 onClick={async () => {
                   if (await confirm({ message: t('git.confirmConflictAbort'), danger: true })) {
@@ -2029,9 +2029,9 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
 
       {/* Sidebar error (branch/tag actions) */}
       {sidebarError && (
-        <div className="mb-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center justify-between rounded-md border border-red-200 dark:border-red-800">
+        <div className="mb-2 px-3 py-2 bg-status-error/10 text-status-error text-xs flex items-center justify-between rounded-md border border-status-error/30">
           <span>{sidebarError}</span>
-          <button onClick={() => setSidebarError(null)} className="ml-2 shrink-0 hover:text-red-800 dark:hover:text-red-300">&times;</button>
+          <button onClick={() => setSidebarError(null)} className="ml-2 shrink-0 hover:text-status-error">&times;</button>
         </div>
       )}
 

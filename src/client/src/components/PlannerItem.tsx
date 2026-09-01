@@ -13,8 +13,8 @@ import { AnchoredPopover } from './AnchoredPopover';
 const PRIORITY_LABELS: Record<number, { label: string; style: string }> = {
   0: { label: '—', style: 'text-warm-300' },
   1: { label: '●', style: 'text-warm-500' },
-  2: { label: '●●', style: 'text-amber-500' },
-  3: { label: '●●●', style: 'text-red-500' },
+  2: { label: '●●', style: 'text-status-warning' },
+  3: { label: '●●●', style: 'text-status-error' },
 };
 
 interface PlannerItemProps {
@@ -242,7 +242,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
             {item.title}
           </span>
           {isMoved && item.converted_type && (
-            <span className="text-2xs text-purple-500">
+            <span className="text-2xs text-status-merged">
               → {item.converted_type === 'todo' ? t('planner.movedToTodo') : item.converted_type === 'session' ? t('planner.movedToSession') : t('planner.movedToSchedule')}
             </span>
           )}
@@ -281,7 +281,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
         {/* Due date */}
         <div className="hidden md:block w-20 text-right flex-shrink-0">
           {item.due_date ? (
-            <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-warm-500'}`}>
+            <span className={`text-xs ${isOverdue ? 'text-status-error font-medium' : 'text-warm-500'}`}>
               {new Date(item.due_date).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}
             </span>
           ) : (
@@ -319,7 +319,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                   </button>
                 </>
               )}
-              <button onClick={async () => { if (await confirm({ message: t('planner.deleteConfirm'), danger: true })) onDelete(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
+              <button onClick={async () => { if (await confirm({ message: t('planner.deleteConfirm'), danger: true })) onDelete(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-status-error hover:bg-status-error/10 rounded-md transition-colors text-left">
                 <Trash2 size={12} /> {t('planner.delete')}
               </button>
             </div>,
@@ -393,7 +393,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                       <button
                         type="button"
                         onClick={() => handleDeleteImage(img.id)}
-                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-status-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <X size={12} />
                       </button>

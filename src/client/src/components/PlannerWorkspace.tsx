@@ -148,7 +148,7 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
           p.title || t('planner.pages.untitled'),
           <button
             onClick={(e) => { e.stopPropagation(); handleDeletePage(p.id); }}
-            className="opacity-0 group-hover:opacity-100 text-warm-400 hover:text-red-500 transition-all flex-shrink-0"
+            className="opacity-0 group-hover:opacity-100 text-warm-400 hover:text-status-error transition-all flex-shrink-0"
           >
             <Trash2 size={14} />
           </button>,

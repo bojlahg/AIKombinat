@@ -37,7 +37,7 @@ const charColor = (ch: string) =>
     : ch === 'M' ? 'text-accent'
     : ch === 'C' ? 'text-status-error'
     : ch === '?' ? 'text-warm-400'
-    : 'text-amber-500';
+    : 'text-status-warning';
 
 const SVN_COMMIT_MESSAGE_HEIGHT_KEY = 'clitrigger:svn:commit-message-h';
 const SVN_COMMIT_MESSAGE_MIN_HEIGHT = 60;
@@ -631,7 +631,7 @@ function RemoteBadge({ title }: { title?: string }) {
   return (
     <span
       title={title}
-      className="shrink-0 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+      className="shrink-0 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded-md bg-status-warning/10 text-status-warning"
     >
       {t('svn.remoteBadge')}
     </span>
@@ -904,7 +904,7 @@ function DirNode({ node, depth, collapsed, onToggleCollapse, fileProps, onDirCon
         {isCollapsed
           ? <ChevronRight className="w-3.5 h-3.5 shrink-0 text-warm-400" />
           : <ChevronDown className="w-3.5 h-3.5 shrink-0 text-warm-400" />}
-        <Folder className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+        <Folder className="w-3.5 h-3.5 shrink-0 text-status-warning" />
         <span className="truncate text-warm-700 font-medium" title={node.path}>{node.name}</span>
         <span className="text-warm-400 text-2xs ml-1 shrink-0">{countLabel}</span>
       </div>

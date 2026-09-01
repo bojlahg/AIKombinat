@@ -23,7 +23,7 @@ interface DiscussionListProps {
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-warm-200 text-warm-600',
   running: 'bg-status-success/10 text-status-success',
-  paused: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  paused: 'bg-status-warning/10 text-status-warning',
   completed: 'bg-accent/10 text-accent',
   failed: 'bg-status-error/10 text-status-error',
   merged: 'bg-accent/10 text-accent',
@@ -176,7 +176,7 @@ export default function DiscussionList({
                     {canStop && (
                       <button
                         onClick={() => onStopDiscussion(discussion.id)}
-                        className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition-colors"
+                        className="p-1.5 text-status-warning hover:bg-status-warning/10 rounded-md transition-colors"
                         title={t('discussions.pause')}
                       >
                         <Pause size={16} />

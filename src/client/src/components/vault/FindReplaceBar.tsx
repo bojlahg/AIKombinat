@@ -121,7 +121,7 @@ export function FindReplaceBar({
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={onSearchKeyDown}
           placeholder={t('find.placeholder')}
-          className={`w-56 px-2 py-1 rounded-md outline-none border bg-transparent text-warm-800 ${invalidRegex ? 'border-red-400' : 'border-warm-200 focus:border-warm-400'}`}
+          className={`w-56 px-2 py-1 rounded-md outline-none border bg-transparent text-warm-800 ${invalidRegex ? 'border-status-error/30' : 'border-warm-200 focus:border-warm-400'}`}
         />
         {toggleBtn(options.caseSensitive, () => toggle('caseSensitive'), t('find.case'), CaseSensitive)}
         {toggleBtn(options.wholeWord, () => toggle('wholeWord'), t('find.word'), WholeWord)}

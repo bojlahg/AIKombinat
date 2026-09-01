@@ -92,7 +92,7 @@ export default function RawFileViewer({ projectId, file, allNodes, onSelectNode,
         <button
           onClick={handleDelete}
           disabled={deleting}
-          className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 disabled:opacity-50"
+          className="p-1.5 rounded-md hover:bg-status-error/10 text-status-error disabled:opacity-50"
           title={t('wiki.rawFile.delete')}
         >
           {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}

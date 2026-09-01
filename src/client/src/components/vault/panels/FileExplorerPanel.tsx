@@ -201,7 +201,7 @@ function TreeBranch({
                   </div>
                 )}
                 {state.error && (
-                  <div className="flex items-center gap-1 text-xs text-red-500 py-0.5" style={{ paddingLeft: 8 + (depth + 1) * 12 }}>
+                  <div className="flex items-center gap-1 text-xs text-status-error py-0.5" style={{ paddingLeft: 8 + (depth + 1) * 12 }}>
                     <AlertCircle className="w-3 h-3" /> {state.error}
                   </div>
                 )}
@@ -274,7 +274,7 @@ function PinnedSection({
             style={{ paddingLeft: 4 }}
             title={item.path}
           >
-            <Pin className="w-3 h-3 shrink-0 text-amber-500" />
+            <Pin className="w-3 h-3 shrink-0 text-status-warning" />
             {iconFor(entry, false)}
             <span className="truncate">{item.name}</span>
           </button>
@@ -699,7 +699,7 @@ export function FileExplorerPanel({ projectId, activeFile, onSelectFile, onVault
           </div>
         )}
         {rootError && (
-          <div className="flex items-center gap-1 text-xs text-red-500 px-2 py-1">
+          <div className="flex items-center gap-1 text-xs text-status-error px-2 py-1">
             <AlertCircle className="w-3 h-3" /> {rootError}
           </div>
         )}

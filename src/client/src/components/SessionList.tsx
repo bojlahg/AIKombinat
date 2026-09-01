@@ -346,7 +346,7 @@ export default function SessionList({
                       {isPopped && (
                         <button
                           onClick={() => recallPopout(session.id)}
-                          className="p-1.5 text-violet-500 hover:bg-violet-500/10 rounded-md transition-colors"
+                          className="p-1.5 text-accent hover:bg-accent/10 rounded-md transition-colors"
                           title={t('session.recallToMain')}
                         >
                           <Maximize2 size={16} />
@@ -381,7 +381,7 @@ export default function SessionList({
                       {canStop && (
                         <button
                           onClick={() => onStopSession(session.id)}
-                          className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition-colors"
+                          className="p-1.5 text-status-warning hover:bg-status-warning/10 rounded-md transition-colors"
                           title={t('session.stop')}
                         >
                           <Square size={16} />
@@ -395,7 +395,7 @@ export default function SessionList({
                               : false;
                             onCleanupSession(session.id, deleteBranch);
                           }}
-                          className="p-1.5 text-warm-400 hover:text-amber-600 rounded-md transition-colors"
+                          className="p-1.5 text-warm-400 hover:text-status-warning rounded-md transition-colors"
                           title={t('session.cleanup')}
                         >
                           <Archive size={16} />

@@ -172,7 +172,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
           <button
             onClick={handleTrigger}
             disabled={triggering}
-            className="p-1.5 text-amber-500/60 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-30"
+            className="p-1.5 text-status-warning hover:text-status-warning hover:bg-status-warning/10 rounded-lg transition-colors disabled:opacity-30"
             title={t('schedule.trigger')}
           >
             <Play size={14} />

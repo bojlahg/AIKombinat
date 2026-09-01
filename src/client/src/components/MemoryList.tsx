@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ChevronDown, ChevronRight, Edit2, Trash2, Pin, Network,
-  Download, Wrench, Loader2, AlertCircle, Save, FileText, Database, Activity, RefreshCw, FolderSync,
+  Download, Wrench, Loader2, AlertCircle, Save, FileText, Database, Activity, RefreshCw, FolderSync, X,
 } from 'lucide-react';
 import type { MemoryNode, MemoryEdge, MemoryRelationType, Todo, Discussion } from '../types';
 import { useI18n } from '../i18n';
@@ -281,7 +281,7 @@ export default function MemoryList({ projectId }: MemoryListProps) {
                         selected={selectedNodeId === indexNode.id}
                         onClick={() => handleSelectNode(indexNode.id)}
                         onDelete={handleDelete}
-                        icon={<Network size={12} className="text-blue-500 flex-shrink-0" />}
+                        icon={<Network size={12} className="text-accent flex-shrink-0" />}
                       />
                     )}
                     {schemaNode && (
@@ -290,7 +290,7 @@ export default function MemoryList({ projectId }: MemoryListProps) {
                         selected={selectedNodeId === schemaNode.id}
                         onClick={() => handleSelectNode(schemaNode.id)}
                         onDelete={handleDelete}
-                        icon={<FileText size={12} className="text-amber-500 flex-shrink-0" />}
+                        icon={<FileText size={12} className="text-status-warning flex-shrink-0" />}
                       />
                     )}
                     <p className="px-3 pb-1 text-[10px] text-warm-400 leading-snug">
@@ -512,7 +512,7 @@ function SidebarItem({ node, selected, onClick, onDelete, icon }: {
       {hovered && (
         <button
           onClick={e => { e.stopPropagation(); onDelete(node); }}
-          className="p-0.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 flex-shrink-0"
+          className="p-0.5 rounded-md hover:bg-status-error/10 text-status-error flex-shrink-0"
         >
           <Trash2 size={12} />
         </button>
@@ -723,7 +723,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
           )}
           <button
             onClick={() => onDelete(node)}
-            className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+            className="p-1.5 rounded-md hover:bg-status-error/10 text-status-error"
             title={t('wiki.delete')}
           >
             <Trash2 size={14} />
@@ -736,7 +736,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
         {tags.map(tag => (
           <span key={tag} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-warm-200 text-[11px] text-warm-700">
             {tag}
-            <button onClick={() => { setTags(prev => prev.filter(t => t !== tag)); setDirty(true); }} className="hover:text-red-500">×</button>
+            <button onClick={() => { setTags(prev => prev.filter(t => t !== tag)); setDirty(true); }} className="hover:text-status-error"><X size={12} /></button>
           </span>
         ))}
         <input
@@ -762,17 +762,17 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
 
       {/* Schema banner — when editing the wiki schema node, surface that this is special */}
       {isSchemaNode(node) && (
-        <div className="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
+        <div className="mx-4 mt-2 rounded-md border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-[11px] text-status-warning">
           <div className="font-semibold">{t('wiki.schemaBannerTitle')}</div>
-          <div className="mt-0.5 text-amber-700">{t('wiki.schemaBannerHint')}</div>
+          <div className="mt-0.5 text-status-warning">{t('wiki.schemaBannerHint')}</div>
         </div>
       )}
 
       {/* Index banner — auto-maintained, manual edits are overwritten */}
       {isIndexNode(node) && (
-        <div className="mx-4 mt-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2 text-[11px] text-blue-800 dark:text-blue-300">
+        <div className="mx-4 mt-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-[11px] text-accent">
           <div className="font-semibold">{t('wiki.indexBannerTitle')}</div>
-          <div className="mt-0.5 text-blue-700">{t('wiki.indexBannerHint')}</div>
+          <div className="mt-0.5 text-accent">{t('wiki.indexBannerHint')}</div>
         </div>
       )}
 
@@ -1122,10 +1122,10 @@ interface LintModalProps {
 }
 
 const ISSUE_COLORS: Record<string, string> = {
-  contradiction: 'text-red-600 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/20 dark:border-red-800',
+  contradiction: 'text-status-error bg-status-error/10 border-status-error/30',
   orphan: 'text-warm-500 bg-warm-100 border-warm-200',
-  duplicate: 'text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-800',
-  stale: 'text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-900/20 dark:border-blue-800',
+  duplicate: 'text-status-warning bg-status-warning/10 border-status-warning/30',
+  stale: 'text-accent bg-accent/10 border-accent/30',
 };
 
 function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
@@ -1224,7 +1224,7 @@ function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {
         {running ? (
           <div className="flex items-center gap-2 py-6 justify-center text-sm text-warm-500"><Loader2 size={16} className="animate-spin" />{t('wiki.lint.running')}</div>
         ) : error ? (
-          <div className="flex items-center gap-2 text-sm text-red-600 py-4"><AlertCircle size={16} />{error}</div>
+          <div className="flex items-center gap-2 text-sm text-status-error py-4"><AlertCircle size={16} />{error}</div>
         ) : issues.length === 0 ? (
           <p className="text-sm text-warm-600 py-4">{t('wiki.lint.empty')}</p>
         ) : (
@@ -1392,8 +1392,8 @@ function readNumber(key: string, fallback: number, lo: number, hi: number): numb
 // ── Disk diff modal (read-only comparison of .clitrigger/wiki/ vs DB) ──
 
 const DIFF_COLORS: Record<WikiDiskDiffEntry['type'], string> = {
-  modified: 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-800',
-  missing: 'text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-900/20 dark:border-blue-800',
+  modified: 'text-status-warning bg-status-warning/10 border-status-warning/30',
+  missing: 'text-accent bg-accent/10 border-accent/30',
   untracked: 'text-warm-700 bg-warm-100 border-warm-200',
 };
 
@@ -1462,7 +1462,7 @@ function DiskDiffModal({ projectId, onClose, onRebuilt }: { projectId: string; o
             <Loader2 size={16} className="animate-spin" />{t('wiki.diskDiff.running')}
           </div>
         ) : error ? (
-          <div className="flex items-center gap-2 text-sm text-red-600 py-4"><AlertCircle size={16} />{error}</div>
+          <div className="flex items-center gap-2 text-sm text-status-error py-4"><AlertCircle size={16} />{error}</div>
         ) : diff.length === 0 ? (
           <p className="text-sm text-warm-600 py-4">{t('wiki.diskDiff.empty')}</p>
         ) : (
@@ -1546,8 +1546,8 @@ const SEVERITY_BAR: Record<MemoryLog['severity'], string> = {
 
 const SEVERITY_TEXT: Record<MemoryLog['severity'], string> = {
   info: 'text-warm-700',
-  warning: 'text-amber-700',
-  error: 'text-red-700',
+  warning: 'text-status-warning',
+  error: 'text-status-error',
 };
 
 interface ActivityPanelProps {

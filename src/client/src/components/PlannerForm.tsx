@@ -215,7 +215,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
                 <button
                   type="button"
                   onClick={() => removeExistingImage(img.id)}
-                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-status-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X size={12} />
                 </button>
@@ -226,11 +226,11 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
             ))}
             {pendingImages.map(img => (
               <div key={img.id} className="relative group">
-                <img src={img.preview} alt={img.name} onClick={() => setLightboxSrc(img.preview)} className="h-20 w-20 object-cover rounded-lg border border-blue-300/30 cursor-zoom-in" />
+                <img src={img.preview} alt={img.name} onClick={() => setLightboxSrc(img.preview)} className="h-20 w-20 object-cover rounded-lg border border-accent/30 cursor-zoom-in" />
                 <button
                   type="button"
                   onClick={() => removePendingImage(img.id)}
-                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-status-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X size={12} />
                 </button>

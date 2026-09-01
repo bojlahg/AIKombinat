@@ -362,7 +362,7 @@ export default function TaskNodeDetail({
               <span className="badge text-2xs bg-warm-200/60 text-warm-600">{t('todo.mergedFrom')}: {todo.merged_from_branch}</span>
             )}
             {!todo.worktree_path && childTodo && (
-              <span className="badge text-2xs bg-amber-500/10 text-amber-600">{t('todo.transferredTo')}: {childTodo.title.length > 20 ? childTodo.title.slice(0, 20) + '...' : childTodo.title}</span>
+              <span className="badge text-2xs bg-status-warning/10 text-status-warning">{t('todo.transferredTo')}: {childTodo.title.length > 20 ? childTodo.title.slice(0, 20) + '...' : childTodo.title}</span>
             )}
           </div>
         )}
@@ -378,7 +378,7 @@ export default function TaskNodeDetail({
                 {onFix && (
                   <button
                     onClick={() => onFix(todo, errorLogs)}
-                    className="text-2xs font-medium text-amber-500 hover:text-amber-600"
+                    className="text-2xs font-medium text-status-warning hover:text-status-warning"
                   >
                     {t('failure.fix')}
                   </button>

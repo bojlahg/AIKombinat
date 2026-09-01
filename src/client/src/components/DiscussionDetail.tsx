@@ -19,7 +19,7 @@ interface DiscussionDetailProps {
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-warm-200 text-warm-600',
   running: 'bg-status-success/10 text-status-success',
-  paused: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  paused: 'bg-status-warning/10 text-status-warning',
   completed: 'bg-accent/10 text-accent',
   failed: 'bg-status-error/10 text-status-error',
   merged: 'bg-accent/10 text-accent',

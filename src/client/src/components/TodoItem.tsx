@@ -420,10 +420,10 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
   };
 
   const fileStatusLabel: Record<string, { label: string; color: string }> = {
-    A: { label: 'Added', color: 'text-green-500' },
-    M: { label: 'Modified', color: 'text-amber-500' },
-    D: { label: 'Deleted', color: 'text-red-500' },
-    R: { label: 'Renamed', color: 'text-blue-500' },
+    A: { label: 'Added', color: 'text-status-success' },
+    M: { label: 'Modified', color: 'text-status-warning' },
+    D: { label: 'Deleted', color: 'text-status-error' },
+    R: { label: 'Renamed', color: 'text-status-merged' },
     C: { label: 'Copied', color: 'text-theme-text-secondary' },
   };
 
@@ -986,7 +986,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                       let levelLabel: string;
                       let levelClass: string;
                       if (totalAll >= 500000) { levelLabel = t('result.levelHeavy'); levelClass = 'text-status-error'; }
-                      else if (totalAll >= 300000) { levelLabel = t('result.levelHigh'); levelClass = 'text-orange-500'; }
+                      else if (totalAll >= 300000) { levelLabel = t('result.levelHigh'); levelClass = 'text-status-warning'; }
                       else if (totalAll >= 100000) { levelLabel = t('result.levelModerate'); levelClass = 'text-status-warning'; }
                       else { levelLabel = t('result.levelLight'); levelClass = 'text-status-info'; }
                       return (
@@ -1117,9 +1117,9 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         </div>
       )}
       {dropZoneInvalid && (
-        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-red-300 bg-red-50/50">
-          <Ban size={14} className="text-red-400 flex-shrink-0" />
-          <span className="text-xs font-medium text-red-400">{t('dnd.cyclicWarning')}</span>
+        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-status-error/30 bg-status-error/10">
+          <Ban size={14} className="text-status-error flex-shrink-0" />
+          <span className="text-xs font-medium text-status-error">{t('dnd.cyclicWarning')}</span>
         </div>
       )}
 

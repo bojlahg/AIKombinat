@@ -334,7 +334,7 @@ function PlannerCalendarCard({ item, tagColors, onEdit, onConvert, onDelete }: {
                 </button>
               </>
             )}
-            <button onClick={async () => { if (await confirm({ message: t('planner.deleteConfirm'), danger: true })) onDelete(item.id); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors text-left">
+            <button onClick={async () => { if (await confirm({ message: t('planner.deleteConfirm'), danger: true })) onDelete(item.id); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-status-error hover:bg-status-error/10 rounded-md transition-colors text-left">
               <Trash2 size={12} /> {t('planner.delete')}
             </button>
           </div>,
