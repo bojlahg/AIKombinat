@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ChevronDown, ChevronRight, Loader2, AlertCircle, RefreshCw, EyeOff, Eye, Copy, ExternalLink, FolderOpen, Pin, PinOff, TerminalSquare, ListPlus,
+  ChevronDown, ChevronRight, Loader2, AlertCircle, RefreshCw, EyeOff, Eye, Copy, ExternalLink, FolderOpen, Pin, PinOff, TerminalSquare, ListPlus, Square, SquareCheck,
 } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { listFiles, openFile, moveFile } from '../../../api/files';
@@ -425,7 +425,7 @@ function ContextMenu({ state, projectId, isPinned, onTogglePin, onHide, onUnhide
               onClick={(e) => { e.stopPropagation(); onToggleIncludeLinks(); }}
               className="w-full text-left px-3 py-1 text-warm-600 flex items-center gap-2"
             >
-              <span>{includeLinks ? '☑' : '☐'}</span>
+              {includeLinks ? <SquareCheck size={14} /> : <Square size={14} />}
               <span>{t('files.includeLinks')} ({linkedCount})</span>
             </button>
           )}

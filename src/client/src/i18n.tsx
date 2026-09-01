@@ -442,7 +442,7 @@ const translations = {
     'todos.filterCompleted': 'Completed',
     'todos.filterCancelled': 'Cancelled',
     'todos.filterEmpty': 'No tasks in this filter.',
-    'todos.stackModeOn': 'Stack mode on. Click ✕ to disable.',
+    'todos.stackModeOn': 'Stack mode on. Click again to disable.',
     'todos.stackModeOff': 'Enable stack mode (iOS-style collapse)',
     'todos.collapseStack': 'Collapse to stack',
     'todos.expandStack': 'Click to expand',

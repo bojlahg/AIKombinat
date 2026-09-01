@@ -1338,7 +1338,7 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
   const [statusFilter, setStatusFilter] = useState('');
   const [extraJql, setExtraJql] = useState(initial?.extra_jql ?? '');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const payload = () => ({
     enabled, base_url: baseUrl.trim(), email: email.trim(), api_token: token || undefined,
@@ -1366,9 +1366,9 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
     try {
       await personalApi.saveJiraConfig(payload());
       const r = await personalApi.testJiraConfig();
-      setResult(r.ok ? `✓ ${r.user}` : `✗ ${r.error || 'failed'}`);
+      setResult(r.ok ? { ok: true, text: r.user ?? '' } : { ok: false, text: r.error || 'failed' });
     } catch (e) {
-      setResult(`✗ ${e instanceof Error ? e.message : 'failed'}`);
+      setResult({ ok: false, text: e instanceof Error ? e.message : 'failed' });
     } finally { setBusy(false); }
   };
   const save = async () => {
@@ -1505,7 +1505,7 @@ function JiraSettingsModal({ initial, onClose, onSaved }: {
             <p className={hintCls} style={{ color: 'var(--color-text-muted)' }}>{t('agenda.jira.extraJqlHint')}</p>
           </div>
 
-          {result && <p className="text-xs" style={{ color: result.startsWith('✓') ? 'var(--color-status-success, #4ade80)' : 'var(--color-status-error, #f87171)' }}>{result}</p>}
+          {result && <p className="text-xs flex items-center gap-1" style={{ color: result.ok ? 'var(--color-status-success, #4ade80)' : 'var(--color-status-error, #f87171)' }}>{result.ok ? <Check size={12} /> : <X size={12} />}{result.text}</p>}
         </div>
 
         <div className="flex justify-between items-center px-6 py-4 border-t" style={{ borderColor: 'var(--color-border)' }}>

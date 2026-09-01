@@ -14,7 +14,7 @@
 // (host removes this tab from the group's tree).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Play, Send, ChevronDown, ChevronUp, Loader2, GitCompare } from 'lucide-react';
+import { AlertCircle, Play, Send, ChevronDown, ChevronUp, Loader2, GitCompare, Clipboard } from 'lucide-react';
 import SessionTerminal from '../SessionTerminal';
 import SessionDiffPanel from '../SessionDiffPanel';
 import { CMD, CMD_FONT } from '../terminal-theme';
@@ -380,7 +380,7 @@ export default function SessionPane({
       {pendingPromptLength !== null && (
         <div style={pendingBannerStyle}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span aria-hidden style={{ color: CMD.info, fontSize: 14 }}>📋</span>
+            <Clipboard aria-hidden size={14} style={{ color: CMD.info }} />
             <span style={{ flex: 1 }}>
               {(t('session.initialPrompt.ready') || 'Initial prompt ready')}
               <span style={{ color: CMD.dim, marginLeft: 8 }}>

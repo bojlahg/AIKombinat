@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Folder, FolderTree, List } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderTree, List, X } from 'lucide-react';
 import type { Project } from '../types';
 import * as svnApi from '../api/svn';
 import type { SvnFile, SvnStatusResult } from '../api/svn';
@@ -1537,7 +1537,7 @@ function PropertiesDialog({ projectId, file, onClose }: {
           <span className="text-sm font-semibold text-warm-700 truncate" title={target}>
             {t('svn.propertiesOf').replace('{target}', target)}
           </span>
-          <button onClick={onClose} className="text-warm-400 hover:text-warm-600 shrink-0 ml-2">✕</button>
+          <button onClick={onClose} className="text-warm-400 hover:text-warm-600 shrink-0 ml-2"><X size={14} /></button>
         </div>
         <div className="p-4 overflow-y-auto">
           {error && (
