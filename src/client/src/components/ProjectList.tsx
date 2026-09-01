@@ -149,14 +149,14 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
           onClick={() => setShowForm(true)}
           className="btn-primary"
         >
-          <Plus size={20} strokeWidth={2.5} />
+          <Plus size={20} />
           <span className="hidden sm:inline font-bold">{t('projects.new')}</span>
         </button>
       </div>
 
       {/* Search */}
       <div className="mb-8 relative group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" size={20} strokeWidth={2} />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" size={20} />
         <input
           type="text"
           value={search}
@@ -226,7 +226,7 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
                   variant="danger"
                   className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                 >
-                  <X size={14} strokeWidth={2} />
+                  <X size={14} />
                 </IconButton>
 
                 {/* Top row: avatar + name */}
@@ -289,7 +289,7 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
                         title={session.title}
                       >
                         <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: tagColor }} />
-                        <Terminal size={12} strokeWidth={2} className="flex-shrink-0 text-theme-muted" />
+                        <Terminal size={12} className="flex-shrink-0 text-theme-muted" />
                         <span className="truncate">{session.title}</span>
                       </button>
                     ))}
@@ -305,7 +305,7 @@ export default function ProjectList({ onEvent }: ProjectListProps) {
                         title={todo.title}
                       >
                         <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: tagColor }} />
-                        <ListTodo size={12} strokeWidth={2} className="flex-shrink-0 text-theme-muted" />
+                        <ListTodo size={12} className="flex-shrink-0 text-theme-muted" />
                         <span className="truncate">{todo.title}</span>
                       </button>
                     ))}

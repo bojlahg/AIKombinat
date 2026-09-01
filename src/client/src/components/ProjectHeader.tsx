@@ -225,7 +225,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 order-3 basis-full text-2xs text-warm-400 lg:order-none lg:basis-auto">
             {project.is_git_repo ? (
               <span className="inline-flex items-center gap-1 font-mono">
-                <GitBranch size={11} />
+                <GitBranch size={12} />
                 {project.default_branch}
               </span>
             ) : (
@@ -247,7 +247,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
           <div className="ml-auto flex items-center gap-2 sm:gap-3 flex-shrink-0">
             {runningSessions > 0 && (
               <span className="inline-flex items-center gap-1 text-xs text-status-running font-medium" title={t('tabs.sessions')}>
-                <Terminal size={12} strokeWidth={2} className="flex-shrink-0" />
+                <Terminal size={12} className="flex-shrink-0" />
                 {runningSessions}
               </span>
             )}

@@ -45,7 +45,7 @@ export default function SetupPage({ onSetup }: SetupPageProps) {
       <div className="w-full max-w-sm animate-fade-in">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mb-5">
-            <SquareTerminal size={32} className="text-accent" strokeWidth={1.5} />
+            <SquareTerminal size={32} className="text-accent" />
           </div>
           <h1 className="text-2xl font-semibold text-theme-text">
             {t('setup.title')}

@@ -144,13 +144,13 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
         {pages.map((p) => navItem(
           selection.kind === 'page' && selection.id === p.id,
           () => setSelection({ kind: 'page', id: p.id }),
-          <FileText size={13} className="text-warm-400 flex-shrink-0" />,
+          <FileText size={14} className="text-warm-400 flex-shrink-0" />,
           p.title || t('planner.pages.untitled'),
           <button
             onClick={(e) => { e.stopPropagation(); handleDeletePage(p.id); }}
             className="opacity-0 group-hover:opacity-100 text-warm-400 hover:text-red-500 transition-all flex-shrink-0"
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
           </button>,
         ))}
 

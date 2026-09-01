@@ -159,7 +159,7 @@ export default function AgentManager({ projectId, agents, onAgentsChange }: Agen
                     className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800"
                     title={t('agents.canImplementHelp')}
                   >
-                    <Hammer size={10} />
+                    <Hammer size={12} />
                     {t('agents.canImplementBadge')}
                   </span>
                 )}

@@ -150,7 +150,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
           <h3 className="text-sm text-warm-800 font-medium truncate">{schedule.title}</h3>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-warm-400">
             <span className="inline-flex items-center gap-1 font-mono">
-              <Clock size={11} />
+              <Clock size={12} />
               {isOnce ? formatRunAt(schedule.run_at) : schedule.cron_expression}
             </span>
             <span aria-hidden="true">·</span>

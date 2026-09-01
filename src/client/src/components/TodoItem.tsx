@@ -562,7 +562,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                 className="ml-0.5 h-3.5 w-3.5 rounded-full hover:bg-theme-hover inline-flex items-center justify-center opacity-0 group-hover/dep:opacity-100 transition-opacity"
                 title={t('dnd.removeDep')}
               >
-                <X size={10} />
+                <X size={12} />
               </button>
             )}
           </span>
@@ -1029,7 +1029,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                             disabled={diffLoading}
                             className="flex items-center gap-1 text-2xs text-warm-500 hover:text-accent transition-colors disabled:opacity-30"
                           >
-                            <ChevronRight size={10} className={`transition-transform ${showDiff ? 'rotate-90' : ''}`} />
+                            <ChevronRight size={12} className={`transition-transform ${showDiff ? 'rotate-90' : ''}`} />
                             <span>{showDiff ? t('todo.hideDiff') : t('todo.viewDiff')}</span>
                           </button>
                         )}

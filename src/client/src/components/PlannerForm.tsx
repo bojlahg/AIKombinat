@@ -217,7 +217,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
                   onClick={() => removeExistingImage(img.id)}
                   className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
-                  <X size={12} strokeWidth={3} />
+                  <X size={12} />
                 </button>
                 <div className="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5">
                   <span className="text-[8px] text-white truncate block">{img.originalName}</span>
@@ -232,7 +232,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
                   onClick={() => removePendingImage(img.id)}
                   className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
-                  <X size={12} strokeWidth={3} />
+                  <X size={12} />
                 </button>
                 <div className="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5">
                   <span className="text-[8px] text-white truncate block">{img.name}</span>
@@ -250,7 +250,7 @@ export default function PlannerForm({ existingTags, editItem, initialDueDate, on
           {tags.map((tag) => (
             <span key={tag} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${getTagStyle(tagColorMap.get(tag) || 'default')}`}>
               {tag}
-              <button onClick={() => removeTag(tag)} className="opacity-60 hover:opacity-100"><X size={10} /></button>
+              <button onClick={() => removeTag(tag)} className="opacity-60 hover:opacity-100"><X size={12} /></button>
             </span>
           ))}
           <div className="relative flex-1 min-w-[120px]">

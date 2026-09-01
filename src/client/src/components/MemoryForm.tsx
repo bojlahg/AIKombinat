@@ -122,7 +122,7 @@ export default function MemoryForm({ editNode, allNodes = [], onSave, onCancel }
               <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-warm-200 text-xs text-warm-800">
                 {tag}
                 <button onClick={() => removeTag(tag)} className="hover:text-warm-900">
-                  <X size={10} />
+                  <X size={12} />
                 </button>
               </span>
             ))}

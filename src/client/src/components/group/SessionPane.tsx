@@ -374,7 +374,7 @@ export default function SessionPane({
             padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
           }}
         >
-          <GitCompare size={11} /> Diff
+          <GitCompare size={12} /> Diff
         </button>
       )}
       {pendingPromptLength !== null && (
@@ -395,7 +395,7 @@ export default function SessionPane({
               style={pendingButtonStyle('neutral')}
               title={pendingPreviewOpen ? (t('session.initialPrompt.hidePreview') || 'Hide preview') : (t('session.initialPrompt.preview') || 'Preview')}
             >
-              {pendingPreviewOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              {pendingPreviewOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               {pendingPreviewOpen ? (t('session.initialPrompt.hidePreview') || 'Hide') : (t('session.initialPrompt.preview') || 'Preview')}
             </button>
             <button
@@ -403,7 +403,7 @@ export default function SessionPane({
               disabled={pendingActionInFlight !== null}
               style={pendingButtonStyle('primary')}
             >
-              {pendingActionInFlight === 'send' ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={11} />}
+              {pendingActionInFlight === 'send' ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={12} />}
               {t('session.initialPrompt.send') || 'Send'}
             </button>
             <button

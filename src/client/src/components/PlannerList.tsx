@@ -189,8 +189,8 @@ export default function PlannerList({
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return null;
     return sortDir === 'asc'
-      ? <ArrowUp size={10} className="inline ml-0.5" />
-      : <ArrowDown size={10} className="inline ml-0.5" />;
+      ? <ArrowUp size={12} className="inline ml-0.5" />
+      : <ArrowDown size={12} className="inline ml-0.5" />;
   };
 
   return (

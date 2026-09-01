@@ -156,14 +156,14 @@ export default function SessionDiffPanel({ sessionId, onClose, projectId, onEven
             title={t('session.diff.capture') || 'Capture snapshot'}
             className="p-1 rounded hover:bg-warm-100 text-warm-500 disabled:opacity-40"
           >
-            <Camera size={13} className={capturing ? 'animate-pulse' : ''} />
+            <Camera size={14} className={capturing ? 'animate-pulse' : ''} />
           </button>
           <button
             onClick={refresh}
             title={t('common.refresh') || 'Refresh'}
             className="p-1 rounded hover:bg-warm-100 text-warm-500"
           >
-            <RefreshCw size={13} className={filesLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={filesLoading ? 'animate-spin' : ''} />
           </button>
           <button
             onClick={onClose}

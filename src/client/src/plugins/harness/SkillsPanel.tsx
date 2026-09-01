@@ -51,7 +51,7 @@ export default function SkillsPanel({ skills, saving, onSave }: SkillsPanelProps
                   className="w-full flex items-start gap-2 px-3 py-2 text-left bg-warm-50 hover:bg-warm-100 transition-colors"
                 >
                   <span className="mt-0.5 text-warm-400 flex-shrink-0">
-                    {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </span>
                   <span className="min-w-0">
                     <span className="block text-xs font-semibold text-warm-700 font-mono">/{skill.name}</span>

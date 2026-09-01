@@ -67,7 +67,7 @@ export default function MoveToPlannerButton({ projects, onMove, title }: MoveToP
         className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
         title={title}
       >
-        <FolderInput size={13} style={{ color: 'var(--color-text-muted)' }} />
+        <FolderInput size={14} style={{ color: 'var(--color-text-muted)' }} />
       </button>
       {open && createPortal(
         <div

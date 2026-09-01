@@ -410,7 +410,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
           label={t('sidebar.expand')}
           size="lg"
         >
-          <PanelLeftOpen size={18} />
+          <PanelLeftOpen size={16} />
         </IconButton>
         {railDivider}
         <Link
@@ -422,7 +422,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
             : { color: 'var(--color-text-tertiary)' }}
           title={t('sidebar.home')}
         >
-          <LayoutDashboard size={18} />
+          <LayoutDashboard size={16} />
         </Link>
         <Link
           to="/review"
@@ -433,7 +433,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
             : { color: 'var(--color-text-tertiary)' }}
           title={t('sidebar.review')}
         >
-          <Inbox size={18} />
+          <Inbox size={16} />
           {reviewCount !== null && reviewCount > 0 && (
             <span
               className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
@@ -450,7 +450,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
             : { color: 'var(--color-text-tertiary)' }}
           title={t('sidebar.agenda')}
         >
-          <CalendarDays size={18} />
+          <CalendarDays size={16} />
         </Link>
         {railDivider}
         <div className="flex-1 overflow-y-auto w-full flex flex-col items-center gap-1 py-1">
@@ -602,7 +602,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
             label={t('projects.new')}
             size="sm"
           >
-            <Plus size={14} strokeWidth={2} />
+            <Plus size={14} />
           </IconButton>
         </div>
         <div className="space-y-0.5">
@@ -662,7 +662,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
                     variant="danger"
                     className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                   >
-                    <X size={12} strokeWidth={2} />
+                    <X size={12} />
                   </IconButton>
                 </Link>
                 {showBelow && renderDropIndicator('below')}
@@ -690,7 +690,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
               label={t('favorites.add')}
               size="sm"
             >
-              <Plus size={14} strokeWidth={2} />
+              <Plus size={14} />
             </IconButton>
           </div>
           <div className="space-y-0.5 max-h-48 overflow-y-auto">
@@ -712,7 +712,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
                     style={{ color: 'var(--color-text-muted)' }}
                     title={t('favorites.edit')}
                   >
-                    <Edit2 size={11} strokeWidth={2} />
+                    <Edit2 size={12} />
                   </span>
                   <span
                     onClick={(e) => handleDeleteFavorite(favorite.id, e)}
@@ -720,7 +720,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
                     style={{ color: 'var(--color-text-muted)' }}
                     title={t('favorites.delete')}
                   >
-                    <X size={12} strokeWidth={2} />
+                    <X size={12} />
                   </span>
                 </button>
               );

@@ -153,7 +153,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
 
       {findOpen && (
         <div className="flex items-center gap-2 px-2 py-1.5 border border-warm-200 rounded-lg bg-warm-50">
-          <Search size={13} className="text-warm-400 flex-shrink-0" />
+          <Search size={14} className="text-warm-400 flex-shrink-0" />
           <input
             ref={findInputRef}
             type="text"
@@ -174,7 +174,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
             className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded transition-colors"
             title={t('harness.find.prev')}
           >
-            <ChevronUp size={13} />
+            <ChevronUp size={14} />
           </button>
           <button
             type="button"
@@ -183,7 +183,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
             className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded transition-colors"
             title={t('harness.find.next')}
           >
-            <ChevronDown size={13} />
+            <ChevronDown size={14} />
           </button>
           <button
             type="button"
@@ -191,7 +191,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
             className="p-0.5 text-warm-400 hover:text-warm-600 rounded transition-colors"
             title={t('harness.find.close')}
           >
-            <X size={13} />
+            <X size={14} />
           </button>
         </div>
       )}

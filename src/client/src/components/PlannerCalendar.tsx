@@ -198,7 +198,7 @@ export default function PlannerCalendar({
             {new Date(selectedDate + 'T00:00').toLocaleDateString(lang, { month: 'long', day: 'numeric', weekday: 'short' })}
           </h3>
           <button onClick={() => onQuickAdd(selectedDate)} className="btn-ghost text-xs px-2 py-1 flex items-center gap-1">
-            <Plus size={13} />{t('agenda.add')}
+            <Plus size={14} />{t('agenda.add')}
           </button>
         </div>
         <div className="flex-1 overflow-auto px-4 pb-4 flex flex-col gap-4">

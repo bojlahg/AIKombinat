@@ -335,13 +335,13 @@ export default function MemoryList({ projectId }: MemoryListProps) {
                 onClick={() => setRightPanel('graph')}
                 className={`px-2.5 py-1 text-[11px] flex items-center gap-1 ${rightPanel === 'graph' ? 'bg-warm-700 text-warm-50' : 'bg-warm-50 text-warm-600 hover:bg-warm-100'}`}
               >
-                <Network size={11} /> Graph
+                <Network size={12} /> Graph
               </button>
               <button
                 onClick={() => setRightPanel('editor')}
                 className={`px-2.5 py-1 text-[11px] flex items-center gap-1 ${rightPanel === 'editor' ? 'bg-warm-700 text-warm-50' : 'bg-warm-50 text-warm-600 hover:bg-warm-100'}`}
               >
-                <Edit2 size={11} /> Edit
+                <Edit2 size={12} /> Edit
               </button>
             </div>
           )}
@@ -478,7 +478,7 @@ function TagGroup({ label, nodes, selectedId, onSelect, onDelete, icon }: {
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-1 pl-5 pr-2 py-1 text-[11px] text-warm-500 hover:text-warm-700 hover:bg-warm-100 select-none"
       >
-        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         {icon}
         <span className="truncate">{label}</span>
         <span className="ml-auto text-warm-400">{nodes.length}</span>
@@ -506,7 +506,7 @@ function SidebarItem({ node, selected, onClick, onDelete, icon }: {
       onMouseLeave={() => setHovered(false)}
     >
       {icon}
-      {node.pinned === 1 && <Pin size={10} className="text-warm-400 flex-shrink-0" />}
+      {node.pinned === 1 && <Pin size={12} className="text-warm-400 flex-shrink-0" />}
       <span className="truncate flex-1">{node.title}</span>
       {node.source_type && <span className="text-[9px] text-warm-400 flex-shrink-0">auto</span>}
       {hovered && (
@@ -514,7 +514,7 @@ function SidebarItem({ node, selected, onClick, onDelete, icon }: {
           onClick={e => { e.stopPropagation(); onDelete(node); }}
           className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-400 flex-shrink-0"
         >
-          <Trash2 size={10} />
+          <Trash2 size={12} />
         </button>
       )}
     </div>
@@ -534,8 +534,8 @@ function RawSourceGroup({ label, files, selectedPath, onSelect }: {
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-1 pl-5 pr-2 py-1 text-[11px] text-warm-500 hover:text-warm-700 hover:bg-warm-100 select-none"
       >
-        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        <Database size={10} className="text-warm-400" />
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <Database size={12} className="text-warm-400" />
         <span className="truncate font-mono">{label}/</span>
         <span className="ml-auto text-warm-400">{files.length}</span>
       </button>
@@ -545,7 +545,7 @@ function RawSourceGroup({ label, files, selectedPath, onSelect }: {
           onClick={() => onSelect(f.relative_path)}
           className={`group flex items-center gap-1 pl-9 pr-2 py-1 cursor-pointer text-[12px] transition-colors ${selectedPath === f.relative_path ? 'bg-warm-200 text-warm-900' : 'text-warm-700 hover:bg-warm-100'}`}
         >
-          <FileText size={10} className="text-warm-400 flex-shrink-0" />
+          <FileText size={12} className="text-warm-400 flex-shrink-0" />
           <span className="truncate flex-1" title={f.filename}>{f.filename}</span>
           {f.derived_node_ids.length > 0 && (
             <span className="text-[9px] text-warm-400 flex-shrink-0">{f.derived_node_ids.length}</span>
@@ -755,7 +755,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
           onClick={() => onSelectRawFile(sourceFile.relative_path)}
           className="mx-4 mt-2 inline-flex items-center gap-1.5 self-start px-2 py-0.5 rounded-full bg-warm-100 hover:bg-warm-200 text-[11px] text-warm-600 border border-warm-200"
         >
-          <FileText size={10} />
+          <FileText size={12} />
           {t('wiki.rawFile.openSiblings').replace('{n}', String(siblingCount))}
         </button>
       )}
@@ -792,7 +792,7 @@ function InlineEditor({ node, allNodes, rawFiles, edges, onUpdated, onDelete, on
       {(assetUploading || assetError) && (
         <div className="px-4 py-1.5 border-t border-warm-100 text-[11px] flex items-center gap-2">
           {assetUploading && (
-            <span className="inline-flex items-center gap-1 text-warm-500"><Loader2 size={11} className="animate-spin" />{t('wiki.asset.uploading')}</span>
+            <span className="inline-flex items-center gap-1 text-warm-500"><Loader2 size={12} className="animate-spin" />{t('wiki.asset.uploading')}</span>
           )}
           {assetError && (
             <span className="text-status-error">{assetError}</span>
@@ -1288,11 +1288,11 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
     return (
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Button size="sm" disabled={disabled || busy} onClick={() => onMerge(idx, a, b)}>
-          {busy ? <Loader2 size={10} className="animate-spin" /> : null}
+          {busy ? <Loader2 size={12} className="animate-spin" /> : null}
           {t('wiki.lint.action.mergeKeep').replace('{keep}', a).replace('{absorb}', b)}
         </Button>
         <Button size="sm" disabled={disabled || busy} onClick={() => onMerge(idx, b, a)}>
-          {busy ? <Loader2 size={10} className="animate-spin" /> : null}
+          {busy ? <Loader2 size={12} className="animate-spin" /> : null}
           {t('wiki.lint.action.mergeKeep').replace('{keep}', b).replace('{absorb}', a)}
         </Button>
       </div>
@@ -1307,7 +1307,7 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
     return (
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Button variant="danger" size="sm" disabled={disabled || busy} onClick={() => onDelete(idx, orphanTitle)}>
-          {busy ? <Loader2 size={10} className="animate-spin" /> : null}
+          {busy ? <Loader2 size={12} className="animate-spin" /> : null}
           {t('wiki.lint.action.delete')}
         </Button>
         {otherNodes.length > 0 && (
@@ -1326,7 +1326,7 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
               disabled={disabled || busy || !linkTarget}
               onClick={() => { if (linkTarget) { onAddLink(idx, orphanTitle, linkTarget); setLinkTarget(''); } }}
             >
-              {busy ? <Loader2 size={10} className="animate-spin" /> : null}
+              {busy ? <Loader2 size={12} className="animate-spin" /> : null}
               {t('wiki.lint.action.link')}
             </Button>
           </>
@@ -1342,7 +1342,7 @@ function IssueActions({ issue, idx, busy, anyBusy, nodes, findNode, onDelete, on
       <div className="mt-2 flex flex-wrap gap-1.5">
         {valid.map(tt => (
           <Button key={tt} variant="danger" size="sm" disabled={disabled || busy} onClick={() => onDelete(idx, tt)}>
-            {busy ? <Loader2 size={10} className="animate-spin" /> : null}
+            {busy ? <Loader2 size={12} className="animate-spin" /> : null}
             {t('wiki.lint.action.deleteTitle').replace('{title}', tt)}
           </Button>
         ))}
@@ -1609,7 +1609,7 @@ function ActivityPanel({ logs, loaded, allNodes, onReload, onSelectNode, onSelec
           onClick={onReload}
           title={t('wiki.activity.refresh')}
         >
-          <RefreshCw size={11} /> {t('wiki.activity.refresh')}
+          <RefreshCw size={12} /> {t('wiki.activity.refresh')}
         </Button>
       </div>
 

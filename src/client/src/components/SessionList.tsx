@@ -323,7 +323,7 @@ export default function SessionList({
                             className="inline-flex items-center gap-1 text-2xs text-warm-400 whitespace-nowrap"
                             title={isPopped ? t('session.dock.poppedHint') : undefined}
                           >
-                            {isPopped ? <ExternalLink size={11} /> : <span aria-hidden="true">·</span>}
+                            {isPopped ? <ExternalLink size={12} /> : <span aria-hidden="true">·</span>}
                             {t(`session.windowState.${winState}`)}
                           </span>
                         )}

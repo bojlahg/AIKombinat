@@ -829,7 +829,7 @@ export default function PersonalAgenda() {
             {new Date(selectedDate + 'T00:00').toLocaleDateString(lang, { month: 'long', day: 'numeric', weekday: 'short' })}
           </h2>
           <button onClick={() => openAdd(selectedDate)} className="btn-ghost text-xs px-2 py-1 flex items-center gap-1">
-            <Plus size={13} />{t('agenda.add')}
+            <Plus size={14} />{t('agenda.add')}
           </button>
         </div>
 
@@ -846,7 +846,7 @@ export default function PersonalAgenda() {
                   <div key={e.id} onContextMenu={(ev) => openItemMenu(item, ev)} className="group flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
                     <button onClick={() => toggleDone(item)} className="mt-0.5 flex-shrink-0" title={t('agenda.toggleDone')}>
                       <span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}>
-                        {item.status === 'done' && <Check size={11} />}
+                        {item.status === 'done' && <Check size={12} />}
                       </span>
                     </button>
                     <button onClick={() => openEdit(item)} className="flex-1 text-left min-w-0">
@@ -866,7 +866,7 @@ export default function PersonalAgenda() {
                     </button>
                     <MoveToPlannerButton projects={projects} onMove={(pid) => moveToPlanner(item, pid)} title={t('agenda.moveToPlanner')} />
                     <button onClick={() => remove(item)} className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5" title={t('agenda.delete')}>
-                      <Trash2 size={13} style={{ color: 'var(--color-text-muted)' }} />
+                      <Trash2 size={14} style={{ color: 'var(--color-text-muted)' }} />
                     </button>
                   </div>
                 );
@@ -875,7 +875,7 @@ export default function PersonalAgenda() {
                 const issue = jiraEntries.find((j) => j.key === e.id);
                 return (
                   <div key={`jira-${e.id}`} className="group flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ backgroundColor: JIRA_BLUE.bg, border: `1px solid ${JIRA_BLUE.bg}` }}>
-                    <ExternalLink size={13} className="mt-0.5 flex-shrink-0" style={{ color: JIRA_BLUE.fg }} />
+                    <ExternalLink size={14} className="mt-0.5 flex-shrink-0" style={{ color: JIRA_BLUE.fg }} />
                     <a href={e.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0">
                       <div className="text-sm truncate" style={{ color: 'var(--color-text-primary)' }} title={e.title}>{e.title}</div>
                       <div className="text-2xs" style={{ color: JIRA_BLUE.fg }}>Jira</div>
@@ -889,7 +889,7 @@ export default function PersonalAgenda() {
                         className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
                         title={t('agenda.jira.import')}
                       >
-                        <Download size={13} style={{ color: 'var(--color-text-muted)' }} />
+                        <Download size={14} style={{ color: 'var(--color-text-muted)' }} />
                       </button>
                     )}
                     <button
@@ -897,7 +897,7 @@ export default function PersonalAgenda() {
                       className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
                       title={t('agenda.jira.dismiss')}
                     >
-                      <X size={13} style={{ color: 'var(--color-text-muted)' }} />
+                      <X size={14} style={{ color: 'var(--color-text-muted)' }} />
                     </button>
                   </div>
                 );
@@ -910,7 +910,7 @@ export default function PersonalAgenda() {
                   className="flex items-start gap-2 rounded-lg px-2.5 py-2 hover:opacity-80 transition-opacity"
                   style={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px dashed var(--color-border)' }}
                 >
-                  {e.kind === 'schedule' ? <Clock size={13} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} /> : <FolderGit2 size={13} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} />}
+                  {e.kind === 'schedule' ? <Clock size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} /> : <FolderGit2 size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} />}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm truncate" style={{ color: 'var(--color-text-secondary)' }}>
                       {e.time && <span className="text-2xs mr-1" style={{ color: 'var(--color-text-muted)' }}>{e.time}</span>}
@@ -930,7 +930,7 @@ export default function PersonalAgenda() {
             <div className="flex items-center justify-between mb-1.5">
               <h3 className="text-2xs uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>{t('agenda.backlog')}</h3>
               <button onClick={() => openAdd('')} className="btn-ghost text-2xs px-1.5 py-0.5 flex items-center gap-1">
-                <Plus size={11} />{t('agenda.memo')}
+                <Plus size={12} />{t('agenda.memo')}
               </button>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -941,7 +941,7 @@ export default function PersonalAgenda() {
                 <div key={item.id} onContextMenu={(e) => openItemMenu(item, e)} className="group flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
                   <button onClick={() => toggleDone(item)} className="mt-0.5 flex-shrink-0">
                     <span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: 'var(--color-border)', color: 'var(--color-accent)' }}>
-                      {item.status === 'done' && <Check size={11} />}
+                      {item.status === 'done' && <Check size={12} />}
                     </span>
                   </button>
                   <button onClick={() => openEdit(item)} className="flex-1 text-left min-w-0">
@@ -958,7 +958,7 @@ export default function PersonalAgenda() {
                   </button>
                   <MoveToPlannerButton projects={projects} onMove={(pid) => moveToPlanner(item, pid)} title={t('agenda.moveToPlanner')} />
                   <button onClick={() => remove(item)} className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
-                    <Trash2 size={13} style={{ color: 'var(--color-text-muted)' }} />
+                    <Trash2 size={14} style={{ color: 'var(--color-text-muted)' }} />
                   </button>
                 </div>
               ))}
@@ -972,17 +972,17 @@ export default function PersonalAgenda() {
               <div className="flex flex-col gap-1.5">
                 {jiraEntries.filter((j) => !j.duedate).map((j) => (
                   <div key={`jira-nd-${j.key}`} className="group flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ backgroundColor: JIRA_BLUE.bg }}>
-                    <ExternalLink size={13} className="mt-0.5 flex-shrink-0" style={{ color: JIRA_BLUE.fg }} />
+                    <ExternalLink size={14} className="mt-0.5 flex-shrink-0" style={{ color: JIRA_BLUE.fg }} />
                     <a href={j.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0">
                       <div className="text-sm truncate" style={{ color: 'var(--color-text-primary)' }} title={`${j.key} · ${j.summary}`}>{j.key} · {j.summary}</div>
                       <div className="text-2xs" style={{ color: JIRA_BLUE.fg }}>{j.status || 'Jira'}</div>
                     </a>
                     <MoveToPlannerButton projects={projects} onMove={(pid) => jiraToPlanner(j, pid)} title={t('agenda.importToPlanner')} />
                     <button onClick={() => personalApi.importJiraIssue(j).then(load)} className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5" title={t('agenda.jira.import')}>
-                      <Download size={13} style={{ color: 'var(--color-text-muted)' }} />
+                      <Download size={14} style={{ color: 'var(--color-text-muted)' }} />
                     </button>
                     <button onClick={() => dismissJira(j.key)} className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5" title={t('agenda.jira.dismiss')}>
-                      <X size={13} style={{ color: 'var(--color-text-muted)' }} />
+                      <X size={14} style={{ color: 'var(--color-text-muted)' }} />
                     </button>
                   </div>
                 ))}
@@ -999,7 +999,7 @@ export default function PersonalAgenda() {
                 style={{ color: 'var(--color-text-muted)' }}
               >
                 {t('agenda.jira.dismissedTitle')} ({jiraDismissed.length})
-                <ChevronRight size={11} style={{ transform: showDismissed ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <ChevronRight size={12} style={{ transform: showDismissed ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
               </button>
               {showDismissed && (
                 <div className="flex flex-col gap-1">
@@ -1091,7 +1091,7 @@ export default function PersonalAgenda() {
                       style={fDone ? { color: 'var(--color-accent)' } : undefined}
                     >
                       <span className="w-4 h-4 rounded border flex items-center justify-center" style={{ borderColor: 'var(--color-border)' }}>
-                        {fDone && <Check size={11} />}
+                        {fDone && <Check size={12} />}
                       </span>
                       {t(fDone ? 'agenda.status.done' : 'agenda.status.pending')}
                     </button>
@@ -1167,7 +1167,7 @@ export default function PersonalAgenda() {
                           onClick={() => removeExistingImage(img.id)}
                           className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         >
-                          <X size={12} strokeWidth={3} />
+                          <X size={12} />
                         </button>
                       </div>
                     ))}
@@ -1179,7 +1179,7 @@ export default function PersonalAgenda() {
                           onClick={() => removePendingImage(img.id)}
                           className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         >
-                          <X size={12} strokeWidth={3} />
+                          <X size={12} />
                         </button>
                       </div>
                     ))}

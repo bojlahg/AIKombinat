@@ -112,16 +112,16 @@ function TaskListBlockView() {
               style={{ color: done ? undefined : 'var(--color-text-primary)' }}
             />
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-              <button title={t('planner.convertToTask')} onClick={() => openConvert(item, 'todo', reload)} className="p-1 text-warm-400 hover:text-warm-600"><ArrowRight size={13} /></button>
-              <button title={t('planner.convertToSchedule')} onClick={() => openConvert(item, 'schedule', reload)} className="p-1 text-warm-400 hover:text-warm-600"><Clock size={13} /></button>
-              <button title={t('planner.convertToTerminal')} onClick={() => openConvert(item, 'session', reload)} className="p-1 text-warm-400 hover:text-warm-600"><Terminal size={13} /></button>
-              <button title={t('planner.delete')} onClick={() => remove(item.id)} className="p-1 text-warm-400 hover:text-red-500"><Trash2 size={13} /></button>
+              <button title={t('planner.convertToTask')} onClick={() => openConvert(item, 'todo', reload)} className="p-1 text-warm-400 hover:text-warm-600"><ArrowRight size={14} /></button>
+              <button title={t('planner.convertToSchedule')} onClick={() => openConvert(item, 'schedule', reload)} className="p-1 text-warm-400 hover:text-warm-600"><Clock size={14} /></button>
+              <button title={t('planner.convertToTerminal')} onClick={() => openConvert(item, 'session', reload)} className="p-1 text-warm-400 hover:text-warm-600"><Terminal size={14} /></button>
+              <button title={t('planner.delete')} onClick={() => remove(item.id)} className="p-1 text-warm-400 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
           </div>
         );
       })}
       <div className="flex items-center gap-2 px-3 py-1.5">
-        <Plus size={15} className="text-warm-400 flex-shrink-0" />
+        <Plus size={16} className="text-warm-400 flex-shrink-0" />
         <input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}

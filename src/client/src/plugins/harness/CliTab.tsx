@@ -198,7 +198,7 @@ export default function CliTab({ projectId, cli, snapshot, onChange }: CliTabPro
             onClick={() => setCreatingLocal(true)}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs text-warm-400 hover:text-warm-600 border border-dashed border-warm-200 hover:border-warm-300 rounded-xl transition-colors"
           >
-            <Plus size={13} />
+            <Plus size={14} />
             {t('harness.localMemory.create') || 'Create CLAUDE.local.md'}
           </button>
         )

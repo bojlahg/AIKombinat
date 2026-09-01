@@ -252,7 +252,7 @@ export default function CalendarGrid({
           title={addItemLabel}
           style={{ backgroundColor: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
         >
-          <Plus size={13} />
+          <Plus size={14} />
         </button>
         <div className="flex flex-col gap-0.5 overflow-hidden" style={{ marginTop: reserveTop || undefined }}>
           {entries.slice(0, maxChips).map((chip) => {

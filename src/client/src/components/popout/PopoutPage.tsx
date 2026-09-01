@@ -735,7 +735,7 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
             aria-label="minimize-popout"
             title={t('session.popout.minimize') || 'Minimize'}
           >
-            <Minus size={13} />
+            <Minus size={14} />
           </button>
         )}
         <button
@@ -744,7 +744,7 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
           aria-label="redock"
           title={t('session.popout.redock') || 'Re-dock to main window'}
         >
-          <ExternalLink size={13} style={{ transform: 'scaleX(-1)' }} />
+          <ExternalLink size={14} style={{ transform: 'scaleX(-1)' }} />
           <span style={{ marginLeft: 4 }}>{t('session.popout.redockShort') || 'Re-dock'}</span>
         </button>
         <button
@@ -753,7 +753,7 @@ export default function PopoutPage({ sendMessage, subscribeBinary, onEvent }: Po
           aria-label="close-popout"
           title={t('session.popout.closeWindow') || 'Close window'}
         >
-          <X size={13} />
+          <X size={14} />
         </button>
       </div>
       <div style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0 }}>

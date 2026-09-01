@@ -253,7 +253,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
               className="inline-flex items-center gap-1 text-2xs text-accent hover:underline mt-0.5"
               title={t('planner.fromDiscussion')}
             >
-              <MessagesSquare size={11} />
+              <MessagesSquare size={12} />
               {t('planner.fromDiscussion')}
             </Link>
           )}
@@ -263,7 +263,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
         <div className="hidden sm:flex items-center gap-1 w-[160px] flex-shrink-0 overflow-hidden">
           {images.length > 0 && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warm-100 text-warm-500 whitespace-nowrap">
-              <ImageIcon size={10} />{images.length}
+              <ImageIcon size={12} />{images.length}
             </span>
           )}
           {tags.map((tag) => (
@@ -395,7 +395,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                         onClick={() => handleDeleteImage(img.id)}
                         className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       >
-                        <X size={12} strokeWidth={3} />
+                        <X size={12} />
                       </button>
                       <div className="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5">
                         <span className="text-[8px] text-white truncate block">{img.originalName}</span>
@@ -417,7 +417,7 @@ export default function PlannerItem({ item, tagColors, existingTags, onSave, onD
                       onClick={(e) => { colorPickAnchorRef.current = e.currentTarget; setColorPickTag(colorPickTag === tag ? null : tag); }}
                     >
                       {tag}
-                      <button onClick={(e) => { e.stopPropagation(); removeTag(tag); }} className="opacity-60 hover:opacity-100"><X size={9} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); removeTag(tag); }} className="opacity-60 hover:opacity-100"><X size={12} /></button>
                     </span>
                     {colorPickTag === tag && (
                       <AnchoredPopover anchorRef={colorPickAnchorRef} width={180} onClose={() => setColorPickTag(null)} className="p-2 rounded-lg shadow-elevated z-tooltip" style={{ backgroundColor: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}>

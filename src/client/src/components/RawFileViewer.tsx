@@ -80,14 +80,14 @@ export default function RawFileViewer({ projectId, file, allNodes, onSelectNode,
           className="p-1.5 rounded hover:bg-warm-200 text-warm-500"
           title={t('wiki.rawFile.openExternal')}
         >
-          <ExternalLink size={13} />
+          <ExternalLink size={14} />
         </button>
         <button
           onClick={() => openRawFileExternal(projectId, file.relative_path, 'reveal').catch(err => console.error(err))}
           className="p-1.5 rounded hover:bg-warm-200 text-warm-500"
           title={t('wiki.rawFile.revealInFolder')}
         >
-          <FolderOpen size={13} />
+          <FolderOpen size={14} />
         </button>
         <button
           onClick={handleDelete}
@@ -95,7 +95,7 @@ export default function RawFileViewer({ projectId, file, allNodes, onSelectNode,
           className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 disabled:opacity-50"
           title={t('wiki.rawFile.delete')}
         >
-          {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+          {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
         </button>
       </div>
       <div className="px-4 py-1 border-b border-warm-100">
