@@ -77,8 +77,24 @@ router.get('/:id/svn-log', async (req: Request<{ id: string }>, res: Response) =
   try {
     const skip = parseInt(req.query.skip as string) || 0;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-    const result = await svnManager.getLog(r.path, { skip, limit });
+    const url = typeof req.query.url === 'string' && req.query.url.trim() ? req.query.url : undefined;
+    const result = await svnManager.getLog(r.path, { skip, limit, url });
     res.json(result);
+  } catch (err) { fail(res, err); }
+});
+
+// GET /api/projects/:id/svn-url-info — HEAD revision of an external's URL (REMOTE)
+router.get('/:id/svn-url-info', async (req: Request<{ id: string }>, res: Response) => {
+  const r = resolveSvnPath(req, res);
+  if (!r.ok) return;
+  try {
+    const url = req.query.url;
+    if (typeof url !== 'string' || !url.trim()) {
+      res.status(400).json({ error: 'url is required' });
+      return;
+    }
+    const revision = await svnManager.getUrlHeadRevision(r.path, url);
+    res.json({ revision });
   } catch (err) { fail(res, err); }
 });
 

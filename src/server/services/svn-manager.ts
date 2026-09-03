@@ -141,17 +141,23 @@ class SvnManager {
 
   // ── Log ──────────────────────────────────────────────────────────────────
 
-  async getLog(dirPath: string, options: { skip?: number; limit?: number } = {}): Promise<SvnLogResult> {
+  /**
+   * `options.url` switches the target from the working copy to a repository
+   * URL (used by the externals editor to browse an external's history).
+   * Relative external forms (`^/`, `//`, `/`, `../`) are resolved first.
+   */
+  async getLog(dirPath: string, options: { skip?: number; limit?: number; url?: string } = {}): Promise<SvnLogResult> {
     const skip = Math.max(0, options.skip ?? 0);
     const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    const target = options.url ? await this.resolveExternalUrl(dirPath, options.url) : dirPath;
 
     // SVN has no native skip. Approximate by fetching limit+skip+1 from HEAD
     // and slicing. For deep history this is wasteful, but pages 0–10 cost
     // <1MB of XML against typical repos, which is acceptable.
     const fetchCount = skip + limit + 1;
     const { stdout } = await runSvn([
-      'log', '--xml', '-l', String(fetchCount), dirPath,
-    ]);
+      'log', '--xml', '-l', String(fetchCount), target,
+    ], dirPath);
 
     const all: SvnLogEntry[] = [];
     const logRe = /<logentry\b[^>]*\brevision="([^"]+)"[^>]*>([\s\S]*?)<\/logentry>/g;
@@ -179,6 +185,35 @@ class SvnManager {
       commits: hasMore ? sliced.slice(0, limit) : sliced,
       hasMore,
     };
+  }
+
+  /** HEAD revision of the repository an (external) URL lives in — `svn info URL`. */
+  async getUrlHeadRevision(dirPath: string, url: string): Promise<string> {
+    const target = await this.resolveExternalUrl(dirPath, url);
+    const { stdout } = await runSvn(['info', '--xml', target], dirPath);
+    const rev = /<entry\b[^>]*\brevision="([^"]+)"/.exec(stdout)?.[1];
+    if (!rev) throw new Error(`Could not read HEAD revision of ${url}`);
+    return rev;
+  }
+
+  /**
+   * Expand the relative URL forms allowed in svn:externals into an absolute
+   * URL, then whitelist the scheme so nothing but a URL ever reaches `svn`.
+   */
+  async resolveExternalUrl(dirPath: string, url: string): Promise<string> {
+    let resolved = url.trim();
+    if (/^(\^\/|\/\/|\/|\.\.\/)/.test(resolved)) {
+      const info = await this.getInfo(dirPath);
+      const root = new URL(info.repositoryRoot);
+      if (resolved.startsWith('^/')) resolved = info.repositoryRoot.replace(/\/$/, '') + resolved.slice(1);
+      else if (resolved.startsWith('//')) resolved = `${root.protocol}${resolved}`;
+      else if (resolved.startsWith('/')) resolved = `${root.protocol}//${root.host}${resolved}`;
+      else resolved = new URL(resolved, info.url.replace(/\/?$/, '/')).toString();
+    }
+    if (!/^(https?|svn|svn\+ssh|file):\/\/\S+$/i.test(resolved)) {
+      throw new Error(`Invalid SVN URL: ${url}`);
+    }
+    return resolved;
   }
 
   async getCommitFiles(dirPath: string, revision: string): Promise<SvnCommitFile[]> {

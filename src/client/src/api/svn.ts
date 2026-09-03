@@ -34,9 +34,15 @@ export function getSvnInfo(id: string): Promise<SvnInfo> {
   return get(`/api/projects/${id}/svn-info`);
 }
 
-export function getSvnLog(id: string, skip = 0, limit = 50): Promise<GitLogResult> {
+// `url` targets a repository URL (e.g. an svn:externals entry) instead of the working copy.
+export function getSvnLog(id: string, skip = 0, limit = 50, url?: string): Promise<GitLogResult> {
   const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+  if (url) params.set('url', url);
   return get(`/api/projects/${id}/svn-log?${params}`);
+}
+
+export function getSvnUrlInfo(id: string, url: string): Promise<{ revision: string }> {
+  return get(`/api/projects/${id}/svn-url-info?url=${encodeURIComponent(url)}`);
 }
 
 export function getSvnCommitFiles(id: string, revision: string): Promise<{ files: CommitFile[] }> {

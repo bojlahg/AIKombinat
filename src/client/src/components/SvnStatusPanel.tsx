@@ -11,6 +11,7 @@ import Modal from './Modal';
 import Button from './Button';
 import CursorContextMenu, { ctxMenuItemClass } from './CursorContextMenu';
 import { CommitDiffViewer, CommitFileList } from './DiffViewer';
+import SvnExternalsEditor from './SvnExternalsEditor';
 
 interface SvnStatusPanelProps {
   project: Project;
@@ -1595,6 +1596,7 @@ function PropertiesDialog({ projectId, file, onClose }: {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null); // property name being edited
   const [draft, setDraft] = useState('');
+  const [rawMode, setRawMode] = useState(false); // svn:externals: plain textarea instead of the table editor
   const [saving, setSaving] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -1608,11 +1610,11 @@ function PropertiesDialog({ projectId, file, onClose }: {
     return () => { cancelled = true; };
   }, [projectId, file, reloadKey]);
 
-  const save = async (name: string) => {
+  const save = async (name: string, value = draft) => {
     setSaving(true);
     setError(null);
     try {
-      await svnApi.svnPropset(projectId, name, draft, file ?? undefined);
+      await svnApi.svnPropset(projectId, name, value, file ?? undefined);
       setEditing(null);
       setReloadKey((k) => k + 1);
     } catch (err) {
@@ -1649,14 +1651,23 @@ function PropertiesDialog({ projectId, file, onClose }: {
                     <div className="text-xs font-mono font-semibold text-accent break-all">{p.name}</div>
                     {editing !== p.name && (
                       <button
-                        onClick={() => { setEditing(p.name); setDraft(p.value); }}
+                        onClick={() => { setEditing(p.name); setDraft(p.value); setRawMode(false); }}
                         className="text-2xs text-warm-400 hover:text-accent shrink-0"
                       >
                         {t('svn.editProperty')}
                       </button>
                     )}
                   </div>
-                  {editing === p.name ? (
+                  {editing === p.name && p.name === 'svn:externals' && !rawMode ? (
+                    <SvnExternalsEditor
+                      projectId={projectId}
+                      value={draft}
+                      saving={saving}
+                      onCancel={() => setEditing(null)}
+                      onSave={(value) => { setDraft(value); save(p.name, value); }}
+                      onEditAsText={(value) => { setDraft(value); setRawMode(true); }}
+                    />
+                  ) : editing === p.name ? (
                     <>
                       <textarea
                         value={draft}
@@ -1666,6 +1677,14 @@ function PropertiesDialog({ projectId, file, onClose }: {
                         className="mt-1 w-full text-2xs font-mono text-warm-700 bg-warm-50 dark:bg-warm-800/40 rounded-md p-2 border border-accent/40 focus:outline-none focus:border-accent resize-y"
                       />
                       <div className="mt-1 flex justify-end gap-2">
+                        {p.name === 'svn:externals' && (
+                          <button
+                            onClick={() => setRawMode(false)}
+                            className="text-2xs text-warm-400 hover:text-accent mr-auto"
+                          >
+                            {t('svn.ext.editTable')}
+                          </button>
+                        )}
                         <Button
                           size="sm"
                           onClick={() => setEditing(null)}
