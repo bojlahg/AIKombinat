@@ -185,7 +185,10 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
             />
           </div>
         ) : selection.kind === 'web' ? (
-          <div className="card flex flex-col flex-1">
+          // card-static, not card: .card:hover applies a transform, which makes
+          // the card the containing block for the panel's fixed fullscreen mode
+          // (and overflow-hidden then clips it to the card).
+          <div className="card-static flex flex-col flex-1">
             <PlannerWebPanel />
           </div>
         ) : (
