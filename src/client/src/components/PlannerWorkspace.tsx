@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, FileText, Calendar, List } from 'lucide-react';
+import { Plus, Trash2, FileText, Calendar, List, Globe } from 'lucide-react';
 import type { PlannerPage } from '../types';
 import type { CalView } from './calendar/calendarShared';
 import * as plannerApi from '../api/planner';
@@ -8,6 +8,7 @@ import { useI18n } from '../i18n';
 import { useDialog } from '../hooks/useDialog';
 import PlannerList, { type PlannerItemsProps } from './PlannerList';
 import PlannerPageView from './PlannerPageView';
+import PlannerWebPanel from './planner/PlannerWebPanel';
 import { PAGE_TEMPLATES, type PageTemplate } from './planner/pageTemplates';
 import { Resizer } from './vault/Resizer';
 
@@ -19,7 +20,7 @@ interface PlannerWorkspaceProps extends PlannerItemsProps {
   projectId: string;
 }
 
-type Selection = { kind: 'work' } | { kind: 'page'; id: string };
+type Selection = { kind: 'work' } | { kind: 'page'; id: string } | { kind: 'web' };
 
 export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWorkspaceProps) {
   const { t } = useI18n();
@@ -159,6 +160,7 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
         </div>
         {navItem(calActive, selectCalendar, <Calendar size={14} className="text-warm-400 flex-shrink-0" />, t('planner.nav.calendar'))}
         {navItem(listActive, selectList, <List size={14} className="text-warm-400 flex-shrink-0" />, t('planner.nav.list'))}
+        {navItem(selection.kind === 'web', () => setSelection({ kind: 'web' }), <Globe size={14} className="text-warm-400 flex-shrink-0" />, t('planner.nav.web'))}
       </div>
 
       <Resizer onResize={resizeSidebar} />
@@ -178,6 +180,10 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
               onConvertToSchedule={itemProps.onConvertToSchedule}
               onConvertToSession={itemProps.onConvertToSession}
             />
+          </div>
+        ) : selection.kind === 'web' ? (
+          <div className="card flex flex-col flex-1">
+            <PlannerWebPanel />
           </div>
         ) : (
           <PlannerList {...itemProps} view={workView} onChangeView={setWorkView} />

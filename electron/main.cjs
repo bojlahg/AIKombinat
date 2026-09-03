@@ -208,6 +208,9 @@ function createWindow(port) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Planner web panel hosts remote sites (e.g. Notion) in a <webview>.
+      // Main window only — popouts below keep the tag off.
+      webviewTag: true,
     },
   });
 
@@ -304,6 +307,30 @@ function createWindow(port) {
     });
   };
   blockOffOriginNav(mainWindow.webContents);
+
+  // <webview> guests (planner web panel): no preload / node, http(s) sources
+  // only, and every popup or off-scheme navigation goes to the OS browser
+  // instead of spawning a window here. Nothing is injected into the guest.
+  // ponytail: <webview> over WebContentsView so DOM overlays (dialogs, menus)
+  // still paint above it; swap to WebContentsView if Electron drops the tag.
+  const isWebScheme = (url) => {
+    try { const p = new URL(url).protocol; return p === 'http:' || p === 'https:'; } catch { return false; }
+  };
+  mainWindow.webContents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload;
+    prefs.nodeIntegration = false;
+    if (!isWebScheme(params.src)) e.preventDefault();
+  });
+  mainWindow.webContents.on('did-attach-webview', (_e, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      try {
+        const proto = new URL(url).protocol;
+        if (proto === 'http:' || proto === 'https:' || proto === 'mailto:') shell.openExternal(url);
+      } catch { /* invalid url — ignore */ }
+      return { action: 'deny' };
+    });
+    guest.on('will-navigate', (e, navUrl) => { if (!isWebScheme(navUrl)) e.preventDefault(); });
+  });
 
   // Chromium handles Ctrl+wheel / pinch as a page-zoom gesture in the browser
   // process and never dispatches a DOM `wheel` event to the renderer, so the
