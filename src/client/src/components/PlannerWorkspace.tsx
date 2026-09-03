@@ -133,7 +133,10 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
   );
 
   return (
-    <div className="flex gap-4" style={{ minHeight: '70vh' }}>
+    // The web panel has no intrinsic height, so it needs a real height (same
+    // fill-the-tab math as VaultLayout) instead of the 70vh floor the other
+    // views grow past.
+    <div className="flex gap-4" style={selection.kind === 'web' ? { height: 'calc(100vh - 220px)' } : { minHeight: '70vh' }}>
       {/* Unified sidebar: pages (primary) + work roll-up views (secondary) */}
       <div ref={sidebarRef} className="flex-shrink-0 flex flex-col card p-2 overflow-y-auto" style={{ width: sidebarWidth }}>
         <div className="flex items-center justify-between px-2.5 pt-1 pb-1">

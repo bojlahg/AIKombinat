@@ -1,5 +1,5 @@
 import { createElement, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import Button from '../Button';
 
@@ -19,6 +19,7 @@ export default function PlannerWebPanel() {
   const { t } = useI18n();
   const [url, setUrl] = useState(() => localStorage.getItem(URL_KEY) || DEFAULT_URL);
   const [draft, setDraft] = useState(url);
+  const [fullscreen, setFullscreen] = useState(false);
 
   const go = () => {
     const next = normalizeUrl(draft);
@@ -28,7 +29,12 @@ export default function PlannerWebPanel() {
   };
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    // Fullscreen only swaps classes on this root: the <webview> node must stay
+    // mounted, since remounting it reloads the guest page.
+    <div
+      className={fullscreen ? 'fixed inset-0 z-modal flex flex-col' : 'flex flex-col flex-1 min-h-0'}
+      style={fullscreen ? { backgroundColor: 'var(--color-bg-card)' } : undefined}
+    >
       <form onSubmit={(e) => { e.preventDefault(); go(); }} className="flex items-center gap-2 p-2 border-b border-theme-border">
         <input
           value={draft}
@@ -38,6 +44,14 @@ export default function PlannerWebPanel() {
           spellCheck={false}
         />
         <Button type="submit" size="sm">{t('planner.web.go')}</Button>
+        <button
+          type="button"
+          onClick={() => setFullscreen((v) => !v)}
+          className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded-md transition-colors flex-shrink-0"
+          title={fullscreen ? t('planner.web.exitFullscreen') : t('planner.web.fullscreen')}
+        >
+          {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+        </button>
       </form>
       {isElectron ? (
         // createElement instead of JSX: @types/react types `allowpopups` as boolean,
