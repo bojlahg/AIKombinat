@@ -382,7 +382,7 @@ export default function ReviewQueue({ onEvent }: ReviewQueueProps) {
                 <Skeleton className="h-4 w-4/6" />
               </div>
             ) : (
-              <LogViewer logs={openLogs} embedded />
+              <LogViewer logs={openLogs} embedded fillHeight />
             )}
           </div>
         </div>

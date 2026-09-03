@@ -113,9 +113,10 @@ interface LogViewerProps {
   todoId?: string;
   onSendInput?: (todoId: string, input: string) => void;
   embedded?: boolean;
+  fillHeight?: boolean;
 }
 
-export default function LogViewer({ logs, interactive, todoId, onSendInput, embedded }: LogViewerProps) {
+export default function LogViewer({ logs, interactive, todoId, onSendInput, embedded, fillHeight }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState('');
   const [copied, setCopied] = useState(false);
@@ -396,8 +397,8 @@ export default function LogViewer({ logs, interactive, todoId, onSendInput, embe
   });
 
   return (
-    <div className="flex flex-col">
-      <div className="relative">
+    <div className={fillHeight ? 'flex flex-col h-full' : 'flex flex-col'}>
+      <div className={fillHeight ? 'relative flex-1 min-h-0' : 'relative'}>
         {logs.length > 0 && !embedded && (
           <div style={{
             position: 'absolute',
@@ -451,7 +452,7 @@ export default function LogViewer({ logs, interactive, todoId, onSendInput, embe
         )}
         <div
           ref={containerRef}
-          className={embedded ? "max-h-64 overflow-y-auto overflow-x-auto font-mono text-xs" : "h-48 sm:h-64 overflow-y-auto overflow-x-auto rounded-xl p-3 sm:p-4 font-mono text-xs"}
+          className={embedded ? `${fillHeight ? 'h-full' : 'max-h-64'} overflow-y-auto overflow-x-auto font-mono text-xs` : "h-48 sm:h-64 overflow-y-auto overflow-x-auto rounded-xl p-3 sm:p-4 font-mono text-xs"}
           style={embedded ? undefined : {
             backgroundColor: TERM.bg,
             border: `1px solid ${TERM.border}`,
