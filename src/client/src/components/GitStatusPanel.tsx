@@ -11,6 +11,7 @@ import Modal from './Modal';
 import PushDialog from './PushDialog';
 import { CommitDiffViewer, CommitFileList } from './DiffViewer';
 import ConflictResolver from './ConflictResolver';
+import CursorContextMenu, { ctxMenuItemClass } from './CursorContextMenu';
 
 interface GitStatusPanelProps {
   project: Project;
@@ -565,6 +566,7 @@ function ChangedFileRow({
   checked,
   onClick,
   onToggleCheck,
+  onContextMenu,
 }: {
   file: GitStatusFile;
   pane: 'staged' | 'unstaged';
@@ -572,6 +574,7 @@ function ChangedFileRow({
   checked: boolean;
   onClick: () => void;
   onToggleCheck: (e: React.MouseEvent | React.ChangeEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const status = pane === 'staged'
     ? fileStatusName(file.index, ' ')
@@ -583,6 +586,7 @@ function ChangedFileRow({
   return (
     <div
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`flex items-center gap-2 px-3 py-1 cursor-pointer text-xs select-none transition-colors ${
         selected ? 'bg-accent/15 text-accent' : 'hover:bg-warm-50 text-warm-700'
       }`}
@@ -798,6 +802,14 @@ function WorkingChangesView({
     try { await fn(); onRefresh(); } catch (err) { onError(err instanceof Error ? err.message : 'Operation failed'); } finally { setBusy(false); }
   };
 
+  // Right-click menu on a changed-file row (desktop only)
+  const [fileMenu, setFileMenu] = useState<{ file: GitStatusFile; x: number; y: number } | null>(null);
+  const openFileMenu = (e: React.MouseEvent, file: GitStatusFile) => {
+    e.preventDefault();
+    if (isMobile) return;
+    setFileMenu({ file, x: e.clientX, y: e.clientY });
+  };
+
   const handleCommit = async () => {
     if (!commitMessage.trim() || staged.length === 0) return;
     setCommitting(true);
@@ -915,6 +927,7 @@ function WorkingChangesView({
                   checked={stagedChecked.has(f.path)}
                   onClick={() => setSelectedKey(`staged::${f.path}`)}
                   onToggleCheck={() => toggleStagedCheck(f.path)}
+                  onContextMenu={e => openFileMenu(e, f)}
                 />
               ))
             )}
@@ -956,6 +969,7 @@ function WorkingChangesView({
                   checked={unstagedChecked.has(f.path)}
                   onClick={() => setSelectedKey(`unstaged::${f.path}`)}
                   onToggleCheck={() => toggleUnstagedCheck(f.path)}
+                  onContextMenu={e => openFileMenu(e, f)}
                 />
               ))
             )}
@@ -1016,6 +1030,18 @@ function WorkingChangesView({
           <WorkingDiffViewer diff={diff} loading={diffLoading} file={selectedFile} />
         )}
       </div>
+
+      {fileMenu && (
+        <CursorContextMenu x={fileMenu.x} y={fileMenu.y} onClose={() => setFileMenu(null)}>
+          <button
+            className={ctxMenuItemClass}
+            disabled={busy}
+            onClick={() => exec(() => projectsApi.gitIgnore(projectId, fileMenu.file.path, worktreePath))}
+          >
+            {t('git.addToGitignore')}
+          </button>
+        </CursorContextMenu>
+      )}
     </div>
   );
 }
