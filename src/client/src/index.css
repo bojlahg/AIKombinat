@@ -584,9 +584,13 @@
    숨긴다. 실행 중인 CLI(예: Claude Code)는 자체 블록 커서를 입력창에 직접
    그리는데(이건 PTY 출력이라 우리가 못 숨김), composition-view가 그 커서
    오른쪽에 조합 중인 글자를 분리해 그려서 어색해 보였다. 조합 중인 글자는
-   SessionTerminal의 좌하단 IME 오버레이에서만 표시한다. */
+   SessionTerminal의 좌하단 IME 오버레이에서만 표시한다.
+   display:none은 쓰지 않는다 — xterm CompositionHelper가 이 요소의
+   getBoundingClientRect()로 helper textarea 크기를 정하므로 0×0이 되면
+   textarea가 1×1px/line-height 0으로 붕괴하고 Windows TSF 한글 조합이 첫
+   자모 직후 멈춘다(v0.2.51 회귀). visibility로 레이아웃은 남기고 그리기만 막는다. */
 .xterm .composition-view {
-  display: none !important;
+  visibility: hidden;
 }
 
 /* Single icon weight across the app. A CSS rule beats lucide's inline
