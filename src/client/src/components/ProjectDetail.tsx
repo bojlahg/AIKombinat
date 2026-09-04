@@ -771,11 +771,11 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
         style={{ backgroundColor: 'var(--color-bg-tertiary)' }}
       >
         {[
+          { key: 'web', label: t('tabs.web'), help: t('tabs.web.help') },
           { key: 'files', label: t('tabs.files'), help: t('tabs.files.help') },
           { key: 'planner', label: t('tabs.planner'), help: t('tabs.planner.help'), count: plannerItems.length },
           { key: 'sessions', label: t('tabs.sessions'), help: t('tabs.sessions.help'), count: sessions.length },
           { key: 'automation', label: t('tabs.automation'), help: t('tabs.automation.help'), count: todos.length + discussions.length + schedules.length },
-          { key: 'web', label: t('tabs.web'), help: t('tabs.web.help') },
           ...(project.is_git_repo ? [{ key: 'git', label: t('tabs.git'), help: t('tabs.git.help') }] : []),
           ...(project.svn_enabled ? [{ key: 'svn', label: t('tabs.svn'), help: t('tabs.svn.help') }] : []),
         ].map((tab) => (
