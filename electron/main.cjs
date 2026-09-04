@@ -308,9 +308,10 @@ function createWindow(port) {
   };
   blockOffOriginNav(mainWindow.webContents);
 
-  // <webview> guests (planner web panel): no preload / node, http(s) sources
-  // only, and every popup or off-scheme navigation goes to the OS browser
-  // instead of spawning a window here. Nothing is injected into the guest.
+  // <webview> guests (web panel): no preload / node, http(s) sources only.
+  // Popups are denied and handed to the web panel as a new tab (mailto goes
+  // to the OS); off-scheme navigation is blocked. Nothing is injected into
+  // the guest.
   // ponytail: <webview> over WebContentsView so DOM overlays (dialogs, menus)
   // still paint above it; swap to WebContentsView if Electron drops the tag.
   const isWebScheme = (url) => {
@@ -325,7 +326,8 @@ function createWindow(port) {
     guest.setWindowOpenHandler(({ url }) => {
       try {
         const proto = new URL(url).protocol;
-        if (proto === 'http:' || proto === 'https:' || proto === 'mailto:') shell.openExternal(url);
+        if (proto === 'http:' || proto === 'https:') mainWindow.webContents.send('webpanel:open-url', url);
+        else if (proto === 'mailto:') shell.openExternal(url);
       } catch { /* invalid url — ignore */ }
       return { action: 'deny' };
     });
