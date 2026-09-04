@@ -1,4 +1,4 @@
-import { createElement, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import Button from '../Button';
@@ -20,6 +20,27 @@ export default function PlannerWebPanel() {
   const [url, setUrl] = useState(() => localStorage.getItem(URL_KEY) || DEFAULT_URL);
   const [draft, setDraft] = useState(url);
   const [fullscreen, setFullscreen] = useState(false);
+  const webviewRef = useRef<HTMLElement>(null);
+
+  // Drags (floating terminals, splitters, tab tear-out) run on window-level
+  // mousemove/mouseup. The <webview> guest is out-of-process and swallows
+  // those once the cursor enters it, so the drag freezes or never sees
+  // mouseup. Make the guest click-through for the duration of any host mouse
+  // press; presses inside the guest never reach the host, so it stays clickable.
+  useEffect(() => {
+    const el = webviewRef.current;
+    if (!el) return;
+    const down = () => { el.style.pointerEvents = 'none'; };
+    const up = () => { el.style.pointerEvents = ''; };
+    window.addEventListener('mousedown', down, true);
+    window.addEventListener('mouseup', up, true);
+    window.addEventListener('blur', up);
+    return () => {
+      window.removeEventListener('mousedown', down, true);
+      window.removeEventListener('mouseup', up, true);
+      window.removeEventListener('blur', up);
+    };
+  }, []);
 
   const go = () => {
     const next = normalizeUrl(draft);
@@ -60,7 +81,7 @@ export default function PlannerWebPanel() {
         // checks attribute presence, so an empty string is the correct value.
         // ponytail: leaving the panel unmounts the guest and reloads it on return;
         // keep it mounted with visibility:hidden if that ever bothers.
-        createElement('webview', { src: url, partition: 'persist:webpanel', allowpopups: '', className: 'flex-1 min-h-0' })
+        createElement('webview', { ref: webviewRef, src: url, partition: 'persist:webpanel', allowpopups: '', className: 'flex-1 min-h-0' })
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-sm text-theme-text-secondary">
           <span>{t('planner.web.desktopOnly')}</span>
