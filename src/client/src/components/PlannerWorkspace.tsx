@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, FileText, Calendar, List, Globe, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Plus, Trash2, FileText, Calendar, List, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { PlannerPage } from '../types';
 import type { CalView } from './calendar/calendarShared';
 import * as plannerApi from '../api/planner';
@@ -8,7 +8,6 @@ import { useI18n } from '../i18n';
 import { useDialog } from '../hooks/useDialog';
 import PlannerList, { type PlannerItemsProps } from './PlannerList';
 import PlannerPageView from './PlannerPageView';
-import PlannerWebPanel from './planner/PlannerWebPanel';
 import { PAGE_TEMPLATES, type PageTemplate } from './planner/pageTemplates';
 import { Resizer } from './vault/Resizer';
 
@@ -21,7 +20,7 @@ interface PlannerWorkspaceProps extends PlannerItemsProps {
   projectId: string;
 }
 
-type Selection = { kind: 'work' } | { kind: 'page'; id: string } | { kind: 'web' };
+type Selection = { kind: 'work' } | { kind: 'page'; id: string };
 
 export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWorkspaceProps) {
   const { t } = useI18n();
@@ -139,10 +138,7 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
   );
 
   return (
-    // The web panel has no intrinsic height, so it needs a real height (same
-    // fill-the-tab math as VaultLayout) instead of the 70vh floor the other
-    // views grow past.
-    <div className="flex gap-4" style={selection.kind === 'web' ? { height: 'calc(100vh - 220px)' } : { minHeight: '70vh' }}>
+    <div className="flex gap-4" style={{ minHeight: '70vh' }}>
       {/* Unified sidebar: pages (primary) + work roll-up views (secondary) */}
       {collapsed ? (
         <div className="flex-shrink-0 flex flex-col items-center card p-1.5">
@@ -182,7 +178,6 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
             </div>
             {navItem(calActive, selectCalendar, <Calendar size={14} className="text-warm-400 flex-shrink-0" />, t('planner.nav.calendar'))}
             {navItem(listActive, selectList, <List size={14} className="text-warm-400 flex-shrink-0" />, t('planner.nav.list'))}
-            {navItem(selection.kind === 'web', () => setSelection({ kind: 'web' }), <Globe size={14} className="text-warm-400 flex-shrink-0" />, t('planner.nav.web'))}
           </div>
 
           <Resizer onResize={resizeSidebar} />
@@ -204,13 +199,6 @@ export default function PlannerWorkspace({ projectId, ...itemProps }: PlannerWor
               onConvertToSchedule={itemProps.onConvertToSchedule}
               onConvertToSession={itemProps.onConvertToSession}
             />
-          </div>
-        ) : selection.kind === 'web' ? (
-          // card-static, not card: .card:hover applies a transform, which makes
-          // the card the containing block for the panel's fixed fullscreen mode
-          // (and overflow-hidden then clips it to the card).
-          <div className="card-static flex flex-col flex-1">
-            <PlannerWebPanel />
           </div>
         ) : (
           <PlannerList {...itemProps} view={workView} onChangeView={setWorkView} />

@@ -23,6 +23,7 @@ import DiscussionList from './DiscussionList';
 import SessionList from './SessionList';
 import SessionWindowsHost from './SessionWindowsHost';
 import PlannerWorkspace from './PlannerWorkspace';
+import WebPanel from './WebPanel';
 
 // Heavy tab panels are code-split so their deps (recharts, @xyflow/react,
 // codemirror) stay out of the initial bundle — they load on first tab open.
@@ -774,6 +775,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
           { key: 'planner', label: t('tabs.planner'), help: t('tabs.planner.help'), count: plannerItems.length },
           { key: 'sessions', label: t('tabs.sessions'), help: t('tabs.sessions.help'), count: sessions.length },
           { key: 'automation', label: t('tabs.automation'), help: t('tabs.automation.help'), count: todos.length + discussions.length + schedules.length },
+          { key: 'web', label: t('tabs.web'), help: t('tabs.web.help') },
           ...(project.is_git_repo ? [{ key: 'git', label: t('tabs.git'), help: t('tabs.git.help') }] : []),
           ...(project.svn_enabled ? [{ key: 'svn', label: t('tabs.svn'), help: t('tabs.svn.help') }] : []),
         ].map((tab) => (
@@ -929,6 +931,15 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
           onCleanupRun={handleCleanupTodo}
         />
       )}
+      {/* Always mounted, display:none when inactive: unmounting the <webview>
+          reloads the guest page. Electron's webview is an OOPIF, so display:none
+          no longer recreates it. Class toggle, not the hidden attribute: the
+          `flex` utility would override [hidden]. card-static, not card:
+          .card:hover's transform would become the containing block for the
+          panel's fixed fullscreen. */}
+      <div className={activeTab === 'web' ? 'card-static flex flex-col h-[calc(100vh-220px)]' : 'hidden'}>
+        <WebPanel />
+      </div>
       {activeTab === 'planner' && (
         <PlannerWorkspace
           plannerItems={plannerItems}

@@ -1,7 +1,7 @@
 import { createElement, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
-import { useI18n } from '../../i18n';
-import Button from '../Button';
+import { useI18n } from '../i18n';
+import Button from './Button';
 
 const URL_KEY = 'plannerWebPanelUrl';
 const DEFAULT_URL = 'https://www.notion.so';
@@ -15,7 +15,7 @@ function normalizeUrl(raw: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-export default function PlannerWebPanel() {
+export default function WebPanel() {
   const { t } = useI18n();
   const [url, setUrl] = useState(() => localStorage.getItem(URL_KEY) || DEFAULT_URL);
   const [draft, setDraft] = useState(url);
@@ -60,16 +60,16 @@ export default function PlannerWebPanel() {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={t('planner.web.urlPlaceholder')}
+          placeholder={t('web.urlPlaceholder')}
           className="input-field flex-1"
           spellCheck={false}
         />
-        <Button type="submit" size="sm">{t('planner.web.go')}</Button>
+        <Button type="submit" size="sm">{t('web.go')}</Button>
         <button
           type="button"
           onClick={() => setFullscreen((v) => !v)}
           className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded-md transition-colors flex-shrink-0"
-          title={fullscreen ? t('planner.web.exitFullscreen') : t('planner.web.fullscreen')}
+          title={fullscreen ? t('web.exitFullscreen') : t('web.fullscreen')}
         >
           {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
@@ -84,10 +84,10 @@ export default function PlannerWebPanel() {
         createElement('webview', { ref: webviewRef, src: url, partition: 'persist:webpanel', allowpopups: '', className: 'flex-1 min-h-0' })
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-sm text-theme-text-secondary">
-          <span>{t('planner.web.desktopOnly')}</span>
+          <span>{t('web.desktopOnly')}</span>
           <Button size="sm" className="flex items-center gap-1.5" onClick={() => window.open(url, '_blank', 'noopener')}>
             <ExternalLink size={14} />
-            {t('planner.web.openExternal')}
+            {t('web.openExternal')}
           </Button>
         </div>
       )}
