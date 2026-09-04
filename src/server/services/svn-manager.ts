@@ -89,9 +89,10 @@ class SvnManager {
       const fullPath = m[1];
       const inner = m[2];
       const wcMatch = /<wc-status\b[^>]*\bitem="([^"]+)"/.exec(inner);
+      const propsMatch = /<wc-status\b[^>]*\bprops="([^"]+)"/.exec(inner);
       const reposMatch = /<repos-status\b[^>]*\bitem="([^"]+)"/.exec(inner);
 
-      const wcChar = mapSvnStatusToChar(wcMatch?.[1] ?? 'normal');
+      const wcChar = mapSvnWcStatusToChar(wcMatch?.[1] ?? 'normal', propsMatch?.[1] ?? 'none');
       if (wcChar !== ' ') {
         const changelist = clMap.get(fullPath);
         files.push({
@@ -300,6 +301,35 @@ class SvnManager {
     await runSvn(['propset', name, value, target ?? dirPath], dirPath);
   }
 
+  /**
+   * Split `files` into [propsOnly, rest]. A props-only target is one whose
+   * only local change is a property (e.g. a directory whose svn:externals was
+   * bumped). svn's default depth is infinity, so committing or reverting such
+   * a directory by path would drag every modified descendant along; callers
+   * act on these with --depth empty. Best-effort: if detection fails, every
+   * file lands in `rest` (the pre-existing behaviour).
+   */
+  private async splitPropsOnly(dirPath: string, files: string[]): Promise<[string[], string[]]> {
+    const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/+$/, '');
+    const propsOnly = new Set<string>();
+    try {
+      const { stdout } = await runSvn(['status', '--xml', '--depth', 'empty', ...files], dirPath);
+      const entryRe = /<entry\b[^>]*\bpath="([^"]+)"[^>]*>[\s\S]*?<wc-status\b([^>]*)>/g;
+      let m: RegExpExecArray | null;
+      while ((m = entryRe.exec(stdout)) !== null) {
+        const item = /\bitem="([^"]+)"/.exec(m[2])?.[1] ?? 'normal';
+        const props = /\bprops="([^"]+)"/.exec(m[2])?.[1] ?? 'none';
+        if (mapSvnStatusToChar(item) === ' ' && mapSvnWcStatusToChar(item, props) !== ' ') {
+          propsOnly.add(norm(unescapeXml(m[1])));
+        }
+      }
+    } catch { /* fall back to default depth for everything */ }
+    const a: string[] = [];
+    const b: string[] = [];
+    for (const f of files) (propsOnly.has(norm(f)) ? a : b).push(f);
+    return [a, b];
+  }
+
   // ── Mutations ────────────────────────────────────────────────────────────
 
   async add(dirPath: string, files: string[]): Promise<void> {
@@ -309,7 +339,9 @@ class SvnManager {
 
   async revert(dirPath: string, files: string[]): Promise<void> {
     if (files.length === 0) return;
-    await runSvn(['revert', '-R', ...files], dirPath);
+    const [propsOnly, rest] = await this.splitPropsOnly(dirPath, files);
+    if (propsOnly.length > 0) await runSvn(['revert', '--depth', 'empty', ...propsOnly], dirPath);
+    if (rest.length > 0) await runSvn(['revert', '-R', ...rest], dirPath);
   }
 
   async remove(dirPath: string, files: string[], keepLocal = false): Promise<void> {
@@ -335,8 +367,15 @@ class SvnManager {
   async commit(dirPath: string, message: string, files?: string[]): Promise<{ revision: string | null; output: string }> {
     if (!message.trim()) throw new Error('Commit message is required');
     const args = ['commit', '-m', message];
-    if (files && files.length > 0) args.push(...files);
-    else args.push(dirPath);
+    if (files && files.length > 0) {
+      // --depth applies to the whole command; explicitly listed files and
+      // children still commit, only a directory's unselected descendants stay out.
+      const [propsOnly] = await this.splitPropsOnly(dirPath, files);
+      if (propsOnly.length > 0) args.push('--depth', 'empty');
+      args.push(...files);
+    } else {
+      args.push(dirPath);
+    }
     const { stdout } = await runSvn(args, dirPath);
     // svn prints "Committed revision N." on success
     const revMatch = /Committed revision (\d+)\./.exec(stdout);
@@ -390,6 +429,19 @@ function mapSvnStatusToChar(item: string): string {
     case 'obstructed': return '!';
     default: return ' ';
   }
+}
+
+/**
+ * Item status wins; a property-only change (item="normal" props="modified",
+ * e.g. an svn:externals bump on a directory) surfaces as M — or C when the
+ * property is conflicted — instead of being invisible in the file list.
+ */
+function mapSvnWcStatusToChar(item: string, props: string): string {
+  const itemChar = mapSvnStatusToChar(item);
+  if (itemChar !== ' ') return itemChar;
+  if (props === 'modified') return 'M';
+  if (props === 'conflicted') return 'C';
+  return ' ';
 }
 
 function mapSvnActionToStatus(action: string): string {
