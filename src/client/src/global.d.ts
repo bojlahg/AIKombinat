@@ -20,6 +20,7 @@ interface Window {
     windowFocus?: () => void;
     windowMinimize?: () => void;
     onTerminalZoom?: (cb: (direction: string) => void) => () => void;
+    onWebPanelOpenUrl?: (cb: (url: string) => void) => () => void;
     getDroppedFilePath?: (file: File) => string;
     desktopGetSettings?: () => Promise<DesktopSettings>;
     desktopUpdateSettings?: (patch: Partial<Pick<DesktopSettings, 'closeBehavior' | 'openAtLogin'>>) => Promise<DesktopSettings>;

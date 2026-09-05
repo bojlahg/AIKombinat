@@ -9,6 +9,7 @@ import CursorContextMenu, {
 import EmptyState from './EmptyState';
 import type { Session, MemoryInjectMode, SessionTag } from '../types';
 import { useI18n } from '../i18n';
+import { useDialog } from '../hooks/useDialog';
 import * as sessionsApi from '../api/sessions';
 import * as projectsApi from '../api/projects';
 import * as tagsApi from '../api/sessionTags';
@@ -65,6 +66,7 @@ export default function SessionList({
   onCleanupSession,
 }: SessionListProps) {
   const { t } = useI18n();
+  const { confirm } = useDialog();
   const { openOrFocus, recallPopout } = useSessionWindows();
   const windowStates = useSessionWindowStates();
   const [showForm, setShowForm] = useState(false);
@@ -221,7 +223,7 @@ export default function SessionList({
     <div
       // min-h so the blank space under a short list still belongs to this
       // container — right-click there should offer "new terminal" too.
-      className="space-y-4 animate-fade-in min-h-[50vh]"
+      className="space-y-4 min-h-[50vh]"
       // Empty-area right-click → "new terminal" menu. Rows stopPropagation and
       // open their own menu; text fields / terminals keep the native menu.
       onContextMenu={(e) => {
@@ -295,8 +297,7 @@ export default function SessionList({
             return (
               <div
                 key={session.id}
-                className={`card overflow-hidden animate-slide-up ${isEditing ? 'border-l-4 border-accent bg-warm-100/30' : ''}`}
-                style={{ animationDelay: `${index * 50}ms` }}
+                className={`card overflow-hidden ${isEditing ? 'border-l-4 border-accent bg-warm-100/30' : ''}`}
                 onContextMenu={(e) => {
                   if (isNativeContextMenuTarget(e)) return;
                   e.preventDefault();
@@ -313,7 +314,7 @@ export default function SessionList({
                       <div className="flex items-center gap-2">
                         {session.tag_id && tagsById.get(session.tag_id) && (
                           <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-2xs font-medium"
                             style={{
                               backgroundColor: `${tagsById.get(session.tag_id)!.color}22`,
                               color: tagsById.get(session.tag_id)!.color,
@@ -339,7 +340,7 @@ export default function SessionList({
                             className="inline-flex items-center gap-1 text-2xs text-warm-400 whitespace-nowrap"
                             title={isPopped ? t('session.dock.poppedHint') : undefined}
                           >
-                            {isPopped ? <ExternalLink size={11} /> : <span aria-hidden="true">·</span>}
+                            {isPopped ? <ExternalLink size={12} /> : <span aria-hidden="true">·</span>}
                             {t(`session.windowState.${winState}`)}
                           </span>
                         )}
@@ -363,7 +364,7 @@ export default function SessionList({
                       {isPopped && (
                         <button
                           onClick={() => recallPopout(session.id)}
-                          className="p-1.5 text-violet-500 hover:bg-violet-500/10 rounded transition-colors"
+                          className="p-1.5 text-accent hover:bg-accent/10 rounded-md transition-colors"
                           title={t('session.recallToMain')}
                         >
                           <Maximize2 size={16} />
@@ -372,7 +373,7 @@ export default function SessionList({
                       {canStart && (
                         <button
                           onClick={() => openOrFocus(session.id, 'start')}
-                          className="p-1.5 text-status-success hover:bg-status-success/10 rounded transition-colors"
+                          className="p-1.5 text-status-success hover:bg-status-success/10 rounded-md transition-colors"
                           title={t('session.start')}
                         >
                           <Play size={16} />
@@ -381,7 +382,7 @@ export default function SessionList({
                       {canResume && (
                         <button
                           onClick={() => openOrFocus(session.id, 'resume')}
-                          className="p-1.5 text-accent hover:bg-accent/10 rounded transition-colors"
+                          className="p-1.5 text-accent hover:bg-accent/10 rounded-md transition-colors"
                           title={t('session.resumeHint') || t('session.resume')}
                         >
                           <RotateCcw size={16} />
@@ -390,7 +391,7 @@ export default function SessionList({
                       <button
                         onClick={() => startEdit(session.id)}
                         disabled={!canEdit}
-                        className="p-1.5 text-warm-500 hover:text-warm-800 hover:bg-warm-100 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-warm-500"
+                        className="p-1.5 text-warm-500 hover:text-warm-800 hover:bg-warm-100 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-warm-500"
                         title={canEdit ? t('session.edit') : t('session.editDisabledRunning')}
                       >
                         <Edit2 size={16} />
@@ -398,7 +399,7 @@ export default function SessionList({
                       {canStop && (
                         <button
                           onClick={() => onStopSession(session.id)}
-                          className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                          className="p-1.5 text-status-warning hover:bg-status-warning/10 rounded-md transition-colors"
                           title={t('session.stop')}
                         >
                           <Square size={16} />
@@ -406,13 +407,13 @@ export default function SessionList({
                       )}
                       {session.status !== 'running' && (!!session.worktree_path || !!session.branch_name) && (
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const deleteBranch = session.branch_name
-                              ? confirm(t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name))
+                              ? await confirm({ message: t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name), danger: true })
                               : false;
                             onCleanupSession(session.id, deleteBranch);
                           }}
-                          className="p-1.5 text-warm-400 hover:text-amber-600 rounded transition-colors"
+                          className="p-1.5 text-warm-400 hover:text-status-warning rounded-md transition-colors"
                           title={t('session.cleanup')}
                         >
                           <Archive size={16} />
@@ -420,7 +421,7 @@ export default function SessionList({
                       )}
                       <button
                         onClick={() => onDeleteSession(session.id)}
-                        className="p-1.5 text-warm-400 hover:text-status-error rounded transition-colors"
+                        className="p-1.5 text-warm-400 hover:text-status-error rounded-md transition-colors"
                         title={t('session.delete')}
                       >
                         <Trash2 size={16} />
@@ -525,9 +526,9 @@ export default function SessionList({
             {canCleanup && (
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const deleteBranch = session.branch_name
-                    ? confirm(t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name))
+                    ? await confirm({ message: t('cleanup.confirmDeleteBranch').replace('{name}', session.branch_name), danger: true })
                     : false;
                   onCleanupSession(session.id, deleteBranch);
                 }}

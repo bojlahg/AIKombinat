@@ -10,6 +10,14 @@ AIKombinat preserves the original MIT copyright and license notice in [LICENSE](
 
 AIKombinat is not an official CLITrigger release and should not be interpreted as being endorsed or maintained by HyperAI Team.
 
+## Last integrated upstream
+
+- Repository: `https://github.com/HyperAITeam/CLITrigger.git`
+- Upstream commit: `cf8f99d6a8c826a915bd14c43415517ee55312f8`
+- Integration date: 2026-09-06
+
+The integration preserves AIKombinat's product identity, page-based Settings, split EN/KO/RU i18n, execution/orchestration services, diagnostics, and test filesystem guards. Upstream WebPanel, SVN, harness-porting, IME, Git, Planner, ReviewQueue, font, and shared UI improvements were adapted to those boundaries.
+
 ## What remains upstream
 
 The following identities still belong to the upstream project unless/until this fork deliberately replaces them:

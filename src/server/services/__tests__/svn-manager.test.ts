@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import fs from 'fs';
 import { createTestWorkspace, type TestWorkspace } from '../../test-utils/workspace.js';
 import { UNEXPECTED_FS_WRITE_MESSAGE } from '../../utils/test-fs-guard.js';
@@ -164,6 +164,66 @@ describe('SvnManager Suite', () => {
       expect(runSvnSpy).not.toHaveBeenCalled();
     });
   });
+
+describe('svnManager.getDiff against a revision', () => {
+  it('passes -r REV so the working copy is compared to that revision', async () => {
+    const { runSvn } = await import('../../lib/svn.js');
+    await svnManager.getDiff(wcPath, undefined, '40');
+    expect(vi.mocked(runSvn)).toHaveBeenCalledWith(
+      ['diff', '--internal-diff', '-r', '40', wcPath],
+      wcPath,
+    );
+  });
+
+  it('rejects a non-numeric revision', async () => {
+    await expect(svnManager.getDiff(wcPath, undefined, '40; rm')).rejects.toThrow('Invalid revision');
+  });
 });
 
+// ── Property-only changes (e.g. an svn:externals bump on a directory) ──────
+// These need per-test status output, so they swap the mock implementation and
+// put the shared default back afterwards.
+const mockedRunSvn = vi.mocked(runSvn);
+const defaultRunSvn = mockedRunSvn.getMockImplementation()!;
+type RunSvnResult = Awaited<ReturnType<typeof runSvn>>;
+const ok = (stdout: string) => ({ stdout, stderr: '' }) as RunSvnResult;
+const statusXml = (entries: string) => `<?xml version="1.0"?><status><target path="${wcPath}">${entries}</target></status>`;
+const entry = (path: string, item: string, props = 'none') =>
+  `<entry path="${path}"><wc-status item="${item}" props="${props}" revision="10"/></entry>`;
+const withStatus = (entries: string, otherStdout = '') =>
+  mockedRunSvn.mockImplementation(async (args: string[]) => (args[0] === 'status' ? ok(statusXml(entries)) : ok(otherStdout)));
 
+describe('svnManager property-only changes', () => {
+  afterEach(() => {
+    mockedRunSvn.mockImplementation(defaultRunSvn);
+    mockedRunSvn.mockClear();
+  });
+
+  it('surfaces a directory whose only change is a property as M', async () => {
+    withStatus(entry(`${wcPath}/libs`, 'normal', 'modified') + entry(`${wcPath}/a.txt`, 'modified') + entry(`${wcPath}/ext`, 'external'));
+    const status = await svnManager.getStatus(wcPath);
+    expect(status.files).toEqual([
+      { path: 'libs', index: ' ', working_dir: 'M' },
+      { path: 'a.txt', index: ' ', working_dir: 'M' },
+    ]);
+  });
+
+  it('reverts props-only directories with --depth empty and the rest with -R', async () => {
+    withStatus(entry('libs', 'normal', 'modified') + entry('a.txt', 'modified'));
+    await svnManager.revert(wcPath, ['libs', 'a.txt']);
+    expect(mockedRunSvn).toHaveBeenCalledWith(['revert', '--depth', 'empty', 'libs'], wcPath);
+    expect(mockedRunSvn).toHaveBeenCalledWith(['revert', '-R', 'a.txt'], wcPath);
+  });
+
+  it('commits with --depth empty only when the selection holds a props-only directory', async () => {
+    withStatus(entry('libs', 'normal', 'modified'), 'Committed revision 11.');
+    const result = await svnManager.commit(wcPath, 'bump externals', ['libs', 'a.txt']);
+    expect(result.revision).toBe('11');
+    expect(mockedRunSvn).toHaveBeenLastCalledWith(['commit', '-m', 'bump externals', '--depth', 'empty', 'libs', 'a.txt'], wcPath);
+
+    withStatus(entry('a.txt', 'modified'), 'Committed revision 12.');
+    await svnManager.commit(wcPath, 'plain', ['a.txt']);
+    expect(mockedRunSvn).toHaveBeenLastCalledWith(['commit', '-m', 'plain', 'a.txt'], wcPath);
+  });
+});
+});

@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 32 tables, 372 columns, 35 foreign keys
+Stats: 36 tables, 422 columns, 43 foreign keys
 
 ## Diagram
 
@@ -46,6 +46,14 @@ erDiagram
     memory_nodes ||--o{ memory_edges : "to_node_id"
     projects ||--o{ memory_logs : "project_id"
     todos ||--o{ todo_execution_rounds : "todo_id"
+    projects ||--o{ agent_forums : "project_id"
+    agent_forums ||--o{ agent_forum_members : "forum_id"
+    cli_models ||--o{ agent_forum_members : "cli_model_id"
+    execution_profiles ||--o{ agent_forum_members : "execution_profile_id"
+    agent_forums ||--o{ agent_forum_messages : "forum_id"
+    agent_forum_messages |o--o{ agent_forum_messages : "parent_message_id"
+    agent_forums ||--o{ agent_forum_turns : "forum_id"
+    agent_forum_members ||--o{ agent_forum_turns : "member_id"
 
     projects {
         TEXT id PK
@@ -478,10 +486,68 @@ erDiagram
         TEXT input_payload
         TEXT result_payload
         TEXT error_message
+        TEXT retry_of_round_id
+        INTEGER attempt_index
         DATETIME started_at
         DATETIME finished_at
         DATETIME created_at
         DATETIME updated_at
+    }
+    agent_forums {
+        TEXT id PK
+        TEXT project_id FK
+        TEXT title
+        TEXT rules
+        INTEGER max_reply_length
+        TEXT status
+        INTEGER current_cycle
+        TEXT current_member_id
+        DATETIME created_at
+        DATETIME updated_at
+    }
+    agent_forum_members {
+        TEXT id PK
+        TEXT forum_id FK
+        TEXT name
+        TEXT role
+        TEXT system_prompt
+        TEXT cli_tool
+        TEXT cli_model
+        TEXT cli_model_id FK
+        TEXT execution_profile_id FK
+        TEXT cli_effort
+        TEXT avatar_color
+        INTEGER sort_order
+        INTEGER is_active
+        DATETIME created_at
+    }
+    agent_forum_messages {
+        TEXT id PK
+        TEXT forum_id FK
+        TEXT author_type
+        TEXT author_id
+        TEXT author_name
+        TEXT author_role
+        TEXT content
+        TEXT parent_message_id FK
+        TEXT turn_id
+        DATETIME created_at
+    }
+    agent_forum_turns {
+        TEXT id PK
+        TEXT forum_id FK
+        TEXT member_id FK
+        INTEGER cycle_number
+        INTEGER turn_order
+        TEXT status
+        TEXT execution_snapshot
+        INTEGER process_pid
+        TEXT process_identity
+        TEXT raw_output
+        TEXT error_message
+        DATETIME started_at
+        DATETIME completed_at
+        DATETIME created_at
     }
 ```
 

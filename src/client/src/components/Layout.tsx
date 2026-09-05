@@ -1,9 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Sidebar from './Sidebar';
-import ParticleBackground from './ParticleBackground';
 import type { WsEvent } from '../hooks/useWebSocket';
 import { Menu } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
 import IconButton from './IconButton';
 import { useI18n } from '../i18n';
 
@@ -17,25 +15,10 @@ interface LayoutProps {
 
 export default function Layout({ children, onLogout, authRequired, connected, onEvent }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const location = useLocation();
   const { t } = useI18n();
   // Desktop-only collapse to a 56px icon rail. Hydrated synchronously so the
   // first paint matches the persisted width (no expand→collapse flash).
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
-  const [homeParticles, setHomeParticles] = useState(() => {
-    const saved = localStorage.getItem('aikombinat-home-particles') ?? localStorage.getItem('clitrigger-home-particles');
-    if (saved !== null) return saved === 'on';
-    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  });
-
-  useEffect(() => {
-    const onChange = (event: Event) => {
-      setHomeParticles((event as CustomEvent<boolean>).detail);
-    };
-    window.addEventListener('home-particles:changed', onChange);
-    return () => window.removeEventListener('home-particles:changed', onChange);
-  }, []);
-
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
       const next = !prev;
@@ -79,7 +62,7 @@ export default function Layout({ children, onLogout, authRequired, connected, on
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Mobile hamburger */}
-        <div className="md:hidden flex items-center px-4 py-3 border-b border-theme-border glass z-20">
+        <div className="md:hidden flex items-center px-4 py-3 border-b border-theme-border bg-theme-bg-secondary z-20">
           <IconButton
             onClick={() => setSidebarOpen(true)}
             label={t('sidebar.expand')}
@@ -103,7 +86,6 @@ export default function Layout({ children, onLogout, authRequired, connected, on
             marginBottom: 'var(--dock-inset-bottom, 0px)',
           }}
         >
-          {location.pathname === '/' && homeParticles && <ParticleBackground />}
           <div className="relative" style={{ zIndex: 1 }}>
             {children}
           </div>

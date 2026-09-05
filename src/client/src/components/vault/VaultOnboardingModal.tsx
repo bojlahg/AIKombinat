@@ -1,5 +1,6 @@
 import { EyeOff, Eye, MousePointerClick, GitBranch } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import Modal from '../Modal';
+import Button from '../Button';
 import { useI18n } from '../../i18n';
 
 interface Props {
@@ -16,9 +17,9 @@ interface Props {
 // entirely.
 export function VaultOnboardingModal({ saving, onIgnoreAll, onShowAll }: Props) {
   const { t } = useI18n();
-  return createPortal(
-    <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
-      <div className="bg-[var(--color-bg-card)] border border-warm-200 rounded-lg shadow-elevated w-[min(560px,90vw)] max-h-[85vh] overflow-y-auto flex flex-col">
+  return (
+    <Modal open onClose={() => {}} size="xl" disableEscClose disableBackdropClose>
+      <div className="bg-theme-card border border-theme-border rounded-2xl shadow-elevated max-h-[85vh] overflow-y-auto flex flex-col">
         <div className="px-5 py-4 border-b border-warm-200">
           <div className="text-sm font-semibold text-warm-800">{t('vault.onboarding.title')}</div>
           <p className="mt-1.5 text-xs text-warm-500 leading-relaxed">
@@ -66,25 +67,26 @@ export function VaultOnboardingModal({ saving, onIgnoreAll, onShowAll }: Props) 
         </div>
 
         <div className="flex flex-col gap-2 px-5 py-4 border-t border-warm-200">
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={onIgnoreAll}
             disabled={saving}
-            className="w-full px-3 py-2.5 rounded-md text-xs font-semibold bg-accent text-white hover:bg-accent-dark disabled:opacity-50"
+            className="w-full"
           >
             {saving ? t('vault.onboarding.saving') : t('vault.onboarding.startHidden')}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={onShowAll}
             disabled={saving}
-            className="w-full px-3 py-2 rounded-md text-xs text-warm-600 hover:bg-warm-200 disabled:opacity-50"
+            className="w-full"
           >
             {t('vault.onboarding.startAll')}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

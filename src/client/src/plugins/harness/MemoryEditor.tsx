@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Maximize2, Minimize2, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import Button from '../../components/Button';
 
 interface MemoryEditorProps {
   filePath: string;
@@ -134,7 +135,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
           <button
             type="button"
             onClick={openFind}
-            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded transition-colors flex-shrink-0"
+            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded-md transition-colors flex-shrink-0"
             title={t('harness.find.open')}
           >
             <Search size={14} />
@@ -142,7 +143,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
           <button
             type="button"
             onClick={() => { setExpanded((v) => !v); setHeight(null); }}
-            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded transition-colors flex-shrink-0"
+            className="p-1 text-warm-400 hover:text-warm-600 hover:bg-warm-100 rounded-md transition-colors flex-shrink-0"
             title={expanded ? (t('harness.memory.collapse') || 'Collapse') : (t('harness.memory.expand') || 'Expand')}
           >
             {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -152,7 +153,7 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
 
       {findOpen && (
         <div className="flex items-center gap-2 px-2 py-1.5 border border-warm-200 rounded-lg bg-warm-50">
-          <Search size={13} className="text-warm-400 flex-shrink-0" />
+          <Search size={14} className="text-warm-400 flex-shrink-0" />
           <input
             ref={findInputRef}
             type="text"
@@ -170,27 +171,27 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
             type="button"
             onClick={() => step(-1)}
             disabled={!matches.length}
-            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded transition-colors"
+            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded-md transition-colors"
             title={t('harness.find.prev')}
           >
-            <ChevronUp size={13} />
+            <ChevronUp size={14} />
           </button>
           <button
             type="button"
             onClick={() => step(1)}
             disabled={!matches.length}
-            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded transition-colors"
+            className="p-0.5 text-warm-400 hover:text-warm-600 disabled:opacity-40 rounded-md transition-colors"
             title={t('harness.find.next')}
           >
-            <ChevronDown size={13} />
+            <ChevronDown size={14} />
           </button>
           <button
             type="button"
             onClick={closeFind}
-            className="p-0.5 text-warm-400 hover:text-warm-600 rounded transition-colors"
+            className="p-0.5 text-warm-400 hover:text-warm-600 rounded-md transition-colors"
             title={t('harness.find.close')}
           >
-            <X size={13} />
+            <X size={14} />
           </button>
         </div>
       )}
@@ -220,14 +221,14 @@ export default function MemoryEditor({ filePath, content, saving, onSave }: Memo
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() => dirty && !saving && onSave(draft)}
           disabled={!dirty || saving}
-          className="px-4 py-1.5 text-xs rounded-lg bg-accent text-white hover:bg-accent-dark disabled:opacity-50 transition-colors"
         >
           {saving ? t('harness.saving') : t('harness.save')}
-        </button>
+        </Button>
         {!dirty && <span className="text-xs text-warm-400">{t('harness.noChanges')}</span>}
       </div>
     </div>
