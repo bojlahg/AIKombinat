@@ -61,6 +61,17 @@ describe('ReviewPipelineService', () => {
       sortOrder: 1,
       executors: [],
     });
+    vi.spyOn(reviewPipeline, 'collectReviewArtifact').mockResolvedValue({
+      summary: 'diff --git a/index.ts b/index.ts\n+ console.log("hello");',
+      identity: {
+        baselineCommit: 'a'.repeat(40),
+        reviewedHeadCommit: 'b'.repeat(40),
+        worktreeStateHash: 'state-hash',
+        diffHash: 'diff-hash',
+        changedFiles: ['index.ts'],
+        truncated: false,
+      },
+    });
   });
 
   afterEach(() => {

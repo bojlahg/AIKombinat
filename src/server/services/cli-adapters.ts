@@ -261,10 +261,14 @@ export interface AutoRespondRule {
 /**
  * Prompt policy for the trailing instruction block appended to a headless
  * CLI prompt.
- * - 'task-completion': coding-task workflow (default, backwards compatible).
- * - 'discussion': read-only deliberation; no coding/commit completion suffix.
+ * Implementation and rework retain the coding completion suffix. Review,
+ * discussion, and read-only workers use a non-mutating launch policy.
  */
-export type PromptPolicy = 'task-completion' | 'discussion';
+export type PromptPolicy = 'implementation' | 'rework' | 'review' | 'discussion' | 'read-only-worker';
+
+function isReadOnlyPromptPolicy(policy: PromptPolicy | undefined): boolean {
+  return policy === 'review' || policy === 'discussion' || policy === 'read-only-worker';
+}
 
 export interface CliAdapter {
   /** Executable command name */
@@ -287,10 +291,8 @@ export interface CliAdapter {
    * Format prompt for stdin delivery.
    *
    * `promptPolicy` selects the trailing instruction block appended to the
-   * prompt. 'task-completion' (default) is the coding-task policy: work
-   * efficiently, commit, stop. 'discussion' is for read-only deliberation
-   * runs (e.g. AgentForum) where a commit/stop instruction contradicts the
-   * caller's own output contract, so no suffix is appended.
+   * prompt. Implementation/rework append the coding completion policy;
+   * review/discussion/read-only-worker do not.
    */
   formatStdinPrompt(prompt: string, mode?: CliMode, promptPolicy?: PromptPolicy): string;
   /** Whether this CLI requires a TTY (pseudo-terminal) to run */
@@ -423,6 +425,7 @@ export class AntigravityOutputDecoder implements CliOutputDecoder {
 const claudeAdapter: CliAdapter = {
   command: 'claude',
   displayName: 'Claude CLI',
+  compatibilityFlags: ['--permission-mode', '--allowedTools', '--disallowedTools'],
   supportsInteractive: true,
   outputFormat: 'stream-json',
   delayStdinUntilReady: true,
@@ -435,11 +438,26 @@ const claudeAdapter: CliAdapter = {
       blocksInitialPrompt: true,
     },
   ],
-  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, sandboxMode, continueSession }) {
+  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy }) {
     const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'claude');
     const args: string[] = [];
     if (sandboxMode === 'strict') {
-      args.push('--permission-mode', 'dontAsk');
+      if (isReadOnlyPromptPolicy(promptPolicy)) {
+        args.push(
+          '--permission-mode', 'plan',
+          '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash',
+        );
+      } else {
+        const normalizedWorkDir = path.resolve(workDir ?? '.').replace(/\\/g, '/');
+        args.push(
+          '--permission-mode', 'dontAsk',
+          '--allowedTools',
+          `Read(${normalizedWorkDir}/**)`,
+          `Edit(${normalizedWorkDir}/**)`,
+          `Write(${normalizedWorkDir}/**)`,
+          'Bash(*)', 'Glob(*)', 'Grep(*)', 'TodoRead', 'TodoWrite', 'WebFetch(*)',
+        );
+      }
     } else {
       args.push('--dangerously-skip-permissions');
     }
@@ -461,7 +479,7 @@ const claudeAdapter: CliAdapter = {
   },
   formatStdinPrompt(prompt, mode, promptPolicy) {
     if (mode === 'interactive') return prompt + '\n';
-    if (promptPolicy === 'discussion') return prompt + '\n';
+    if (isReadOnlyPromptPolicy(promptPolicy)) return prompt + '\n';
     return prompt + TASK_COMPLETION_SUFFIX + '\n';
   },
   probeModels() {
@@ -564,12 +582,12 @@ const codexAdapter: CliAdapter = {
     if (sandboxMode === 'strict') {
       // AgentForum is deliberation-only and must not grant write access. Normal
       // task execution keeps the existing workspace-write/automatic-approval policy.
-      if (promptPolicy === 'discussion') {
+      if (isReadOnlyPromptPolicy(promptPolicy)) {
         args.push('--sandbox', 'read-only');
       } else {
         args.push('--sandbox', 'workspace-write', '--approve-for-me');
       }
-      if (promptPolicy !== 'discussion' && workDir && projectPath && workDir !== projectPath) {
+      if (!isReadOnlyPromptPolicy(promptPolicy) && workDir && projectPath && workDir !== projectPath) {
         const gitDir = path.join(projectPath, '.git');
         args.push('--add-dir', gitDir);
       }

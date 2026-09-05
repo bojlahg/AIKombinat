@@ -158,6 +158,7 @@ export interface Todo {
   branch_name: string | null;
   worktree_path: string | null;
   process_pid: number | null;
+  process_identity: string | null;
   cli_tool: string | null;
   cli_model: string | null;
   cli_model_id: string | null;
@@ -191,6 +192,7 @@ export interface Todo {
   rework_profile_id: string | null;
   max_review_rounds: number;
   pipeline_phase: 'implementation' | 'review' | 'rework' | null;
+  review_baseline: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -268,7 +270,7 @@ export function getTodoById(id: string): Todo | undefined {
   return db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase'>>): Todo | undefined {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'process_identity' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase' | 'review_baseline'>>): Todo | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -279,6 +281,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.branch_name !== undefined) { fields.push('branch_name = ?'); values.push(updates.branch_name); }
   if (updates.worktree_path !== undefined) { fields.push('worktree_path = ?'); values.push(updates.worktree_path); }
   if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
+  if (updates.process_identity !== undefined) { fields.push('process_identity = ?'); values.push(updates.process_identity); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
   if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
@@ -314,6 +317,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.rework_profile_id !== undefined) { fields.push('rework_profile_id = ?'); values.push(updates.rework_profile_id); }
   if (updates.max_review_rounds !== undefined) { fields.push('max_review_rounds = ?'); values.push(updates.max_review_rounds); }
   if (updates.pipeline_phase !== undefined) { fields.push('pipeline_phase = ?'); values.push(updates.pipeline_phase); }
+  if (updates.review_baseline !== undefined) { fields.push('review_baseline = ?'); values.push(updates.review_baseline); }
 
   if (fields.length === 0) return getTodoById(id);
 
@@ -428,6 +432,7 @@ export interface TodoExecutionRound {
   finished_at: string | null;
   created_at: string;
   updated_at: string;
+  artifact_identity: string | null;
 }
 
 export function createExecutionRound(
@@ -451,14 +456,16 @@ export function createExecutionRound(
     attempt_index?: number;
     startedAt?: string | null;
     started_at?: string | null;
+    artifactIdentity?: string | null;
+    artifact_identity?: string | null;
   } = {}
 ): TodoExecutionRound {
   const db = getDatabase();
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, execution_snapshot, input_payload, result_payload, error_message, retry_of_round_id, attempt_index, started_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO todo_execution_rounds (id, todo_id, round_index, phase, status, run_token, execution_snapshot, input_payload, result_payload, error_message, retry_of_round_id, attempt_index, started_at, artifact_identity, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     todoId,
@@ -473,6 +480,7 @@ export function createExecutionRound(
     options.retryOfRoundId ?? options.retry_of_round_id ?? null,
     options.attemptIndex ?? options.attempt_index ?? 1,
     options.startedAt ?? options.started_at ?? null,
+    options.artifactIdentity ?? options.artifact_identity ?? null,
     now,
     now
   );
@@ -518,13 +526,14 @@ export function getLatestExecutionRound(todoId: string): TodoExecutionRound | un
 
 export function updateExecutionRound(
   id: string,
-  updates: Partial<Pick<TodoExecutionRound, 'status' | 'execution_snapshot' | 'input_payload' | 'result_payload' | 'error_message' | 'started_at' | 'finished_at'>> & {
+  updates: Partial<Pick<TodoExecutionRound, 'status' | 'execution_snapshot' | 'input_payload' | 'result_payload' | 'error_message' | 'started_at' | 'finished_at' | 'artifact_identity'>> & {
     executionSnapshot?: string | null;
     inputPayload?: string | null;
     resultPayload?: string | null;
     errorMessage?: string | null;
     startedAt?: string | null;
     finishedAt?: string | null;
+    artifactIdentity?: string | null;
   }
 ): TodoExecutionRound | undefined {
   const db = getDatabase();
@@ -538,6 +547,7 @@ export function updateExecutionRound(
   const error_message = updates.error_message ?? updates.errorMessage;
   const started_at = updates.started_at ?? updates.startedAt;
   const finished_at = updates.finished_at ?? updates.finishedAt;
+  const artifact_identity = updates.artifact_identity ?? updates.artifactIdentity;
 
   if (status !== undefined) { fields.push('status = ?'); values.push(status); }
   if (execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(execution_snapshot); }
@@ -546,6 +556,7 @@ export function updateExecutionRound(
   if (error_message !== undefined) { fields.push('error_message = ?'); values.push(error_message); }
   if (started_at !== undefined) { fields.push('started_at = ?'); values.push(started_at); }
   if (finished_at !== undefined) { fields.push('finished_at = ?'); values.push(finished_at); }
+  if (artifact_identity !== undefined) { fields.push('artifact_identity = ?'); values.push(artifact_identity); }
 
   if (fields.length === 0) return getExecutionRoundById(id);
 
@@ -1227,6 +1238,7 @@ export interface Discussion {
   worktree_path: string | null;
   use_worktree: number | null;
   process_pid: number | null;
+  process_identity: string | null;
   agent_ids: string;
   auto_implement: number;
   implement_agent_id: string | null;
@@ -1264,7 +1276,7 @@ export function getDiscussionById(id: string): Discussion | undefined {
   return db.prepare('SELECT * FROM discussions WHERE id = ?').get(id) as Discussion | undefined;
 }
 
-export function updateDiscussion(id: string, updates: Partial<Pick<Discussion, 'title' | 'description' | 'current_round' | 'max_rounds' | 'current_agent_id' | 'branch_name' | 'worktree_path' | 'use_worktree' | 'process_pid' | 'agent_ids' | 'auto_implement' | 'implement_agent_id' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'execution_snapshot'>>): Discussion | undefined {
+export function updateDiscussion(id: string, updates: Partial<Pick<Discussion, 'title' | 'description' | 'current_round' | 'max_rounds' | 'current_agent_id' | 'branch_name' | 'worktree_path' | 'use_worktree' | 'process_pid' | 'process_identity' | 'agent_ids' | 'auto_implement' | 'implement_agent_id' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'execution_snapshot'>>): Discussion | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1278,6 +1290,7 @@ export function updateDiscussion(id: string, updates: Partial<Pick<Discussion, '
   if (updates.worktree_path !== undefined) { fields.push('worktree_path = ?'); values.push(updates.worktree_path); }
   if (updates.use_worktree !== undefined) { fields.push('use_worktree = ?'); values.push(updates.use_worktree); }
   if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
+  if (updates.process_identity !== undefined) { fields.push('process_identity = ?'); values.push(updates.process_identity); }
   if (updates.agent_ids !== undefined) { fields.push('agent_ids = ?'); values.push(updates.agent_ids); }
   if (updates.auto_implement !== undefined) { fields.push('auto_implement = ?'); values.push(updates.auto_implement); }
   if (updates.implement_agent_id !== undefined) { fields.push('implement_agent_id = ?'); values.push(updates.implement_agent_id); }
@@ -1422,6 +1435,7 @@ export interface Session {
   cli_effort: string | null;
   execution_snapshot: string | null;
   process_pid: number | null;
+  process_identity: string | null;
   branch_name: string | null;
   worktree_path: string | null;
   base_commit: string | null;
@@ -1494,7 +1508,7 @@ export function getSessionById(id: string): Session | undefined {
   return db.prepare('SELECT s.*, p.is_git_repo FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = ?').get(id) as Session | undefined;
 }
 
-export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements'>>): Session | undefined {
+export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'process_identity' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements'>>): Session | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1508,6 +1522,7 @@ export function updateSession(id: string, updates: Partial<Pick<Session, 'title'
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
   if (updates.execution_snapshot !== undefined) { fields.push('execution_snapshot = ?'); values.push(updates.execution_snapshot); }
   if (updates.process_pid !== undefined) { fields.push('process_pid = ?'); values.push(updates.process_pid); }
+  if (updates.process_identity !== undefined) { fields.push('process_identity = ?'); values.push(updates.process_identity); }
   if (updates.branch_name !== undefined) { fields.push('branch_name = ?'); values.push(updates.branch_name); }
   if (updates.worktree_path !== undefined) { fields.push('worktree_path = ?'); values.push(updates.worktree_path); }
   if (updates.base_commit !== undefined) { fields.push('base_commit = ?'); values.push(updates.base_commit); }

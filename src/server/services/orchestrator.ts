@@ -28,32 +28,18 @@ import { runWithLogContext, tag } from '../logging/context.js';
 import { clampLine, tailOf } from '../logging/truncate.js';
 import * as queries from '../db/queries.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
+import { parseProcessIdentity } from '../utils/process-tree.js';
 
 
 /**
- * Generates directory-scoped permission settings for Claude CLI in strict sandbox mode.
+ * Validate the execution directory used by Claude's per-process permission
+ * flags. Kept as a public seam for callers/tests; it intentionally performs no
+ * filesystem writes, so user-maintained .claude/settings.json stays untouched.
  */
 export function configureClaudeSandboxPermissions(workDir: string): void {
-  const claudeDir = path.join(workDir, '.claude');
-  const settingsPath = path.join(claudeDir, 'settings.json');
-  assertTestRuntimePathAllowed(claudeDir);
-  assertTestRuntimePathAllowed(settingsPath);
-  if (!fs.existsSync(claudeDir)) {
-    fs.mkdirSync(claudeDir, { recursive: true });
-  }
-  const existingSettings = fs.existsSync(settingsPath)
-    ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
-    : {};
-  const normalizedWorkDir = workDir.replace(/\\/g, '/');
-  existingSettings.permissions = {
-    allow: [
-      `Read(${normalizedWorkDir}/**)`, `Edit(${normalizedWorkDir}/**)`, `Write(${normalizedWorkDir}/**)`,
-      'Bash(*)', 'Glob(*)', 'Grep(*)',
-      'TodoRead', 'TodoWrite', 'WebFetch(*)',
-    ],
-    deny: [],
-  };
-  fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
+  const resolved = path.resolve(workDir);
+  assertTestRuntimePathAllowed(resolved);
+  if (!fs.statSync(resolved).isDirectory()) throw new Error('Claude execution directory is not a directory');
 }
 
 const MAX_CONTEXT_SWITCHES = 3;
@@ -273,11 +259,22 @@ export class Orchestrator {
     });
     running.forEach((t) => this.stoppingTodoIds.add(t.id));
     waiting.forEach((t) => this.stoppingTodoIds.add(t.id));
+    const unresolvedStops = new Set<string>();
 
     try {
       for (const todo of running) {
         if (todo.process_pid) {
-          await claudeManager.stopClaude(todo.process_pid).catch(() => { /* ignore */ });
+          const stopResult = todo.process_identity
+            ? await claudeManager.stopClaude(todo.process_pid, parseProcessIdentity(todo.process_identity))
+            : await claudeManager.stopClaude(todo.process_pid);
+          if (stopResult?.status === 'unresolved') {
+            unresolvedStops.add(todo.id);
+            if (claudeManager.isRunning(todo.process_pid)) {
+              this.finishTodoStopOnLateExit(todo.id, todo.process_pid, true);
+            }
+            queries.createTaskLog(todo.id, 'error', `Stop remains unresolved for PID ${todo.process_pid}; process and resource ownership were retained.`);
+            continue;
+          }
         }
         if (todo.review_enabled) {
           const activeRound = queries.getActiveExecutionRound(todo.id);
@@ -295,7 +292,7 @@ export class Orchestrator {
         else resourceManager.releaseOwner('todo', todo.id);
         this.activeResourceRuns.delete(todo.id);
         queries.updateTodoStatus(todo.id, 'stopped');
-        queries.updateTodo(todo.id, { process_pid: 0, execution_mode: null });
+        queries.updateTodo(todo.id, { process_pid: 0, process_identity: null, execution_mode: null });
         queries.createTaskLog(todo.id, 'output', 'Task stopped by user (Stop All).');
         broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'stopped' });
       }
@@ -313,14 +310,16 @@ export class Orchestrator {
           }
         }
         queries.updateTodoStatus(todo.id, 'stopped');
-        queries.updateTodo(todo.id, { process_pid: 0, execution_mode: null });
+        queries.updateTodo(todo.id, { process_pid: 0, process_identity: null, execution_mode: null });
         queries.createTaskLog(todo.id, 'output', 'Task stopped by user (Stop All).');
         broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'stopped' });
       }
 
       this.broadcastProjectStatus(projectId);
     } finally {
-      running.forEach((t) => this.stoppingTodoIds.delete(t.id));
+      running.forEach((t) => {
+        if (!unresolvedStops.has(t.id)) this.stoppingTodoIds.delete(t.id);
+      });
       waiting.forEach((t) => this.stoppingTodoIds.delete(t.id));
       this.isStoppingProjects.delete(projectId);
     }
@@ -444,9 +443,20 @@ export class Orchestrator {
     this.activeStartTokens.delete(todoId);
     this.startGenerations.set(todoId, (this.startGenerations.get(todoId) ?? 0) + 1);
     executorPool.releaseReservation(todoId);
+    let unresolved = false;
     try {
       if (todo.process_pid) {
-        await claudeManager.stopClaude(todo.process_pid);
+        const stopResult = todo.process_identity
+          ? await claudeManager.stopClaude(todo.process_pid, parseProcessIdentity(todo.process_identity))
+          : await claudeManager.stopClaude(todo.process_pid);
+        if (stopResult?.status === 'unresolved') {
+          unresolved = true;
+          if (claudeManager.isRunning(todo.process_pid)) {
+            this.finishTodoStopOnLateExit(todoId, todo.process_pid, false);
+          }
+          queries.createTaskLog(todoId, 'error', `Stop remains unresolved for PID ${todo.process_pid}; process and resource ownership were retained.`);
+          throw new Error(`Could not confirm termination of process ${todo.process_pid}. Stop can be retried.`);
+        }
       }
 
       if (todo.review_enabled) {
@@ -467,7 +477,7 @@ export class Orchestrator {
       this.activeResourceRuns.delete(todoId);
 
       queries.updateTodoStatus(todoId, 'stopped');
-      queries.updateTodo(todoId, { process_pid: 0, execution_mode: null });
+      queries.updateTodo(todoId, { process_pid: 0, process_identity: null, execution_mode: null });
       queries.createTaskLog(todoId, 'output', 'Task stopped by user.');
 
       broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'stopped' });
@@ -476,8 +486,35 @@ export class Orchestrator {
         this.wakeWaitingExecutors().catch(() => { /* ignore */ });
       }
     } finally {
-      this.stoppingTodoIds.delete(todoId);
+      if (!unresolved) this.stoppingTodoIds.delete(todoId);
     }
+  }
+
+  private finishTodoStopOnLateExit(todoId: string, pid: number, fromProjectStop: boolean): void {
+    void claudeManager.whenExited(pid).then(() => {
+      const current = queries.getTodoById(todoId);
+      if (!current || current.process_pid !== pid) return;
+      const activeRound = current.review_enabled ? queries.getActiveExecutionRound(todoId) : undefined;
+      if (activeRound) {
+        queries.updateExecutionRound(activeRound.id, {
+          status: 'stopped',
+          finished_at: new Date().toISOString(),
+        });
+      }
+      const runToken = this.activeResourceRuns.get(todoId);
+      if (runToken) resourceManager.releaseRun(runToken);
+      else resourceManager.releaseOwner('todo', todoId);
+      this.activeResourceRuns.delete(todoId);
+      queries.updateTodoStatus(todoId, 'stopped');
+      queries.updateTodo(todoId, { process_pid: 0, process_identity: null, execution_mode: null });
+      queries.createTaskLog(todoId, 'output', `Task stop confirmed after delayed process exit${fromProjectStop ? ' (Stop All)' : ''}.`);
+      broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'stopped' });
+      this.broadcastProjectStatus(current.project_id);
+      setImmediate(() => {
+        this.stoppingTodoIds.delete(todoId);
+        this.wakeWaitingExecutors().catch(() => { /* ignore */ });
+      });
+    });
   }
 
   /**
@@ -1098,6 +1135,12 @@ export class Orchestrator {
       }
 
       assertTestRuntimePathAllowed(workDir);
+      if (worktreePath !== todo.worktree_path || branchName !== todo.branch_name) {
+        queries.updateTodo(todoId, { worktree_path: worktreePath, branch_name: branchName });
+      }
+      if (todo.review_enabled && currentRound?.phase === 'implementation' && !todo.review_baseline) {
+        await reviewPipeline.captureBaseline(todoId, workDir, !useWorktree);
+      }
 
       // Handle attached reference images: copy them into the task's worktree/dir
       if (todo.images) {
@@ -1133,23 +1176,22 @@ export class Orchestrator {
 
       const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
 
-      // Sandbox: generate Claude CLI permission settings (worktree or project root)
+      // Sandbox: validate the directory used by Claude's execution-local CLI policy.
       if (sandboxMode === 'strict' && resolvedCliTool === 'claude') {
         try {
           configureClaudeSandboxPermissions(workDir);
-          queries.createTaskLog(todoId, 'output', `[sandbox] Configured .claude/settings.json with directory-scoped permissions`);
+          queries.createTaskLog(todoId, 'output', '[sandbox] Prepared execution-local Claude permission policy');
         } catch (err) {
-          // Strict mode without its settings file means the CLI runs less
-          // constrained than the project asked for — never a silent condition.
           logger.warn('todo.sandbox.config-failed', {
-            msg: 'strict sandbox permission settings could not be written',
+            msg: 'strict sandbox permission policy could not be prepared',
             todoId,
             projectId,
             provider: resolvedCliTool,
             message: clampLine(err instanceof Error ? err.message : String(err)),
           });
           const msg = err instanceof Error ? err.message : String(err);
-          queries.createTaskLog(todoId, 'error', `[sandbox] Failed to create permission settings: ${msg}`);
+          queries.createTaskLog(todoId, 'error', `[sandbox] Failed to prepare permission policy: ${msg}`);
+          throw err;
         }
       }
 
@@ -1227,15 +1269,31 @@ export class Orchestrator {
       // Establish the current-run classification boundary immediately before starting provider process
       executionStartRowid = queries.getMaxTaskLogRowid(todoId);
 
-      const result = await claudeManager.startClaude(workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launch.effort);
+      const promptPolicy = currentRound?.phase === 'review'
+        ? 'review'
+        : currentRound?.phase === 'rework' || isContinue
+          ? 'rework'
+          : 'implementation';
+      const result = await claudeManager.startClaude(workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy);
       pid = result.pid;
       exitPromise = result.exitPromise;
 
       if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
+        let terminationConfirmed = true;
         if (pid && pid > 0) {
           try {
-            await claudeManager.stopClaude(pid).catch(() => {});
-          } catch { /* ignore */ }
+            const stopResult = await claudeManager.stopClaude(pid);
+            terminationConfirmed = stopResult?.status !== 'unresolved';
+          } catch { terminationConfirmed = false; }
+        }
+        if (!terminationConfirmed && pid) {
+          queries.updateTodo(todoId, {
+            process_pid: pid,
+            process_identity: result.processIdentity ? JSON.stringify(result.processIdentity) : null,
+          });
+          this.stoppingTodoIds.add(todoId);
+          this.finishTodoStopOnLateExit(todoId, pid, false);
+          return;
         }
         if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
         else resourceManager.releaseOwner('todo', todoId);
@@ -1266,7 +1324,10 @@ export class Orchestrator {
       }
 
       // Update todo with process info (status already set to 'running' above)
-      queries.updateTodo(todoId, { process_pid: pid });
+      queries.updateTodo(todoId, {
+        process_pid: pid,
+        process_identity: result.processIdentity ? JSON.stringify(result.processIdentity) : null,
+      });
 
       const logMsg = useWorktree
         ? `Started ${adapter.displayName} (PID: ${pid}) on branch ${branchName} [${mode}]${isContinue ? ` (round ${roundNumber})` : ''}`

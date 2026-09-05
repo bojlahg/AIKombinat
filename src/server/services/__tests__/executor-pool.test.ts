@@ -561,6 +561,7 @@ describe('Executor Pool V1', () => {
       undefined,
       undefined,
       'high', // the adapter drops --effort itself when the slug already encodes it
+      'implementation',
     );
 
     resolveExit(0);

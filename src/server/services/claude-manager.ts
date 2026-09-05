@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { PassThrough, Readable, Writable } from 'stream';
+import { StringDecoder } from 'string_decoder';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -11,6 +12,13 @@ import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState }
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 import { logger } from '../logging/logger.js';
 import { redactArgs } from '../logging/redact.js';
+import {
+  isProcessAlive,
+  readProcessIdentity,
+  terminateProcessTree,
+  verifyProcessIdentity,
+  type ProcessIdentity,
+} from '../utils/process-tree.js';
 
 export type ClaudeMode = CliMode;
 
@@ -55,6 +63,23 @@ interface ManagedProcess {
   readonly pid: number;
 }
 
+export type StopResult =
+  | { status: 'terminated'; pid: number; graceful: boolean }
+  | { status: 'already_exited'; pid: number }
+  | { status: 'unresolved'; pid: number; reason: string };
+
+export class Utf8StreamDecoder {
+  private readonly decoder = new StringDecoder('utf8');
+
+  write(chunk: Buffer | string): string {
+    return typeof chunk === 'string' ? chunk : this.decoder.write(chunk);
+  }
+
+  end(): string {
+    return this.decoder.end();
+  }
+}
+
 interface RawRingBuffer {
   chunks: string[];
   bytes: number;
@@ -79,10 +104,30 @@ class CliCompatibilityError extends Error {
 
 export class ClaudeManager {
   private processes: Map<number, ManagedProcess> = new Map();
+  private exitWaiters: Map<number, Set<() => void>> = new Map();
   private stdinStreams: Map<number, NodeJS.WritableStream> = new Map();
   private rawSubscribers: Map<number, Set<(chunk: string) => void>> = new Map();
   private rawRingBuffers: Map<number, RawRingBuffer> = new Map();
   private ptyHandles: Map<number, PtyHandle> = new Map();
+
+  private markExited(pid: number): void {
+    this.processes.delete(pid);
+    const waiters = this.exitWaiters.get(pid);
+    this.exitWaiters.delete(pid);
+    if (waiters) for (const resolve of waiters) resolve();
+  }
+
+  whenExited(pid: number): Promise<void> {
+    if (!this.processes.has(pid)) return Promise.resolve();
+    return new Promise((resolve) => {
+      let waiters = this.exitWaiters.get(pid);
+      if (!waiters) {
+        waiters = new Set();
+        this.exitWaiters.set(pid, waiters);
+      }
+      waiters.add(resolve);
+    });
+  }
 
   private appendRing(pid: number, chunk: string): void {
     const ring = this.rawRingBuffers.get(pid);
@@ -183,6 +228,7 @@ export class ClaudeManager {
     exitPromise: Promise<number>;
     command: string;
     args: string[];
+    processIdentity?: ProcessIdentity | null;
   }> {
     assertExternalAiCliAllowed(tool);
 
@@ -266,7 +312,8 @@ export class ClaudeManager {
         spawnFields,
         startedAt,
       );
-      return { ...result, command: adapter.command, args };
+      const processIdentity = await readProcessIdentity(result.pid).catch(() => null);
+      return { ...result, command: adapter.command, args, processIdentity };
     }
     const result = await this.spawnAndLog(
       async () => {
@@ -277,7 +324,8 @@ export class ClaudeManager {
       spawnFields,
       startedAt,
     );
-    return { ...result, command: adapter.command, args };
+    const processIdentity = await readProcessIdentity(result.pid).catch(() => null);
+    return { ...result, command: adapter.command, args, processIdentity };
   }
 
   /**
@@ -502,7 +550,7 @@ export class ClaudeManager {
             if (final) stdoutStream.push(final);
           }
           stdoutStream.push(null);
-          this.processes.delete(pid);
+          this.markExited(pid);
           this.stdinStreams.delete(pid);
           this.ptyHandles.delete(pid);
           setTimeout(() => {
@@ -557,6 +605,7 @@ export class ClaudeManager {
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
       const needsStdin = adapter.needsStdin(mode);
+      let startSettled = false;
 
       try {
         child = spawn(adapter.command, args, {
@@ -575,12 +624,6 @@ export class ClaudeManager {
         return;
       }
 
-      child.on('error', (err) => {
-        reject(new Error(
-          `Failed to start ${adapter.displayName}. Is it installed and on PATH? ${err.message}`
-        ));
-      });
-
       const pid = child.pid;
       if (pid === undefined) {
         reject(new Error(`Failed to get PID for ${adapter.displayName} process`));
@@ -593,64 +636,110 @@ export class ClaudeManager {
       };
       this.processes.set(pid, managedProcess);
 
-      // Handle stdin based on mode
-      if (needsStdin && child.stdin) {
-        child.stdin.write(
-          adapter.encodeStdinPrompt?.(prompt, mode, promptPolicy)
-          ?? adapter.formatStdinPrompt(prompt, mode, promptPolicy),
-        );
-        if (mode === 'interactive') {
-          this.stdinStreams.set(pid, child.stdin);
-        } else {
-          child.stdin.end();
-        }
-      } else if (child.stdin) {
-        child.stdin.end();
-      }
-
       const outputDecoder = mode === 'interactive' ? undefined : adapter.createOutputDecoder?.();
       let stdout: NodeJS.ReadableStream = child.stdout!;
       let stderr: NodeJS.ReadableStream = child.stderr!;
-      let exitPromise: Promise<number>;
+      const utf8Decoder = outputDecoder ? new Utf8StreamDecoder() : undefined;
+      let transportFailure: string | null = null;
+      let lifecycleSettled = false;
+      let resolveExit!: (code: number) => void;
+      const exitPromise = new Promise<number>((resolve) => { resolveExit = resolve; });
+      let decodedStdout: PassThrough | undefined;
+      let decodedStderr: PassThrough | undefined;
+
+      const recordTransportFailure = (kind: string, err: unknown): void => {
+        if (transportFailure) return;
+        const message = err instanceof Error ? err.message : String(err);
+        transportFailure = `${kind}: ${message}`;
+        logger.error(kind === 'stdin' ? 'cli.stdin.failed' : 'cli.transport.failed', {
+          msg: `${adapter.displayName} ${kind} transport failed`,
+          provider: adapter.command,
+          pid,
+          message,
+        });
+        if (kind !== 'process') {
+          try { treeKill(pid, 'SIGTERM'); } catch { /* close/exit owns final cleanup */ }
+        }
+      };
+
+      const finishOnce = (code: number | null): void => {
+        if (lifecycleSettled) return;
+        lifecycleSettled = true;
+        let effectiveCode = code ?? 1;
+        if (outputDecoder && decodedStdout && decodedStderr) {
+          try {
+            const finalText = utf8Decoder!.end();
+            if (finalText) outputDecoder.push(finalText);
+            const decoded = outputDecoder.finish(effectiveCode);
+            if (decoded.output) decodedStdout.write(decoded.output);
+            if (decoded.diagnostic) decodedStderr.write(decoded.diagnostic);
+            effectiveCode = decoded.exitCode;
+          } catch (err) {
+            recordTransportFailure('decoder', err);
+            effectiveCode = 1;
+          }
+          if (transportFailure) decodedStderr.write(`\n${transportFailure}\n`);
+          decodedStdout.end();
+          decodedStderr.end();
+        }
+        this.markExited(pid);
+        this.stdinStreams.delete(pid);
+        resolveExit(transportFailure ? 1 : effectiveCode);
+      };
+
+      child.once('error', (err) => {
+        recordTransportFailure('process', err);
+        if (!startSettled) {
+          startSettled = true;
+          reject(new Error(`Failed to start ${adapter.displayName}. Is it installed and on PATH? ${err.message}`));
+        }
+        finishOnce(1);
+      });
+      child.once('close', finishOnce);
+
+      child.stdin?.on('error', (err) => recordTransportFailure('stdin', err));
+      child.stdout?.on('error', (err) => recordTransportFailure('stdout', err));
+      child.stderr?.on('error', (err) => recordTransportFailure('stderr', err));
 
       if (outputDecoder) {
-        const decodedStdout = new PassThrough();
-        const decodedStderr = new PassThrough();
+        decodedStdout = new PassThrough();
+        decodedStderr = new PassThrough();
         stdout = decodedStdout;
         stderr = decodedStderr;
 
         child.stdout!.on('data', (chunk: Buffer | string) => {
-          outputDecoder.push(chunk.toString());
+          try {
+            outputDecoder.push(typeof chunk === 'string' ? chunk : utf8Decoder!.write(chunk));
+          } catch (err) {
+            recordTransportFailure('decoder', err);
+          }
         });
         child.stderr!.on('data', (chunk: Buffer | string) => {
-          decodedStderr.write(chunk);
-        });
-
-        // `close` runs after stdio has drained, so fragmented final NDJSON is
-        // complete before the effective provider exit status is resolved.
-        exitPromise = new Promise<number>((resolveExit) => {
-          child.on('close', (code) => {
-            const decoded = outputDecoder.finish(code ?? 1);
-            if (decoded.output) decodedStdout.write(decoded.output);
-            if (decoded.diagnostic) decodedStderr.write(decoded.diagnostic);
-            decodedStdout.end();
-            decodedStderr.end();
-            this.processes.delete(pid);
-            this.stdinStreams.delete(pid);
-            resolveExit(decoded.exitCode);
-          });
-        });
-      } else {
-        exitPromise = new Promise<number>((resolveExit) => {
-          child.on('exit', (code) => {
-            this.processes.delete(pid);
-            this.stdinStreams.delete(pid);
-            resolveExit(code ?? 1);
-          });
+          decodedStderr!.write(chunk);
         });
       }
 
+      // Register every process/stream listener before prompt delivery. Writable
+      // callback errors and emitted errors converge on the same lifecycle gate.
+      if (needsStdin && child.stdin) {
+        const encodedPrompt = adapter.encodeStdinPrompt?.(prompt, mode, promptPolicy)
+          ?? adapter.formatStdinPrompt(prompt, mode, promptPolicy);
+        try {
+          child.stdin.write(encodedPrompt, (err) => {
+            if (err) recordTransportFailure('stdin', err);
+          });
+          if (mode === 'interactive') this.stdinStreams.set(pid, child.stdin);
+          else child.stdin.end();
+        } catch (err) {
+          recordTransportFailure('stdin', err);
+        }
+      } else if (child.stdin) {
+        try { child.stdin.end(); } catch (err) { recordTransportFailure('stdin', err); }
+      }
+
       setImmediate(() => {
+        if (startSettled) return;
+        startSettled = true;
         resolve({
           pid,
           stdout,
@@ -677,11 +766,25 @@ export class ClaudeManager {
    * (necessary on Windows where shell: true wraps CLIs in cmd.exe).
    * Sends SIGTERM first, escalates to SIGKILL after 5 seconds.
    */
-  async stopClaude(pid: number): Promise<void> {
+  async stopClaude(pid: number, persistedIdentity?: ProcessIdentity | null): Promise<StopResult> {
     const proc = this.processes.get(pid);
     if (!proc) {
-      logger.debug('process.stop.not-tracked', { msg: `stop requested for untracked pid ${pid}`, pid });
-      return;
+      if (!isProcessAlive(pid)) {
+        logger.debug('process.stop.not-tracked', { msg: `stop requested for exited pid ${pid}`, pid });
+        return { status: 'already_exited', pid };
+      }
+      const verdict = await verifyProcessIdentity(pid, persistedIdentity);
+      if (verdict !== 'match') {
+        logger.error('process.stop.unresolved', {
+          msg: `refusing to signal untracked pid ${pid}: process identity ${verdict}`,
+          pid, reason: `process_identity_${verdict}`,
+        });
+        return { status: 'unresolved', pid, reason: `process_identity_${verdict}` };
+      }
+      const terminated = await terminateProcessTree(pid);
+      return terminated
+        ? { status: 'terminated', pid, graceful: false }
+        : { status: 'unresolved', pid, reason: 'termination_not_confirmed' };
     }
 
     const stopStartedAt = Date.now();
@@ -697,19 +800,26 @@ export class ClaudeManager {
     // Try graceful tree-kill first (kills entire process tree)
     try { treeKill(pid, 'SIGTERM'); } catch { /* ignore */ }
 
-    return new Promise<void>((resolve) => {
+    let forced = false;
+    return new Promise<StopResult>((resolve) => {
       // Poll for process exit (exit handler in startWithSpawn/startWithPty deletes from map)
       const checkInterval = setInterval(() => {
         if (!this.processes.has(pid)) {
           clearInterval(checkInterval);
           clearTimeout(killTimer);
           clearTimeout(deadline);
-          resolve();
+          logger.info('process.stop.confirmed', {
+            msg: `pid ${pid} termination confirmed`, pid,
+            graceful: !forced,
+            durationMs: Date.now() - stopStartedAt,
+          });
+          resolve({ status: 'terminated', pid, graceful: !forced });
         }
       }, 200);
 
       // Escalate to SIGKILL after 5 seconds if still alive
       const killTimer = setTimeout(() => {
+        forced = true;
         logger.warn('process.stop.forced', {
           msg: `pid ${pid} did not exit on SIGTERM, escalating to SIGKILL`,
           pid,
@@ -718,17 +828,16 @@ export class ClaudeManager {
         try { treeKill(pid, 'SIGKILL'); } catch { /* ignore */ }
       }, 5000);
 
-      // Final deadline: force-cleanup and resolve after 7 seconds
+      // Final deadline: retain ownership when death cannot be confirmed.
       const deadline = setTimeout(() => {
         clearInterval(checkInterval);
         clearTimeout(killTimer);
-        this.processes.delete(pid);
-        logger.error('process.stop.timeout', {
+        logger.error('process.stop.unresolved', {
           msg: `pid ${pid} could not be confirmed terminated within the stop deadline`,
           pid,
           durationMs: Date.now() - stopStartedAt,
         });
-        resolve();
+        resolve({ status: 'unresolved', pid, reason: 'termination_not_confirmed' });
       }, 7000);
     });
   }
@@ -737,7 +846,7 @@ export class ClaudeManager {
     return this.processes.has(pid);
   }
 
-  async killAll(): Promise<void> {
+  async killAll(): Promise<StopResult[]> {
     const pids = Array.from(this.processes.keys());
     if (pids.length > 0) {
       logger.info('process.kill-all', {
@@ -745,7 +854,7 @@ export class ClaudeManager {
         count: pids.length,
       });
     }
-    await Promise.all(pids.map((pid) => this.stopClaude(pid)));
+    return Promise.all(pids.map((pid) => this.stopClaude(pid)));
   }
 }
 

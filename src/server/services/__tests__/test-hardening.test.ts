@@ -72,19 +72,14 @@ describe('Test Hardening & Boundary Guard Suite', () => {
 
       await orchestrator.startTodo(todo.id);
 
-      // Settings file must exist strictly inside the test workspace
+      // Execution-local policy must not create or modify project settings.
       const settingsPath = path.join(projectDir, '.claude', 'settings.json');
-      expect(fs.existsSync(settingsPath)).toBe(true);
+      expect(fs.existsSync(settingsPath)).toBe(false);
       expect(settingsPath.startsWith(workspace.path)).toBe(true);
 
       const relative = path.relative(workspace.path, settingsPath);
       expect(relative.startsWith('..')).toBe(false);
       expect(path.isAbsolute(relative)).toBe(false);
-
-      // Verify settings content is valid JSON and contains directory-scoped permissions
-      const content = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      expect(content.permissions).toBeDefined();
-      expect(Array.isArray(content.permissions.allow)).toBe(true);
 
       mockCli.resolveExit(0);
     });
@@ -355,16 +350,16 @@ describe('Test Hardening & Boundary Guard Suite', () => {
       expect(startClaudeSpy).not.toHaveBeenCalled();
     });
 
-    it('17. valid TestWorkspace path configures .claude/settings.json and cleans up cleanly', () => {
+    it('17. valid TestWorkspace path leaves user .claude/settings.json byte-identical', () => {
       const ws = createTestWorkspace('valid-sandbox');
+      fs.mkdirSync(path.join(ws.path, '.claude'), { recursive: true });
       const settingsPath = path.join(ws.path, '.claude', 'settings.json');
+      const original = '{"permissions":{"deny":["Read(.env)"],"ask":["Bash(*)"]},"hooks":{"custom":true}}\n';
+      fs.writeFileSync(settingsPath, original);
 
       expect(() => configureClaudeSandboxPermissions(ws.path)).not.toThrow();
       expect(fs.existsSync(settingsPath)).toBe(true);
-
-      const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      expect(parsed.permissions).toBeDefined();
-      expect(Array.isArray(parsed.permissions.allow)).toBe(true);
+      expect(fs.readFileSync(settingsPath, 'utf8')).toBe(original);
 
       ws.cleanup();
       expect(fs.existsSync(ws.path)).toBe(false);

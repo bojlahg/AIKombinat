@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 36 tables, 422 columns, 43 foreign keys
+Stats: 36 tables, 427 columns, 43 foreign keys
 
 ## Diagram
 
@@ -95,6 +95,8 @@ erDiagram
         TEXT branch_name
         TEXT worktree_path
         INTEGER process_pid
+        TEXT process_identity
+        TEXT review_baseline
         DATETIME created_at
         DATETIME updated_at
         TEXT cli_tool
@@ -267,6 +269,7 @@ erDiagram
         TEXT memory_node_ids
         TEXT memory_raw_file_paths
         TEXT execution_snapshot
+        TEXT process_identity
     }
     discussion_messages {
         TEXT id PK
@@ -319,6 +322,7 @@ erDiagram
         TEXT execution_snapshot
         TEXT cli_effort
         TEXT resource_requirements
+        TEXT process_identity
     }
     session_logs {
         TEXT id PK
@@ -488,6 +492,7 @@ erDiagram
         TEXT error_message
         TEXT retry_of_round_id
         INTEGER attempt_index
+        TEXT artifact_identity
         DATETIME started_at
         DATETIME finished_at
         DATETIME created_at

@@ -136,6 +136,36 @@ describe('cli-adapters', () => {
     expect(args).not.toContain('--full-auto');
   });
 
+  it('uses execution-local Claude permissions without touching project settings', () => {
+    const adapter = getAdapter('claude');
+    const args = adapter.buildArgs({
+      mode: 'headless', prompt: 'Implement', sandboxMode: 'strict',
+      promptPolicy: 'implementation', workDir: 'C:\\tmp\\task',
+    });
+    expect(args).toContain('--allowedTools');
+    expect(args).toContain('Read(C:/tmp/task/**)');
+    expect(args).toContain('Edit(C:/tmp/task/**)');
+    expect(args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it('makes review intent read-only and omits the task-completion suffix', () => {
+    const claude = getAdapter('claude');
+    const claudeArgs = claude.buildArgs({
+      mode: 'headless', prompt: 'Review', sandboxMode: 'strict', promptPolicy: 'review',
+    });
+    expect(claudeArgs).toContain('plan');
+    expect(claudeArgs).toContain('--disallowedTools');
+    expect(claudeArgs).toContain('Edit');
+    expect(claude.formatStdinPrompt('Review only', 'headless', 'review').toLowerCase()).not.toContain('commit all changes');
+    expect(claude.formatStdinPrompt('Implement', 'headless', 'implementation').toLowerCase()).toContain('commit all changes');
+
+    const codexArgs = getAdapter('codex').buildArgs({
+      mode: 'headless', prompt: 'Review', sandboxMode: 'strict', promptPolicy: 'review',
+    });
+    expect(codexArgs).toContain('read-only');
+    expect(codexArgs).not.toContain('--approve-for-me');
+  });
+
   it('matches generated headless flags against current CLI help fixtures', () => {
     const fixtures = [
       {

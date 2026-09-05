@@ -12,7 +12,7 @@ import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
 import { broadcastProjectStatus } from './project-status.js';
 import { executorPool } from './executor-pool.js';
-import { orchestrator, configureClaudeSandboxPermissions } from './orchestrator.js';
+import { orchestrator } from './orchestrator.js';
 import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
@@ -20,6 +20,7 @@ import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import { logger } from '../logging/logger.js';
 import { tag } from '../logging/context.js';
 import { clampLine, tailOf } from '../logging/truncate.js';
+import { parseProcessIdentity } from '../utils/process-tree.js';
 
 
 function broadcastDiscussionProjectStatus(discussionId: string): void {
@@ -148,7 +149,12 @@ export class DiscussionOrchestrator {
     if (!discussion) throw new Error('Discussion not found');
 
     if (discussion.process_pid) {
-      await claudeManager.stopClaude(discussion.process_pid);
+      const result = discussion.process_identity
+        ? await claudeManager.stopClaude(discussion.process_pid, parseProcessIdentity(discussion.process_identity))
+        : await claudeManager.stopClaude(discussion.process_pid);
+      if (result?.status === 'unresolved') {
+        throw new Error(`Could not confirm termination of discussion process ${discussion.process_pid}. Stop can be retried.`);
+      }
     }
 
     // Mark running message back to pending
@@ -160,7 +166,7 @@ export class DiscussionOrchestrator {
     }
 
     queries.updateDiscussionStatus(discussionId, 'paused');
-    queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
+    queries.updateDiscussion(discussionId, { process_pid: 0, process_identity: null, execution_snapshot: null });
     queries.createDiscussionLog(discussionId, null, 'info', 'Discussion paused by user.');
 
     dispatchDiscussionStatus({ discussionId, status: 'paused', currentRound: discussion.current_round, currentAgentId: null });
@@ -179,8 +185,13 @@ export class DiscussionOrchestrator {
     if (!targetMsg) throw new Error('No turn to skip');
 
     if (targetMsg.status === 'running' && discussion.process_pid) {
-      await claudeManager.stopClaude(discussion.process_pid);
-      queries.updateDiscussion(discussionId, { process_pid: 0, execution_snapshot: null });
+      const result = discussion.process_identity
+        ? await claudeManager.stopClaude(discussion.process_pid, parseProcessIdentity(discussion.process_identity))
+        : await claudeManager.stopClaude(discussion.process_pid);
+      if (result?.status === 'unresolved') {
+        throw new Error(`Could not confirm termination of discussion process ${discussion.process_pid}. Skip can be retried.`);
+      }
+      queries.updateDiscussion(discussionId, { process_pid: 0, process_identity: null, execution_snapshot: null });
       orchestrator.wakeWaitingExecutors().catch(() => {});
     }
 
@@ -434,22 +445,15 @@ export class DiscussionOrchestrator {
       assertTestRuntimePathAllowed(discussion.worktree_path);
       const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
 
-      // Sandbox: generate Claude CLI permission settings
-      if (sandboxMode === 'strict' && resolvedCliTool === 'claude' && discussion.worktree_path !== project.path) {
-        try {
-          configureClaudeSandboxPermissions(discussion.worktree_path);
-        } catch {
-          queries.createDiscussionLog(discussionId, messageId, 'warning', '[sandbox] Failed to configure permission settings');
-        }
-      }
-
-
       const launch = launchSelection(executionConfig);
-      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, launch, cliOptions, 'headless', resolvedCliTool, maxTurns, project.path, sandboxMode, undefined, undefined, undefined, launch.effort);
+      const result = await claudeManager.startClaude(discussion.worktree_path, prompt, launch, cliOptions, 'headless', resolvedCliTool, maxTurns, project.path, sandboxMode, false, undefined, undefined, launch.effort, 'discussion');
       pid = result.pid;
       exitPromise = result.exitPromise;
 
-      queries.updateDiscussion(discussionId, { process_pid: pid });
+      queries.updateDiscussion(discussionId, {
+        process_pid: pid,
+        process_identity: result.processIdentity ? JSON.stringify(result.processIdentity) : null,
+      });
 
       // Stream logs + capture output
       const outputBuffer = this.streamToDiscussionDb(discussionId, messageId, message.agent_name, result.stdout, result.stderr, resolvedCliTool);

@@ -294,22 +294,18 @@ describe('Todo / Review diagnostics', () => {
     await settle();
   });
 
-  it('logs a WARN when the strict sandbox settings cannot be written', async () => {
+  it('does not write project settings while preparing strict sandbox policy', async () => {
     const todo = createTodo('Sandbox task', 'Implement the feature');
     queries.updateProject(project.id, { sandbox_mode: 'strict' });
 
     const fs = await import('fs');
-    vi.spyOn(fs.default, 'writeFileSync').mockImplementation(() => {
-      throw new Error('EACCES: permission denied');
-    });
+    const writeSpy = vi.spyOn(fs.default, 'writeFileSync');
 
     await orchestrator.startTodo(todo.id);
     await settle();
 
-    const record = findRecord(sink, 'todo.sandbox.config-failed')!;
-    expect(record).toBeDefined();
-    expect(record.level).toBe('warn');
-    expect(String(record.fields.message)).toContain('EACCES');
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(findRecord(sink, 'todo.sandbox.config-failed')).toBeUndefined();
   });
 
   describe('prompt confidentiality', () => {

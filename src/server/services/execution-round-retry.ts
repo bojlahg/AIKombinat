@@ -150,6 +150,7 @@ export class ExecutionRoundRetryService {
           inputPayload: freshRound.input_payload,
           retryOfRoundId: freshRound.id,
           attemptIndex,
+          artifactIdentity: freshRound.artifact_identity,
         }
       );
 

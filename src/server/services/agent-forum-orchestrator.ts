@@ -1072,7 +1072,8 @@ export class AgentForumOrchestrator {
 
   private async terminatePid(cycle: ForumCycle, pid: number): Promise<void> {
     try {
-      await claudeManager.stopClaude(pid);
+      const result = await claudeManager.stopClaude(pid);
+      if (result?.status === 'unresolved') return;
     } catch { /* process may already be gone */ }
     cycle.activePids.delete(pid);
   }

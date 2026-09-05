@@ -1,4 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
+import { createHash } from 'crypto';
 import { getDatabase } from '../db/connection.js';
 import {
   type Todo,
@@ -20,7 +23,7 @@ import { broadcaster } from '../websocket/broadcaster.js';
 import { logger } from '../logging/logger.js';
 import { tag } from '../logging/context.js';
 import { clampLine } from '../logging/truncate.js';
-import { createGit, resolveLocalBaseBranch } from '../lib/git.js';
+import { createGit } from '../lib/git.js';
 import { parseReviewResult } from './review-result-parser.js';
 import type { ReviewResult, ReviewIssue } from './review-result.js';
 import { resourceManager } from './resource-manager.js';
@@ -39,7 +42,65 @@ export interface AdvanceRoundResult {
   reason?: string;
 }
 
+export interface ReviewBaseline {
+  repositoryIdentity: string;
+  workDir: string;
+  baseCommit: string;
+  startingHead: string;
+  startedAt: string;
+}
+
+export interface ReviewedArtifact {
+  baselineCommit: string;
+  reviewedHeadCommit: string;
+  worktreeStateHash: string;
+  diffHash: string;
+  changedFiles: string[];
+  truncated: boolean;
+}
+
+function truncateUtf8(value: string, maxBytes: number): { text: string; truncated: boolean } {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return { text: value, truncated: false };
+  let bytes = 0;
+  let text = '';
+  for (const character of value) {
+    const size = Buffer.byteLength(character, 'utf8');
+    if (bytes + size > maxBytes) break;
+    text += character;
+    bytes += size;
+  }
+  return { text, truncated: true };
+}
+
 export class ReviewPipelineService {
+  async captureBaseline(todoId: string, workDir: string, requireClean: boolean): Promise<ReviewBaseline> {
+    const todo = getTodoById(todoId);
+    if (!todo) throw new Error('Todo not found while capturing review baseline');
+    if (todo.review_baseline) return JSON.parse(todo.review_baseline) as ReviewBaseline;
+
+    const git = createGit(workDir);
+    const porcelain = await git.raw(['status', '--porcelain=v1', '--untracked-files=all']);
+    const hasPorcelainEntries = porcelain.split(/\r?\n/).some((line) => /^[ MADRCU?!]{2} /.test(line));
+    if (requireClean && hasPorcelainEntries) {
+      throw new Error('Review-enabled execution in the project root requires a clean Git working tree');
+    }
+    const head = (await git.raw(['rev-parse', 'HEAD'])).trim();
+    const reportedRoot = (await git.raw(['rev-parse', '--show-toplevel'])).trim();
+    const root = reportedRoot ? path.resolve(reportedRoot) : path.resolve(workDir);
+    const baseline: ReviewBaseline = {
+      repositoryIdentity: root,
+      workDir: path.resolve(workDir),
+      baseCommit: head,
+      startingHead: head,
+      startedAt: new Date().toISOString(),
+    };
+    updateTodo(todoId, { review_baseline: JSON.stringify(baseline) });
+    logger.info('review.baseline.captured', {
+      msg: 'immutable review baseline captured', todoId, baseCommit: head,
+    });
+    return baseline;
+  }
+
   /**
    * Ensure that an initial implementation round exists when review_enabled = 1.
    */
@@ -68,46 +129,84 @@ export class ReviewPipelineService {
   /**
    * Collect git diff summary for the review phase.
    */
-  async collectDiffSummary(todo: Todo, project: Project): Promise<string> {
+  async collectReviewArtifact(todo: Todo, project: Project): Promise<{ summary: string; identity: ReviewedArtifact | null }> {
     if (!project.is_git_repo) {
-      return '(Not a Git repository — diff unavailable)';
+      return { summary: 'REVIEW EVIDENCE UNAVAILABLE: not a Git repository.', identity: null };
     }
 
     const workDir = todo.worktree_path || project.path;
     const git = createGit(workDir);
 
     try {
-      const baseBranch = (await resolveLocalBaseBranch(git, project.default_branch)) || project.default_branch;
-      let statSummary = '';
-      let diffText = '';
-
-      try {
-        statSummary = await git.diff([`${baseBranch}...HEAD`, '--stat']);
-      } catch {
-        statSummary = await git.diff([baseBranch, '--stat']).catch(() => '');
+      if (!todo.review_baseline) {
+        logger.error('review.evidence.unavailable', { msg: 'review baseline is unavailable', todoId: todo.id });
+        return { summary: 'REVIEW EVIDENCE UNAVAILABLE: immutable task baseline was not captured (legacy task).', identity: null };
       }
-
-      try {
-        diffText = await git.diff([`${baseBranch}...HEAD`]);
-      } catch {
-        diffText = await git.diff([baseBranch]).catch(() => '');
+      const baseline = JSON.parse(todo.review_baseline) as ReviewBaseline;
+      if (path.resolve(workDir) !== path.resolve(baseline.workDir)) {
+        return { summary: 'REVIEW EVIDENCE UNAVAILABLE: task work directory changed after baseline capture.', identity: null };
       }
-
-      const MAX_DIFF_BYTES = 50 * 1024;
-      let truncatedDiff = diffText;
-      if (Buffer.byteLength(truncatedDiff, 'utf8') > MAX_DIFF_BYTES) {
-        truncatedDiff = truncatedDiff.slice(0, MAX_DIFF_BYTES) + '\n\n... (Diff truncated for review prompt length limit)';
-      }
-
-      return [
+      const head = (await git.raw(['rev-parse', 'HEAD'])).trim();
+      const committed = await git.diff([`${baseline.baseCommit}..HEAD`]);
+      const staged = await git.diff(['--cached']);
+      const unstaged = await git.diff([]);
+      const statSummary = [
+        await git.diff([`${baseline.baseCommit}..HEAD`, '--stat']),
+        await git.diff(['--cached', '--stat']),
+        await git.diff(['--stat']),
+      ].filter(Boolean).join('\n');
+      const untrackedRaw = await git.raw(['ls-files', '--others', '--exclude-standard', '-z']);
+      const untracked = untrackedRaw.split('\0').filter(Boolean).sort();
+      const untrackedEvidence = untracked.map((relative) => {
+        const absolute = path.resolve(workDir, relative);
+        if (!absolute.startsWith(path.resolve(workDir) + path.sep) || !fs.existsSync(absolute)) return `### Untracked: ${relative}\n(unavailable)`;
+        const data = fs.readFileSync(absolute);
+        return data.includes(0)
+          ? `### Untracked binary: ${relative} (${data.length} bytes)`
+          : `### Untracked: ${relative}\n${data.toString('utf8')}`;
+      }).join('\n\n');
+      const fullDiff = [committed, staged, unstaged, untrackedEvidence].filter(Boolean).join('\n\n');
+      const changedRaw = await git.raw(['diff', '--name-only', `${baseline.baseCommit}..HEAD`]);
+      const workingChanged = await git.raw(['diff', '--name-only']);
+      const stagedChanged = await git.raw(['diff', '--cached', '--name-only']);
+      const changedFiles = Array.from(new Set(
+        [...changedRaw.split(/\r?\n/), ...workingChanged.split(/\r?\n/), ...stagedChanged.split(/\r?\n/), ...untracked]
+          .filter(Boolean),
+      )).sort();
+      const bounded = truncateUtf8(fullDiff, 50 * 1024);
+      const diffHash = createHash('sha256').update(fullDiff).digest('hex');
+      const worktreeStateHash = createHash('sha256')
+        .update(JSON.stringify({ baseline: baseline.baseCommit, head, diffHash, changedFiles }))
+        .digest('hex');
+      const identity: ReviewedArtifact = {
+        baselineCommit: baseline.baseCommit,
+        reviewedHeadCommit: head,
+        worktreeStateHash,
+        diffHash,
+        changedFiles,
+        truncated: bounded.truncated,
+      };
+      logger.info('review.artifact', {
+        msg: 'review artifact collected', todoId: todo.id, baselineCommit: baseline.baseCommit,
+        reviewedHeadCommit: head, diffHash, changedFileCount: changedFiles.length, truncated: bounded.truncated,
+      });
+      return { summary: [
         '### Git Diff Summary',
-        statSummary ? statSummary.trim() : 'No changed files stat available.',
+        statSummary.trim() || (changedFiles.length ? changedFiles.join('\n') : 'No changed files.'),
+        `Artifact: baseline=${baseline.baseCommit} head=${head} diffHash=${diffHash}`,
+        bounded.truncated ? 'WARNING: Diff content is truncated; file list and artifact hash describe the complete state.' : 'Diff content is complete.',
         '### Git Diff Content',
-        truncatedDiff ? truncatedDiff.trim() : 'No code changes detected in diff.',
-      ].join('\n\n');
+        bounded.text.trim() || 'No code changes detected (confirmed empty artifact).',
+      ].join('\n\n'), identity };
     } catch (err) {
-      return `Failed to compute git diff: ${err instanceof Error ? err.message : String(err)}`;
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('review.evidence.unavailable', { msg: 'review evidence collection failed', todoId: todo.id, message: clampLine(message) });
+      return { summary: `REVIEW EVIDENCE UNAVAILABLE: ${message}`, identity: null };
     }
+  }
+
+  async collectDiffSummary(todo: Todo, project: Project): Promise<string> {
+    return (await this.collectReviewArtifact(todo, project)).summary;
   }
 
   /**
@@ -128,6 +227,7 @@ export class ReviewPipelineService {
 
     sections.push('# Automated Code Review Request');
     sections.push(`You are performing Review Round ${attemptNumber} of ${maxAttempts} for the following task.`);
+    sections.push('This is a read-only review. Do not modify files, run mutating commands, commit, or push. Inspect the supplied immutable artifact and return only the structured review result.');
     sections.push(`## Task Title\n${todo.title}`);
     if (todo.description) {
       sections.push(`## Task Description\n${todo.description}`);
@@ -256,7 +356,8 @@ When done, ensure all tests pass.`);
       }
 
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
-      const diffSummary = await this.collectDiffSummary(todo, project);
+      const reviewArtifact = await this.collectReviewArtifact(todo, project);
+      const diffSummary = reviewArtifact.summary;
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const reviewPrompt = this.buildReviewPrompt({
         todo,
@@ -302,6 +403,7 @@ When done, ensure all tests pass.`);
           {
             status: 'pending',
             inputPayload: reviewPrompt,
+            artifactIdentity: reviewArtifact.identity ? JSON.stringify(reviewArtifact.identity) : null,
           }
         );
         updateTodo(todoId, { pipeline_phase: 'review' });
@@ -321,6 +423,25 @@ When done, ensure all tests pass.`);
     }
 
     if (currentRound.phase === 'review') {
+      const currentArtifact = await this.collectReviewArtifact(todo, project);
+      const expectedArtifact = currentRound.artifact_identity;
+      const actualArtifact = currentArtifact.identity ? JSON.stringify(currentArtifact.identity) : null;
+      if (!expectedArtifact || !actualArtifact || expectedArtifact !== actualArtifact) {
+        const reason = !expectedArtifact
+          ? 'Review artifact identity is unavailable.'
+          : 'Code changed after review evidence was captured; the review result cannot approve the new state.';
+        db.transaction(() => {
+          updateExecutionRound(currentRoundId, {
+            status: 'failed', error_message: reason, finished_at: now,
+          });
+          updateTodoStatus(todoId, 'failed');
+          createTaskLog(todoId, 'error', reason, currentRound.round_index);
+        })();
+        logger.error('review.artifact.changed', {
+          msg: reason, todoId, roundId: currentRoundId,
+        });
+        return { action: 'failed', reason: 'review_artifact_changed' };
+      }
       const parseResult = parseReviewResult(processOutput);
 
       if (!parseResult.ok) {
@@ -592,7 +713,8 @@ When done, ensure all tests pass.`);
       }
 
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
-      const diffSummary = await this.collectDiffSummary(todo, project);
+      const reviewArtifact = await this.collectReviewArtifact(todo, project);
+      const diffSummary = reviewArtifact.summary;
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const reviewPrompt = this.buildReviewPrompt({
         todo,
@@ -638,6 +760,7 @@ When done, ensure all tests pass.`);
           {
             status: 'pending',
             inputPayload: reviewPrompt,
+            artifactIdentity: reviewArtifact.identity ? JSON.stringify(reviewArtifact.identity) : null,
           }
         );
         updateTodo(todoId, { pipeline_phase: 'review' });

@@ -19,6 +19,7 @@ import type { ResolvedExecutionConfig } from './execution-config.js';
 import { parseStoredResourceRequirements, RESOURCE_CATALOG } from './resource-catalog.js';
 import { resourceManager } from './resource-manager.js';
 import * as queries from '../db/queries.js';
+import { parseProcessIdentity } from '../utils/process-tree.js';
 
 const RAW_FLUSH_BYTES = 4 * 1024;
 const RAW_FLUSH_MS = 100;
@@ -519,9 +520,24 @@ export class SessionManager {
 
       if (this.activeRunTokens.get(sessionId) !== runToken) {
         // Run superseded while spawning
-        try { await claudeManager.stopClaude(pid); } catch { /* ignore */ }
-        if (hasResources) resourceManager.releaseRun(runToken);
-        hasResources = false;
+        const stopResult = session.process_identity
+          ? await claudeManager.stopClaude(pid, parseProcessIdentity(session.process_identity))
+          : await claudeManager.stopClaude(pid);
+        if (stopResult?.status === 'unresolved') {
+          queries.updateSession(sessionId, {
+            process_pid: pid,
+            process_identity: result.processIdentity ? JSON.stringify(result.processIdentity) : null,
+          });
+          if (claudeManager.isRunning(pid)) void claudeManager.whenExited(pid).then(() => {
+            const current = queries.getSessionById(sessionId);
+            if (current?.process_pid === pid) queries.updateSession(sessionId, { process_pid: 0, process_identity: null });
+            if (hasResources) resourceManager.releaseRun(runToken);
+            hasResources = false;
+          });
+        } else {
+          if (hasResources) resourceManager.releaseRun(runToken);
+          hasResources = false;
+        }
         return;
       }
 
@@ -536,7 +552,12 @@ export class SessionManager {
       // base_commit intentionally absent: the pre-spawn snapshot's completion
       // handler owns that column — writing the (possibly stale-null) value here
       // could overwrite a snapshot that already landed.
-      queries.updateSession(sessionId, { process_pid: pid, branch_name: branchName, worktree_path: worktreePath });
+      queries.updateSession(sessionId, {
+        process_pid: pid,
+        process_identity: result.processIdentity ? JSON.stringify(result.processIdentity) : null,
+        branch_name: branchName,
+        worktree_path: worktreePath,
+      });
       this.livePids.set(sessionId, pid);
       const queued = this.runStartupBuffers.get(runToken);
       this.runStartupBuffers.delete(runToken);
@@ -705,29 +726,58 @@ export class SessionManager {
     const pid = session.process_pid;
 
     this.stoppingSessionIds.add(sessionId);
+    let unresolved = false;
     try {
       const runToken = this.activeRunTokens.get(sessionId);
+      if (pid) {
+        const stopResult = session.process_identity
+          ? await claudeManager.stopClaude(pid, parseProcessIdentity(session.process_identity))
+          : await claudeManager.stopClaude(pid);
+        if (stopResult?.status === 'unresolved') {
+          unresolved = true;
+          if (claudeManager.isRunning(pid)) void claudeManager.whenExited(pid).then(() => {
+            const current = queries.getSessionById(sessionId);
+            if (!current || current.process_pid !== pid) return;
+            const lateRunToken = this.activeRunTokens.get(sessionId);
+            if (lateRunToken !== undefined) {
+              this.flushAndForgetRaw(lateRunToken);
+              this.activeRunTokens.delete(sessionId);
+              this.runInitialPrompts.delete(lateRunToken);
+              this.runStartupBuffers.delete(lateRunToken);
+              resourceManager.releaseRun(lateRunToken);
+            } else {
+              resourceManager.releaseOwner('session', sessionId);
+            }
+            this.livePids.delete(sessionId);
+            queries.updateSessionStatus(sessionId, 'stopped');
+            queries.updateSession(sessionId, { process_pid: 0, process_identity: null });
+            broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
+            broadcastProjectStatus(current.project_id);
+            setImmediate(() => {
+              this.stoppingSessionIds.delete(sessionId);
+              orchestrator.wakeWaitingExecutors().catch(() => {});
+            });
+          });
+          throw new Error(`Could not confirm termination of session process ${pid}. Stop can be retried.`);
+        }
+      }
       if (runToken !== undefined) {
         this.flushAndForgetRaw(runToken);
         this.activeRunTokens.delete(sessionId);
         this.runInitialPrompts.delete(runToken);
         this.runStartupBuffers.delete(runToken);
       }
-
       this.livePids.delete(sessionId);
-      if (pid) {
-        await claudeManager.stopClaude(pid);
-      }
       if (runToken !== undefined) resourceManager.releaseRun(runToken);
       else resourceManager.releaseOwner('session', sessionId);
       queries.updateSessionStatus(sessionId, 'stopped');
-      queries.updateSession(sessionId, { process_pid: 0 });
+      queries.updateSession(sessionId, { process_pid: 0, process_identity: null });
       queries.createSessionLog(sessionId, 'output', 'Session stopped by user.');
       broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
       broadcastProjectStatus(session.project_id);
       orchestrator.wakeWaitingExecutors().catch(() => {});
     } finally {
-      this.stoppingSessionIds.delete(sessionId);
+      if (!unresolved) this.stoppingSessionIds.delete(sessionId);
     }
   }
 
