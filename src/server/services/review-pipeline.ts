@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
+import { StringDecoder } from 'string_decoder';
 import { getDatabase } from '../db/connection.js';
 import {
   type Todo,
@@ -56,8 +57,20 @@ export interface ReviewedArtifact {
   worktreeStateHash: string;
   diffHash: string;
   changedFiles: string[];
+  untrackedFiles: UntrackedFileIdentity[];
   truncated: boolean;
 }
+
+export interface UntrackedFileIdentity {
+  path: string;
+  size: number;
+  sha256: string;
+  kind: 'text' | 'binary' | 'symlink' | 'other';
+}
+
+const REVIEW_EVIDENCE_CAP_BYTES = 50 * 1024;
+const UNTRACKED_PREVIEW_CAP_BYTES = 8 * 1024;
+const BINARY_SAMPLE_BYTES = 4 * 1024;
 
 function truncateUtf8(value: string, maxBytes: number): { text: string; truncated: boolean } {
   if (Buffer.byteLength(value, 'utf8') <= maxBytes) return { text: value, truncated: false };
@@ -70,6 +83,70 @@ function truncateUtf8(value: string, maxBytes: number): { text: string; truncate
     bytes += size;
   }
   return { text, truncated: true };
+}
+
+async function inspectUntrackedFile(workDir: string, relative: string): Promise<{
+  identity: UntrackedFileIdentity;
+  evidence: string;
+}> {
+  const root = path.resolve(workDir);
+  const absolute = path.resolve(root, relative);
+  const rel = path.relative(root, absolute);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`untracked path escapes the task worktree: ${relative}`);
+  }
+
+  const stat = await fs.promises.lstat(absolute);
+  if (stat.isSymbolicLink()) {
+    const target = await fs.promises.readlink(absolute);
+    const sha256 = createHash('sha256').update(`symlink\0${target}`).digest('hex');
+    return {
+      identity: { path: relative, size: stat.size, sha256, kind: 'symlink' },
+      evidence: `### Untracked symlink: ${relative}\nTarget: ${target}\nContent was not read (symlink evidence is never followed).`,
+    };
+  }
+  if (!stat.isFile()) {
+    const sha256 = createHash('sha256').update(`other\0${relative}\0${stat.size}`).digest('hex');
+    return {
+      identity: { path: relative, size: stat.size, sha256, kind: 'other' },
+      evidence: `### Untracked special entry: ${relative}\nType: other\nSize: ${stat.size} bytes\nSHA-256: ${sha256}\nContent was not read.`,
+    };
+  }
+
+  const hash = createHash('sha256');
+  const previewChunks: Buffer[] = [];
+  let previewBytes = 0;
+  let sample = Buffer.alloc(0);
+  const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+  const handle = await fs.promises.open(absolute, fs.constants.O_RDONLY | noFollow);
+  const stream = handle.createReadStream();
+  for await (const rawChunk of stream) {
+    const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+    hash.update(chunk);
+    if (sample.length < BINARY_SAMPLE_BYTES) {
+      sample = Buffer.concat([sample, chunk.subarray(0, BINARY_SAMPLE_BYTES - sample.length)]);
+    }
+    if (previewBytes < UNTRACKED_PREVIEW_CAP_BYTES) {
+      const piece = chunk.subarray(0, UNTRACKED_PREVIEW_CAP_BYTES - previewBytes);
+      previewChunks.push(piece);
+      previewBytes += piece.length;
+    }
+  }
+  const sha256 = hash.digest('hex');
+  const binary = sample.includes(0);
+  const kind: UntrackedFileIdentity['kind'] = binary ? 'binary' : 'text';
+  const identity = { path: relative, size: stat.size, sha256, kind };
+  const header = `### Untracked ${kind}: ${relative}\nSize: ${stat.size} bytes\nSHA-256: ${sha256}`;
+  if (binary) {
+    return { identity, evidence: `${header}\nBinary content omitted.` };
+  }
+  const decoder = new StringDecoder('utf8');
+  const preview = decoder.write(Buffer.concat(previewChunks));
+  const truncated = stat.size > previewBytes;
+  return {
+    identity,
+    evidence: `${header}\n${preview}${truncated ? '\n[untracked preview truncated]' : ''}`,
+  };
 }
 
 export class ReviewPipelineService {
@@ -131,6 +208,7 @@ export class ReviewPipelineService {
    */
   async collectReviewArtifact(todo: Todo, project: Project): Promise<{ summary: string; identity: ReviewedArtifact | null }> {
     if (!project.is_git_repo) {
+      logger.error('review.evidence.unavailable', { msg: 'project is not a Git repository', todoId: todo.id });
       return { summary: 'REVIEW EVIDENCE UNAVAILABLE: not a Git repository.', identity: null };
     }
 
@@ -144,7 +222,13 @@ export class ReviewPipelineService {
       }
       const baseline = JSON.parse(todo.review_baseline) as ReviewBaseline;
       if (path.resolve(workDir) !== path.resolve(baseline.workDir)) {
+        logger.error('review.evidence.unavailable', { msg: 'task work directory changed after baseline capture', todoId: todo.id });
         return { summary: 'REVIEW EVIDENCE UNAVAILABLE: task work directory changed after baseline capture.', identity: null };
+      }
+      const currentRoot = path.resolve((await git.raw(['rev-parse', '--show-toplevel'])).trim());
+      if (currentRoot !== path.resolve(baseline.repositoryIdentity)) {
+        logger.error('review.evidence.unavailable', { msg: 'Git repository identity changed after baseline capture', todoId: todo.id });
+        return { summary: 'REVIEW EVIDENCE UNAVAILABLE: Git repository identity changed after baseline capture.', identity: null };
       }
       const head = (await git.raw(['rev-parse', 'HEAD'])).trim();
       const committed = await git.diff([`${baseline.baseCommit}..HEAD`]);
@@ -157,14 +241,10 @@ export class ReviewPipelineService {
       ].filter(Boolean).join('\n');
       const untrackedRaw = await git.raw(['ls-files', '--others', '--exclude-standard', '-z']);
       const untracked = untrackedRaw.split('\0').filter(Boolean).sort();
-      const untrackedEvidence = untracked.map((relative) => {
-        const absolute = path.resolve(workDir, relative);
-        if (!absolute.startsWith(path.resolve(workDir) + path.sep) || !fs.existsSync(absolute)) return `### Untracked: ${relative}\n(unavailable)`;
-        const data = fs.readFileSync(absolute);
-        return data.includes(0)
-          ? `### Untracked binary: ${relative} (${data.length} bytes)`
-          : `### Untracked: ${relative}\n${data.toString('utf8')}`;
-      }).join('\n\n');
+      const inspectedUntracked = [];
+      for (const relative of untracked) inspectedUntracked.push(await inspectUntrackedFile(workDir, relative));
+      const untrackedFiles = inspectedUntracked.map((item) => item.identity);
+      const untrackedEvidence = inspectedUntracked.map((item) => item.evidence).join('\n\n');
       const fullDiff = [committed, staged, unstaged, untrackedEvidence].filter(Boolean).join('\n\n');
       const changedRaw = await git.raw(['diff', '--name-only', `${baseline.baseCommit}..HEAD`]);
       const workingChanged = await git.raw(['diff', '--name-only']);
@@ -173,10 +253,13 @@ export class ReviewPipelineService {
         [...changedRaw.split(/\r?\n/), ...workingChanged.split(/\r?\n/), ...stagedChanged.split(/\r?\n/), ...untracked]
           .filter(Boolean),
       )).sort();
-      const bounded = truncateUtf8(fullDiff, 50 * 1024);
-      const diffHash = createHash('sha256').update(fullDiff).digest('hex');
+      const bounded = truncateUtf8(fullDiff, REVIEW_EVIDENCE_CAP_BYTES);
+      const diffHash = createHash('sha256')
+        .update(committed).update('\0').update(staged).update('\0').update(unstaged)
+        .update('\0').update(JSON.stringify(untrackedFiles))
+        .digest('hex');
       const worktreeStateHash = createHash('sha256')
-        .update(JSON.stringify({ baseline: baseline.baseCommit, head, diffHash, changedFiles }))
+        .update(JSON.stringify({ baseline: baseline.baseCommit, head, diffHash, changedFiles, untrackedFiles }))
         .digest('hex');
       const identity: ReviewedArtifact = {
         baselineCommit: baseline.baseCommit,
@@ -184,6 +267,7 @@ export class ReviewPipelineService {
         worktreeStateHash,
         diffHash,
         changedFiles,
+        untrackedFiles,
         truncated: bounded.truncated,
       };
       logger.info('review.artifact', {
@@ -207,6 +291,48 @@ export class ReviewPipelineService {
 
   async collectDiffSummary(todo: Todo, project: Project): Promise<string> {
     return (await this.collectReviewArtifact(todo, project)).summary;
+  }
+
+  private failReviewEvidenceTransition(
+    todo: Todo,
+    currentRound: TodoExecutionRound,
+    summary: string,
+    now: string,
+  ): AdvanceRoundResult {
+    const message = `Review evidence unavailable; reviewer was not started. ${summary}`;
+    let aborted = false;
+    getDatabase().transaction(() => {
+      const freshTodo = getTodoById(todo.id);
+      const freshRound = getExecutionRoundById(currentRound.id);
+      const activeRound = getActiveExecutionRound(todo.id);
+      if (!freshTodo || freshTodo.status === 'stopped' || freshTodo.status === 'failed'
+        || !freshRound || freshRound.status === 'stopped' || freshRound.status === 'failed'
+        || activeRound?.id !== currentRound.id) {
+        aborted = true;
+        return;
+      }
+      updateExecutionRound(currentRound.id, {
+        status: 'failed',
+        error_message: message,
+        finished_at: now,
+      });
+      updateTodo(todo.id, { pipeline_phase: 'review' });
+      updateTodoStatus(todo.id, 'failed');
+      createTaskLog(todo.id, 'error', message, currentRound.round_index);
+    })();
+    if (aborted) return { action: 'superseded', reason: 'cancelled_or_stopped' };
+    logger.error('review.evidence.unavailable', {
+      scope: tag('todo', todo.title),
+      msg: 'review transition failed before reviewer launch',
+      todoId: todo.id,
+      roundId: currentRound.id,
+      reason: 'review_evidence_unavailable',
+      detail: clampLine(summary),
+    });
+    const updated = getExecutionRoundById(currentRound.id);
+    if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId: todo.id, round: updated });
+    broadcaster.broadcast({ type: 'todo:status-changed', todoId: todo.id, status: 'failed', mode: 'error' });
+    return { action: 'failed', reason: 'review_evidence_unavailable' };
   }
 
   /**
@@ -357,8 +483,11 @@ When done, ensure all tests pass.`);
 
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const reviewArtifact = await this.collectReviewArtifact(todo, project);
-      const diffSummary = reviewArtifact.summary;
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
+      if (!reviewArtifact.identity) {
+        return this.failReviewEvidenceTransition(todo, currentRound, reviewArtifact.summary, now);
+      }
+      const diffSummary = reviewArtifact.summary;
       const reviewPrompt = this.buildReviewPrompt({
         todo,
         project,
@@ -403,7 +532,7 @@ When done, ensure all tests pass.`);
           {
             status: 'pending',
             inputPayload: reviewPrompt,
-            artifactIdentity: reviewArtifact.identity ? JSON.stringify(reviewArtifact.identity) : null,
+            artifactIdentity: JSON.stringify(reviewArtifact.identity),
           }
         );
         updateTodo(todoId, { pipeline_phase: 'review' });
@@ -714,8 +843,11 @@ When done, ensure all tests pass.`);
 
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
       const reviewArtifact = await this.collectReviewArtifact(todo, project);
-      const diffSummary = reviewArtifact.summary;
       if (options?.isCancelled?.()) return { action: 'superseded', reason: 'cancelled_or_stopped' };
+      if (!reviewArtifact.identity) {
+        return this.failReviewEvidenceTransition(todo, currentRound, reviewArtifact.summary, now);
+      }
+      const diffSummary = reviewArtifact.summary;
       const reviewPrompt = this.buildReviewPrompt({
         todo,
         project,
@@ -760,7 +892,7 @@ When done, ensure all tests pass.`);
           {
             status: 'pending',
             inputPayload: reviewPrompt,
-            artifactIdentity: reviewArtifact.identity ? JSON.stringify(reviewArtifact.identity) : null,
+            artifactIdentity: JSON.stringify(reviewArtifact.identity),
           }
         );
         updateTodo(todoId, { pipeline_phase: 'review' });
@@ -1016,8 +1148,9 @@ When done, ensure all tests pass.`);
         }
       }
 
-      if (isAlive && todo.status === 'running') {
-        // Process is still alive — preserve running state
+      if (isAlive) {
+        // Central startup recovery already classified the identity. A live PID
+        // remains unresolved/owned even when that classification set failed.
         continue;
       }
 
@@ -1038,7 +1171,7 @@ When done, ensure all tests pass.`);
           finished_at: now,
         });
         updateTodoStatus(todo.id, 'failed');
-        updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
+        updateTodo(todo.id, { process_pid: 0, process_identity: null, execution_snapshot: null });
       })();
 
       if (round.run_token) {

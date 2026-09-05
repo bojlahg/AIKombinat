@@ -46,6 +46,15 @@ describe('Quota Awareness V1', () => {
 
   beforeEach(() => {
     workspace = createTestWorkspace('provider-quota');
+    for (const directory of [
+      'exhausted-project', 'rt-proj', 'codex-proj', 'agy-proj', 'normal-err-proj',
+      'success-proj', 'manual-proj', 'preflight-todo-proj', 'preflight-sess-proj',
+      'preflight-disc-proj', 'pty-sess-proj', 'agy-pty-proj', 'pty-normal-proj',
+      'todo-iso-proj', 'sess-iso-proj', 'prof-proj', 'man-proj', 'ctx-proj',
+      'pty-early-proj', 'pty-bound-proj', 'pty-norm-proj', 'pty-fast-proj',
+      'todo-drain-proj', 'todo-prompt-proj', 'session-cross-proj', 'conc-sess-proj',
+      'stop-flush-proj',
+    ]) workspace.createSubdir(directory);
     testDb = new Database(':memory:');
     initDatabase(testDb);
     executorPool.resetLimits();

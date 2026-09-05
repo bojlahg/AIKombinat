@@ -44,6 +44,15 @@ describe('Executor Pool V1', () => {
 
   beforeEach(() => {
     workspace = createTestWorkspace('executor-pool');
+    for (const directory of [
+      'proj', 'test-project', 'test-project-2', 'mock-worktree', 'resume-project',
+      'manual-project', 'agy-proj', 'race-proj', 'fail-proj', 'stop-all-proj',
+      'proj-a', 'proj-b', 'disc-proj', 'recovery-proj', 'spam-proj',
+      'double-wake-proj', 'two-slot-proj', 'spawn-fail-proj', 'session-proj',
+      'multi-disc', 'coalesce-proj', 'manual-proj', 'race-manual-proj',
+      'session-race-proj', 'val-proj', 'disc-rel-proj', 'multi-turn', 'sess-fail',
+      'prompt-gate', 'no-prompt', 'stale-proj',
+    ]) workspace.createSubdir(directory);
     testDb = new Database(':memory:');
     initDatabase(testDb);
     executorPool.resetLimits();

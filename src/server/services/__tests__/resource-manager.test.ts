@@ -152,6 +152,18 @@ describe('Resource Manager V1', () => {
     expect(manager.acquireAtomic({ ownerType: 'todo', ownerId: second.id, runToken: 'other-run', resources: ['local.llm'] }).status).toBe('busy');
   });
 
+  it('retains an unresolved startup owner after recovery marks it failed', () => {
+    const first = owner('Unresolved');
+    queries.updateTodoStatus(first.id, 'failed');
+    queries.updateTodo(first.id, { process_pid: 4321 });
+    new ResourceManager().acquireAtomic({ ownerType: 'todo', ownerId: first.id, runToken: 'unresolved-run', resources: ['local.llm'] });
+    const manager = new ResourceManager((pid) => pid === 4321);
+    testDb.prepare("UPDATE resource_leases SET expires_at = '2000-01-01T00:00:00.000Z'").run();
+
+    expect(manager.recoverStaleLeases()).toEqual({ released: 0, recovered: 1 });
+    expect(manager.getStatus().find((resource) => resource.key === 'local.llm')?.used).toBe(1);
+  });
+
   it('heartbeats active runs without broadcasting heartbeat updates', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'));
@@ -397,7 +409,7 @@ describe('Resource Manager V1', () => {
 
   it('uses a new run token for context fallback and isolates late cleanup from the restarted run', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
-    const project = queries.createProject('Project', workspace.resolvePath('resource-context-fallback'));
+    const project = queries.createProject('Project', workspace.createSubdir('resource-context-fallback'));
     queries.updateProject(project.id, { cli_fallback_chain: JSON.stringify(['claude', 'raw-shell']) });
     const todo = queries.createTodo(
       project.id, 'Context fallback', undefined, 0, 'claude', 'claude-3.7-sonnet', undefined, undefined,

@@ -107,12 +107,12 @@ export class SessionManager {
       try {
         queries.updateSessionStatus(session.id, 'failed');
         queries.createSessionLog(session.id, 'error', msg);
-        queries.updateSession(session.id, { process_pid: 0 });
+        queries.updateSession(session.id, { process_pid: 0, process_identity: null });
         resourceManager.releaseOwner('session', session.id);
       } catch {
         try {
           queries.updateSessionStatus(session.id, 'failed');
-          queries.updateSession(session.id, { process_pid: 0 });
+          queries.updateSession(session.id, { process_pid: 0, process_identity: null });
           resourceManager.releaseOwner('session', session.id);
         } catch { /* ignore */ }
       }

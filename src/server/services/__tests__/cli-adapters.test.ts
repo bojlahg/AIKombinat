@@ -166,6 +166,41 @@ describe('cli-adapters', () => {
     expect(codexArgs).not.toContain('--approve-for-me');
   });
 
+  it.each([
+    ['claude', '--dangerously-skip-permissions'],
+    ['claude', '--permission-mode=bypassPermissions'],
+    ['claude', '--allowedTools=Bash'],
+    ['codex', '--dangerously-bypass-approvals-and-sandbox'],
+    ['codex', '--sandbox=workspace-write'],
+    ['codex', '--full-auto'],
+    ['codex', '--add-dir=C:/outside'],
+    ['antigravity', '--dangerously-skip-permissions'],
+    ['antigravity', '--sandbox=false'],
+  ] as const)('rejects reserved %s extraOptions before they can weaken strict/review policy', (tool, extraOptions) => {
+    expect(() => getAdapter(tool).buildArgs({
+      mode: 'headless', prompt: 'Review', sandboxMode: 'strict', promptPolicy: 'review', extraOptions,
+    })).toThrow(/Configuration error.*reserved option/i);
+  });
+
+  it.each(['claude', 'codex', 'antigravity'] as const)('allows non-reserved custom %s flags', (tool) => {
+    const args = getAdapter(tool).buildArgs({
+      mode: 'headless', prompt: 'Review', sandboxMode: 'strict', promptPolicy: 'review',
+      extraOptions: '--color=never --disable-slash-commands',
+    });
+    expect(args).toContain('--color=never');
+    expect(args).toContain('--disable-slash-commands');
+  });
+
+  it('documents Antigravity review isolation as sandbox plus prompt policy, without inventing read-only flags', () => {
+    const args = getAdapter('antigravity').buildArgs({
+      mode: 'headless', prompt: 'Review', sandboxMode: 'strict', promptPolicy: 'review',
+    });
+    expect(args).toContain('--sandbox');
+    expect(args).not.toContain('--mode');
+    expect(args).not.toContain('plan');
+    expect(parseCliHelpFlags(agyHelp)).not.toContain('--read-only');
+  });
+
   it('matches generated headless flags against current CLI help fixtures', () => {
     const fixtures = [
       {

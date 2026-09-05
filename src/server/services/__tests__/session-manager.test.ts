@@ -263,7 +263,7 @@ describe('Session Manager Stale Liveness Recovery', () => {
   });
 
   it('5. Executor capacity recovery: dead recovered session frees slot and wakes waiting_executor Todo', async () => {
-    const project = queries.createProject('Project', workspace.resolvePath('project-executor-wake'));
+    const project = queries.createProject('Project', workspace.createSubdir('project-executor-wake'));
     executorPool.setLimit('claude', 1);
 
     const session = queries.createSession(

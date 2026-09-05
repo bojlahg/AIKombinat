@@ -69,6 +69,7 @@ describe('ReviewPipelineService', () => {
         worktreeStateHash: 'state-hash',
         diffHash: 'diff-hash',
         changedFiles: ['index.ts'],
+        untrackedFiles: [],
         truncated: false,
       },
     });
@@ -167,6 +168,44 @@ describe('ReviewPipelineService', () => {
     const updatedTodo = queries.getTodoById(todo.id)!;
     expect(updatedTodo.pipeline_phase).toBe('review');
     expect(updatedTodo.status).toBe('pending');
+  });
+
+  it('fails implementation before creating a reviewer round when evidence is unavailable', async () => {
+    const todo = queries.createTodo(project.id, 'Unavailable evidence', 'Task', 1, 'claude', undefined, undefined, undefined, undefined, 1, 'none', null, null, undefined, undefined, null, null, '[]', 1, reviewProfile.id, reworkProfile.id, 3);
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round.id, { status: 'running' });
+    vi.mocked(reviewPipeline.collectReviewArtifact).mockResolvedValueOnce({
+      summary: 'REVIEW EVIDENCE UNAVAILABLE: git failed', identity: null,
+    });
+
+    const result = await reviewPipeline.advanceRoundOnSuccess(todo.id, round.id);
+
+    expect(result).toMatchObject({ action: 'failed', reason: 'review_evidence_unavailable' });
+    expect(queries.getExecutionRoundsByTodoId(todo.id)).toHaveLength(1);
+    expect(queries.getExecutionRoundById(round.id)?.status).toBe('failed');
+    expect(queries.getTodoById(todo.id)?.status).toBe('failed');
+  });
+
+  it('fails rework before creating another reviewer round when evidence is unavailable', async () => {
+    const todo = queries.createTodo(project.id, 'Unavailable rework evidence', 'Task', 1, 'claude', undefined, undefined, undefined, undefined, 1, 'none', null, null, undefined, undefined, null, null, '[]', 1, reviewProfile.id, reworkProfile.id, 3);
+    reviewPipeline.ensureInitialRound(todo.id);
+    const implementation = queries.getActiveExecutionRound(todo.id)!;
+    await reviewPipeline.advanceRoundOnSuccess(todo.id, implementation.id);
+    const review = queries.getActiveExecutionRound(todo.id)!;
+    await reviewPipeline.advanceRoundOnSuccess(todo.id, review.id, JSON.stringify({
+      verdict: 'needs_changes', summary: 'Fix it', issues: [{ severity: 'major', description: 'Issue' }],
+    }));
+    const rework = queries.getActiveExecutionRound(todo.id)!;
+    vi.mocked(reviewPipeline.collectReviewArtifact).mockResolvedValueOnce({
+      summary: 'REVIEW EVIDENCE UNAVAILABLE: git failed', identity: null,
+    });
+
+    const result = await reviewPipeline.advanceRoundOnSuccess(todo.id, rework.id);
+
+    expect(result).toMatchObject({ action: 'failed', reason: 'review_evidence_unavailable' });
+    expect(queries.getExecutionRoundsByTodoId(todo.id)).toHaveLength(3);
+    expect(queries.getExecutionRoundById(rework.id)?.status).toBe('failed');
   });
 
   it('TC-04 / TC-05: reviewer approved verdict completes the review round and task', async () => {

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import crypto from 'crypto';
 import { getDatabase } from './db/connection.js';
-import { getTodosByStatus, updateTodoStatus, updateTodo, cleanOldLogs, getAllProjects, getDiscussionsByStatus, updateDiscussionStatus, updateDiscussion, getSessionsByStatus, updateSessionStatus, updateSession } from './db/queries.js';
+import { cleanOldLogs, getAllProjects, getTodosByStatus } from './db/queries.js';
 import { initAuth } from './middleware/auth.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
@@ -23,6 +23,7 @@ import logsRouter from './routes/logs.js';
 import imagesRouter from './routes/images.js';
 import { claudeManager } from './services/claude-manager.js';
 import { orchestrator } from './services/orchestrator.js';
+import { recoverPersistedProcesses } from './services/startup-process-recovery.js';
 import { sessionManager } from './services/session-manager.js';
 import { tunnelManager } from './services/tunnel-manager.js';
 import { getSetting as getAppSetting, setSetting as setAppSetting } from './db/app-settings.js';
@@ -135,71 +136,7 @@ checkAllTools().then(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
 }).catch(() => { /* ignore */ });
 
-const isProcessAlive = (pid: number | null): boolean => {
-  if (!pid) return false;
-  try { process.kill(pid, 0); return true; } catch { return false; }
-};
-
-// Startup recovery: reset stale 'running' todos to 'failed'. A still-live
-// child keeps its persisted state and resource lease even though output is not reattached.
-const staleTodos = getTodosByStatus('running');
-if (staleTodos.length > 0) {
-  logger.warn('startup.recovery.todos', {
-    scope: '[startup]',
-    msg: `recovering ${staleTodos.length} stale running task(s)`,
-    count: staleTodos.length,
-  });
-  for (const todo of staleTodos) {
-    if (isProcessAlive(todo.process_pid)) continue;
-    updateTodoStatus(todo.id, 'failed');
-    updateTodo(todo.id, { process_pid: 0 });
-    logger.warn('startup.recovery.todo-reset', {
-      scope: '[startup]',
-      msg: `reset todo "${todo.title}" from running to failed`,
-      todoId: todo.id,
-      projectId: todo.project_id,
-    });
-  }
-}
-
-// Startup recovery: reset stale 'running' discussions to 'paused'
-const staleDiscussions = getDiscussionsByStatus('running');
-if (staleDiscussions.length > 0) {
-  logger.warn('startup.recovery.discussions', {
-    scope: '[startup]',
-    msg: `recovering ${staleDiscussions.length} stale running discussion(s)`,
-    count: staleDiscussions.length,
-  });
-  for (const discussion of staleDiscussions) {
-    updateDiscussionStatus(discussion.id, 'paused');
-    updateDiscussion(discussion.id, { process_pid: 0 });
-    logger.warn('startup.recovery.discussion-reset', {
-      scope: '[startup]',
-      msg: `reset discussion "${discussion.title}" from running to paused`,
-      discussionId: discussion.id,
-    });
-  }
-}
-
-// Startup recovery: reset stale 'running' sessions to 'failed'
-const staleSessions = getSessionsByStatus('running');
-if (staleSessions.length > 0) {
-  logger.warn('startup.recovery.sessions', {
-    scope: '[startup]',
-    msg: `recovering ${staleSessions.length} stale running session(s)`,
-    count: staleSessions.length,
-  });
-  for (const session of staleSessions) {
-    if (isProcessAlive(session.process_pid)) continue;
-    updateSessionStatus(session.id, 'failed');
-    updateSession(session.id, { process_pid: 0 });
-    logger.warn('startup.recovery.session-reset', {
-      scope: '[startup]',
-      msg: `reset session "${session.title}" from running to failed`,
-      sessionId: session.id,
-    });
-  }
-}
+await recoverPersistedProcesses();
 
 // Startup recovery: reconcile agent forums left behind by a crash, restart or a
 // Stop that never completed — their unfinished turns and any orphan CLI process

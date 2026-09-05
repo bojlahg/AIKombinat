@@ -73,7 +73,7 @@ let currentWorkspace: TestWorkspace | null = null;
 vi.mock('../worktree-manager.js', () => ({
   worktreeManager: {
     createWorktree: vi.fn().mockImplementation(async () => ({
-      worktreePath: currentWorkspace?.resolvePath('worktree-retry-1') ?? '',
+      worktreePath: currentWorkspace?.createSubdir('worktree-retry-1') ?? '',
       branchName: 'task-retry-1',
     })),
     isValidWorktree: vi.fn().mockResolvedValue(true),
@@ -83,7 +83,7 @@ vi.mock('../worktree-manager.js', () => ({
 }));
 
 vi.mock('../../lib/git.js', () => ({
-  createGit: () => ({
+  createGit: (workDir: string) => ({
     diff: (...args: any[]) => mockGitDiff(...args),
     status: vi.fn().mockResolvedValue({
       modified: ['index.ts'],
@@ -91,7 +91,13 @@ vi.mock('../../lib/git.js', () => ({
       created: [],
       deleted: [],
     }),
-    raw: vi.fn().mockResolvedValue('index.ts\n'),
+    raw: vi.fn().mockImplementation(async (args: string[]) => {
+      if (args.includes('--show-toplevel')) return workDir;
+      if (args[0] === 'rev-parse') return 'a'.repeat(40);
+      if (args[0] === 'ls-files') return '';
+      if (args[0] === 'status') return '';
+      return 'index.ts\n';
+    }),
   }),
   resolveLocalBaseBranch: vi.fn().mockResolvedValue('main'),
 }));
@@ -142,7 +148,7 @@ describe('Execution Round Retry & Recovery V1', () => {
 
     claudeModel = queries.addModel('claude', 'claude-3-7-sonnet', 'Claude 3.7 Sonnet', ['high']);
 
-    project = queries.createProject('Retry Test Project', workspace.resolvePath('retry-proj'));
+    project = queries.createProject('Retry Test Project', workspace.createSubdir('retry-proj'));
     reviewProfile = queries.createExecutionProfile({
       slug: 'review-prof',
       name: 'Review Profile',
@@ -1776,7 +1782,7 @@ describe('Execution Round Retry & Recovery V1', () => {
       ],
     });
 
-    const testProject = queries.createProject('ProjWake Project', workspace.resolvePath('projwake-proj'));
+    const testProject = queries.createProject('ProjWake Project', workspace.createSubdir('projwake-proj'));
 
     const todo = queries.createTodo(
       testProject.id,
@@ -1836,7 +1842,7 @@ describe('Execution Round Retry & Recovery V1', () => {
   });
 
   it('40. Stop during async executor selection cancels startup and cleans up reservations', async () => {
-    const testProject = queries.createProject('StopSel Project', workspace.resolvePath('stopsel-proj'));
+    const testProject = queries.createProject('StopSel Project', workspace.createSubdir('stopsel-proj'));
     const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-stopsel', 'Claude 3.7 Sonnet StopSel');
     const profile = queries.createExecutionProfile({
       name: 'StopSel Profile',
@@ -1932,7 +1938,7 @@ describe('Execution Round Retry & Recovery V1', () => {
   });
 
   it('41. Stop during async worktree setup cancels startup and cleans up resources', async () => {
-    const testProject = queries.createProject('StopWT Project', workspace.resolvePath('stopwt-proj'), undefined, undefined, 1);
+    const testProject = queries.createProject('StopWT Project', workspace.createSubdir('stopwt-proj'), undefined, undefined, 1);
     const todo = queries.createTodo(
       testProject.id,
       'Task Stop During Worktree',
@@ -1993,7 +1999,7 @@ describe('Execution Round Retry & Recovery V1', () => {
   });
 
   it('42. Stop while startClaude is pending immediately terminates spawned process and prevents resurrection', async () => {
-    const testProject = queries.createProject('StopStartClaude Project', workspace.resolvePath('stopsc-proj'));
+    const testProject = queries.createProject('StopStartClaude Project', workspace.createSubdir('stopsc-proj'));
     const todo = queries.createTodo(
       testProject.id,
       'Task Stop During StartClaude',
@@ -2069,7 +2075,7 @@ describe('Execution Round Retry & Recovery V1', () => {
   });
 
   it('43. Immediate Retry while cancelled startup is draining waits and launches successfully', async () => {
-    const testProject = queries.createProject('DrainRetry Project', workspace.resolvePath('drainretry-proj'), undefined, undefined, 1);
+    const testProject = queries.createProject('DrainRetry Project', workspace.createSubdir('drainretry-proj'), undefined, undefined, 1);
     const modelClaude = queries.addModel('claude', 'claude-3-7-sonnet-drainretry', 'Claude 3.7 Sonnet DrainRetry');
     const profile = queries.createExecutionProfile({
       name: 'DrainRetry Profile',
@@ -2128,7 +2134,7 @@ describe('Execution Round Retry & Recovery V1', () => {
         await worktreePromise1;
       }
       return {
-        worktreePath: workspace.resolvePath(`worktree-drain-${createCallCount}`),
+        worktreePath: workspace.createSubdir(`worktree-drain-${createCallCount}`),
         branchName: `task-drain-${createCallCount}`,
       };
     });
@@ -2191,7 +2197,7 @@ describe('Execution Round Retry & Recovery V1', () => {
   });
 
   it('44. Stop during isValidWorktree(false) cancels startup and does not call createWorktree', async () => {
-    const testProject = queries.createProject('ValidWTCancel Project', workspace.resolvePath('validwt-proj'), undefined, 1);
+    const testProject = queries.createProject('ValidWTCancel Project', workspace.createSubdir('validwt-proj'), undefined, 1);
     const todo = queries.createTodo(
       testProject.id,
       'Task ValidWT Cancel',

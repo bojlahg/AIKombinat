@@ -73,7 +73,7 @@ let currentWorkspace: TestWorkspace | null = null;
 vi.mock('../worktree-manager.js', () => ({
   worktreeManager: {
     createWorktree: vi.fn().mockImplementation(async () => ({
-      worktreePath: currentWorkspace?.resolvePath('worktree-1') ?? '',
+      worktreePath: currentWorkspace?.createSubdir('worktree-1') ?? '',
       branchName: 'task-feature-1',
     })),
     isValidWorktree: vi.fn().mockResolvedValue(true),
@@ -83,7 +83,7 @@ vi.mock('../worktree-manager.js', () => ({
 }));
 
 vi.mock('../../lib/git.js', () => ({
-  createGit: () => ({
+  createGit: (workDir: string) => ({
     diff: (...args: any[]) => mockGitDiff(...args),
     status: vi.fn().mockResolvedValue({
       modified: ['index.ts'],
@@ -91,7 +91,13 @@ vi.mock('../../lib/git.js', () => ({
       created: [],
       deleted: [],
     }),
-    raw: vi.fn().mockResolvedValue('index.ts\n'),
+    raw: vi.fn().mockImplementation(async (args: string[]) => {
+      if (args.includes('--show-toplevel')) return workDir;
+      if (args[0] === 'rev-parse') return 'a'.repeat(40);
+      if (args[0] === 'ls-files') return '';
+      if (args[0] === 'status') return '';
+      return 'index.ts\n';
+    }),
   }),
   resolveLocalBaseBranch: vi.fn().mockResolvedValue('main'),
 }));

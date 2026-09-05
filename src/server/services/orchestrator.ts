@@ -119,7 +119,7 @@ export class Orchestrator {
           });
           queries.updateTodoStatus(todo.id, 'failed');
           queries.createTaskLog(todo.id, 'error', 'Process exited unexpectedly (detected by liveness check).');
-          queries.updateTodo(todo.id, { process_pid: 0, execution_snapshot: null });
+          queries.updateTodo(todo.id, { process_pid: 0, process_identity: null, execution_snapshot: null });
           const runToken = this.activeResourceRuns.get(todo.id);
           if (runToken) {
             resourceManager.releaseRun(runToken);

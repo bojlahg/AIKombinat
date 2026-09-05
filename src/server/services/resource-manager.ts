@@ -294,7 +294,9 @@ export class ResourceManager {
       const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
         | { status: string; process_pid: number | null }
         | undefined;
-      const live = !!owner && owner.status === 'running' && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
+      // A persisted live PID remains owned even when startup recovery changed
+      // its owner to failed because identity was mismatched/unverifiable.
+      const live = !!owner && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
       if (live) {
         db.prepare('UPDATE resource_leases SET heartbeat_at = ?, expires_at = ? WHERE run_token = ?')
           .run(nowIso, expiresIso, runToken);
@@ -330,7 +332,7 @@ export class ResourceManager {
         const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
           | { status: string; process_pid: number | null }
           | undefined;
-        const live = !!owner && owner.status === 'running' && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
+        const live = !!owner && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
         if (live) {
           db.prepare('UPDATE resource_leases SET heartbeat_at = ?, expires_at = ? WHERE run_token = ?')
             .run(nowIso, expiresIso, runToken);

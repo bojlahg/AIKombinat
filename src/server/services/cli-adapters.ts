@@ -2,6 +2,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { getModelByValue } from '../db/queries.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
+import { logger } from '../logging/logger.js';
 
 export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
@@ -149,12 +150,10 @@ export function sanitizeExtraOptions(extraOptions: string): string[] {
 
   for (const part of parts) {
     if (DANGEROUS_CHARS.test(part)) {
-      console.warn(`Rejected dangerous CLI option: ${part}`);
-      continue;
+      throw new Error('Invalid CLI extra option: shell metacharacters are not allowed.');
     }
     if (!ALLOWED_OPTION_PATTERN.test(part)) {
-      console.warn(`Rejected invalid CLI option format: ${part}`);
-      continue;
+      throw new Error('Invalid CLI extra option: expected --flag or --flag=value.');
     }
     sanitized.push(part);
   }
@@ -268,6 +267,56 @@ export type PromptPolicy = 'implementation' | 'rework' | 'review' | 'discussion'
 
 function isReadOnlyPromptPolicy(policy: PromptPolicy | undefined): boolean {
   return policy === 'review' || policy === 'discussion' || policy === 'read-only-worker';
+}
+
+type ProviderTool = Exclude<CliTool, 'raw-shell'>;
+
+const COMMON_RESERVED_OPTIONS = new Set([
+  '--model', '--effort', '--reasoning-effort', '--input-format', '--output-format',
+  '--continue', '--resume', '--working-directory', '--workdir', '--cwd', '--add-dir',
+]);
+
+const PROVIDER_RESERVED_OPTIONS: Record<ProviderTool, ReadonlySet<string>> = {
+  claude: new Set([
+    ...COMMON_RESERVED_OPTIONS,
+    '--dangerously-skip-permissions', '--permission-mode', '--allowedtools',
+    '--allowed-tools', '--disallowedtools', '--disallowed-tools', '--permission-prompt-tool',
+    '--print', '-p', '--verbose', '--max-turns', '--session-id', '--fork-session', '-m', '-c', '-r',
+  ]),
+  codex: new Set([
+    ...COMMON_RESERVED_OPTIONS,
+    '--dangerously-bypass-approvals-and-sandbox', '--sandbox', '--approve-for-me',
+    '--ask-for-approval', '--full-auto', '--yolo', '--config', '-a', '-c', '--cd', '-d',
+    '-m', '-s', '--skip-git-repo-check', '--last', 'exec',
+  ]),
+  antigravity: new Set([
+    ...COMMON_RESERVED_OPTIONS,
+    '--dangerously-skip-permissions', '--sandbox', '--mode', '--conversation',
+    '--project', '--new-project', '--agent', '--print', '--prompt', '-p', '--prompt-interactive', '-i', '-c',
+  ]),
+};
+
+/**
+ * Provider-edge policy: launch flags owned by AIKombinat cannot be supplied by
+ * arbitrary project/user extraOptions. This is semantic validation, separate
+ * from the shell-safety validation above.
+ */
+export function validateProviderExtraOptions(provider: ProviderTool, extraOptions: string): string[] {
+  const options = sanitizeExtraOptions(extraOptions);
+  for (const option of options) {
+    const equalsIndex = option.indexOf('=');
+    const name = (equalsIndex >= 0 ? option.slice(0, equalsIndex) : option).toLowerCase();
+    if (PROVIDER_RESERVED_OPTIONS[provider].has(name)) {
+      logger.warn('cli.extra-options.rejected', {
+        msg: `reserved ${provider} launch option rejected`,
+        provider,
+        option: name,
+        reason: 'orchestrator_owned_option',
+      });
+      throw new Error(`Configuration error: ${provider} extraOptions may not set reserved option "${name}"; AIKombinat owns launch safety, model, transport, continuation, and workspace policy.`);
+    }
+  }
+  return options;
 }
 
 export interface CliAdapter {
@@ -469,7 +518,7 @@ const claudeAdapter: CliAdapter = {
     if (effort) args.push('--effort', effort);
     if (maxTurns && maxTurns > 0) args.push('--max-turns', String(maxTurns));
     if (extraOptions) {
-      args.push(...sanitizeExtraOptions(extraOptions));
+      args.push(...validateProviderExtraOptions('claude', extraOptions));
     }
     // Prompt is delivered via stdin pipe (avoids shell escaping issues with newlines)
     return args;
@@ -536,7 +585,7 @@ const antigravityAdapter: CliAdapter = {
     // models, where effort is a real separate CLI flag, still get it.
     if (effort && !effortEncodedInSlug) args.push('--effort', effort);
     if (extraOptions) {
-      args.push(...sanitizeExtraOptions(extraOptions));
+      args.push(...validateProviderExtraOptions('antigravity', extraOptions));
     }
     return args;
   },
@@ -597,7 +646,7 @@ const codexAdapter: CliAdapter = {
     if (normalizedModel) args.push('--model', normalizedModel);
     if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
     if (extraOptions) {
-      args.push(...sanitizeExtraOptions(extraOptions));
+      args.push(...validateProviderExtraOptions('codex', extraOptions));
     }
     if (mode !== 'interactive' && continueSession) {
       // Exec-level sandbox/approval flags must precede the resume subcommand.
