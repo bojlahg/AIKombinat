@@ -49,6 +49,33 @@ export function useFeatures(active = true): FeatureFlags {
   return flags;
 }
 
-export function useAgentForumEnabled(active = true): boolean {
-  return useFeatures(active).agentForum;
+/**
+ * Tri-state gate for the paused AgentForum V1 experiment.
+ *
+ * - `null`  = feature state not resolved yet (cold deep-link must NOT redirect)
+ * - `false` = server confirmed disabled (or the request failed: fail closed)
+ * - `true`  = server confirmed enabled
+ *
+ * Sidebar treats `null` as hidden (falsy), the route renders a loading
+ * placeholder while `null` so it never fetches forum state or flashes Home.
+ */
+export function useAgentForumEnabled(active = true): boolean | null {
+  const [enabled, setEnabled] = useState<boolean | null>(
+    cached ? cached.agentForum : null,
+  );
+  useEffect(() => {
+    if (!active) return;
+    if (cached) {
+      setEnabled(cached.agentForum);
+      return;
+    }
+    let live = true;
+    fetchFeatureFlags().then((f) => {
+      if (live) setEnabled(f.agentForum);
+    });
+    return () => {
+      live = false;
+    };
+  }, [active]);
+  return enabled;
 }

@@ -239,6 +239,8 @@ describe('AgentForum disabled mode - data preservation', () => {
     await postJson(`${baseUrl}/api/agent-forums/${forum.id}`, { title: 'Blocked' }, 'PUT');
     await postJson(`${baseUrl}/api/agent-forums/${forum.id}/members`, { name: 'X', role: 'participant' });
     await fetch(`${baseUrl}/api/agent-forums/${forum.id}/members/${b.id}`, { method: 'DELETE' });
+    const blockedDelete = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+    expect(blockedDelete.status).toBe(403);
 
     expect(queries.getAgentForumById(forum.id)).toBeDefined();
     expect(queries.getAgentForumMembers(forum.id).map((m) => m.id).sort())
@@ -283,14 +285,40 @@ describe('AgentForum disabled mode - cleanup stays possible', () => {
     expect(queries.getAgentForumTurns(forum.id)).toHaveLength(0);
   });
 
-  it('still deletes through the stop/drain lifecycle while disabled', async () => {
-    const { forum } = seedForum('idle');
+  it('refuses DELETE with 403 and preserves forum/members/messages/turns while disabled', async () => {
+    const { forum, a, b, c, userMsg, agentMsg, turn } = seedForumWithHistory();
 
     const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'AgentForum is temporarily disabled',
+      code: 'feature_disabled',
+      feature: 'agentForum',
+    });
+    // No orchestration, no deletion, no new cycle.
     expect(orchestratorMocks.stopForum).not.toHaveBeenCalled();
-    expect(queries.getAgentForumById(forum.id)).toBeUndefined();
+    expect(orchestratorMocks.postUserMessage).not.toHaveBeenCalled();
+    expect(orchestratorMocks.continueWithoutUserMessage).not.toHaveBeenCalled();
+    expect(queries.getAgentForumById(forum.id)).toBeDefined();
+    expect(queries.getAgentForumMembers(forum.id).map((m) => m.id).sort())
+      .toEqual([a.id, b.id, c.id].sort());
+    expect(queries.getAgentForumMessages(forum.id).map((m) => m.id).sort())
+      .toEqual([userMsg.id, agentMsg.id].sort());
+    expect(queries.getAgentForumTurnById(turn.id)).toBeDefined();
+    expect(queries.getAgentForumTurns(forum.id)).toHaveLength(1);
+  });
+
+  it('refuses DELETE on a running forum with 403 while disabled (use Stop for cleanup)', async () => {
+    const { forum } = seedForum('running');
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('feature_disabled');
+    expect(orchestratorMocks.stopForum).not.toHaveBeenCalled();
+    expect(queries.getAgentForumById(forum.id)).toBeDefined();
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('running');
   });
 });
 
@@ -308,5 +336,15 @@ describe('AgentForum disabled mode - reversibility', () => {
 
     expect(response.status).toBe(201);
     expect(queries.listAgentForums()).toHaveLength(1);
+  });
+
+  it('accepts DELETE again once the developer flag is set (existing behavior preserved)', async () => {
+    const { forum } = seedForum('idle');
+    process.env[AGENT_FORUM_ENV_VAR] = '1';
+
+    const response = await fetch(`${baseUrl}/api/agent-forums/${forum.id}`, { method: 'DELETE' });
+
+    expect(response.status).toBe(204);
+    expect(queries.getAgentForumById(forum.id)).toBeUndefined();
   });
 });

@@ -11,10 +11,15 @@ const router = Router();
  * that could create forum activity — or spawn a new provider CLI — is refused
  * here, before orchestration, with a controlled 403 (never a 500).
  *
- * Deliberately NOT gated: reads (history stays inspectable), POST …/stop and
- * DELETE …/:id (both funnel through the stop/cleanup lifecycle, which must
- * keep working so a pre-existing running/orphan forum can never become an
- * unreclaimable ghost while the feature is off).
+ * Disabled != deleted: while the feature is off, historical forum data must
+ * be preserved, so DELETE is also refused. Cleanup of a pre-existing
+ * running/recovery forum stays available separately through POST …/stop,
+ * which never starts a new cycle.
+ *
+ * Deliberately NOT gated: reads (history stays inspectable) and
+ * POST …/stop (the stop/cleanup lifecycle must keep working so a
+ * pre-existing running/orphan forum can never become an unreclaimable ghost
+ * while the feature is off).
  */
 function rejectIfFeatureDisabled(res: Response): boolean {
   if (isAgentForumEnabled()) return false;
@@ -217,8 +222,13 @@ router.put('/agent-forums/:id', (req: Request<{ id: string }>, res: Response) =>
 });
 
 // DELETE /api/agent-forums/:id - delete forum
+//
+// Disabled != deleted: while the feature is disabled this endpoint refuses
+// with 403 and never touches members/messages/turns. Cleanup of a
+// running/recovery forum stays available via POST …/:id/stop.
 router.delete('/agent-forums/:id', async (req: Request<{ id: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });

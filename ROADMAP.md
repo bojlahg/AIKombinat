@@ -42,7 +42,39 @@ restart.
 
 ---
 
-### Next experiment cluster: Provider Accounts
+### Next experiment: Delegation Router
+
+V0 — Telemetry
+- observe potential delegatable operations
+- file reads
+- large command/test output
+- latency/input/output sizes
+- NO prompt/source content in telemetry
+- no interception yet
+
+V1 — bulk_read
+- first real delegated operation
+- cheap worker only:
+  find / filter / summarize / rank / extract
+- no architecture/debugging/implementation/review verdict delegation
+- main model reads selected ranges itself
+- use existing Model Catalog / Execution Profiles / ExecutorPool /
+  ProviderQuotaService / ResourceManager / CLI adapters
+- no second scheduler
+- one delegation -> one worker execution in V1
+- no persistent worker pool yet
+- delegationDepth prevents recursion
+
+Then:
+Real-world measurement
+
+Then:
+V2 — large output / logs
+- test/build/compiler output summarization
+
+---
+
+### Following experiment cluster: Provider Accounts
 
 Make provider identity account-aware instead of assuming one global login per CLI.
 
