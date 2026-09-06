@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
+import { createTestWorkspace } from '../../test-utils/workspace.js';
 
 vi.mock('../../db/queries.js', () => ({ getModelByValue: () => undefined }));
 
@@ -137,15 +138,23 @@ describe('cli-adapters', () => {
   });
 
   it('uses execution-local Claude permissions without touching project settings', () => {
-    const adapter = getAdapter('claude');
-    const args = adapter.buildArgs({
-      mode: 'headless', prompt: 'Implement', sandboxMode: 'strict',
-      promptPolicy: 'implementation', workDir: 'C:\\tmp\\task',
-    });
-    expect(args).toContain('--allowedTools');
-    expect(args).toContain('Read(C:/tmp/task/**)');
-    expect(args).toContain('Edit(C:/tmp/task/**)');
-    expect(args).not.toContain('--dangerously-skip-permissions');
+    const workspace = createTestWorkspace('cli-adapters');
+    try {
+      const workDir = workspace.createSubdir('task');
+      const normalizedWorkDir = workDir.replace(/\\/g, '/');
+      const adapter = getAdapter('claude');
+      const args = adapter.buildArgs({
+        mode: 'headless', prompt: 'Implement', sandboxMode: 'strict',
+        promptPolicy: 'implementation', workDir,
+      });
+      expect(args).toContain('--allowedTools');
+      expect(args).toContain(`Read(${normalizedWorkDir}/**)`);
+      expect(args).toContain(`Edit(${normalizedWorkDir}/**)`);
+      expect(args).toContain(`Write(${normalizedWorkDir}/**)`);
+      expect(args).not.toContain('--dangerously-skip-permissions');
+    } finally {
+      workspace.cleanup();
+    }
   });
 
   it('makes review intent read-only and omits the task-completion suffix', () => {
