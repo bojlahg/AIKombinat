@@ -15,7 +15,7 @@ vi.mock('../../utils/process-tree.js', async (importOriginal) => {
 const queries = await import('../../db/queries.js');
 const processTree = await import('../../utils/process-tree.js');
 const { resourceManager } = await import('../resource-manager.js');
-const { recoverPersistedProcesses } = await import('../startup-process-recovery.js');
+const { recoverPersistedProcesses, reconcileRetainedProcesses } = await import('../startup-process-recovery.js');
 const { assertNoUnresolvedProcess } = await import('../process-ownership.js');
 const { executorPool } = await import('../executor-pool.js');
 
@@ -100,7 +100,7 @@ describe('startup process recovery', () => {
     expect(() => assertNoUnresolvedProcess('Todo', queries.getTodoById(owners.todo.id)!)).not.toThrow();
     expect(() => assertNoUnresolvedProcess('Session', queries.getSessionById(owners.session.id)!)).not.toThrow();
     expect(() => assertNoUnresolvedProcess('Discussion', queries.getDiscussionById(owners.discussion.id)!)).not.toThrow();
-    await expect(recoverPersistedProcesses({ isAlive: () => true, verify: vi.fn() })).resolves.toEqual({ released: 0, retained: 0 });
+    await expect(recoverPersistedProcesses({ isAlive: () => true, verify: vi.fn() })).resolves.toEqual({ released: 0, retained: 0, superseded: 0 });
   });
 
   it('rechecks unverifiable owners on the next restart and releases dead ownership and provider capacity', async () => {
@@ -134,5 +134,54 @@ describe('startup process recovery', () => {
     await recoverPersistedProcesses({ isAlive: () => true, verify });
     expect(verify).toHaveBeenCalledWith(PID, null);
     expect(queries.getDiscussionById(owners.discussion.id)).toMatchObject({ status: 'failed', process_pid: PID, process_identity: null });
+  });
+
+  it('does not mutate a Session that was stopped while an identity probe was pending', async () => {
+    const session = queries.createSession(project.id, 'Superseded Session');
+    queries.updateSessionStatus(session.id, 'failed');
+    queries.updateSession(session.id, { process_pid: PID, process_identity: persistedIdentity });
+    resourceManager.acquireAtomic({ ownerType: 'session', ownerId: session.id, runToken: 'old-session-run', resources: ['cpu.heavy'] });
+    let finishVerify!: (verdict: 'mismatch') => void;
+    const verify = vi.fn().mockImplementation(() => new Promise((resolve) => { finishVerify = resolve; }));
+    const recovery = reconcileRetainedProcesses({ isAlive: () => true, verify });
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+
+    queries.updateSessionStatus(session.id, 'stopped');
+    queries.updateSession(session.id, { process_pid: 0, process_identity: null });
+    resourceManager.releaseOwner('session', session.id);
+    const logCount = queries.getSessionLogsBySessionId(session.id).length;
+    finishVerify('mismatch');
+
+    await expect(recovery).resolves.toEqual({ released: 0, retained: 0, superseded: 1 });
+    expect(queries.getSessionById(session.id)).toMatchObject({ status: 'stopped', process_pid: 0, process_identity: null });
+    expect(queries.getSessionLogsBySessionId(session.id)).toHaveLength(logCount);
+    expect(resourceManager.getStatus().find((entry) => entry.key === 'cpu.heavy')?.used).toBe(0);
+  });
+
+  it('does not clobber a new Todo process or resource lease after an old probe resumes', async () => {
+    const todo = queries.createTodo(project.id, 'Superseded Todo');
+    queries.updateTodoStatus(todo.id, 'failed');
+    queries.updateTodo(todo.id, { process_pid: PID, process_identity: persistedIdentity });
+    resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: todo.id, runToken: 'old-todo-run', resources: ['gpu.0'] });
+    let finishVerify!: (verdict: 'mismatch') => void;
+    const verify = vi.fn().mockImplementation(() => new Promise((resolve) => { finishVerify = resolve; }));
+    const recovery = reconcileRetainedProcesses({ isAlive: () => true, verify });
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+
+    const newPid = PID + 1;
+    const newIdentity = JSON.stringify({ ...identity, pid: newPid, startedAt: '2026-09-06T01:00:00Z' });
+    resourceManager.releaseOwner('todo', todo.id);
+    queries.updateTodoStatus(todo.id, 'running');
+    queries.updateTodo(todo.id, { process_pid: newPid, process_identity: newIdentity });
+    resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: todo.id, runToken: 'new-todo-run', resources: ['gpu.0'] });
+    const logCount = queries.getTaskLogsByTodoId(todo.id).length;
+    finishVerify('mismatch');
+
+    await expect(recovery).resolves.toEqual({ released: 0, retained: 0, superseded: 1 });
+    expect(queries.getTodoById(todo.id)).toMatchObject({ status: 'running', process_pid: newPid, process_identity: newIdentity });
+    expect(queries.getTaskLogsByTodoId(todo.id)).toHaveLength(logCount);
+    expect(resourceManager.getStatus().find((entry) => entry.key === 'gpu.0')?.leases).toEqual([
+      expect.objectContaining({ ownerId: todo.id, runToken: 'new-todo-run' }),
+    ]);
   });
 });

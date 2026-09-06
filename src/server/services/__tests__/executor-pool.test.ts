@@ -1981,11 +1981,12 @@ describe('Executor Pool V1', () => {
     });
     vi.spyOn(cliStatusModule, 'getToolStatus').mockResolvedValue({ tool: 'claude', installed: true, version: '1.0.0' });
     executorPool.setLimit('claude', 1);
-    const project = queries.createProject('Recovery capacity', workspace.resolvePath('recovery-proj'), 'main', 0, 'claude');
-    const unresolvedTodo = queries.createTodo(project.id, 'Unresolved Todo', undefined, 0, 'claude');
+    const project = queries.createProject('Recovery capacity', workspace.resolvePath('recovery-proj'), 'main', 1);
+    queries.updateProject(project.id, { use_worktree: 1, max_concurrent: 5 });
+    const unresolvedTodo = queries.createTodo(project.id, 'Unresolved Todo', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
     queries.updateTodoStatus(unresolvedTodo.id, 'failed');
     queries.updateTodo(unresolvedTodo.id, { process_pid: 42001, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
-    const candidate = queries.createTodo(project.id, 'Candidate', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+    const candidate = queries.createTodo(project.id, 'Candidate', undefined, 0, undefined, undefined, undefined, undefined, undefined, 1, undefined, undefined, undefined, undefined, profile.id);
 
     await orchestrator.startTodo(candidate.id);
     expect(queries.getTodoById(candidate.id)?.status).toBe('waiting_executor');
@@ -2033,6 +2034,48 @@ describe('Executor Pool V1', () => {
     expect(wakeExecutors).toHaveBeenCalledTimes(1);
     expect(wakeResources).toHaveBeenCalledTimes(1);
     expect((await executorPool.selectExecutor({ executionProfileId: profile.id })).status).toBe('selected');
+  });
+
+  it.each(['claude', 'codex'] as const)('blocks a %s sibling behind an unresolved main-workspace Todo independently of provider capacity', async (tool) => {
+    executorPool.setLimit('claude', 10);
+    executorPool.setLimit('codex', 10);
+    const project = queries.createProject(`Root gate ${tool}`, workspace.resolvePath('recovery-proj'), 'main', 1);
+    queries.updateProject(project.id, { use_worktree: 0, max_concurrent: 5 });
+    const owner = queries.createTodo(project.id, 'Unresolved root owner', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 0);
+    queries.updateTodoStatus(owner.id, 'failed');
+    queries.updateTodo(owner.id, {
+      process_pid: 44001,
+      process_identity: JSON.stringify({ pid: 44001, startedAt: '2026-09-06T00:00:00Z', command: 'claude.exe' }),
+      execution_snapshot: JSON.stringify({ agent: 'claude' }),
+    });
+    const candidate = queries.createTodo(project.id, `${tool} sibling`, undefined, 0, tool, undefined, undefined, undefined, undefined, 0);
+    const spawn = vi.spyOn(claudeManager, 'startClaude');
+
+    await expect(orchestrator.startProject(project.id)).rejects.toThrow(/already has 1 active tasks/);
+    await orchestrator.startTodo(candidate.id);
+    expect(queries.getTodoById(candidate.id)?.status).toBe('pending');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('allows independent worktree admission while unresolved ownership consumes one maxConcurrent slot', async () => {
+    const project = queries.createProject('Worktree recovery gate', workspace.resolvePath('recovery-proj'), 'main', 1);
+    queries.updateProject(project.id, { use_worktree: 1, max_concurrent: 2 });
+    const owner = queries.createTodo(project.id, 'Unresolved worktree owner', undefined, 0, 'claude', undefined, undefined, undefined, undefined, 1);
+    queries.updateTodoStatus(owner.id, 'failed');
+    queries.updateTodo(owner.id, {
+      process_pid: 45001,
+      process_identity: JSON.stringify({ pid: 45001, startedAt: '2026-09-06T00:00:00Z', command: 'claude.exe' }),
+      worktree_path: workspace.resolvePath('mock-worktree'),
+    });
+    const first = queries.createTodo(project.id, 'First independent worktree', undefined, 0, 'codex', undefined, undefined, undefined, undefined, 1);
+    queries.createTodo(project.id, 'Second independent worktree', undefined, 0, 'codex', undefined, undefined, undefined, undefined, 1);
+    const active = [queries.getTodoById(owner.id)!];
+    expect((orchestrator as any).canStartNow(queries.getProjectById(project.id), queries.getTodoById(first.id), active)).toEqual({ ok: true });
+    const startSingle = vi.spyOn(orchestrator as any, 'startSingleTodo').mockResolvedValue(undefined);
+
+    await orchestrator.startProject(project.id);
+    expect(startSingle).toHaveBeenCalledTimes(1);
+    expect(startSingle).toHaveBeenCalledWith(first.id, project.path, project.id, 'headless', true);
   });
 
   it('35. stale process recovery marks dead running todo as failed and automatically wakes WAITING_EXECUTOR todo', async () => {

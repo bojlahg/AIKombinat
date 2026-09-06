@@ -184,8 +184,12 @@ export class Orchestrator {
     return !!project.use_worktree;
   }
 
+  private getProjectActiveTodos(todos: queries.Todo[]): queries.Todo[] {
+    return todos.filter((todo) => todo.status === 'running' || hasUnresolvedProcess(todo));
+  }
+
   /**
-   * Check if a todo can start right now given currently-running todos.
+   * Check if a todo can start right now given running or recovery-required todos.
    * A main-branch todo (effective useWorktree=false) requires exclusive
    * execution — no other todos may be running. Conversely, if any running
    * todo is on main branch, nothing new can start until it completes.
@@ -193,17 +197,17 @@ export class Orchestrator {
   private canStartNow(
     project: queries.Project,
     todo: queries.Todo,
-    runningTodos: queries.Todo[],
+    activeTodos: queries.Todo[],
   ): { ok: boolean; reason?: string } {
-    const othersRunning = runningTodos.filter((t) => t.id !== todo.id);
-    if (othersRunning.length === 0) return { ok: true };
+    const otherActive = activeTodos.filter((t) => t.id !== todo.id);
+    if (otherActive.length === 0) return { ok: true };
     const thisUsesWorktree = this.resolveUseWorktree(project, todo);
     if (!thisUsesWorktree) {
-      return { ok: false, reason: 'This todo runs on main branch and requires exclusive execution; other todos are currently running.' };
+      return { ok: false, reason: 'This todo runs on main branch and requires exclusive execution; other todos are currently active.' };
     }
-    const anyRunningOnMain = othersRunning.some((t) => !this.resolveUseWorktree(project, t));
-    if (anyRunningOnMain) {
-      return { ok: false, reason: 'Another todo is running exclusively on main branch; waiting for it to complete.' };
+    const anyActiveOnMain = otherActive.some((t) => !this.resolveUseWorktree(project, t));
+    if (anyActiveOnMain) {
+      return { ok: false, reason: 'Another todo is active exclusively on main branch; waiting for it to be reconciled or complete.' };
     }
     return { ok: true };
   }
@@ -230,18 +234,17 @@ export class Orchestrator {
 
     const todos = queries.getTodosByProjectId(projectId);
     const pending = todos.filter((t) => t.status === 'pending' || t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource');
-    const running = todos.filter((t) => t.status === 'running');
+    const active = this.getProjectActiveTodos(todos);
     const maxConcurrent = this.getMaxConcurrent(projectId);
 
-    // Prevent starting if there are already running todos
-    if (running.length >= maxConcurrent) {
-      throw new Error(`Project already has ${running.length} running tasks (max ${maxConcurrent})`);
+    if (active.length >= maxConcurrent) {
+      throw new Error(`Project already has ${active.length} active tasks (max ${maxConcurrent})`);
     }
 
     // Filter out tasks whose dependency hasn't completed yet
     const startable = pending.filter((t) => this.isDependencySatisfied(t, todos));
 
-    const slotsAvailable = Math.max(0, maxConcurrent - running.length);
+    const slotsAvailable = Math.max(0, maxConcurrent - active.length);
     const todosToStart = startable.slice(0, slotsAvailable);
 
     for (const todo of todosToStart) {
@@ -744,7 +747,7 @@ export class Orchestrator {
     // Concurrency gate: a main-branch todo (effective useWorktree=false) requires
     // exclusive execution. Defer silently; on any later completion a scheduler tick
     // will retry pending todos.
-    const runningNow = queries.getTodosByProjectId(projectId).filter((t) => t.status === 'running');
+    const runningNow = this.getProjectActiveTodos(queries.getTodosByProjectId(projectId));
     const gate = this.canStartNow(project, todo, runningNow);
     if (!gate.ok) {
       queries.createTaskLog(todoId, 'output', `Deferred: ${gate.reason}`, roundNumber);
@@ -1841,7 +1844,7 @@ export class Orchestrator {
    */
   private async startDependentChildren(projectId: string, parentTodoId: string): Promise<void> {
     const todos = queries.getTodosByProjectId(projectId);
-    const running = todos.filter((t) => t.status === 'running');
+    const running = this.getProjectActiveTodos(todos);
     const maxConcurrent = this.getMaxConcurrent(projectId);
 
     // Only start children that depend on the just-completed parent
@@ -1928,7 +1931,7 @@ export class Orchestrator {
       if (!project) continue;
 
       const projectTodos = queries.getTodosByProjectId(todo.project_id);
-      const runningInProject = projectTodos.filter((t) => t.status === 'running');
+      const runningInProject = this.getProjectActiveTodos(projectTodos);
       const maxConcurrent = this.getMaxConcurrent(todo.project_id);
       if (runningInProject.length >= maxConcurrent) continue;
 
@@ -1953,7 +1956,7 @@ export class Orchestrator {
       const project = queries.getProjectById(todo.project_id);
       if (!project) continue;
       const projectTodos = queries.getTodosByProjectId(todo.project_id);
-      const running = projectTodos.filter((candidate) => candidate.status === 'running');
+      const running = this.getProjectActiveTodos(projectTodos);
       if (running.length >= this.getMaxConcurrent(todo.project_id)) continue;
       if (!this.canStartNow(project, freshTodo, running).ok) continue;
       if (!this.isDependencySatisfied(freshTodo, projectTodos)) continue;
