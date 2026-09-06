@@ -17,6 +17,7 @@ const processTree = await import('../../utils/process-tree.js');
 const { resourceManager } = await import('../resource-manager.js');
 const { recoverPersistedProcesses } = await import('../startup-process-recovery.js');
 const { assertNoUnresolvedProcess } = await import('../process-ownership.js');
+const { executorPool } = await import('../executor-pool.js');
 
 const PID = 424242;
 const identity: ProcessIdentity = { pid: PID, startedAt: '2026-09-06T00:00:00Z', command: 'provider.exe' };
@@ -27,6 +28,7 @@ describe('startup process recovery', () => {
   let workspace: TestWorkspace;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     workspace = createTestWorkspace('startup-process-recovery');
     testDb = new Database(':memory:');
     initDatabase(testDb);
@@ -63,21 +65,30 @@ describe('startup process recovery', () => {
     expect(resourceManager.getStatus().find((entry) => entry.key === 'gpu.0')?.used).toBe(0);
   });
 
-  it('preserves live matching processes, including a Discussion surviving restart', async () => {
+  it('represents live matching processes as recovery-required after restart', async () => {
     const owners = runningOwners();
+    queries.updateTodo(owners.todo.id, { execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    queries.updateSession(owners.session.id, { execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    queries.updateDiscussion(owners.discussion.id, { execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: owners.todo.id, runToken: 'todo-match', resources: ['gpu.0'] });
+    resourceManager.acquireAtomic({ ownerType: 'session', ownerId: owners.session.id, runToken: 'session-match', resources: ['cpu.heavy'] });
     const verify = vi.fn().mockResolvedValue('match');
     await recoverPersistedProcesses({ isAlive: () => true, verify });
 
-    expect(queries.getTodoById(owners.todo.id)).toMatchObject({ status: 'running', process_pid: PID, process_identity: persistedIdentity });
-    expect(queries.getSessionById(owners.session.id)).toMatchObject({ status: 'running', process_pid: PID, process_identity: persistedIdentity });
-    expect(queries.getDiscussionById(owners.discussion.id)).toMatchObject({ status: 'running', process_pid: PID, process_identity: persistedIdentity });
+    expect(queries.getTodoById(owners.todo.id)).toMatchObject({ status: 'failed', process_pid: PID, process_identity: persistedIdentity });
+    expect(queries.getSessionById(owners.session.id)).toMatchObject({ status: 'failed', process_pid: PID, process_identity: persistedIdentity });
+    expect(queries.getDiscussionById(owners.discussion.id)).toMatchObject({ status: 'failed', process_pid: PID, process_identity: persistedIdentity });
     expect(verify).toHaveBeenCalledTimes(3);
+    expect(resourceManager.getStatus().find((entry) => entry.key === 'gpu.0')?.used).toBe(1);
+    expect(resourceManager.getStatus().find((entry) => entry.key === 'cpu.heavy')?.used).toBe(1);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(3);
   });
 
-  it('clears mismatched reused PIDs without signalling them and releases ownership', async () => {
+  it('rechecks recovery-required owners on restart and clears mismatched reused PIDs without signalling', async () => {
     const owners = runningOwners();
     resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: owners.todo.id, runToken: 'todo-mismatch', resources: ['gpu.0'] });
     resourceManager.acquireAtomic({ ownerType: 'session', ownerId: owners.session.id, runToken: 'session-mismatch', resources: ['cpu.heavy'] });
+    await recoverPersistedProcesses({ isAlive: () => true, verify: vi.fn().mockResolvedValue('unverifiable') });
     await recoverPersistedProcesses({ isAlive: () => true, verify: vi.fn().mockResolvedValue('mismatch') });
 
     expect(queries.getTodoById(owners.todo.id)).toMatchObject({ status: 'failed', process_pid: 0, process_identity: null });
@@ -89,10 +100,14 @@ describe('startup process recovery', () => {
     expect(() => assertNoUnresolvedProcess('Todo', queries.getTodoById(owners.todo.id)!)).not.toThrow();
     expect(() => assertNoUnresolvedProcess('Session', queries.getSessionById(owners.session.id)!)).not.toThrow();
     expect(() => assertNoUnresolvedProcess('Discussion', queries.getDiscussionById(owners.discussion.id)!)).not.toThrow();
+    await expect(recoverPersistedProcesses({ isAlive: () => true, verify: vi.fn() })).resolves.toEqual({ released: 0, retained: 0 });
   });
 
-  it('retains unverifiable live PIDs and ownership for explicit recovery', async () => {
+  it('rechecks unverifiable owners on the next restart and releases dead ownership and provider capacity', async () => {
     const owners = runningOwners();
+    queries.updateTodo(owners.todo.id, { execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    queries.updateSession(owners.session.id, { execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    queries.updateDiscussion(owners.discussion.id, { execution_snapshot: JSON.stringify({ agent: 'claude' }) });
     resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: owners.todo.id, runToken: 'todo-unverifiable', resources: ['gpu.0'] });
     resourceManager.acquireAtomic({ ownerType: 'session', ownerId: owners.session.id, runToken: 'session-unverifiable', resources: ['cpu.heavy'] });
     await recoverPersistedProcesses({ isAlive: () => true, verify: vi.fn().mockResolvedValue('unverifiable') });
@@ -102,6 +117,15 @@ describe('startup process recovery', () => {
     expect(queries.getDiscussionById(owners.discussion.id)).toMatchObject({ status: 'failed', process_pid: PID, process_identity: persistedIdentity });
     expect(resourceManager.getStatus().find((entry) => entry.key === 'gpu.0')?.used).toBe(1);
     expect(resourceManager.getStatus().find((entry) => entry.key === 'cpu.heavy')?.used).toBe(1);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(3);
+
+    await recoverPersistedProcesses({ isAlive: () => false, verify: vi.fn() });
+    expect(queries.getTodoById(owners.todo.id)).toMatchObject({ status: 'failed', process_pid: 0, process_identity: null });
+    expect(queries.getSessionById(owners.session.id)).toMatchObject({ status: 'failed', process_pid: 0, process_identity: null });
+    expect(queries.getDiscussionById(owners.discussion.id)).toMatchObject({ status: 'paused', process_pid: 0, process_identity: null });
+    expect(resourceManager.getStatus().find((entry) => entry.key === 'gpu.0')?.used).toBe(0);
+    expect(resourceManager.getStatus().find((entry) => entry.key === 'cpu.heavy')?.used).toBe(0);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(0);
   });
 
   it('treats a missing identity as unverifiable and retains the live PID', async () => {

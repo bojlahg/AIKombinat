@@ -2006,6 +2006,35 @@ describe('Executor Pool V1', () => {
     expect(queries.getDiscussionById(discussion.id)?.process_pid).toBe(42003);
   });
 
+  it('passively releases a dead recovery-required slot and wakes admission', async () => {
+    const claude = queries.addModel('claude', 'claude-passive', 'Claude Passive', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'passive-recovery', name: 'Passive Recovery', description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockResolvedValue({ tool: 'claude', installed: true, version: '1.0.0' });
+    executorPool.setLimit('claude', 1);
+    const project = queries.createProject('Passive recovery', workspace.resolvePath('recovery-proj'), 'main', 0, 'claude');
+    const owner = queries.createTodo(project.id, 'Old owner', undefined, 0, 'claude');
+    queries.updateTodoStatus(owner.id, 'failed');
+    queries.updateTodo(owner.id, {
+      process_pid: 43001,
+      process_identity: JSON.stringify({ pid: 43001, startedAt: '2026-09-06T00:00:00Z', command: 'claude.exe' }),
+      execution_snapshot: JSON.stringify({ agent: 'claude' }),
+    });
+    const candidate = queries.createTodo(project.id, 'Waiting candidate', undefined, 0, 'claude');
+    queries.updateTodoStatus(candidate.id, 'waiting_executor');
+    const wakeExecutors = vi.spyOn(orchestrator, 'wakeWaitingExecutors').mockResolvedValue();
+    const wakeResources = vi.spyOn(orchestrator, 'wakeWaitingResources').mockResolvedValue();
+
+    expect((await executorPool.selectExecutor({ executionProfileId: profile.id })).status).toBe('waiting_executor');
+    await expect(orchestrator.recoverRetainedProcesses({ isAlive: () => false, verify: vi.fn() })).resolves.toBe(1);
+    expect(queries.getTodoById(owner.id)?.process_pid).toBe(0);
+    expect(wakeExecutors).toHaveBeenCalledTimes(1);
+    expect(wakeResources).toHaveBeenCalledTimes(1);
+    expect((await executorPool.selectExecutor({ executionProfileId: profile.id })).status).toBe('selected');
+  });
+
   it('35. stale process recovery marks dead running todo as failed and automatically wakes WAITING_EXECUTOR todo', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     const profile = queries.createExecutionProfile({

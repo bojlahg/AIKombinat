@@ -30,6 +30,7 @@ import * as queries from '../db/queries.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
 import { assertNoUnresolvedProcess, hasUnresolvedProcess } from './process-ownership.js';
+import { reconcileRetainedProcesses, type StartupProcessProbe } from './startup-process-recovery.js';
 
 
 /**
@@ -50,6 +51,7 @@ const STALE_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 export class Orchestrator {
 
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private retainedRecoveryRunning = false;
   private activeResourceRuns = new Map<string, string>();
   private isStoppingProjects = new Set<string>();
   private stoppingTodoIds = new Set<string>();
@@ -63,7 +65,15 @@ export class Orchestrator {
    */
   startStaleProcessChecker(): void {
     if (this.staleCheckTimer) return;
-    this.staleCheckTimer = setInterval(() => this.recoverStaleTasks(), STALE_CHECK_INTERVAL_MS);
+    this.staleCheckTimer = setInterval(() => {
+      this.recoverStaleTasks();
+      void this.recoverRetainedProcesses().catch((err) => {
+        logger.error('process.recovery.periodic-failed', {
+          scope: '[recovery]', msg: 'periodic retained-process reconciliation failed', err,
+        });
+      });
+    }, STALE_CHECK_INTERVAL_MS);
+    this.staleCheckTimer.unref?.();
   }
 
   stopStaleProcessChecker(): void {
@@ -489,6 +499,21 @@ export class Orchestrator {
       }
     } finally {
       if (!unresolved) this.stoppingTodoIds.delete(todoId);
+    }
+  }
+
+  public async recoverRetainedProcesses(probe?: StartupProcessProbe): Promise<number> {
+    if (this.retainedRecoveryRunning) return 0;
+    this.retainedRecoveryRunning = true;
+    try {
+      const report = await reconcileRetainedProcesses(probe);
+      if (report.released > 0) {
+        await this.wakeWaitingExecutors();
+        await this.wakeWaitingResources();
+      }
+      return report.released;
+    } finally {
+      this.retainedRecoveryRunning = false;
     }
   }
 

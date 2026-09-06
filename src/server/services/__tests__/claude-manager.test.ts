@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('tree-kill', () => ({ default: vi.fn() }));
+const processTreeMocks = vi.hoisted(() => ({
+  verifyProcessIdentity: vi.fn(),
+  terminateProcessTree: vi.fn(),
+}));
+vi.mock('../../utils/process-tree.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/process-tree.js')>();
+  return { ...actual, ...processTreeMocks };
+});
 import { ClaudeManager, Utf8StreamDecoder } from '../claude-manager.js';
 import * as cliStatus from '../cli-status.js';
 
@@ -15,6 +23,28 @@ describe('ClaudeManager', () => {
     it('should resolve immediately for unknown PID', async () => {
       const manager = new ClaudeManager();
       await expect(manager.stopClaude(99999)).resolves.toEqual({ status: 'already_exited', pid: 99999 });
+    });
+
+    it('returns not_owned for a live identity mismatch without signalling the process', async () => {
+      processTreeMocks.verifyProcessIdentity.mockResolvedValueOnce('mismatch');
+      processTreeMocks.terminateProcessTree.mockClear();
+      const manager = new ClaudeManager();
+      await expect(manager.stopClaude(process.pid, {
+        pid: process.pid, startedAt: '2000-01-01T00:00:00Z', command: 'old-provider.exe',
+      })).resolves.toEqual({
+        status: 'not_owned', pid: process.pid, reason: 'process_identity_mismatch',
+      });
+      expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
+    });
+
+    it('keeps a live unverifiable untracked PID unresolved without signalling it', async () => {
+      processTreeMocks.verifyProcessIdentity.mockResolvedValueOnce('unverifiable');
+      processTreeMocks.terminateProcessTree.mockClear();
+      const manager = new ClaudeManager();
+      await expect(manager.stopClaude(process.pid, null)).resolves.toEqual({
+        status: 'unresolved', pid: process.pid, reason: 'process_identity_unverifiable',
+      });
+      expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
     });
   });
 

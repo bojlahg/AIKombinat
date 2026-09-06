@@ -467,7 +467,7 @@ describe('Resource Manager V1', () => {
     await tick();
   });
 
-  it('Stop All retains an unresolved recovered Todo, then releases its slot and resource exactly once after confirmed stop', async () => {
+  it('Stop All retains an unverifiable Todo, then reconciles a stale identity exactly once', async () => {
     const project = queries.createProject('Recovered Project', workspace.resolvePath('recovered-stop-all'));
     const todo = resourceTodo(project.id, 'Recovered Todo', 'claude');
     const processIdentity = JSON.stringify({ pid: 5101, startedAt: '2026-09-06T00:00:00Z', command: 'claude.exe' });
@@ -481,7 +481,7 @@ describe('Resource Manager V1', () => {
     executorPool.setLimit('claude', 1);
     const stop = vi.spyOn(claudeManager, 'stopClaude')
       .mockResolvedValueOnce({ status: 'unresolved', pid: 5101, reason: 'process_identity_unverifiable' })
-      .mockResolvedValueOnce({ status: 'terminated', pid: 5101, graceful: true });
+      .mockResolvedValueOnce({ status: 'not_owned', pid: 5101, reason: 'process_identity_mismatch' });
     vi.spyOn(claudeManager, 'isRunning').mockReturnValue(false);
 
     await orchestrator.stopProject(project.id);

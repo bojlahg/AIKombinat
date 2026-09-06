@@ -66,6 +66,7 @@ interface ManagedProcess {
 export type StopResult =
   | { status: 'terminated'; pid: number; graceful: boolean }
   | { status: 'already_exited'; pid: number }
+  | { status: 'not_owned'; pid: number; reason: 'process_identity_mismatch' }
   | { status: 'unresolved'; pid: number; reason: string };
 
 export class Utf8StreamDecoder {
@@ -774,7 +775,14 @@ export class ClaudeManager {
         return { status: 'already_exited', pid };
       }
       const verdict = await verifyProcessIdentity(pid, persistedIdentity);
-      if (verdict !== 'match') {
+      if (verdict === 'mismatch') {
+        logger.warn('process.stop.not-owned', {
+          msg: `refusing to signal untracked pid ${pid}: persisted identity belongs to a different process instance`,
+          pid, reason: 'process_identity_mismatch',
+        });
+        return { status: 'not_owned', pid, reason: 'process_identity_mismatch' };
+      }
+      if (verdict === 'unverifiable') {
         logger.error('process.stop.unresolved', {
           msg: `refusing to signal untracked pid ${pid}: process identity ${verdict}`,
           pid, reason: `process_identity_${verdict}`,

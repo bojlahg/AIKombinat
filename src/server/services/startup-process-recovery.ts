@@ -1,6 +1,7 @@
 import * as queries from '../db/queries.js';
 import { logger } from '../logging/logger.js';
 import { resourceManager } from './resource-manager.js';
+import { hasUnresolvedProcess } from './process-ownership.js';
 import {
   isProcessAlive,
   parseProcessIdentity,
@@ -24,8 +25,14 @@ type RecoveryOwner = 'todo' | 'session' | 'discussion';
 interface PersistedProcessOwner {
   id: string;
   title: string;
+  status: string;
   process_pid: number | null;
   process_identity: string | null;
+}
+
+export interface ProcessRecoveryReport {
+  released: number;
+  retained: number;
 }
 
 function recordReason(ownerType: RecoveryOwner, ownerId: string, reason: string): void {
@@ -39,7 +46,7 @@ async function recoverOwner(
   ownerType: RecoveryOwner,
   owner: PersistedProcessOwner,
   probe: StartupProcessProbe,
-): Promise<void> {
+): Promise<'released' | 'retained'> {
   const pid = owner.process_pid ?? 0;
   const dead = pid <= 0 || !probe.isAlive(pid);
   if (dead) {
@@ -60,17 +67,26 @@ async function recoverOwner(
       scope: '[startup]', msg: `${ownerType} process is dead; persisted state reconciled`,
       ownerType, ownerId: owner.id, pid: pid || undefined,
     });
-    return;
+    return 'released';
   }
 
   const identity = parseProcessIdentity(owner.process_identity);
-  const verdict = await probe.verify(pid, identity);
+  let verdict: ProcessIdentityVerdict;
+  try {
+    verdict = await probe.verify(pid, identity);
+  } catch {
+    verdict = 'unverifiable';
+  }
   if (verdict === 'match') {
-    logger.warn('startup.process-recovery.live-match', {
-      scope: '[startup]', msg: `${ownerType} still owns a live process; preserving fail-closed state`,
-      ownerType, ownerId: owner.id, pid, reason: 'process_identity_match',
-    });
-    return;
+    if (owner.status === 'running') {
+      const reason = `live PID ${pid} matches the persisted identity, but its streams and exit lifecycle were lost during restart; ownership was retained for explicit recovery`;
+      markRecoveryRequired(ownerType, owner, reason);
+      logger.error('startup.process-recovery.live-match', {
+        scope: '[startup]', msg: reason, ownerType, ownerId: owner.id, pid,
+        reason: 'process_identity_match_lifecycle_detached',
+      });
+    }
+    return 'retained';
   }
 
   if (verdict === 'mismatch') {
@@ -98,33 +114,59 @@ async function recoverOwner(
       scope: '[startup]', msg: reason, ownerType, ownerId: owner.id, pid,
       reason: 'process_identity_mismatch',
     });
-    return;
+    return 'released';
   }
 
   // An unverifiable live PID is never signalled or forgotten. Mark the owner
   // failed while retaining PID/identity and ownership for an explicit Stop.
   const reason = `live PID ${pid} identity is unverifiable; no signal was sent and ownership was retained`;
+  if (owner.status === 'running') {
+    markRecoveryRequired(ownerType, owner, reason);
+    logger.error('startup.process-recovery.requires-attention', {
+      scope: '[startup]', msg: reason, ownerType, ownerId: owner.id, pid,
+      reason: `process_identity_${verdict}`,
+    });
+  }
+  return 'retained';
+}
+
+function markRecoveryRequired(ownerType: RecoveryOwner, owner: PersistedProcessOwner, reason: string): void {
   if (ownerType === 'todo') {
     queries.updateTodoStatus(owner.id, 'failed');
     const activeRound = queries.getActiveExecutionRound(owner.id);
     if (activeRound) {
       queries.updateExecutionRound(activeRound.id, {
-        status: 'failed',
-        error_message: reason,
-        finished_at: new Date().toISOString(),
+        status: 'failed', error_message: reason, finished_at: new Date().toISOString(),
       });
     }
   } else if (ownerType === 'session') queries.updateSessionStatus(owner.id, 'failed');
   else queries.updateDiscussionStatus(owner.id, 'failed');
   recordReason(ownerType, owner.id, reason);
-  logger.error('startup.process-recovery.requires-attention', {
-    scope: '[startup]', msg: reason, ownerType, ownerId: owner.id, pid,
-    reason: `process_identity_${verdict}`,
-  });
 }
 
-export async function recoverPersistedProcesses(probe: StartupProcessProbe = defaultProbe): Promise<void> {
-  for (const todo of queries.getTodosByStatus('running')) await recoverOwner('todo', todo, probe);
-  for (const session of queries.getSessionsByStatus('running')) await recoverOwner('session', session, probe);
-  for (const discussion of queries.getDiscussionsByStatus('running')) await recoverOwner('discussion', discussion, probe);
+async function recoverOwners(
+  probe: StartupProcessProbe,
+  onlyRecoveryRequired: boolean,
+): Promise<ProcessRecoveryReport> {
+  const report: ProcessRecoveryReport = { released: 0, retained: 0 };
+  const groups: Array<[RecoveryOwner, PersistedProcessOwner[]]> = [
+    ['todo', queries.getTodosWithPersistedProcess()],
+    ['session', queries.getSessionsWithPersistedProcess()],
+    ['discussion', queries.getDiscussionsWithPersistedProcess()],
+  ];
+  for (const [ownerType, owners] of groups) {
+    for (const owner of owners) {
+      if (onlyRecoveryRequired && !hasUnresolvedProcess(owner)) continue;
+      report[await recoverOwner(ownerType, owner, probe)]++;
+    }
+  }
+  return report;
+}
+
+export function recoverPersistedProcesses(probe: StartupProcessProbe = defaultProbe): Promise<ProcessRecoveryReport> {
+  return recoverOwners(probe, false);
+}
+
+export function reconcileRetainedProcesses(probe: StartupProcessProbe = defaultProbe): Promise<ProcessRecoveryReport> {
+  return recoverOwners(probe, true);
 }
