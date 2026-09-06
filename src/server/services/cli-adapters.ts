@@ -279,20 +279,32 @@ const COMMON_RESERVED_OPTIONS = new Set([
 const PROVIDER_RESERVED_OPTIONS: Record<ProviderTool, ReadonlySet<string>> = {
   claude: new Set([
     ...COMMON_RESERVED_OPTIONS,
-    '--dangerously-skip-permissions', '--permission-mode', '--allowedtools',
-    '--allowed-tools', '--disallowedtools', '--disallowed-tools', '--permission-prompt-tool',
+    '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions',
+    '--permission-mode', '--permission-prompts', '--permission-prompt-tool',
+    '--allowedtools', '--allowed-tools', '--disallowedtools', '--disallowed-tools', '--tools',
+    '--settings', '--setting-sources', '--mcp-config', '--strict-mcp-config',
+    '--plugin-dir', '--plugin-url', '--agent', '--agents',
+    '--fallback-model', '--worktree', '-w',
+    '--bg', '--background', '--exec', '--cloud', '--environment', '--remote',
+    '--remote-control', '--remote-control-server', '--restricted',
+    '--system-prompt', '--system-prompt-file', '--append-system-prompt', '--append-system-prompt-file',
     '--print', '-p', '--verbose', '--max-turns', '--session-id', '--fork-session', '-m', '-c', '-r',
   ]),
   codex: new Set([
     ...COMMON_RESERVED_OPTIONS,
     '--dangerously-bypass-approvals-and-sandbox', '--sandbox', '--approve-for-me',
-    '--ask-for-approval', '--full-auto', '--yolo', '--config', '-a', '-c', '--cd', '-d',
+    '--dangerously-bypass-hook-trust', '--ask-for-approval', '--full-auto', '--yolo',
+    '--config', '--enable', '--disable', '-a', '-c', '--cd', '-d',
+    '--profile', '-p', '--strict-config', '--ignore-user-config', '--ignore-rules',
+    '--oss', '--local-provider', '--ephemeral', '--image', '-i',
+    '--output-schema', '--json', '--output-last-message', '-o',
     '-m', '-s', '--skip-git-repo-check', '--last', 'exec',
   ]),
   antigravity: new Set([
     ...COMMON_RESERVED_OPTIONS,
     '--dangerously-skip-permissions', '--sandbox', '--mode', '--conversation',
-    '--project', '--new-project', '--agent', '--print', '--prompt', '-p', '--prompt-interactive', '-i', '-c',
+    '--project', '--new-project', '--agent', '--json-schema', '--log-file', '--print-timeout',
+    '--print', '--prompt', '-p', '--prompt-interactive', '-i', '-c',
   ]),
 };
 

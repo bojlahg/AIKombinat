@@ -738,6 +738,23 @@ describe('Execution Round Retry & Recovery V1', () => {
     expect(queries.getTodoById(todo.id)?.status).toBe('failed');
   });
 
+  it('rejects Start and Retry Phase while a recovered unresolved PID is retained', async () => {
+    const todo = queries.createTodo(project.id, 'Unresolved review task', 'Desc', 1, 'claude', undefined, undefined, undefined, undefined, 1, 'none', null, null, undefined, undefined, null, null, '[]', 1, reviewProfile.id, reworkProfile.id, 3);
+    reviewPipeline.ensureInitialRound(todo.id);
+    const round = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(round.id, { status: 'failed', finished_at: new Date().toISOString() });
+    queries.updateTodoStatus(todo.id, 'failed');
+    queries.updateTodo(todo.id, {
+      process_pid: 5222,
+      process_identity: JSON.stringify({ pid: 5222, startedAt: '2026-09-06T00:00:00Z', command: 'claude.exe' }),
+    });
+
+    await expect(executionRoundRetryService.retryExecutionRound(todo.id, round.id)).rejects.toThrow('requires process recovery');
+    await expect(orchestrator.startTodo(todo.id)).rejects.toThrow('requires process recovery');
+    expect(queries.getTodoById(todo.id)?.process_pid).toBe(5222);
+    expect(queries.getExecutionRoundsByTodoId(todo.id)).toHaveLength(1);
+  });
+
   it('14. Concurrent Retry -> 1 success, 1 conflict (409)', async () => {
     const todo = queries.createTodo(project.id, 'Task', 'Desc', 1, 'claude', undefined, undefined, undefined, undefined, 1, 'none', null, null, undefined, undefined, null, null, '[]', 1, reviewProfile.id, reworkProfile.id, 3);
     reviewPipeline.ensureInitialRound(todo.id);

@@ -21,6 +21,7 @@ import { logger } from '../logging/logger.js';
 import { tag } from '../logging/context.js';
 import { clampLine, tailOf } from '../logging/truncate.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
+import { assertNoUnresolvedProcess } from './process-ownership.js';
 
 
 function broadcastDiscussionProjectStatus(discussionId: string): void {
@@ -53,6 +54,7 @@ export class DiscussionOrchestrator {
     if (discussion.status === 'running') {
       throw new Error('Discussion is already running');
     }
+    assertNoUnresolvedProcess('Discussion', discussion);
 
     const project = queries.getProjectById(discussion.project_id);
     if (!project) throw new Error('Project not found');
@@ -236,6 +238,7 @@ export class DiscussionOrchestrator {
   async triggerImplementation(discussionId: string, agentId: string, options?: { fromAutoImplement?: boolean }): Promise<void> {
     const discussion = queries.getDiscussionById(discussionId);
     if (!discussion) throw new Error('Discussion not found');
+    assertNoUnresolvedProcess('Discussion', discussion);
 
     if (!options?.fromAutoImplement && discussion.status === 'running') {
       throw new Error('Discussion is currently running. Stop it first.');

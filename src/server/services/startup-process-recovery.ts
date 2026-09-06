@@ -73,12 +73,37 @@ async function recoverOwner(
     return;
   }
 
-  // A live PID without a positive identity match is never signalled. Mark the
-  // owner as failed while retaining PID/identity and resource ownership so an
-  // operator can inspect and retry Stop without risking a reused PID.
-  const reason = verdict === 'mismatch'
-    ? `live PID ${pid} does not match the persisted process identity; no signal was sent and ownership was retained`
-    : `live PID ${pid} identity is unverifiable; no signal was sent and ownership was retained`;
+  if (verdict === 'mismatch') {
+    const reason = `live PID ${pid} belongs to a different process instance; reused PID was not signalled and stale ownership was released`;
+    if (ownerType === 'todo') {
+      queries.updateTodoStatus(owner.id, 'failed');
+      queries.updateTodo(owner.id, { process_pid: 0, process_identity: null });
+      resourceManager.releaseOwner('todo', owner.id);
+      const activeRound = queries.getActiveExecutionRound(owner.id);
+      if (activeRound) {
+        queries.updateExecutionRound(activeRound.id, {
+          status: 'failed', error_message: reason, finished_at: new Date().toISOString(),
+        });
+      }
+    } else if (ownerType === 'session') {
+      queries.updateSessionStatus(owner.id, 'failed');
+      queries.updateSession(owner.id, { process_pid: 0, process_identity: null });
+      resourceManager.releaseOwner('session', owner.id);
+    } else {
+      queries.updateDiscussionStatus(owner.id, 'paused');
+      queries.updateDiscussion(owner.id, { process_pid: 0, process_identity: null });
+    }
+    recordReason(ownerType, owner.id, reason);
+    logger.warn('startup.process-recovery.identity-mismatch', {
+      scope: '[startup]', msg: reason, ownerType, ownerId: owner.id, pid,
+      reason: 'process_identity_mismatch',
+    });
+    return;
+  }
+
+  // An unverifiable live PID is never signalled or forgotten. Mark the owner
+  // failed while retaining PID/identity and ownership for an explicit Stop.
+  const reason = `live PID ${pid} identity is unverifiable; no signal was sent and ownership was retained`;
   if (ownerType === 'todo') {
     queries.updateTodoStatus(owner.id, 'failed');
     const activeRound = queries.getActiveExecutionRound(owner.id);

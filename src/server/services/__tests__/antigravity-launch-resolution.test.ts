@@ -90,9 +90,6 @@ function seedProductionCatalog() {
   return canonical;
 }
 
-/** Lets queued post-exit callbacks flush before the in-memory DB is torn down. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
-
 /** Replaces only the transport, recording the argv of every spawn. */
 function captureSpawns() {
   const spawns: Array<{ args: string[] }> = [];
@@ -350,6 +347,9 @@ describe('Antigravity effective-model resolution happens exactly once', () => {
       expect(spawn.args).not.toContain(CANONICAL);
       expect(spawn.args).not.toContain('--effort');
     }
-    await settle();
+    await vi.waitFor(() => {
+      expect(queries.getTodoById(todo.id)?.status).toBe('completed');
+      expect(queries.getDiscussionById(discussion.id)?.status).toBe('completed');
+    });
   });
 });

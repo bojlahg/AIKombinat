@@ -19,6 +19,7 @@ import { resourceManager } from './resource-manager.js';
 import { executorPool } from './executor-pool.js';
 import { logger } from '../logging/logger.js';
 import { tag } from '../logging/context.js';
+import { assertNoUnresolvedProcess } from './process-ownership.js';
 
 export class TodoNotFoundError extends Error {
   constructor(message = 'Todo not found') {
@@ -85,14 +86,10 @@ export class ExecutionRoundRetryService {
       throw new RetryConflictError('Task or project is currently stopping.');
     }
 
-    if (todo.process_pid && todo.process_pid > 0) {
-      try {
-        process.kill(todo.process_pid, 0);
-        throw new RetryConflictError('Task has a running process and cannot be retried until it exits.');
-      } catch (err) {
-        if (err instanceof RetryConflictError) throw err;
-        // Process is dead, proceed
-      }
+    try {
+      assertNoUnresolvedProcess('Task', todo);
+    } catch (err) {
+      throw new RetryConflictError(err instanceof Error ? err.message : String(err));
     }
 
     const activeRound = getActiveExecutionRound(todoId);
@@ -117,6 +114,11 @@ export class ExecutionRoundRetryService {
 
       if (freshTodo.status !== 'failed' && freshTodo.status !== 'stopped') {
         throw new RetryConflictError(`Task is not retryable from status ${freshTodo.status}. Only failed or stopped tasks can be retried.`);
+      }
+      try {
+        assertNoUnresolvedProcess('Task', freshTodo);
+      } catch (err) {
+        throw new RetryConflictError(err instanceof Error ? err.message : String(err));
       }
 
       const freshRound = getExecutionRoundById(roundId);

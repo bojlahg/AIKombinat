@@ -340,6 +340,10 @@ export function getTodosByStatus(status: string): Todo[] {
   return db.prepare('SELECT * FROM todos WHERE status = ? ORDER BY priority DESC, created_at ASC').all(status) as Todo[];
 }
 
+export function getTodosWithPersistedProcess(): Todo[] {
+  return getDatabase().prepare('SELECT * FROM todos WHERE process_pid IS NOT NULL AND process_pid > 0').all() as Todo[];
+}
+
 export function deleteTodo(id: string): boolean {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM todos WHERE id = ?').run(id);
@@ -1320,6 +1324,10 @@ export function getDiscussionsByStatus(status: string): Discussion[] {
   return db.prepare('SELECT * FROM discussions WHERE status = ? ORDER BY created_at DESC').all(status) as Discussion[];
 }
 
+export function getDiscussionsWithPersistedProcess(): Discussion[] {
+  return getDatabase().prepare('SELECT * FROM discussions WHERE process_pid IS NOT NULL AND process_pid > 0').all() as Discussion[];
+}
+
 export function deleteDiscussion(id: string): boolean {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM discussions WHERE id = ?').run(id);
@@ -1556,6 +1564,12 @@ export function updateSessionStatus(id: string, status: string): Session | undef
 export function getSessionsByStatus(status: string): Session[] {
   const db = getDatabase();
   return db.prepare('SELECT * FROM sessions WHERE status = ? ORDER BY created_at DESC').all(status) as Session[];
+}
+
+export function getSessionsWithPersistedProcess(): Session[] {
+  return getDatabase().prepare(
+    'SELECT s.*, p.is_git_repo FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.process_pid IS NOT NULL AND s.process_pid > 0'
+  ).all() as Session[];
 }
 
 export function deleteSession(id: string): boolean {

@@ -1954,6 +1954,58 @@ describe('Executor Pool V1', () => {
     await new Promise((r) => setTimeout(r, 20));
   });
 
+  it('counts unresolved persisted owners without double-counting normal running processes', () => {
+    executorPool.setLimit('claude', 10);
+    const project = queries.createProject('Recovery ownership', workspace.resolvePath('recovery-proj'), 'main', 0, 'claude');
+    const unresolvedTodo = queries.createTodo(project.id, 'Unresolved Todo', undefined, 0, 'claude');
+    queries.updateTodoStatus(unresolvedTodo.id, 'failed');
+    queries.updateTodo(unresolvedTodo.id, { process_pid: 41001, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    const unresolvedSession = queries.createSession(project.id, 'Unresolved Session', '', 'claude');
+    queries.updateSessionStatus(unresolvedSession.id, 'failed');
+    queries.updateSession(unresolvedSession.id, { process_pid: 41002, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    const unresolvedDiscussion = queries.createDiscussion(project.id, 'Unresolved Discussion', '', []);
+    queries.updateDiscussionStatus(unresolvedDiscussion.id, 'failed');
+    queries.updateDiscussion(unresolvedDiscussion.id, { process_pid: 41003, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    const runningTodo = queries.createTodo(project.id, 'Running Todo', undefined, 0, 'claude');
+    queries.updateTodoStatus(runningTodo.id, 'running');
+    queries.updateTodo(runningTodo.id, { process_pid: 41004, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+
+    expect(executorPool.getActiveToolUsage('claude')).toBe(4);
+  });
+
+  it('keeps an unverifiable provider slot busy and rejects restart paths that could overwrite retained PIDs', async () => {
+    const claude = queries.addModel('claude', 'claude-recovery', 'Claude Recovery', ['high']);
+    const profile = queries.createExecutionProfile({
+      slug: 'recovery-capacity', name: 'Recovery Capacity', description: '',
+      executors: [{ cli_model_id: claude.id, effort_value: 'high', priority: 1 }],
+    });
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockResolvedValue({ tool: 'claude', installed: true, version: '1.0.0' });
+    executorPool.setLimit('claude', 1);
+    const project = queries.createProject('Recovery capacity', workspace.resolvePath('recovery-proj'), 'main', 0, 'claude');
+    const unresolvedTodo = queries.createTodo(project.id, 'Unresolved Todo', undefined, 0, 'claude');
+    queries.updateTodoStatus(unresolvedTodo.id, 'failed');
+    queries.updateTodo(unresolvedTodo.id, { process_pid: 42001, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    const candidate = queries.createTodo(project.id, 'Candidate', undefined, 0, undefined, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined, profile.id);
+
+    await orchestrator.startTodo(candidate.id);
+    expect(queries.getTodoById(candidate.id)?.status).toBe('waiting_executor');
+    await expect(orchestrator.startTodo(unresolvedTodo.id)).rejects.toThrow('requires process recovery');
+
+    const session = queries.createSession(project.id, 'Unresolved Session', '', 'claude');
+    queries.updateSessionStatus(session.id, 'failed');
+    queries.updateSession(session.id, { process_pid: 42002, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    await expect(sessionManager.startSession(session.id)).rejects.toThrow('requires process recovery');
+
+    const discussion = queries.createDiscussion(project.id, 'Unresolved Discussion', '', []);
+    queries.updateDiscussionStatus(discussion.id, 'failed');
+    queries.updateDiscussion(discussion.id, { process_pid: 42003, execution_snapshot: JSON.stringify({ agent: 'claude' }) });
+    await expect(discussionOrchestrator.startDiscussion(discussion.id)).rejects.toThrow('requires process recovery');
+    await expect(discussionOrchestrator.triggerImplementation(discussion.id, 'unused')).rejects.toThrow('requires process recovery');
+    expect(queries.getTodoById(unresolvedTodo.id)?.process_pid).toBe(42001);
+    expect(queries.getSessionById(session.id)?.process_pid).toBe(42002);
+    expect(queries.getDiscussionById(discussion.id)?.process_pid).toBe(42003);
+  });
+
   it('35. stale process recovery marks dead running todo as failed and automatically wakes WAITING_EXECUTOR todo', async () => {
     const claude = queries.addModel('claude', 'claude-3.7-sonnet', 'Claude 3.7 Sonnet', ['high']);
     const profile = queries.createExecutionProfile({

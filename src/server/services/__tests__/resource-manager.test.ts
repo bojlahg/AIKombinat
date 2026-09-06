@@ -467,6 +467,36 @@ describe('Resource Manager V1', () => {
     await tick();
   });
 
+  it('Stop All retains an unresolved recovered Todo, then releases its slot and resource exactly once after confirmed stop', async () => {
+    const project = queries.createProject('Recovered Project', workspace.resolvePath('recovered-stop-all'));
+    const todo = resourceTodo(project.id, 'Recovered Todo', 'claude');
+    const processIdentity = JSON.stringify({ pid: 5101, startedAt: '2026-09-06T00:00:00Z', command: 'claude.exe' });
+    queries.updateTodoStatus(todo.id, 'failed');
+    queries.updateTodo(todo.id, {
+      process_pid: 5101,
+      process_identity: processIdentity,
+      execution_snapshot: JSON.stringify({ agent: 'claude' }),
+    });
+    resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: todo.id, runToken: 'recovered-run', resources: ['gpu.0'] });
+    executorPool.setLimit('claude', 1);
+    const stop = vi.spyOn(claudeManager, 'stopClaude')
+      .mockResolvedValueOnce({ status: 'unresolved', pid: 5101, reason: 'process_identity_unverifiable' })
+      .mockResolvedValueOnce({ status: 'terminated', pid: 5101, graceful: true });
+    vi.spyOn(claudeManager, 'isRunning').mockReturnValue(false);
+
+    await orchestrator.stopProject(project.id);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(queries.getTodoById(todo.id)).toMatchObject({ status: 'failed', process_pid: 5101, process_identity: processIdentity });
+    expect(resourceManager.getStatus().find((resource) => resource.key === 'gpu.0')?.used).toBe(1);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(1);
+
+    await orchestrator.stopProject(project.id);
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(queries.getTodoById(todo.id)).toMatchObject({ status: 'stopped', process_pid: 0, process_identity: null });
+    expect(resourceManager.getStatus().find((resource) => resource.key === 'gpu.0')?.used).toBe(0);
+    expect(executorPool.getActiveToolUsage('claude')).toBe(0);
+  });
+
   it('hands off waiting_resource to waiting_executor without holding either capacity', async () => {
     const project = queries.createProject('Project', workspace.resolvePath('resource-to-executor'));
     const holder = resourceTodo(project.id, 'A');

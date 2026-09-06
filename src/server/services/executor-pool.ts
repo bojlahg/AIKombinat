@@ -4,6 +4,7 @@ import { getToolStatus } from './cli-status.js';
 import { resolveExecutionConfig, type ResolvedExecutionConfig } from './execution-config.js';
 import { providerQuotaService } from './provider-quota.js';
 import { logger } from '../logging/logger.js';
+import { hasUnresolvedProcess } from './process-ownership.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -166,9 +167,19 @@ export class ExecutorPool {
       if (options.excludeTodoId && todo.id === options.excludeTodoId) continue;
       if (getTodoActiveCliTool(todo) === tool) count++;
     }
+    for (const todo of queries.getTodosWithPersistedProcess()) {
+      if (!hasUnresolvedProcess(todo)) continue;
+      if (options.excludeTodoId && todo.id === options.excludeTodoId) continue;
+      if (getTodoActiveCliTool(todo) === tool) count++;
+    }
 
     const runningSessions = queries.getSessionsByStatus('running');
     for (const session of runningSessions) {
+      if (options.excludeSessionId && session.id === options.excludeSessionId) continue;
+      if (getSessionActiveCliTool(session) === tool) count++;
+    }
+    for (const session of queries.getSessionsWithPersistedProcess()) {
+      if (!hasUnresolvedProcess(session)) continue;
       if (options.excludeSessionId && session.id === options.excludeSessionId) continue;
       if (getSessionActiveCliTool(session) === tool) count++;
     }
@@ -178,6 +189,12 @@ export class ExecutorPool {
       if (options.excludeDiscussionId && discussion.id === options.excludeDiscussionId) continue;
       const activeTool = getDiscussionActiveCliTool(discussion);
       if (activeTool && activeTool === tool) count++;
+    }
+    for (const discussion of queries.getDiscussionsWithPersistedProcess()) {
+      if (!hasUnresolvedProcess(discussion)) continue;
+      if (options.excludeDiscussionId && discussion.id === options.excludeDiscussionId) continue;
+      const activeTool = getDiscussionActiveCliTool(discussion);
+      if (activeTool === tool) count++;
     }
 
     for (const res of this.reservations.values()) {

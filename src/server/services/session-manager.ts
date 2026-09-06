@@ -20,6 +20,7 @@ import { parseStoredResourceRequirements, RESOURCE_CATALOG } from './resource-ca
 import { resourceManager } from './resource-manager.js';
 import * as queries from '../db/queries.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
+import { assertNoUnresolvedProcess } from './process-ownership.js';
 
 const RAW_FLUSH_BYTES = 4 * 1024;
 const RAW_FLUSH_MS = 100;
@@ -290,6 +291,7 @@ export class SessionManager {
   async startSession(sessionId: string, opts?: { cols?: number; rows?: number; continueSession?: boolean }): Promise<void> {
     const session = queries.getSessionById(sessionId);
     if (!session) throw new Error('Session not found');
+    assertNoUnresolvedProcess('Session', session);
 
     const project = queries.getProjectById(session.project_id);
     if (!project) throw new Error('Project not found');

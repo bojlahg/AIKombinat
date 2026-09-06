@@ -29,6 +29,7 @@ import { clampLine, tailOf } from '../logging/truncate.js';
 import * as queries from '../db/queries.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
+import { assertNoUnresolvedProcess, hasUnresolvedProcess } from './process-ownership.js';
 
 
 /**
@@ -250,8 +251,8 @@ export class Orchestrator {
   async stopProject(projectId: string): Promise<void> {
     this.isStoppingProjects.add(projectId);
     const todos = queries.getTodosByProjectId(projectId);
-    const running = todos.filter((t) => t.status === 'running');
-    const waiting = todos.filter((t) => t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource');
+    const running = todos.filter((t) => t.status === 'running' || hasUnresolvedProcess(t));
+    const waiting = todos.filter((t) => !hasUnresolvedProcess(t) && (t.status === 'waiting_executor' || t.status === 'waiting_quota' || t.status === 'waiting_resource'));
     todos.forEach((t) => {
       this.activeStartTokens.delete(t.id);
       this.startGenerations.set(t.id, (this.startGenerations.get(t.id) ?? 0) + 1);
@@ -339,6 +340,7 @@ export class Orchestrator {
     if (todo.status === 'running') {
       throw new Error('Todo is already running');
     }
+    assertNoUnresolvedProcess('Todo', todo);
 
     if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todoId)) {
       throw new Error('Cannot start task while stopping.');
@@ -664,6 +666,7 @@ export class Orchestrator {
   ): Promise<void> {
     const todo = queries.getTodoById(todoId);
     if (!todo) return;
+    assertNoUnresolvedProcess('Todo', todo);
 
     const project = queries.getProjectById(projectId);
     if (!project) return;
