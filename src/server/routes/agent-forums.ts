@@ -2,8 +2,25 @@ import { Router, Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import { agentForumOrchestrator, ForumNotIdleError, ForumStopIncompleteError } from '../services/agent-forum-orchestrator.js';
 import { normalizeExecutionSelection, ExecutionSelectionError } from '../services/execution-selection.js';
+import { isAgentForumEnabled, agentForumDisabledBody } from '../services/features.js';
 
 const router = Router();
+
+/**
+ * AgentForum V1 is a paused experiment (disabled by default). Any operation
+ * that could create forum activity — or spawn a new provider CLI — is refused
+ * here, before orchestration, with a controlled 403 (never a 500).
+ *
+ * Deliberately NOT gated: reads (history stays inspectable), POST …/stop and
+ * DELETE …/:id (both funnel through the stop/cleanup lifecycle, which must
+ * keep working so a pre-existing running/orphan forum can never become an
+ * unreclaimable ghost while the feature is off).
+ */
+function rejectIfFeatureDisabled(res: Response): boolean {
+  if (isAgentForumEnabled()) return false;
+  res.status(403).json(agentForumDisabledBody());
+  return true;
+}
 
 /** Fields that must not change while a cycle is running. */
 const RUNNING_LOCKED_FORUM_FIELDS = ['project_id', 'rules', 'max_reply_length'] as const;
@@ -54,6 +71,7 @@ router.get('/agent-forums', (req: Request, res: Response) => {
 // POST /api/agent-forums - create forum
 router.post('/agent-forums', (req: Request, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const { title, rules, max_reply_length, project_id, members } = req.body;
     if (!title || typeof title !== 'string' || !title.trim()) {
       res.status(400).json({ error: 'title is required' });
@@ -162,6 +180,7 @@ router.get('/agent-forums/:id', (req: Request<{ id: string }>, res: Response) =>
 // PUT /api/agent-forums/:id - update forum settings
 router.put('/agent-forums/:id', (req: Request<{ id: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });
@@ -238,6 +257,7 @@ router.delete('/agent-forums/:id', async (req: Request<{ id: string }>, res: Res
 // POST /api/agent-forums/:id/messages - user posts message & starts cycle
 router.post('/agent-forums/:id/messages', async (req: Request<{ id: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });
@@ -270,6 +290,7 @@ router.post('/agent-forums/:id/messages', async (req: Request<{ id: string }>, r
 // the agents can keep answering each other without another user prompt.
 router.post('/agent-forums/:id/continue', (req: Request<{ id: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });
@@ -294,6 +315,10 @@ router.post('/agent-forums/:id/continue', (req: Request<{ id: string }>, res: Re
 });
 
 // POST /api/agent-forums/:id/stop - stop active agent cycle
+//
+// Intentionally NOT gated by the AgentForum feature flag: while the feature is
+// disabled this is the cleanup path for a pre-existing running/orphan forum.
+// Cleanup never starts a new cycle — see `stopForum`.
 router.post('/agent-forums/:id/stop', async (req: Request<{ id: string }>, res: Response) => {
   try {
     const forum = queries.getAgentForumById(req.params.id);
@@ -329,6 +354,7 @@ router.post('/agent-forums/:id/stop', async (req: Request<{ id: string }>, res: 
 // POST /api/agent-forums/:id/members - add member
 router.post('/agent-forums/:id/members', (req: Request<{ id: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });
@@ -376,6 +402,7 @@ router.post('/agent-forums/:id/members', (req: Request<{ id: string }>, res: Res
 // PUT /api/agent-forums/:id/members/:memberId - update member
 router.put('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; memberId: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });
@@ -422,6 +449,7 @@ router.put('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; me
 // surviving messages still reference.
 router.delete('/agent-forums/:id/members/:memberId', (req: Request<{ id: string; memberId: string }>, res: Response) => {
   try {
+    if (rejectIfFeatureDisabled(res)) return;
     const forum = queries.getAgentForumById(req.params.id);
     if (!forum) {
       res.status(404).json({ error: 'Agent forum not found' });

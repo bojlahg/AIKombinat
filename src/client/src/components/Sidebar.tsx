@@ -14,6 +14,7 @@ import { useNotification } from '../hooks/useNotification';
 import { useToast } from '../hooks/useToast';
 import { useDialog } from '../hooks/useDialog';
 import type { WsEvent } from '../hooks/useWebSocket';
+import { useAgentForumEnabled } from '../hooks/useFeatures';
 import ProjectForm from './ProjectForm';
 import FavoriteForm from './FavoriteForm';
 import ProjectColorPicker from './ProjectColorPicker';
@@ -61,6 +62,9 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
   const [dragOverGapIndex, setDragOverGapIndex] = useState<number | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  // AgentForum V1 is a paused experiment: its navigation stays hidden unless
+  // the server affirmatively reports it as enabled. Fail-closed by default.
+  const agentForumEnabled = useAgentForumEnabled();
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const { enabled: notifEnabled, supported: notifSupported, toggleNotification } = useNotification();
@@ -451,6 +455,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
         >
           <CalendarDays size={16} />
         </Link>
+        {agentForumEnabled && (
         <Link
           to="/experiments/agent-forum"
           onClick={handleNav}
@@ -462,6 +467,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
         >
           <FlaskConical size={18} />
         </Link>
+        )}
         {railDivider}
         <div className="flex-1 overflow-y-auto w-full flex flex-col items-center gap-1 py-1">
           {projects.map((project) => {
@@ -600,7 +606,8 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
       {/* Divider */}
       <div className="mx-4 border-t" style={{ borderColor: 'var(--color-border)' }} />
 
-      {/* Experiments section */}
+      {/* Experiments section (hidden while the AgentForum experiment is disabled) */}
+      {agentForumEnabled && (
       <div className="px-3 pt-3">
         <div className="px-3 mb-1 flex items-center justify-between">
           <span className="text-2xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>
@@ -625,9 +632,12 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
           </Link>
         </nav>
       </div>
+      )}
 
       {/* Divider */}
+      {agentForumEnabled && (
       <div className="mx-4 mt-2 border-t" style={{ borderColor: 'var(--color-border)' }} />
+      )}
 
       {/* Projects section */}
       <div className="flex-1 overflow-y-auto px-3 pt-3">

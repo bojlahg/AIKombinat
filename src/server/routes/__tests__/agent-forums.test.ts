@@ -58,6 +58,7 @@ vi.mock('../../services/agent-forum-orchestrator.js', () => {
 
 const queries = await import('../../db/queries.js');
 const { ForumNotIdleError } = await import('../../services/agent-forum-orchestrator.js');
+const { AGENT_FORUM_ENV_VAR } = await import('../../services/features.js');
 const router = (await import('../agent-forums.js')).default;
 
 let server: Server;
@@ -78,6 +79,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // This suite covers enabled-mode behavior: opt in explicitly per test run
+  // instead of relying on ambient env left behind by another test file.
+  process.env[AGENT_FORUM_ENV_VAR] = '1';
   orchestratorMocks.isCycleRegistered.mockReturnValue(false);
   orchestratorMocks.stopForum.mockImplementation(async () => {});
   testDb = new Database(':memory:');
@@ -85,6 +89,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env[AGENT_FORUM_ENV_VAR];
   testDb.close();
 });
 

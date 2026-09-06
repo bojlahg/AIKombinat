@@ -30,6 +30,16 @@ These are implemented foundations rather than future roadmap items:
 
 The existing review/rework flow is already a persisted coding pipeline. A future generic pipeline engine should therefore add genuinely new capabilities, not rebuild this state machine under a more fashionable noun.
 
+### Paused experiment: AgentForum V1
+
+AgentForum V1 (multi-agent discussion forums over Claude/Codex/Antigravity) is
+currently a **paused / disabled experimental feature**: the implementation,
+schema, migrations, and historical data are retained, but the UI entry points
+are hidden and the server rejects new forum activity by default. Startup
+recovery and Stop/cleanup for pre-existing forums keep working. It can be
+re-enabled for development with `AIKOMBINAT_EXPERIMENTAL_AGENT_FORUM=1` plus a
+restart.
+
 ---
 
 ### Next experiment cluster: Provider Accounts

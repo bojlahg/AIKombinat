@@ -40,6 +40,8 @@ import cliStatusRouter from './routes/cli-status.js';
 import debugLogsRouter from './routes/debug-logs.js';
 import discussionsRouter from './routes/discussions.js';
 import agentForumsRouter from './routes/agent-forums.js';
+import featuresRouter from './routes/features.js';
+import { isAgentForumEnabled } from './services/features.js';
 import { recoverInterruptedAgentForums } from './services/agent-forum-orchestrator.js';
 import analyticsRouter from './routes/analytics.js';
 import sessionsRouter from './routes/sessions.js';
@@ -191,6 +193,16 @@ try {
   });
 }
 
+// AgentForum V1 is a paused experiment: startup recovery above always runs
+// (a disabled flag must never strand a running/orphan forum), while new forum
+// activity stays gated behind the developer-only opt-in flag.
+logger.info('startup.features.agent-forum', {
+  scope: '[startup]',
+  msg: isAgentForumEnabled()
+    ? 'AgentForum experimental feature enabled'
+    : 'AgentForum experimental feature disabled',
+});
+
 // One-shot legacy paste-images cleanup. Older builds saved clipboard
 // screenshots into `<project>/.aikombinat/paste-images/` or `.clitrigger/paste-images/` (and worktrees);
 // the new flow writes the image directly to the host OS clipboard, so
@@ -313,6 +325,7 @@ app.use('/api/cli', cliStatusRouter);
 app.use('/api', debugLogsRouter);
 app.use('/api', discussionsRouter);
 app.use('/api', agentForumsRouter);
+app.use('/api', featuresRouter);
 app.use('/api', analyticsRouter);
 app.use('/api', sessionsRouter);
 app.use('/api', sessionTagsRouter);

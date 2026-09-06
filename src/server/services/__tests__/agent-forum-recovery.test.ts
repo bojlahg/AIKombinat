@@ -10,6 +10,7 @@ vi.mock('../../db/connection.js', () => ({
 
 const queries = await import('../../db/queries.js');
 const processTree = await import('../../utils/process-tree.js');
+const { AGENT_FORUM_ENV_VAR } = await import('../features.js');
 const {
   recoverInterruptedAgentForums,
   FORUM_TURN_RESTART_INTERRUPT_MESSAGE,
@@ -38,12 +39,17 @@ function stubIdentityVerdict(verdict: 'match' | 'mismatch' | 'unverifiable') {
 
 describe('AgentForum startup recovery', () => {
   beforeEach(() => {
+    // Recovery must work while the experiment is disabled (the default): it
+    // runs below the feature flag by design, so pin the flag off explicitly
+    // instead of relying on ambient env.
+    delete process.env[AGENT_FORUM_ENV_VAR];
     testDb = new Database(':memory:');
     initDatabase(testDb);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete process.env[AGENT_FORUM_ENV_VAR];
     testDb.close();
   });
 
@@ -161,6 +167,18 @@ describe('AgentForum startup recovery', () => {
     });
     expect(terminateSpy).not.toHaveBeenCalled();
     expect(queries.getAgentForumTurnById(turn.id)!.status).toBe('passed');
+  });
+
+  it('still executes while the AgentForum feature flag is disabled', async () => {
+    const { isAgentForumEnabled } = await import('../features.js');
+    expect(isAgentForumEnabled()).toBe(false);
+
+    const { forum } = seedInterruptedForum();
+
+    const report = await recoverInterruptedAgentForums();
+
+    expect(report.forumsRecovered).toBe(1);
+    expect(queries.getAgentForumById(forum.id)!.status).toBe('idle');
   });
 
   it('terminates the orphan process tree of a live stale PID, then stops the turn', async () => {

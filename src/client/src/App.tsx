@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useAgentForumEnabled } from './hooks/useFeatures';
 import { useI18n } from './i18n';
 import { Skeleton } from './components/Skeleton';
 import LoginPage from './components/LoginPage';
@@ -18,12 +19,16 @@ import { getSessionSettings } from './api/sessionSettings';
 import { setGlobalDefaultFontSize } from './hooks/useSessionFontSize';
 import { forceImeHandoff } from './ime-handoff';
 import SettingsPage from './components/settings/SettingsPage';
-import AgentForumView from './components/experiments/AgentForumView';
+import AgentForumRoute from './components/experiments/AgentForumRoute';
 
 function App() {
   const { authenticated, authRequired, setupRequired, loading, login, logout, setup, changePassword } = useAuth();
   const { connected, onEvent, sendMessage, subscribeBinary } = useWebSocket(authenticated);
   const { t } = useI18n();
+  // Paused experiment: forum routes redirect home unless the server reports
+  // the feature as enabled. Only fetched once authenticated so an anonymous
+  // visitor never triggers an authed API call (or its 401 handling).
+  const agentForumEnabled = useAgentForumEnabled(authenticated);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -211,13 +216,13 @@ function App() {
                   <Route
                     path="/experiments/agent-forum"
                     element={
-                      <AgentForumView onEvent={onEvent} connected={connected} />
+                      <AgentForumRoute enabled={agentForumEnabled} onEvent={onEvent} connected={connected} />
                     }
                   />
                   <Route
                     path="/experiments/agent-forum/:forumId"
                     element={
-                      <AgentForumView onEvent={onEvent} connected={connected} />
+                      <AgentForumRoute enabled={agentForumEnabled} onEvent={onEvent} connected={connected} />
                     }
                   />
                   <Route path="/settings/*" element={<SettingsPage onEvent={onEvent} />} />
