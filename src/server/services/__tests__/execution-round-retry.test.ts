@@ -482,26 +482,33 @@ describe('Execution Round Retry & Recovery V1', () => {
       3
     );
 
-    const p1 = orchestrator.startTodo(todo.id);
-    await vi.waitFor(() => expect(mockClaudeStarts.length).toBe(1));
+    reviewPipeline.ensureInitialRound(todo.id);
+    const stoppedRound = queries.getActiveExecutionRound(todo.id)!;
+    queries.updateExecutionRound(stoppedRound.id, {
+      status: 'stopped',
+      finished_at: new Date().toISOString(),
+    });
+    queries.updateTodoStatus(todo.id, 'stopped');
+    queries.updateTodo(todo.id, {
+      process_pid: 0,
+      process_identity: null,
+    });
 
-    // User stops the task
-    await orchestrator.stopTodo(todo.id);
-    nextExitResolvers[0](0);
-    await p1.catch(() => {});
-
-    const stoppedRound = queries.getLatestExecutionRound(todo.id)!;
-    expect(stoppedRound.status).toBe('stopped');
+    expect(queries.getExecutionRoundById(stoppedRound.id)?.status).toBe('stopped');
 
     // User clicks Retry
     await executionRoundRetryService.retryExecutionRound(todo.id, stoppedRound.id);
-    expect(mockClaudeStarts).toHaveLength(2);
+    expect(mockClaudeStarts).toHaveLength(1);
 
     const newActiveRound = queries.getActiveExecutionRound(todo.id)!;
     expect(newActiveRound.status).toBe('running');
     expect(newActiveRound.attempt_index).toBe(2);
 
-    nextExitResolvers[1](0);
+    nextExitResolvers[0](0);
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(mockClaudeStarts).toHaveLength(2);
+    expect(queries.getActiveExecutionRound(todo.id)?.phase).toBe('review');
   });
 
   it('6 & 7 & 8: Source history immutable, new run_token, new snapshot', async () => {
