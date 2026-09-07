@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const provider = process.argv[2];
+const managedDefinitionHash = process.argv[3];
 const endpoint = process.env.AIKOMBINAT_DELEGATION_ENDPOINT;
 const executionId = process.env.AIKOMBINAT_EXECUTION_ID;
 const capability = process.env.AIKOMBINAT_DELEGATION_CAPABILITY;
@@ -24,6 +25,9 @@ process.stdin.on('end', async () => {
         'x-aikombinat-execution-id': executionId,
         'x-aikombinat-delegation-capability': capability,
         'x-aikombinat-delegation-depth': String(depth),
+        ...(typeof managedDefinitionHash === 'string' && /^[a-f0-9]{64}$/.test(managedDefinitionHash)
+          ? { 'x-aikombinat-managed-definition-hash': managedDefinitionHash }
+          : {}),
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(1500),

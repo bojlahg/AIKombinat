@@ -64,6 +64,7 @@ import { harnessPlugin } from './plugins/harness/index.js';
 import { resolveBindHost } from './utils/bind-host.js';
 import { resourceManager } from './services/resource-manager.js';
 import { providerQuotaService } from './services/provider-quota.js';
+import { executorPool } from './services/executor-pool.js';
 import { reviewPipeline } from './services/review-pipeline.js';
 import { assertTestRuntimePathAllowed } from './utils/test-fs-guard.js';
 import { logger } from './logging/logger.js';
@@ -367,6 +368,9 @@ providerQuotaService.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingQuota().catch(() => { /* ignore */ }));
 });
 providerQuotaService.initialize();
+executorPool.setAvailabilityCallback(() => {
+  setImmediate(() => orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ }));
+});
 reviewPipeline.reconcileOnStartup();
 setImmediate(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });

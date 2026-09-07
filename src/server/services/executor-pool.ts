@@ -98,6 +98,21 @@ export interface SlotReservation {
 export class ExecutorPool {
   private limitOverrides: Map<CliTool, number> = new Map();
   private reservations: Map<string, SlotReservation> = new Map();
+  private availabilityCallback: (() => void) | null = null;
+  private availabilitySignalQueued = false;
+
+  setAvailabilityCallback(callback: (() => void) | null): void {
+    this.availabilityCallback = callback;
+  }
+
+  notifyCapacityReleased(): void {
+    if (!this.availabilityCallback || this.availabilitySignalQueued) return;
+    this.availabilitySignalQueued = true;
+    queueMicrotask(() => {
+      this.availabilitySignalQueued = false;
+      this.availabilityCallback?.();
+    });
+  }
 
   getLimit(tool: CliTool): number {
     const override = this.limitOverrides.get(tool);
@@ -140,8 +155,8 @@ export class ExecutorPool {
     return true;
   }
 
-  releaseReservation(ownerId: string): void {
-    this.reservations.delete(ownerId);
+  releaseReservation(ownerId: string, notify = false): void {
+    if (this.reservations.delete(ownerId) && notify) this.notifyCapacityReleased();
   }
 
   resetReservations(): void {
@@ -243,6 +258,7 @@ export class ExecutorPool {
     candidate: queries.ExecutionProfileExecutor,
     options: {
       interactive?: boolean;
+      allowedCliTools?: readonly CliTool[];
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -262,6 +278,13 @@ export class ExecutorPool {
       return {
         candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
         status: 'invalid', reason: 'Candidate is disabled',
+      };
+    }
+
+    if (options.allowedCliTools && !options.allowedCliTools.includes(cliTool)) {
+      return {
+        candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+        status: 'invalid', reason: `${toolName} is not allowed for this execution`,
       };
     }
 
@@ -381,6 +404,7 @@ export class ExecutorPool {
     excludeSessionId?: string;
     excludeDiscussionId?: string;
     reserveOwnerId?: string;
+    allowedCliTools?: readonly CliTool[];
   }): Promise<PoolSelectionResult> {
     let release: () => void;
     const prevMutex = this.selectMutex;
@@ -416,6 +440,7 @@ export class ExecutorPool {
     excludeSessionId?: string;
     excludeDiscussionId?: string;
     reserveOwnerId?: string;
+    allowedCliTools?: readonly CliTool[];
   }): Promise<PoolSelectionResult> {
     const evaluatedAt = new Date().toISOString();
     if (!input.executionProfileId) {
@@ -438,6 +463,7 @@ export class ExecutorPool {
     for (const candidate of sortedExecutors) {
       const evaluation = await this.evaluateCandidate(candidate, {
         interactive: input.interactive,
+        allowedCliTools: input.allowedCliTools,
         excludeTodoId: input.excludeTodoId,
         excludeSessionId: input.excludeSessionId,
         excludeDiscussionId: input.excludeDiscussionId,

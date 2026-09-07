@@ -353,6 +353,8 @@ export interface CliAdapter {
   encodeStdinPrompt?(prompt: string, mode?: CliMode, promptPolicy?: PromptPolicy): string;
   /** Provider-edge decoder that converts structured transport output to model text. */
   createOutputDecoder?(): CliOutputDecoder;
+  /** Provider-edge normalization for worker output not decoded by the streaming transport. */
+  decodeWorkerOutput?(stdout: string, stderr: string, exitCode: number): CliDecodedOutput;
   /**
    * Format prompt for stdin delivery.
    *
@@ -535,7 +537,10 @@ const claudeAdapter: CliAdapter = {
     if (normalizedModel) args.push('--model', normalizedModel);
     if (effort) args.push('--effort', effort);
     if (maxTurns && maxTurns > 0) args.push('--max-turns', String(maxTurns));
-    if (delegationMcp?.configPath) args.push('--mcp-config', delegationMcp.configPath, '--strict-mcp-config');
+    // --mcp-config is additive. Do not add --strict-mcp-config: Claude documents
+    // that strict mode ignores every user/project MCP configuration, which would
+    // be an unrelated regression for primary Todo execution.
+    if (delegationMcp?.configPath) args.push('--mcp-config', delegationMcp.configPath);
     if (extraOptions) {
       args.push(...validateProviderExtraOptions('claude', extraOptions));
     }
@@ -549,6 +554,33 @@ const claudeAdapter: CliAdapter = {
     if (mode === 'interactive') return prompt + '\n';
     if (isReadOnlyPromptPolicy(promptPolicy)) return prompt + '\n';
     return prompt + TASK_COMPLETION_SUFFIX + '\n';
+  },
+  decodeWorkerOutput(stdout, stderr, exitCode) {
+    if (exitCode !== 0) return { output: '', exitCode, diagnostic: (stderr || stdout).slice(-1_000) };
+    let resultEvent: Record<string, unknown> | null = null;
+    for (const line of stdout.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line) as unknown;
+        if (event && typeof event === 'object' && (event as Record<string, unknown>).type === 'result') {
+          resultEvent = event as Record<string, unknown>;
+        }
+      } catch { /* provider diagnostics can be interleaved with NDJSON */ }
+    }
+    if (!resultEvent) {
+      const trimmed = stdout.trim();
+      try {
+        const direct = JSON.parse(trimmed) as Record<string, unknown>;
+        if (direct && (direct.summary !== undefined || direct.ranges !== undefined)) return { output: trimmed, exitCode };
+      } catch { /* handled as a provider transport failure below */ }
+      return { output: '', exitCode: 1, diagnostic: `Claude stream failed: missing result event; ${(stderr || stdout).slice(-1_000)}` };
+    }
+    const successful = resultEvent.subtype === 'success' && resultEvent.is_error !== true;
+    if (successful && typeof resultEvent.result === 'string') return { output: resultEvent.result, exitCode };
+    return {
+      output: '', exitCode: 1,
+      diagnostic: `Claude stream failed: subtype=${String(resultEvent.subtype ?? 'unknown')}; ${(stderr || stdout).slice(-1_000)}`,
+    };
   },
   probeModels() {
     return probeViaHelp('claude');
@@ -747,6 +779,22 @@ const adapters: Record<CliTool, CliAdapter> = {
 
 export function getAdapter(tool: CliTool): CliAdapter {
   return adapters[tool] ?? adapters.claude;
+}
+
+export function decodeDelegationWorkerOutput(
+  tool: CliTool,
+  stdout: string,
+  stderr: string,
+  exitCode: number,
+): CliDecodedOutput {
+  const adapter = getAdapter(tool);
+  // createOutputDecoder() is applied inside ClaudeManager before its streams are
+  // exposed. Providers without a streaming decoder normalize their envelope here.
+  if (adapter.createOutputDecoder) {
+    return { output: stdout, exitCode, ...(stderr ? { diagnostic: stderr.slice(-1_000) } : {}) };
+  }
+  return adapter.decodeWorkerOutput?.(stdout, stderr, exitCode)
+    ?? { output: stdout, exitCode, ...(stderr ? { diagnostic: stderr.slice(-1_000) } : {}) };
 }
 
 export function supportsInteractiveMode(tool: CliTool): boolean {

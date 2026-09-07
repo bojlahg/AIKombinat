@@ -456,6 +456,8 @@ export function initDatabase(db: Database.Database): void {
       decision TEXT NOT NULL,
       decision_reason TEXT NOT NULL,
       hook_latency_ms INTEGER NOT NULL,
+      managed_definition_hash TEXT,
+      observed_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -463,6 +465,12 @@ export function initDatabase(db: Database.Database): void {
       ON delegation_tool_observations(parent_execution_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_delegation_observations_retention
       ON delegation_tool_observations(created_at);
+
+    CREATE TABLE IF NOT EXISTS delegation_hook_installations (
+      provider TEXT PRIMARY KEY CHECK (provider IN ('claude', 'codex')),
+      definition_hash TEXT NOT NULL,
+      installed_at DATETIME NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS delegation_runs (
       id TEXT PRIMARY KEY,
@@ -716,6 +724,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'agent_forum_members', column: 'is_active', definition: 'INTEGER NOT NULL DEFAULT 1' },
     { table: 'agent_forum_turns', column: 'process_pid', definition: 'INTEGER' },
     { table: 'agent_forum_turns', column: 'process_identity', definition: 'TEXT' },
+    { table: 'delegation_tool_observations', column: 'managed_definition_hash', definition: 'TEXT' },
+    { table: 'delegation_tool_observations', column: 'observed_at', definition: 'DATETIME' },
   ];
 
   for (const { table, column, definition } of migrations) {

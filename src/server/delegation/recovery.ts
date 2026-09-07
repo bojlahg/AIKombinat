@@ -1,40 +1,54 @@
 import { claudeManager } from '../services/claude-manager.js';
 import { isProcessAlive, verifyProcessIdentity, type ProcessIdentity } from '../utils/process-tree.js';
 import { logger } from '../logging/logger.js';
-import { getDelegationRun, getUnresolvedDelegationRuns, updateDelegationRun } from './store.js';
+import { executorPool } from '../services/executor-pool.js';
+import {
+  getRecoveryRequiredDelegationRuns, getUnresolvedDelegationRuns, updateOwnedDelegationRun,
+  type DelegationProcessOwnership,
+} from './store.js';
 
-export async function recoverDelegationRuns(): Promise<{ reconciled: number; recoveryRequired: number }> {
+export async function recoverDelegationRuns(
+  options: { passive?: boolean } = {},
+): Promise<{ reconciled: number; recoveryRequired: number }> {
   let reconciled = 0;
   let recoveryRequired = 0;
-  for (const row of getUnresolvedDelegationRuns()) {
+  const rows = options.passive ? getRecoveryRequiredDelegationRuns() : getUnresolvedDelegationRuns();
+  for (const row of rows) {
     const pid = row.process_pid!;
-    const stillCurrent = () => {
-      const current = getDelegationRun(row.id);
-      return current?.process_pid === pid && (current.status === 'running' || current.status === 'recovery_required');
+    const ownership: DelegationProcessOwnership = { pid, processIdentity: row.process_identity };
+    const release = (errorCode: string) => {
+      const changed = updateOwnedDelegationRun(row.id, ownership, ['running', 'recovery_required'], {
+        status: 'failed', finished: true, processPid: null, processIdentity: null, errorCode,
+      });
+      if (changed) executorPool.notifyCapacityReleased();
+      return changed;
     };
     if (!isProcessAlive(pid)) {
-      if (stillCurrent()) updateDelegationRun(row.id, { status: 'failed', finished: true, processPid: null, processIdentity: null, errorCode: 'interrupted' });
-      reconciled++;
+      if (release('interrupted')) reconciled++;
       continue;
     }
     let identity: ProcessIdentity | null = null;
     try { identity = row.process_identity ? JSON.parse(row.process_identity) : null; } catch { identity = null; }
     const verdict = await verifyProcessIdentity(pid, identity);
     if (verdict === 'mismatch') {
-      if (stillCurrent()) updateDelegationRun(row.id, { status: 'failed', finished: true, processPid: null, processIdentity: null, errorCode: 'process_identity_mismatch' });
-      reconciled++;
+      if (release('process_identity_mismatch')) reconciled++;
       continue;
     }
     if (verdict === 'match') {
-      const stopped = await claudeManager.stopClaude(pid, identity);
+      let stopped;
+      try { stopped = await claudeManager.stopClaude(pid, identity); }
+      catch (err) {
+        stopped = { status: 'unresolved' as const, pid, reason: err instanceof Error ? err.message : String(err) };
+      }
       if (stopped.status !== 'unresolved') {
-        if (stillCurrent()) updateDelegationRun(row.id, { status: 'failed', finished: true, processPid: null, processIdentity: null, errorCode: 'interrupted' });
-        reconciled++;
+        if (release(stopped.status === 'not_owned' ? 'process_identity_mismatch' : 'interrupted')) reconciled++;
         continue;
       }
     }
-    if (stillCurrent()) updateDelegationRun(row.id, { status: 'recovery_required', errorCode: `process_identity_${verdict}` });
-    recoveryRequired++;
+    const retained = updateOwnedDelegationRun(row.id, ownership, ['running', 'recovery_required'], {
+      status: 'recovery_required', errorCode: `process_identity_${verdict}`,
+    });
+    if (retained) recoveryRequired++;
   }
   if (reconciled || recoveryRequired) {
     logger.info('delegation.recovery', { msg: 'delegation worker recovery completed', reconciled, recoveryRequired });

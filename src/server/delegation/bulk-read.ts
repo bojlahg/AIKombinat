@@ -4,14 +4,17 @@ import os from 'os';
 import path from 'path';
 import { executionSnapshot, launchSelection, type ResolvedExecutionConfig } from '../services/execution-config.js';
 import { executorPool } from '../services/executor-pool.js';
-import { claudeManager } from '../services/claude-manager.js';
+import { claudeManager, type StopResult } from '../services/claude-manager.js';
+import { decodeDelegationWorkerOutput } from '../services/cli-adapters.js';
 import { classifyProviderFailure } from '../services/failure-classifier.js';
 import { providerQuotaService } from '../services/provider-quota.js';
 import { logger } from '../logging/logger.js';
 import { getDelegationSettings } from './settings.js';
 import { DelegationFileError, readDelegationFile, recheckDelegationFile, type DelegationFileIdentity } from './file-access.js';
 import {
-  createDelegationRun, getActiveDelegationRunsForOwner, getDelegationRun, grantFallback, updateDelegationRun,
+  adoptDelegationRunProcess, createDelegationRun, getActiveDelegationRunsForOwner, getDelegationRun,
+  grantFallback, updateDelegationRun, updateOwnedDelegationRun,
+  type DelegationProcessOwnership,
   type ParentExecutionRow,
 } from './store.js';
 
@@ -50,10 +53,8 @@ export type WorkerInvoker = (input: {
   query: string;
   executionConfig: ResolvedExecutionConfig;
   timeoutMs: number;
-  onStarted: (pid: number, processIdentity: unknown) => void;
+  onStarted: (pid: number, processIdentity: unknown) => void | Promise<void>;
 }) => Promise<WorkerInvocationResult>;
-
-const activeWorkers = new Map<string, { ownerId: string; pid: number }>();
 
 function boundedString(value: unknown, max: number): string {
   return typeof value === 'string' ? value.slice(0, max) : '';
@@ -61,17 +62,8 @@ function boundedString(value: unknown, max: number): string {
 
 function extractStructuredPayload(output: string): unknown {
   const trimmed = output.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  try { return JSON.parse(trimmed); } catch { /* inspect provider envelopes */ }
-  const lines = output.split(/\r?\n/).filter(Boolean).reverse();
-  for (const line of lines) {
-    try {
-      const value = JSON.parse(line);
-      if (typeof value?.result === 'string') return extractStructuredPayload(value.result);
-      if (typeof value?.response === 'string') return extractStructuredPayload(value.response);
-      if (value?.summary !== undefined || value?.ranges !== undefined) return value;
-    } catch { /* not a JSON line */ }
-  }
-  throw new Error('Worker did not return valid structured JSON.');
+  try { return JSON.parse(trimmed); }
+  catch { throw new Error('Worker did not return valid structured JSON.'); }
 }
 
 export function validateWorkerResult(value: unknown, lineCount: number, maxRanges: number, maxTotalLines: number): WorkerStructuredResult {
@@ -171,7 +163,7 @@ const defaultWorkerInvoker: WorkerInvoker = async ({ runId, parent, identity, qu
       workerDir, 'strict', false, undefined, undefined, launch.effort, 'read-only-worker',
       { AIKOMBINAT_DELEGATION_DEPTH: '1', AIKOMBINAT_EXECUTION_KIND: 'delegation_worker' },
     );
-    onStarted(result.pid, result.processIdentity ?? null);
+    await onStarted(result.pid, result.processIdentity ?? null);
     const stdoutPromise = collect(result.stdout);
     const stderrPromise = collect(result.stderr, 64 * 1024);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -179,13 +171,25 @@ const defaultWorkerInvoker: WorkerInvoker = async ({ runId, parent, identity, qu
     let exitCode: number;
     try { exitCode = await Promise.race([result.exitPromise, timeout]); }
     catch (err) {
-      await claudeManager.stopClaude(result.pid, result.processIdentity ?? null);
-      throw err;
+      let stopResult: StopResult;
+      try { stopResult = await claudeManager.stopClaude(result.pid, result.processIdentity ?? null); }
+      catch (stopError) {
+        stopResult = { status: 'unresolved', pid: result.pid, reason: stopError instanceof Error ? stopError.message : String(stopError) };
+      }
+      const failure = err instanceof Error ? err : new Error(String(err));
+      Object.assign(failure, { stopResult });
+      throw failure;
     } finally {
       if (timer) clearTimeout(timer);
     }
     const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-    return { output: stdout || stderr, exitCode, pid: result.pid, processIdentity: result.processIdentity };
+    const decoded = decodeDelegationWorkerOutput(executionConfig.cliTool, stdout, stderr, exitCode);
+    return {
+      output: decoded.output || decoded.diagnostic || stderr,
+      exitCode: decoded.exitCode,
+      pid: result.pid,
+      processIdentity: result.processIdentity,
+    };
   } finally {
     try { fs.rmSync(workerDir, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
@@ -215,52 +219,92 @@ export class BulkReadService {
     const reservationOwner = `delegation:${runId}`;
     logger.info('delegation.run.started', { msg: 'bulk_read delegation started', delegationId: runId, parentExecutionId: parent.id });
 
-    const fail = (code: string, message: string, grant = true): BulkReadResult => {
+    const failureResult = (code: string, message: string, grant = true): BulkReadResult => {
       if (grant) grantFallback(parent.id, identity.canonicalPath, identity.sha256);
-      updateDelegationRun(runId, {
-        status: 'failed', finished: true, latencyMs: Date.now() - startedAt, errorCode: code,
-        errorDetailBounded: message, fallbackGranted: grant, processPid: null, processIdentity: null,
-      });
       logger.warn('delegation.run.failed', { msg: 'bulk_read delegation failed', delegationId: runId, code, latencyMs: Date.now() - startedAt });
       return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: code, message, fallback_granted: grant };
     };
 
-    const selection = await executorPool.selectExecutor({
-      executionProfileId: settings.workerExecutionProfileId,
-      reserveOwnerId: reservationOwner,
-    });
+    const failWithoutOwnership = (code: string, message: string, grant = true): BulkReadResult => {
+      const current = getDelegationRun(runId);
+      if (current?.status === 'recovery_required') {
+        updateDelegationRun(runId, {
+          latencyMs: Date.now() - startedAt, errorCode: code, errorDetailBounded: message, fallbackGranted: grant,
+        });
+      } else if (current?.status === 'cancelled') {
+        return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: 'cancelled', message: 'The parent execution was cancelled.', fallback_granted: false };
+      } else {
+        updateDelegationRun(runId, {
+          status: 'failed', finished: true, latencyMs: Date.now() - startedAt, errorCode: code,
+          errorDetailBounded: message, fallbackGranted: grant, processPid: null, processIdentity: null,
+        });
+      }
+      return failureResult(code, message, grant);
+    };
+
+    let selection: Awaited<ReturnType<typeof executorPool.selectExecutor>>;
+    try {
+      selection = await executorPool.selectExecutor({
+        executionProfileId: settings.workerExecutionProfileId,
+        reserveOwnerId: reservationOwner,
+        allowedCliTools: ['claude', 'codex', 'antigravity'],
+      });
+    } catch (err) {
+      executorPool.releaseReservation(reservationOwner, true);
+      return failWithoutOwnership('delegation_unavailable', err instanceof Error ? err.message : String(err));
+    }
     if (selection.status !== 'selected' || !selection.selectedConfig) {
       executorPool.releaseReservation(reservationOwner);
-      return fail('delegation_unavailable', selection.rejectionSummary ?? 'No Delegation Worker candidate is immediately available.');
+      return failWithoutOwnership('delegation_unavailable', selection.rejectionSummary ?? 'No Delegation Worker candidate is immediately available.');
     }
     const config = selection.selectedConfig;
     updateDelegationRun(runId, { executionSnapshot: executionSnapshot(config) });
     if (getDelegationRun(runId)?.status === 'cancelled') {
-      executorPool.releaseReservation(reservationOwner);
+      executorPool.releaseReservation(reservationOwner, true);
       return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: 'cancelled', message: 'The parent execution was cancelled.', fallback_granted: false };
     }
     try {
       const worker = await this.invokeWorker({
         runId, parent, identity, query, executionConfig: config,
         timeoutMs: settings.workerTimeoutSeconds * 1000,
-        onStarted: (pid, processIdentity) => {
-          if (getDelegationRun(runId)?.status === 'cancelled') {
-            void claudeManager.stopClaude(pid, processIdentity as Parameters<typeof claudeManager.stopClaude>[1]).catch(() => { /* recovery handles unresolved exit */ });
+        onStarted: async (pid, processIdentity) => {
+          const persistedIdentity = processIdentity ? JSON.stringify(processIdentity) : null;
+          const ownership: DelegationProcessOwnership = { pid, processIdentity: persistedIdentity };
+          const adopted = adoptDelegationRunProcess(runId, ownership);
+          if (adopted === 'running') {
+            executorPool.releaseReservation(reservationOwner, false);
             return;
           }
-          activeWorkers.set(runId, { ownerId: parent.owner_id, pid });
-          updateDelegationRun(runId, { status: 'running', processPid: pid, processIdentity: processIdentity ? JSON.stringify(processIdentity) : null });
-          executorPool.releaseReservation(reservationOwner);
+          let stop: StopResult;
+          try {
+            stop = await claudeManager.stopClaude(pid, processIdentity as Parameters<typeof claudeManager.stopClaude>[1]);
+          } catch (err) {
+            stop = { status: 'unresolved', pid, reason: err instanceof Error ? err.message : String(err) };
+          }
+          if (stop.status === 'unresolved') {
+            updateOwnedDelegationRun(runId, ownership, ['cancelled'], {
+              status: 'recovery_required', errorCode: 'cancel_unresolved',
+            });
+          } else {
+            updateOwnedDelegationRun(runId, ownership, ['cancelled'], {
+              status: 'cancelled', finished: true, processPid: null, processIdentity: null, errorCode: 'cancelled',
+            });
+          }
+          executorPool.releaseReservation(reservationOwner, stop.status !== 'unresolved');
         },
       });
-      activeWorkers.delete(runId);
-      executorPool.releaseReservation(reservationOwner);
+      executorPool.releaseReservation(reservationOwner, false);
+      const persisted = getDelegationRun(runId);
+      if (persisted?.status === 'running' && persisted.process_pid) {
+        const released = updateOwnedDelegationRun(runId, {
+          pid: persisted.process_pid, processIdentity: persisted.process_identity,
+        }, ['running'], { processPid: null, processIdentity: null });
+        if (released) executorPool.notifyCapacityReleased();
+      }
       const statusAfterWorker = getDelegationRun(runId)?.status;
       if (statusAfterWorker === 'cancelled' || statusAfterWorker === 'recovery_required') {
-        if (statusAfterWorker === 'recovery_required') {
-          updateDelegationRun(runId, { status: 'cancelled', finished: true, processPid: null, processIdentity: null, errorCode: 'cancelled' });
-        }
-        return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: 'cancelled', message: 'The parent execution was cancelled.', fallback_granted: false };
+        const code = statusAfterWorker === 'recovery_required' ? 'recovery_required' : 'cancelled';
+        return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: code, message: 'The parent execution was cancelled.', fallback_granted: false };
       }
       if (worker.exitCode !== 0) {
         const classification = classifyProviderFailure(config.cliTool, worker.exitCode, worker.output.slice(-64 * 1024));
@@ -268,9 +312,9 @@ export class BulkReadService {
           providerQuotaService.markExhausted(config.cliTool as 'claude' | 'codex' | 'antigravity', {
             source: 'runtime_rejection', reason: classification.reason, resetAt: classification.resetAt,
           });
-          return fail('quota_exhausted', classification.reason || 'Delegation Worker quota exhausted.');
+          return failWithoutOwnership('quota_exhausted', classification.reason || 'Delegation Worker quota exhausted.');
         }
-        return fail('process_failure', `Delegation Worker exited with code ${worker.exitCode}.`);
+        return failWithoutOwnership('process_failure', `Delegation Worker exited with code ${worker.exitCode}.`);
       }
       if (!recheckDelegationFile(identity)) {
         updateDelegationRun(runId, { status: 'failed', finished: true, latencyMs: Date.now() - startedAt, errorCode: 'stale', errorDetailBounded: 'The source file changed while the Delegation Worker was running.', processPid: null, processIdentity: null });
@@ -278,7 +322,7 @@ export class BulkReadService {
       }
       let structured: WorkerStructuredResult;
       try { structured = validateWorkerResult(extractStructuredPayload(worker.output), identity.lines, maxRanges, settings.maxTotalRecommendedLines); }
-      catch (err) { return fail('invalid_structured_output', err instanceof Error ? err.message : String(err)); }
+      catch (err) { return failWithoutOwnership('invalid_structured_output', err instanceof Error ? err.message : String(err)); }
       if (structured.ranges.length === 0) {
         grantFallback(parent.id, identity.canonicalPath, identity.sha256);
         const noMatch: BulkReadResult = { status: 'no_match', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, summary: structured.summary, message: 'No relevant ranges were identified by the delegation worker. This is not proof that the file is irrelevant.', fallback_granted: true, worker_execution: executionSnapshot(config) };
@@ -301,30 +345,69 @@ export class BulkReadService {
       logger.info('delegation.run.completed', { msg: 'bulk_read delegation completed', delegationId: runId, latencyMs: Date.now() - startedAt, returnedChars });
       return result;
     } catch (err) {
-      activeWorkers.delete(runId);
-      executorPool.releaseReservation(reservationOwner);
+      executorPool.releaseReservation(reservationOwner, true);
       const message = err instanceof Error ? err.message : String(err);
-      return fail(message === 'delegation_worker_timeout' ? 'timeout' : 'transport_error', message);
+      const code = message === 'delegation_worker_timeout' ? 'timeout' : 'transport_error';
+      const current = getDelegationRun(runId);
+      if (current?.status === 'cancelled') {
+        return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: 'cancelled', message: 'The parent execution was cancelled.', fallback_granted: false };
+      }
+      if (current?.process_pid && (current.status === 'running' || current.status === 'recovery_required')) {
+        const ownership: DelegationProcessOwnership = {
+          pid: current.process_pid, processIdentity: current.process_identity,
+        };
+        let stop = err && typeof err === 'object'
+          ? (err as { stopResult?: StopResult }).stopResult
+          : undefined;
+        if (!stop && current.status === 'running') {
+          let parsedIdentity = null;
+          try { parsedIdentity = current.process_identity ? JSON.parse(current.process_identity) : null; } catch { parsedIdentity = null; }
+          try { stop = await claudeManager.stopClaude(current.process_pid, parsedIdentity); }
+          catch (stopError) {
+            stop = { status: 'unresolved', pid: current.process_pid, reason: stopError instanceof Error ? stopError.message : String(stopError) };
+          }
+        }
+        if (!stop || stop.status === 'unresolved') {
+          updateOwnedDelegationRun(runId, ownership, ['running', 'recovery_required'], {
+            status: 'recovery_required', latencyMs: Date.now() - startedAt, errorCode: code,
+            errorDetailBounded: message, fallbackGranted: true,
+          });
+          return failureResult(code, message);
+        }
+        const released = updateOwnedDelegationRun(runId, ownership, ['running', 'recovery_required'], {
+          status: 'failed', finished: true, processPid: null, processIdentity: null,
+          latencyMs: Date.now() - startedAt, errorCode: code, errorDetailBounded: message, fallbackGranted: true,
+        });
+        if (released) executorPool.notifyCapacityReleased();
+        return failureResult(code, message);
+      }
+      return failWithoutOwnership(code, message);
     }
   }
 
   async cancelForOwner(ownerId: string): Promise<void> {
     for (const row of getActiveDelegationRunsForOwner(ownerId)) {
-      const active = activeWorkers.get(row.id);
-      if (!active || !row.process_pid) {
+      if (!row.process_pid) {
         updateDelegationRun(row.id, { status: 'cancelled', finished: true, processPid: null, processIdentity: null, errorCode: 'cancelled' });
         continue;
       }
       let identity = null;
       try { identity = row.process_identity ? JSON.parse(row.process_identity) : null; } catch { identity = null; }
-      const stop = await claudeManager.stopClaude(active.pid, identity);
+      const ownership: DelegationProcessOwnership = { pid: row.process_pid, processIdentity: row.process_identity };
+      let stop: StopResult;
+      try { stop = await claudeManager.stopClaude(row.process_pid, identity); }
+      catch (err) { stop = { status: 'unresolved', pid: row.process_pid, reason: err instanceof Error ? err.message : String(err) }; }
       if (stop.status === 'unresolved') {
-        updateDelegationRun(row.id, { status: 'recovery_required', errorCode: 'cancel_unresolved' });
+        updateOwnedDelegationRun(row.id, ownership, ['running', 'recovery_required'], { status: 'recovery_required', errorCode: 'cancel_unresolved' });
         continue;
       }
-      updateDelegationRun(row.id, { status: 'cancelled', finished: true, processPid: null, processIdentity: null, errorCode: 'cancelled' });
-      activeWorkers.delete(row.id);
-      logger.info('delegation.run.cancelled', { msg: 'delegation worker cancelled with parent', delegationId: row.id });
+      const released = updateOwnedDelegationRun(row.id, ownership, ['running', 'recovery_required'], {
+        status: 'cancelled', finished: true, processPid: null, processIdentity: null, errorCode: 'cancelled',
+      });
+      if (released) {
+        executorPool.notifyCapacityReleased();
+        logger.info('delegation.run.cancelled', { msg: 'delegation worker cancelled with parent', delegationId: row.id });
+      }
     }
   }
 }

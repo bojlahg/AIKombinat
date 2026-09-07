@@ -4,12 +4,26 @@ import { createTestWorkspace } from '../../test-utils/workspace.js';
 
 vi.mock('../../db/queries.js', () => ({ getModelByValue: () => undefined }));
 
-import { getAdapter, supportsInteractiveMode, parseCliHelpFlags, parseHelpForModels } from '../cli-adapters.js';
+import { decodeDelegationWorkerOutput, getAdapter, supportsInteractiveMode, parseCliHelpFlags, parseHelpForModels } from '../cli-adapters.js';
 
 const agyHelp = readFileSync(new URL('./fixtures/agy-1.1.20-help.txt', import.meta.url), 'utf8');
 const codexExecHelp = readFileSync(new URL('./fixtures/codex-0.150.0-exec-help.txt', import.meta.url), 'utf8');
 
 describe('cli-adapters', () => {
+  it('decodes Claude worker result envelopes at the provider edge', () => {
+    const payload = JSON.stringify({ summary: 'found', ranges: [] });
+    const stdout = [
+      JSON.stringify({ type: 'system', subtype: 'init' }),
+      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: payload }),
+    ].join('\n');
+    expect(decodeDelegationWorkerOutput('claude', stdout, '', 0)).toEqual({ output: payload, exitCode: 0 });
+  });
+
+  it('passes Codex worker model text through without core envelope knowledge', () => {
+    const payload = JSON.stringify({ summary: 'found', ranges: [] });
+    expect(decodeDelegationWorkerOutput('codex', payload, '', 0)).toEqual({ output: payload, exitCode: 0 });
+  });
+
   it('uses non-interactive exec mode for Codex', () => {
     const adapter = getAdapter('codex');
     const args = adapter.buildArgs({
@@ -164,7 +178,8 @@ describe('cli-adapters', () => {
       workDir: 'workspace', delegationMcp,
     });
     expect(claude).toContain('mcp__kombinat-delegation__bulk_read');
-    expect(claude).toEqual(expect.arrayContaining(['--mcp-config', 'temporary-mcp.json', '--strict-mcp-config']));
+    expect(claude).toEqual(expect.arrayContaining(['--mcp-config', 'temporary-mcp.json']));
+    expect(claude).not.toContain('--strict-mcp-config');
     expect(claude).not.toContain('--dangerously-skip-permissions');
 
     const codex = getAdapter('codex').buildArgs({

@@ -2,6 +2,8 @@ import { getSetting, setSetting } from '../db/app-settings.js';
 import { getExecutionProfileById } from '../db/queries.js';
 import type { DelegationMode } from './store.js';
 
+const DELEGATION_WORKER_TOOLS = new Set(['claude', 'codex', 'antigravity']);
+
 export interface DelegationSettings {
   enabled: boolean;
   mode: DelegationMode;
@@ -83,6 +85,9 @@ export function updateDelegationSettings(input: Partial<DelegationSettings>): De
   if (input.workerExecutionProfileId !== undefined && input.workerExecutionProfileId !== null) {
     const profile = getExecutionProfileById(input.workerExecutionProfileId);
     if (!profile || !profile.is_enabled) throw new Error('Delegation Worker Execution Profile does not exist or is disabled.');
+    if (!profile.executors.some((executor) => executor.is_enabled && DELEGATION_WORKER_TOOLS.has(executor.cli_tool))) {
+      throw new Error('Delegation Worker Execution Profile must include an enabled Claude, Codex, or Antigravity executor.');
+    }
   }
   if (input.enabled !== undefined) setSetting(KEYS.enabled, input.enabled ? '1' : '0');
   if (input.mode !== undefined) setSetting(KEYS.mode, input.mode);

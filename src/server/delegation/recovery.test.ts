@@ -16,6 +16,7 @@ const processTree = await import('../utils/process-tree.js');
 const { claudeManager } = await import('../services/claude-manager.js');
 const store = await import('./store.js');
 const { recoverDelegationRuns } = await import('./recovery.js');
+const { executorPool } = await import('../services/executor-pool.js');
 
 describe('delegation recovery', () => {
   let workspace: TestWorkspace;
@@ -28,7 +29,7 @@ describe('delegation recovery', () => {
     vi.mocked(processTree.verifyProcessIdentity).mockResolvedValue('match');
     vi.mocked(claudeManager.stopClaude).mockResolvedValue({ status: 'terminated', pid: 900, graceful: false });
   });
-  afterEach(() => { vi.clearAllMocks(); testDb.close(); workspace.cleanup(); });
+  afterEach(() => { executorPool.setAvailabilityCallback(null); vi.clearAllMocks(); testDb.close(); workspace.cleanup(); });
 
   function runningRun(pid = 900) {
     const parent = store.createParentExecution({ ownerId: 'todo', workDir: workspace.path, executionSnapshot: {}, provider: 'claude', policyMode: 'telemetry', capability: `cap-${pid}` });
@@ -64,5 +65,44 @@ describe('delegation recovery', () => {
     await recoverDelegationRuns();
     expect(claudeManager.stopClaude).toHaveBeenCalledWith(900, { pid: 900, startTime: 'owned' });
     expect(store.getDelegationRun(id)).toMatchObject({ status: 'failed', process_pid: null });
+  });
+
+  it('retains ownership when a safe cleanup attempt throws', async () => {
+    const id = runningRun();
+    vi.mocked(claudeManager.stopClaude).mockRejectedValue(new Error('probe failed'));
+    expect(await recoverDelegationRuns()).toEqual({ reconciled: 0, recoveryRequired: 1 });
+    expect(store.getDelegationRun(id)).toMatchObject({ status: 'recovery_required', process_pid: 900 });
+  });
+
+  it('passively converges after an unverifiable worker later dies and wakes capacity once', async () => {
+    const id = runningRun();
+    const wake = vi.fn();
+    executorPool.setAvailabilityCallback(wake);
+    vi.mocked(processTree.verifyProcessIdentity).mockResolvedValue('unverifiable');
+    await recoverDelegationRuns();
+    expect(store.getDelegationRun(id)).toMatchObject({ status: 'recovery_required', process_pid: 900 });
+    vi.mocked(processTree.isProcessAlive).mockReturnValue(false);
+    expect(await recoverDelegationRuns({ passive: true })).toEqual({ reconciled: 1, recoveryRequired: 0 });
+    expect(await recoverDelegationRuns({ passive: true })).toEqual({ reconciled: 0, recoveryRequired: 0 });
+    await Promise.resolve();
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(store.getDelegationRun(id)).toMatchObject({ status: 'failed', process_pid: null });
+  });
+
+  it('does not let an old asynchronous reconciliation clear superseding ownership', async () => {
+    const id = runningRun();
+    store.updateDelegationRun(id, { status: 'recovery_required' });
+    let resolveVerdict!: (value: 'mismatch') => void;
+    vi.mocked(processTree.verifyProcessIdentity).mockImplementation(() => new Promise((resolve) => { resolveVerdict = resolve; }));
+    const reconciliation = recoverDelegationRuns({ passive: true });
+    await Promise.resolve();
+    const newerIdentity = JSON.stringify({ pid: 900, startTime: 'new-owner' });
+    store.updateDelegationRun(id, { status: 'recovery_required', processPid: 900, processIdentity: newerIdentity });
+    resolveVerdict('mismatch');
+    expect(await reconciliation).toEqual({ reconciled: 0, recoveryRequired: 0 });
+    expect(store.getDelegationRun(id)).toMatchObject({
+      status: 'recovery_required', process_pid: 900, process_identity: newerIdentity,
+    });
+    expect(claudeManager.stopClaude).not.toHaveBeenCalled();
   });
 });

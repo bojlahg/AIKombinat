@@ -9,7 +9,7 @@ let testDb: Database.Database;
 vi.mock('../db/connection.js', () => ({ getDatabase: () => testDb }));
 
 const { setSetting } = await import('../db/app-settings.js');
-const { createParentExecution, consumeFallback } = await import('./store.js');
+const { createParentExecution, consumeFallback, getActiveDelegationUsage } = await import('./store.js');
 const { BulkReadService, validateWorkerResult } = await import('./bulk-read.js');
 const { executorPool } = await import('../services/executor-pool.js');
 const { claudeManager } = await import('../services/claude-manager.js');
@@ -36,7 +36,7 @@ describe('bulk_read', () => {
     parent = createParentExecution({ ownerId: 'todo', workDir: root, executionSnapshot: { agent: 'claude' }, provider: 'claude', policyMode: 'telemetry', capability: 'capability' });
     vi.spyOn(executorPool, 'selectExecutor').mockResolvedValue({ status: 'selected', selectedConfig: config, evaluations: [], evaluatedAt: config.resolvedAt });
   });
-  afterEach(() => { vi.restoreAllMocks(); executorPool.resetReservations(); testDb.close(); workspace.cleanup(); });
+  afterEach(() => { vi.restoreAllMocks(); executorPool.setAvailabilityCallback(null); executorPool.resetReservations(); testDb.close(); workspace.cleanup(); });
 
   it('validates and merges structured ranges while rejecting invalid output', () => {
     expect(validateWorkerResult({ summary: 'ok', ranges: [
@@ -89,6 +89,23 @@ describe('bulk_read', () => {
     expect(await service.run(parent, { path: file, query: 'find' })).toMatchObject({ status: 'failed', error_code: 'delegation_unavailable', fallback_granted: true });
   });
 
+  it('fails open without spawning when runtime admission sees only raw-shell', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    testDb.pragma('ignore_check_constraints = ON');
+    testDb.prepare(`INSERT INTO cli_models
+      (id, cli_tool, model_value, model_label, status, source)
+      VALUES ('raw-model', 'raw-shell', 'shell', 'Raw Shell', 'available', 'manual')`).run();
+    testDb.prepare(`INSERT INTO execution_profile_executors
+      (id, profile_id, cli_model_id, priority) VALUES ('raw-executor', 'profile', 'raw-model', 1)`).run();
+    vi.mocked(executorPool.selectExecutor).mockRestore();
+    const invokeWorker = vi.fn(async () => ({ output: '{}', exitCode: 0 }));
+
+    expect(await new BulkReadService(invokeWorker).run(parent, { path: file, query: 'find' })).toMatchObject({
+      status: 'failed', error_code: 'delegation_unavailable', fallback_granted: true,
+    });
+    expect(invokeWorker).not.toHaveBeenCalled();
+  });
+
   it('cancels a running worker with its parent and ignores the late result', async () => {
     const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
     let resolveWorker!: (value: { output: string; exitCode: number }) => void;
@@ -106,5 +123,110 @@ describe('bulk_read', () => {
     resolveWorker({ output: JSON.stringify({ summary: 'late', ranges: [{ start_line: 1, end_line: 1, reason: 'late' }] }), exitCode: 0 });
     expect(await runPromise).toMatchObject({ status: 'failed', error_code: 'cancelled', fallback_granted: false });
     expect(testDb.prepare('SELECT status FROM delegation_runs ORDER BY started_at DESC LIMIT 1').get()).toEqual({ status: 'cancelled' });
+  });
+
+  it('retains late startup ownership when cancellation stop is unresolved', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    let continueStart!: () => void;
+    const continuePromise = new Promise<void>((resolve) => { continueStart = resolve; });
+    const service = new BulkReadService(async ({ onStarted }) => {
+      entered();
+      await continuePromise;
+      await onStarted(880, { pid: 880, startTime: 'late-owned' });
+      return { output: JSON.stringify({ summary: 'late', ranges: [] }), exitCode: 0 };
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockResolvedValue({ status: 'unresolved', pid: 880, reason: 'termination_not_confirmed' });
+    const runPromise = service.run(parent, { path: file, query: 'find' });
+    await enteredPromise;
+    await service.cancelForOwner('todo');
+    continueStart();
+    expect(await runPromise).toMatchObject({ status: 'failed', error_code: 'recovery_required' });
+    expect(testDb.prepare('SELECT status, process_pid FROM delegation_runs ORDER BY started_at DESC LIMIT 1').get()).toEqual({
+      status: 'recovery_required', process_pid: 880,
+    });
+    expect(getActiveDelegationUsage('codex')).toBe(1);
+  });
+
+  it('retains ownership after unresolved timeout and grants fallback independently', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    const service = new BulkReadService(async ({ onStarted }) => {
+      await onStarted(881, { pid: 881, startTime: 'timeout-owned' });
+      throw new Error('delegation_worker_timeout');
+    });
+    vi.spyOn(claudeManager, 'stopClaude').mockResolvedValue({ status: 'unresolved', pid: 881, reason: 'termination_not_confirmed' });
+    expect(await service.run(parent, { path: file, query: 'find' })).toMatchObject({
+      status: 'failed', error_code: 'timeout', fallback_granted: true,
+    });
+    expect(testDb.prepare('SELECT status, process_pid, fallback_granted FROM delegation_runs ORDER BY started_at DESC LIMIT 1').get()).toEqual({
+      status: 'recovery_required', process_pid: 881, fallback_granted: 1,
+    });
+  });
+
+  it('clears stale ownership without signalling again when stop reports not_owned', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const service = new BulkReadService(({ onStarted }) => new Promise((resolve) => {
+      void Promise.resolve(onStarted(882, { pid: 882, startTime: 'old' })).then(started);
+      setTimeout(() => resolve({ output: '{}', exitCode: 0 }), 50);
+    }));
+    vi.spyOn(claudeManager, 'stopClaude').mockResolvedValue({ status: 'not_owned', pid: 882, reason: 'process_identity_mismatch' });
+    const runPromise = service.run(parent, { path: file, query: 'find' });
+    await startedPromise;
+    await service.cancelForOwner('todo');
+    await runPromise;
+    expect(testDb.prepare('SELECT status, process_pid FROM delegation_runs ORDER BY started_at DESC LIMIT 1').get()).toEqual({
+      status: 'cancelled', process_pid: null,
+    });
+    expect(claudeManager.stopClaude).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces a capacity wake when a persisted worker exits', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    const wake = vi.fn();
+    executorPool.setAvailabilityCallback(wake);
+    const service = new BulkReadService(async ({ onStarted }) => {
+      await onStarted(883, { pid: 883, startTime: 'owned' });
+      return { output: JSON.stringify({ summary: 'none', ranges: [] }), exitCode: 0 };
+    });
+    await service.run(parent, { path: file, query: 'find' });
+    await Promise.resolve();
+    expect(wake).toHaveBeenCalledTimes(1);
+  });
+
+  it('transfers capacity from reservation to persisted PID without a counting gap', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    vi.mocked(executorPool.selectExecutor).mockImplementationOnce(async (input) => {
+      executorPool.reserveSlot(input.reserveOwnerId!, 'codex');
+      return { status: 'selected', selectedConfig: config, evaluations: [], evaluatedAt: config.resolvedAt };
+    });
+    const service = new BulkReadService(async ({ onStarted }) => {
+      expect(executorPool.getReservations()).toHaveLength(1);
+      await onStarted(884, { pid: 884, startTime: 'owned' });
+      expect(executorPool.getReservations()).toHaveLength(0);
+      expect(getActiveDelegationUsage('codex')).toBe(1);
+      expect(executorPool.getActiveToolUsage('codex')).toBe(1);
+      return { output: JSON.stringify({ summary: 'none', ranges: [] }), exitCode: 0 };
+    });
+    expect(await service.run(parent, { path: file, query: 'find' })).toMatchObject({ status: 'no_match' });
+    expect(getActiveDelegationUsage('codex')).toBe(0);
+  });
+
+  it('wakes capacity after a pre-spawn worker failure releases its reservation', async () => {
+    const file = path.join(root, 'source.ts'); fs.writeFileSync(file, 'one\ntwo\n');
+    const wake = vi.fn();
+    executorPool.setAvailabilityCallback(wake);
+    vi.mocked(executorPool.selectExecutor).mockImplementationOnce(async (input) => {
+      executorPool.reserveSlot(input.reserveOwnerId!, 'codex');
+      return { status: 'selected', selectedConfig: config, evaluations: [], evaluatedAt: config.resolvedAt };
+    });
+    const service = new BulkReadService(async () => { throw new Error('spawn failed'); });
+    expect(await service.run(parent, { path: file, query: 'find' })).toMatchObject({
+      status: 'failed', error_code: 'transport_error', fallback_granted: true,
+    });
+    await Promise.resolve();
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 });

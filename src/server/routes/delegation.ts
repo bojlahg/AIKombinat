@@ -28,7 +28,11 @@ internalDelegationRouter.post('/hook/:provider', async (req: Request, res: Respo
   if (!parent) return;
   try {
     const depth = Number(req.header('x-aikombinat-delegation-depth') ?? '0');
-    const decision = await decideHookOperation(provider, parent, req.body, Number.isFinite(depth) ? depth : 0);
+    const rawDefinitionHash = String(req.header('x-aikombinat-managed-definition-hash') ?? '');
+    const managedDefinitionHash = /^[a-f0-9]{64}$/.test(rawDefinitionHash) ? rawDefinitionHash : null;
+    const decision = await decideHookOperation(
+      provider, parent, req.body, Number.isFinite(depth) ? depth : 0, managedDefinitionHash,
+    );
     res.json({ output: formatHookResponse(provider, decision) });
   } catch {
     // Synchronous hooks are optimization only: unexpected server failures fail open.

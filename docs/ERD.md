@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 40 tables, 495 columns, 48 foreign keys
+Stats: 41 tables, 500 columns, 48 foreign keys
 
 ## Diagram
 
@@ -539,7 +539,14 @@ erDiagram
         TEXT decision
         TEXT decision_reason
         INTEGER hook_latency_ms
+        TEXT managed_definition_hash
+        DATETIME observed_at
         DATETIME created_at
+    }
+    delegation_hook_installations {
+        TEXT provider PK
+        TEXT definition_hash
+        DATETIME installed_at
     }
     delegation_runs {
         TEXT id PK

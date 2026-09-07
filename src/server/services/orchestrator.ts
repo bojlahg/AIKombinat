@@ -33,6 +33,7 @@ import { assertNoUnresolvedProcess, hasUnresolvedProcess } from './process-owner
 import { reconcileRetainedProcesses, type StartupProcessProbe } from './startup-process-recovery.js';
 import { bulkReadService } from '../delegation/bulk-read.js';
 import { prepareTodoDelegationLaunch, type PreparedDelegationLaunch } from '../delegation/runtime.js';
+import { recoverDelegationRuns } from '../delegation/recovery.js';
 
 
 /**
@@ -72,6 +73,11 @@ export class Orchestrator {
       void this.recoverRetainedProcesses().catch((err) => {
         logger.error('process.recovery.periodic-failed', {
           scope: '[recovery]', msg: 'periodic retained-process reconciliation failed', err,
+        });
+      });
+      void recoverDelegationRuns({ passive: true }).catch((err) => {
+        logger.error('delegation.recovery.periodic-failed', {
+          scope: '[recovery]', msg: 'periodic delegation-worker reconciliation failed', err,
         });
       });
     }, STALE_CHECK_INTERVAL_MS);
@@ -1299,7 +1305,6 @@ export class Orchestrator {
         executionSnapshot: executionConfig ? executionSnapshot(executionConfig) : { agent: resolvedCliTool },
         mode,
       });
-
       logger.info('todo.execution.started', {
         msg: `${isContinue ? 'rework' : (currentRound?.phase ?? 'implementation')} started`,
         phase: currentRound?.phase ?? (isContinue ? 'rework' : 'implementation'),

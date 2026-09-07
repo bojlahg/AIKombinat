@@ -21,6 +21,8 @@ export interface DelegationHookStatus {
   provider: 'claude' | 'codex';
   state: 'not_installed' | 'installed_unverified' | 'needs_trust' | 'verified' | 'incompatible' | 'manual_action_required' | 'error';
   installed: boolean;
+  launcherRunnable: boolean;
+  definitionHash: string | null;
   verified: boolean;
   needsTrust: boolean;
   version: string | null;

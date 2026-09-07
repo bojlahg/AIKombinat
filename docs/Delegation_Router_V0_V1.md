@@ -6,7 +6,9 @@ Delegation Router is an experimental, disabled-by-default optimization for reduc
 
 Headless Todo implementation and rework launches receive an immutable, persisted parent execution identity plus `AIKOMBINAT_DELEGATION_DEPTH=0`. Claude and Codex receive an execution-local, least-privilege MCP connection that exposes only `bulk_read`. A short-lived capability maps hook and MCP requests to the persisted parent work directory and execution snapshot; neither tool accepts a workspace root, parent ID, provider, or model from the model.
 
-Each delegation performs bounded immediate admission through the existing Model Catalog, Execution Profile, `ExecutorPool`, and `ProviderQuotaService`. One request starts one read-only worker process with `AIKOMBINAT_DELEGATION_DEPTH=1`; no Delegation MCP is injected into the worker. The resolved provider/model/`effectiveModel`/effort snapshot is persisted once and reused for launch. There is no second scheduler and no persistent worker pool.
+Each delegation performs bounded immediate admission through the existing Model Catalog, Execution Profile, `ExecutorPool`, and `ProviderQuotaService`. Runtime admission permits only Claude, Codex, or Antigravity and skips `raw-shell`, even if a saved profile is changed after Delegation settings are saved. One request starts one read-only worker process with `AIKOMBINAT_DELEGATION_DEPTH=1`; no Delegation MCP is injected into the worker. The resolved provider/model/`effectiveModel`/effort snapshot is persisted once and reused for launch. There is no second scheduler and no persistent worker pool.
+
+Provider transport decoding stays at the CLI adapter edge. Antigravity's `SUCCESS`/failure stream envelope is decoded before `bulk_read` validates the worker JSON; Claude result events are normalized by its adapter path, and core `bulk_read` parses only the resulting structured payload.
 
 ## Settings and rollout modes
 
@@ -20,9 +22,11 @@ Existing installations remain disabled after upgrade. Telemetry is the recommend
 
 ## Provider hooks
 
-The managed installer adds one user-level AIKombinat `PreToolUse` entry, preserves unrelated settings and hooks, writes atomically, creates a backup before the first mutation, and refuses malformed configuration. Removing a hook removes only the managed entry. The bridge exits immediately outside an AIKombinat execution and never receives prompts, file contents, provider credentials, or the general administrative MCP token.
+The managed installer adds one user-level AIKombinat `PreToolUse` entry, preserves unrelated settings and hooks, writes atomically, creates a backup before the first mutation, and refuses malformed configuration. It copies the bridge into the application data directory and writes a stable launcher around the exact running Node runtime. Packaged Electron launchers set `ELECTRON_RUN_AS_NODE=1`; Windows uses a quoted `.cmd` wrapper, while macOS/Linux use a quoted executable POSIX wrapper. Status distinguishes a configuration entry from a missing or unrunnable launcher/runtime. Removing a hook removes only the managed entry. The bridge exits immediately outside an AIKombinat execution and never receives prompts, file contents, provider credentials, or the general administrative MCP token.
 
-Claude uses its native user `settings.json` hook representation. `installed_unverified` means the file contains the managed entry; `verified` means the server observed a real hook event. Codex supports a separate `hooks.json`; if the same config layer already uses inline hooks, AIKombinat reports `manual_action_required` rather than creating a competing representation. Codex hook definitions may require manual trust. AIKombinat reports `needs_trust` separately and never passes `--dangerously-bypass-hook-trust`.
+Claude uses its native user `settings.json` hook representation. Every managed definition has a schema/bridge/path/runtime hash and an installation timestamp. `verified` requires a real hook event carrying that same hash after the current installation; an older observation or a changed/reinstalled definition remains `installed_unverified`. Codex supports a separate `hooks.json`; if the same config layer already uses inline hooks, AIKombinat reports `manual_action_required` rather than creating a competing representation. Codex hook definitions may require manual trust. AIKombinat reports `needs_trust` separately and never passes `--dangerously-bypass-hook-trust`.
+
+Claude primary execution adds the temporary Delegation MCP with `--mcp-config` but does not use `--strict-mcp-config`. Claude's current CLI contract defines strict mode as ignoring every other MCP configuration, so using it here would silently suppress unrelated user/project servers. Normal MCP configuration remains additive, while the injected `kombinat-delegation` server itself exposes only `bulk_read` and only that tool is added to the managed permission rules. See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference#cli-flags).
 
 ## `bulk_read` contract
 
@@ -40,13 +44,15 @@ Before launch, the server records size, line count, and SHA-256. It rechecks ide
 
 ## Lifecycle and recovery
 
-Delegation runs persist `starting`, `running`, `completed`, `failed`, `cancelled`, or `recovery_required` state with PID and process identity. A running or unresolved worker consumes provider capacity. Parent Stop cancels the worker; ownership is released only after confirmed exit. Startup recovery never signals a PID on identity mismatch or unverifiable identity. A matching orphan is terminated because its original MCP caller no longer exists; an unverifiable process remains `recovery_required` and continues consuming capacity.
+Delegation runs persist `starting`, `running`, `completed`, `failed`, `cancelled`, or `recovery_required` state with PID and process identity. Spawn adoption persists PID/identity before releasing its reservation, including a late spawn after parent cancellation. A running or unresolved worker consumes provider capacity. Timeout, transport failure, and parent Stop apply the same stop matrix: confirmed termination or exit clears ownership; `not_owned` clears stale ownership without another signal; `unresolved` retains ownership in `recovery_required`. Fallback eligibility is independent of ownership release, and late completion cannot overwrite `recovery_required`.
+
+Startup recovery reconciles orphan workers. The existing 30-second retained-process tick also passively reconciles `recovery_required` workers: dead or identity-mismatched PIDs release ownership without signalling a mismatched process, matched PIDs receive safe cleanup, and unverifiable live PIDs remain retained. Ownership updates compare PID plus identity, so an older asynchronous reconciliation cannot clear superseding state. Every real delegation capacity release goes through the coalesced `ExecutorPool` availability callback and wakes ordinary `waiting_executor` Todos.
 
 ## Telemetry and privacy
 
 Tool observations store parent execution/provider/model identity, tool and normalized operation, safe relative path and offsets, cheap file metadata, decision/reason, and hook latency. Shell observations store only a derived command kind, raw character length, and SHA-256—not command text. Delegation runs store file identity and sizes, bounded failure detail, the resolved worker snapshot, actual token usage only when a provider reports it, returned characters, and `context_avoided_chars = max(0, source_chars - returned_chars)`.
 
-Normal telemetry never stores prompts, file contents, environment variables, raw shell commands, full provider output, or capabilities. Startup cleanup defaults to 30-day retention. Character reduction is labelled as characters; no parent-token savings are fabricated.
+Normal telemetry never stores prompts, file contents, environment variables, raw shell commands, full provider output, or capabilities. Startup cleanup defaults to 30-day retention and removes finished parent execution rows only after retained child state and PID ownership are gone. Character reduction is labelled as characters; no parent-token savings are fabricated.
 
 ## Known V1 limitations
 

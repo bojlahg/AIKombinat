@@ -31,6 +31,12 @@ export interface DelegationRunRow {
   process_identity: string | null;
   source_path_relative: string;
   source_sha256: string;
+  finished_at?: string | null;
+}
+
+export interface DelegationProcessOwnership {
+  pid: number;
+  processIdentity: string | null;
 }
 
 export const hashCapability = (value: string): string => crypto.createHash('sha256').update(value).digest('hex');
@@ -100,19 +106,21 @@ export function recordObservation(input: {
   decision: string;
   decisionReason: string;
   hookLatencyMs: number;
+  managedDefinitionHash?: string | null;
 }): string {
   const id = uuidv4();
   getDatabase().prepare(`INSERT INTO delegation_tool_observations
     (id, parent_execution_id, parent_provider, parent_model, parent_effective_model, tool_name,
      operation_type, source_path_relative, requested_offset, requested_limit, file_size, command_kind,
-     command_raw_length, command_hash, policy_mode, decision, decision_reason, hook_latency_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+     command_raw_length, command_hash, policy_mode, decision, decision_reason, hook_latency_ms,
+     managed_definition_hash, observed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, input.parentExecution.id, input.parentExecution.provider, input.parentExecution.model,
       input.parentExecution.effective_model, input.toolName, input.operationType,
       input.sourcePathRelative ?? null, input.requestedOffset ?? null, input.requestedLimit ?? null,
       input.fileSize ?? null, input.commandKind ?? null, input.commandRawLength ?? null,
       input.commandHash ?? null, input.parentExecution.policy_mode, input.decision,
-      input.decisionReason, input.hookLatencyMs,
+      input.decisionReason, input.hookLatencyMs, input.managedDefinitionHash ?? null, new Date().toISOString(),
     );
   return id;
 }
@@ -178,6 +186,57 @@ export function updateDelegationRun(id: string, updates: {
   getDatabase().prepare(`UPDATE delegation_runs SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }
 
+export function adoptDelegationRunProcess(
+  id: string,
+  ownership: DelegationProcessOwnership,
+): 'running' | 'cancelled' | 'superseded' {
+  return getDatabase().transaction(() => {
+    const current = getDelegationRun(id);
+    if (!current || current.process_pid !== null) return 'superseded' as const;
+    const nextStatus = current.status === 'starting' ? 'running' : 'cancelled';
+    const changed = getDatabase().prepare(`UPDATE delegation_runs
+      SET status = ?, process_pid = ?, process_identity = ?, finished_at = NULL
+      WHERE id = ? AND status = ? AND process_pid IS NULL`).run(
+        nextStatus, ownership.pid, ownership.processIdentity, id, current.status,
+      ).changes;
+    return changed === 1 ? nextStatus : 'superseded';
+  })();
+}
+
+export function updateOwnedDelegationRun(
+  id: string,
+  ownership: DelegationProcessOwnership,
+  expectedStatuses: readonly DelegationRunStatus[],
+  updates: {
+    status?: DelegationRunStatus;
+    processPid?: number | null;
+    processIdentity?: string | null;
+    latencyMs?: number;
+    errorCode?: string | null;
+    errorDetailBounded?: string | null;
+    fallbackGranted?: boolean;
+    finished?: boolean;
+  },
+): boolean {
+  if (!expectedStatuses.length) return false;
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  const put = (column: string, value: unknown) => { fields.push(`${column} = ?`); values.push(value); };
+  if (updates.status !== undefined) put('status', updates.status);
+  if (updates.processPid !== undefined) put('process_pid', updates.processPid);
+  if (updates.processIdentity !== undefined) put('process_identity', updates.processIdentity);
+  if (updates.latencyMs !== undefined) put('latency_ms', updates.latencyMs);
+  if (updates.errorCode !== undefined) put('error_code', updates.errorCode);
+  if (updates.errorDetailBounded !== undefined) put('error_detail_bounded', updates.errorDetailBounded?.slice(0, 1000) ?? null);
+  if (updates.fallbackGranted !== undefined) put('fallback_granted', updates.fallbackGranted ? 1 : 0);
+  if (updates.finished) fields.push('finished_at = CURRENT_TIMESTAMP');
+  if (!fields.length) return false;
+  const placeholders = expectedStatuses.map(() => '?').join(', ');
+  values.push(id, ownership.pid, ownership.processIdentity, ...expectedStatuses);
+  return getDatabase().prepare(`UPDATE delegation_runs SET ${fields.join(', ')}
+    WHERE id = ? AND process_pid = ? AND process_identity IS ? AND status IN (${placeholders})`).run(...values).changes === 1;
+}
+
 export function getDelegationRun(id: string): DelegationRunRow | undefined {
   return getDatabase().prepare('SELECT * FROM delegation_runs WHERE id = ?').get(id) as DelegationRunRow | undefined;
 }
@@ -185,6 +244,12 @@ export function getDelegationRun(id: string): DelegationRunRow | undefined {
 export function getUnresolvedDelegationRuns(): DelegationRunRow[] {
   return getDatabase().prepare(
     "SELECT * FROM delegation_runs WHERE status IN ('running', 'recovery_required') AND process_pid IS NOT NULL AND process_pid > 0"
+  ).all() as DelegationRunRow[];
+}
+
+export function getRecoveryRequiredDelegationRuns(): DelegationRunRow[] {
+  return getDatabase().prepare(
+    "SELECT * FROM delegation_runs WHERE status = 'recovery_required' AND process_pid IS NOT NULL AND process_pid > 0"
   ).all() as DelegationRunRow[];
 }
 
@@ -228,9 +293,16 @@ export function cleanupDelegationTelemetry(retentionDays: number): number {
   const cutoff = new Date(Date.now() - Math.max(1, retentionDays) * 86_400_000).toISOString();
   const db = getDatabase();
   const observations = db.prepare('DELETE FROM delegation_tool_observations WHERE created_at < ?').run(cutoff).changes;
-  const runs = db.prepare("DELETE FROM delegation_runs WHERE started_at < ? AND status NOT IN ('running', 'recovery_required')").run(cutoff).changes;
-  db.prepare('DELETE FROM delegation_fallback_grants WHERE expires_at < ? OR uses_remaining <= 0').run(new Date().toISOString());
-  return observations + runs;
+  const runs = db.prepare(`DELETE FROM delegation_runs
+    WHERE started_at < ? AND process_pid IS NULL AND status NOT IN ('running', 'recovery_required')`).run(cutoff).changes;
+  const grants = db.prepare('DELETE FROM delegation_fallback_grants WHERE expires_at < ? OR uses_remaining <= 0').run(new Date().toISOString()).changes;
+  const parents = db.prepare(`DELETE FROM delegation_parent_executions
+    WHERE finished_at IS NOT NULL AND finished_at < ? AND process_pid IS NULL
+      AND status IN ('completed', 'failed', 'cancelled')
+      AND NOT EXISTS (SELECT 1 FROM delegation_runs WHERE parent_execution_id = delegation_parent_executions.id)
+      AND NOT EXISTS (SELECT 1 FROM delegation_tool_observations WHERE parent_execution_id = delegation_parent_executions.id)
+      AND NOT EXISTS (SELECT 1 FROM delegation_fallback_grants WHERE parent_execution_id = delegation_parent_executions.id)`).run(cutoff).changes;
+  return observations + runs + grants + parents;
 }
 
 export function getDelegationStatistics(ownerId?: string) {

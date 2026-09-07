@@ -55,6 +55,7 @@ export async function decideHookOperation(
   parent: ParentExecutionRow,
   payload: unknown,
   delegationDepth = 0,
+  managedDefinitionHash?: string | null,
 ): Promise<HookDecision> {
   const startedAt = Date.now();
   const settings = getDelegationSettings();
@@ -92,7 +93,10 @@ export async function decideHookOperation(
           if (consumeFallback(parent.id, identity.canonicalPath, identity.sha256)) {
             decision = { decision: 'allow', reason: 'fallback_grant' };
           } else {
-            const selection = await executorPool.selectExecutor({ executionProfileId: settings.workerExecutionProfileId });
+            const selection = await executorPool.selectExecutor({
+              executionProfileId: settings.workerExecutionProfileId,
+              allowedCliTools: ['claude', 'codex', 'antigravity'],
+            });
             if (selection.status !== 'selected') {
               decision = { decision: 'allow', reason: 'worker_unavailable' };
             } else {
@@ -126,6 +130,7 @@ export async function decideHookOperation(
     decision: decision.decision,
     decisionReason: decision.reason,
     hookLatencyMs,
+    managedDefinitionHash,
   });
   logger.info('delegation.policy.decision', {
     msg: `delegation policy ${decision.decision}`,
