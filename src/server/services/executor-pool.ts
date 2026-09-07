@@ -6,6 +6,7 @@ import { providerQuotaService } from './provider-quota.js';
 import { logger } from '../logging/logger.js';
 import { hasUnresolvedProcess } from './process-ownership.js';
 import { getActiveDelegationUsage } from '../delegation/store.js';
+import { getDelegationWorkerIsolationCapability } from '../delegation/worker-isolation.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -17,7 +18,7 @@ export interface CandidateEvaluation {
   modelLabel: string;
   effort: string | null;
   priority: number;
-  status: 'available' | 'busy' | 'quota_exhausted' | 'unavailable' | 'invalid';
+  status: 'available' | 'busy' | 'quota_exhausted' | 'unavailable' | 'unsupported' | 'invalid';
   reason: string;
 }
 
@@ -259,6 +260,7 @@ export class ExecutorPool {
     options: {
       interactive?: boolean;
       allowedCliTools?: readonly CliTool[];
+      requireDelegationWorkerIsolation?: boolean;
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -286,6 +288,16 @@ export class ExecutorPool {
         candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
         status: 'invalid', reason: `${toolName} is not allowed for this execution`,
       };
+    }
+
+    if (options.requireDelegationWorkerIsolation) {
+      const capability = getDelegationWorkerIsolationCapability(cliTool);
+      if (!capability?.proven) {
+        return {
+          candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+          status: 'unsupported', reason: `Provider unsupported for Delegation Worker isolation: ${capability?.evidence ?? 'not an AI provider'}`,
+        };
+      }
     }
 
     // 1. CLI/tool is installed and usable
@@ -405,6 +417,7 @@ export class ExecutorPool {
     excludeDiscussionId?: string;
     reserveOwnerId?: string;
     allowedCliTools?: readonly CliTool[];
+    requireDelegationWorkerIsolation?: boolean;
   }): Promise<PoolSelectionResult> {
     let release: () => void;
     const prevMutex = this.selectMutex;
@@ -441,6 +454,7 @@ export class ExecutorPool {
     excludeDiscussionId?: string;
     reserveOwnerId?: string;
     allowedCliTools?: readonly CliTool[];
+    requireDelegationWorkerIsolation?: boolean;
   }): Promise<PoolSelectionResult> {
     const evaluatedAt = new Date().toISOString();
     if (!input.executionProfileId) {
@@ -464,6 +478,7 @@ export class ExecutorPool {
       const evaluation = await this.evaluateCandidate(candidate, {
         interactive: input.interactive,
         allowedCliTools: input.allowedCliTools,
+        requireDelegationWorkerIsolation: input.requireDelegationWorkerIsolation,
         excludeTodoId: input.excludeTodoId,
         excludeSessionId: input.excludeSessionId,
         excludeDiscussionId: input.excludeDiscussionId,

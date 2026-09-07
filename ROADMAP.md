@@ -64,9 +64,9 @@ V1 — bulk_read
 - delegationDepth prevents recursion
 - disabled by default; telemetry is the recommended first enabled mode
 - Claude full-file `Read` supports conservative suggest/enforce; Codex shell reads remain telemetry-only
-- worker lifecycle is fail-closed: unresolved PID ownership is retained, startup/cancel/timeout races are CAS-guarded, and passive reconciliation releases capacity safely
-- worker admission is limited to Claude/Codex/Antigravity; provider envelopes are decoded at the adapter edge
-- managed hooks use portable app-data launchers and definition-specific verification; Claude Delegation MCP injection preserves unrelated MCP configuration
+- worker lifecycle is fail-closed: every persisted PID is ownership regardless of status, startup/cancel/timeout races are CAS-guarded, and single-flight passive reconciliation releases capacity safely
+- worker admission requires proven isolation: Claude is tool-less in disposable scratch; Codex/Antigravity are unsupported as V1 workers and skipped without affecting their primary execution paths
+- managed hooks use portable app-data launchers, copied-bridge SHA-256 integrity, and definition-specific verification; primary Claude Delegation MCP injection preserves unrelated MCP configuration
 - finished parent execution telemetry follows bounded retention without deleting unresolved child ownership
 
 Current next step:

@@ -223,6 +223,12 @@ export class ClaudeManager {
     promptPolicy?: PromptPolicy,
     runtimeEnv?: Record<string, string>,
     delegationMcp?: { configPath?: string; command: string; args: string[] },
+    delegationWorkerIsolation?: {
+      provider: 'claude';
+      strategy: 'tools_disabled';
+      scratchDirectory: string;
+      emptyMcpConfigPath: string;
+    },
   ): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
@@ -237,7 +243,7 @@ export class ClaudeManager {
 
     const adapter = getAdapter(tool);
     const selection: LaunchModelSelection = typeof model === 'string' ? { model } : (model ?? {});
-    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp });
+    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation });
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them

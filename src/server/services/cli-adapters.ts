@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { execFile } from 'child_process';
 import { getModelByValue } from '../db/queries.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
@@ -41,6 +42,12 @@ export interface CliBuildOptions extends LaunchModelSelection {
     configPath?: string;
     command: string;
     args: string[];
+  };
+  delegationWorkerIsolation?: {
+    provider: 'claude';
+    strategy: 'tools_disabled';
+    scratchDirectory: string;
+    emptyMcpConfigPath: string;
   };
 }
 
@@ -493,7 +500,7 @@ export class AntigravityOutputDecoder implements CliOutputDecoder {
 const claudeAdapter: CliAdapter = {
   command: 'claude',
   displayName: 'Claude CLI',
-  compatibilityFlags: ['--permission-mode', '--allowedTools', '--disallowedTools', '--mcp-config', '--strict-mcp-config'],
+  compatibilityFlags: ['--permission-mode', '--allowedTools', '--disallowedTools', '--tools', '--setting-sources', '--mcp-config', '--strict-mcp-config'],
   supportsInteractive: true,
   outputFormat: 'stream-json',
   delayStdinUntilReady: true,
@@ -506,11 +513,37 @@ const claudeAdapter: CliAdapter = {
       blocksInitialPrompt: true,
     },
   ],
-  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy, delegationMcp }) {
+  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation }) {
     const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'claude');
     const args: string[] = [];
+    if (promptPolicy === 'read-only-worker') {
+      if (sandboxMode !== 'strict' || delegationWorkerIsolation?.provider !== 'claude' || delegationWorkerIsolation.strategy !== 'tools_disabled') {
+        throw new Error('Configuration error: Claude Delegation Worker requires typed tool-less isolation.');
+      }
+      if (delegationMcp) throw new Error('Configuration error: Claude Delegation Worker must not receive Delegation MCP.');
+      const scratch = fs.realpathSync.native(path.resolve(delegationWorkerIsolation.scratchDirectory));
+      const configuredWorkDir = fs.realpathSync.native(path.resolve(workDir ?? '.'));
+      const mcpConfig = fs.realpathSync.native(path.resolve(delegationWorkerIsolation.emptyMcpConfigPath));
+      const relativeMcpConfig = path.relative(scratch, mcpConfig);
+      if (configuredWorkDir !== scratch || relativeMcpConfig.startsWith('..') || path.isAbsolute(relativeMcpConfig)) {
+        throw new Error('Configuration error: Claude Delegation Worker isolation files must stay inside its scratch directory.');
+      }
+      const parsedMcpConfig = JSON.parse(fs.readFileSync(mcpConfig, 'utf8')) as Record<string, unknown>;
+      if (Object.keys(parsedMcpConfig).length !== 1
+        || !parsedMcpConfig.mcpServers || typeof parsedMcpConfig.mcpServers !== 'object'
+        || Array.isArray(parsedMcpConfig.mcpServers) || Object.keys(parsedMcpConfig.mcpServers).length !== 0) {
+        throw new Error('Configuration error: Claude Delegation Worker requires an empty MCP configuration.');
+      }
+    }
     if (sandboxMode === 'strict') {
-      if (isReadOnlyPromptPolicy(promptPolicy)) {
+      if (promptPolicy === 'read-only-worker') {
+        args.push(
+          '--permission-mode', 'plan',
+          '--tools', '',
+          '--setting-sources', '',
+          '--strict-mcp-config', '--mcp-config', delegationWorkerIsolation!.emptyMcpConfigPath,
+        );
+      } else if (isReadOnlyPromptPolicy(promptPolicy)) {
         args.push(
           '--permission-mode', 'plan',
           '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash',
@@ -615,7 +648,10 @@ const antigravityAdapter: CliAdapter = {
     '--input-format', '--output-format', '--sandbox',
     '--dangerously-skip-permissions', '--continue', '--model', '--effort',
   ],
-  buildArgs({ mode, model, effectiveModel, effort, extraOptions, sandboxMode, continueSession }) {
+  buildArgs({ mode, model, effectiveModel, effort, extraOptions, sandboxMode, continueSession, promptPolicy }) {
+    if (promptPolicy === 'read-only-worker') {
+      throw new Error('Configuration error: Antigravity is unsupported for Delegation Worker isolation.');
+    }
     // Antigravity CLI (`agy`):
     //   stream-json input is the official stdin transport. Unlike --print,
     //   neither the option parser nor the process listing can consume the prompt.
@@ -671,6 +707,9 @@ const codexAdapter: CliAdapter = {
     '--dangerously-bypass-approvals-and-sandbox', '--add-dir', '--model', '--last', '-c',
   ],
   buildArgs({ mode, model, effectiveModel, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession, promptPolicy, delegationMcp }) {
+    if (promptPolicy === 'read-only-worker') {
+      throw new Error('Configuration error: Codex is unsupported for Delegation Worker isolation.');
+    }
     const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'codex');
     const args: string[] = [];
     if (mode !== 'interactive') {

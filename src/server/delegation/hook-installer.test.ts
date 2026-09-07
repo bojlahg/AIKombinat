@@ -115,6 +115,26 @@ describe('delegation hook installer', () => {
     expect(status.error).toContain('runtime is missing');
   });
 
+  it('rejects a corrupted app-data bridge copy even after a matching hook observation', async () => {
+    const installed = await installDelegationHook('claude', workspace.path);
+    const definition = resolveManagedHookDefinition('claude', workspace.path);
+    const parent = createParentExecution({
+      ownerId: 'todo', workDir: workspace.path, executionSnapshot: {}, provider: 'claude',
+      policyMode: 'telemetry', capability: 'bridge-integrity-capability',
+    });
+    recordObservation({
+      parentExecution: parent, toolName: 'Read', operationType: 'read_file', decision: 'allow',
+      decisionReason: 'telemetry_only', hookLatencyMs: 1, managedDefinitionHash: installed.definitionHash,
+    });
+    expect((await getDelegationHookStatus('claude', workspace.path)).state).toBe('verified');
+
+    fs.writeFileSync(definition.bridgeCopyPath, 'corrupted bridge');
+
+    const status = await getDelegationHookStatus('claude', workspace.path);
+    expect(status).toMatchObject({ state: 'incompatible', installed: true, launcherRunnable: false, verified: false });
+    expect(status.error).toContain('integrity mismatch');
+  });
+
   it('verifies only a matching observation from the current installation', async () => {
     const installed = await installDelegationHook('claude', workspace.path);
     const parent = createParentExecution({

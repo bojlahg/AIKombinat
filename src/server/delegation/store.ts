@@ -241,15 +241,9 @@ export function getDelegationRun(id: string): DelegationRunRow | undefined {
   return getDatabase().prepare('SELECT * FROM delegation_runs WHERE id = ?').get(id) as DelegationRunRow | undefined;
 }
 
-export function getUnresolvedDelegationRuns(): DelegationRunRow[] {
+export function getDelegationRunsWithPersistedProcess(): DelegationRunRow[] {
   return getDatabase().prepare(
-    "SELECT * FROM delegation_runs WHERE status IN ('running', 'recovery_required') AND process_pid IS NOT NULL AND process_pid > 0"
-  ).all() as DelegationRunRow[];
-}
-
-export function getRecoveryRequiredDelegationRuns(): DelegationRunRow[] {
-  return getDatabase().prepare(
-    "SELECT * FROM delegation_runs WHERE status = 'recovery_required' AND process_pid IS NOT NULL AND process_pid > 0"
+    'SELECT * FROM delegation_runs WHERE process_pid IS NOT NULL AND process_pid > 0'
   ).all() as DelegationRunRow[];
 }
 
@@ -261,7 +255,7 @@ export function getActiveDelegationRunsForOwner(ownerId: string): DelegationRunR
 
 export function getActiveDelegationUsage(provider: string): number {
   const rows = getDatabase().prepare(`SELECT execution_snapshot FROM delegation_runs
-    WHERE status IN ('running', 'recovery_required') AND process_pid IS NOT NULL AND process_pid > 0`).all() as Array<{ execution_snapshot: string | null }>;
+    WHERE process_pid IS NOT NULL AND process_pid > 0`).all() as Array<{ execution_snapshot: string | null }>;
   return rows.reduce((count, row) => {
     if (!row.execution_snapshot) return count;
     try { return JSON.parse(row.execution_snapshot)?.agent === provider ? count + 1 : count; }

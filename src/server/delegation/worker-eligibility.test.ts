@@ -11,6 +11,7 @@ vi.mock('../services/cli-status.js', () => ({
 const queries = await import('../db/queries.js');
 const { ExecutorPool } = await import('../services/executor-pool.js');
 const { updateDelegationSettings } = await import('./settings.js');
+const { getDelegationWorkerIsolationCapability } = await import('./worker-isolation.js');
 
 describe('delegation worker eligibility', () => {
   beforeEach(() => {
@@ -40,6 +41,7 @@ describe('delegation worker eligibility', () => {
     const result = await pool.selectExecutor({
       executionProfileId: profileId,
       allowedCliTools: ['claude', 'codex', 'antigravity'],
+      requireDelegationWorkerIsolation: true,
     });
     expect(result.status).toBe('no_candidates');
     expect(result.evaluations).toEqual([
@@ -47,20 +49,34 @@ describe('delegation worker eligibility', () => {
     ]);
   });
 
-  it('skips raw-shell and selects the next Antigravity candidate', async () => {
+  it('skips unsupported AI providers and selects the next proven-isolated candidate', async () => {
+    const codex = queries.addModel('codex', 'gpt-test', 'Codex Test');
     const antigravity = queries.addModel('antigravity', 'agy-test', 'Antigravity Test');
+    const claude = queries.addModel('claude', 'claude-test', 'Claude Test');
     const pool = new ExecutorPool();
     const profileId = profileWith([
-      { modelId: 'raw-model', priority: 1 },
+      { modelId: codex.id, priority: 1 },
       { modelId: antigravity.id, priority: 2 },
+      { modelId: claude.id, priority: 3 },
     ]);
     const result = await pool.selectExecutor({
       executionProfileId: profileId,
       allowedCliTools: ['claude', 'codex', 'antigravity'],
+      requireDelegationWorkerIsolation: true,
     });
     expect(result.status).toBe('selected');
-    expect(result.selectedConfig?.cliTool).toBe('antigravity');
-    expect(result.evaluations[0]).toMatchObject({ cliTool: 'raw-shell', status: 'invalid' });
+    expect(result.selectedConfig?.cliTool).toBe('claude');
+    expect(result.evaluations.slice(0, 2)).toEqual([
+      expect.objectContaining({ cliTool: 'codex', status: 'unsupported', reason: expect.stringContaining('unsupported for Delegation Worker isolation') }),
+      expect.objectContaining({ cliTool: 'antigravity', status: 'unsupported', reason: expect.stringContaining('unsupported for Delegation Worker isolation') }),
+    ]);
+  });
+
+  it('publishes a truthful provider isolation capability matrix', () => {
+    expect(getDelegationWorkerIsolationCapability('claude')).toMatchObject({ proven: true, strategy: 'tools_disabled' });
+    expect(getDelegationWorkerIsolationCapability('codex')).toMatchObject({ proven: false, strategy: 'unsupported' });
+    expect(getDelegationWorkerIsolationCapability('antigravity')).toMatchObject({ proven: false, strategy: 'unsupported' });
+    expect(getDelegationWorkerIsolationCapability('raw-shell')).toBeNull();
   });
 
   it('revalidates a profile changed after settings were saved', async () => {

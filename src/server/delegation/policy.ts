@@ -96,6 +96,7 @@ export async function decideHookOperation(
             const selection = await executorPool.selectExecutor({
               executionProfileId: settings.workerExecutionProfileId,
               allowedCliTools: ['claude', 'codex', 'antigravity'],
+              requireDelegationWorkerIsolation: true,
             });
             if (selection.status !== 'selected') {
               decision = { decision: 'allow', reason: 'worker_unavailable' };

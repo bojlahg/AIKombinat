@@ -6,7 +6,17 @@ Delegation Router is an experimental, disabled-by-default optimization for reduc
 
 Headless Todo implementation and rework launches receive an immutable, persisted parent execution identity plus `AIKOMBINAT_DELEGATION_DEPTH=0`. Claude and Codex receive an execution-local, least-privilege MCP connection that exposes only `bulk_read`. A short-lived capability maps hook and MCP requests to the persisted parent work directory and execution snapshot; neither tool accepts a workspace root, parent ID, provider, or model from the model.
 
-Each delegation performs bounded immediate admission through the existing Model Catalog, Execution Profile, `ExecutorPool`, and `ProviderQuotaService`. Runtime admission permits only Claude, Codex, or Antigravity and skips `raw-shell`, even if a saved profile is changed after Delegation settings are saved. One request starts one read-only worker process with `AIKOMBINAT_DELEGATION_DEPTH=1`; no Delegation MCP is injected into the worker. The resolved provider/model/`effectiveModel`/effort snapshot is persisted once and reused for launch. There is no second scheduler and no persistent worker pool.
+Each delegation performs bounded immediate admission through the existing Model Catalog, Execution Profile, `ExecutorPool`, and `ProviderQuotaService`. Worker eligibility requires both an AI provider and a proven V1 isolation capability; unsupported candidates and `raw-shell` are skipped even if a saved profile is changed after Delegation settings are saved. One request starts one tool-less worker process with `AIKOMBINAT_DELEGATION_DEPTH=1`; source data and the query arrive only through the prompt, the current repository is not the worker root, and no Delegation MCP is injected into the worker. The resolved provider/model/`effectiveModel`/effort snapshot is persisted once and reused for launch. There is no second scheduler and no persistent worker pool.
+
+### V1 worker provider support
+
+| Provider | Primary hook | V1 worker | Isolation strategy | Real smoke |
+|---|---:|---:|---|---|
+| Claude | yes | supported | Tool-less `--tools ""`, empty worker-only strict MCP config, disabled filesystem setting sources, disposable scratch cwd | NOT RUN |
+| Codex | yes | unsupported | `--sandbox read-only` does not prove tool-less or scratch-only host reads | UNSUPPORTED |
+| Antigravity | n/a for V1 primary hook | unsupported | `--sandbox` documents terminal restrictions, not a tool-less or scratch-only read boundary | UNSUPPORTED |
+
+Claude's worker-only strict MCP configuration does not change primary Claude execution: primary MCP injection remains additive and never adds `--strict-mcp-config`. The capability decision follows the documented [Claude tool availability contract](https://code.claude.com/docs/en/cli-reference), [Codex sandbox configuration](https://developers.openai.com/codex/config-reference), and captured Antigravity CLI help. Unsupported providers remain available for ordinary primary execution.
 
 Provider transport decoding stays at the CLI adapter edge. Antigravity's `SUCCESS`/failure stream envelope is decoded before `bulk_read` validates the worker JSON; Claude result events are normalized by its adapter path, and core `bulk_read` parses only the resulting structured payload.
 
@@ -22,7 +32,7 @@ Existing installations remain disabled after upgrade. Telemetry is the recommend
 
 ## Provider hooks
 
-The managed installer adds one user-level AIKombinat `PreToolUse` entry, preserves unrelated settings and hooks, writes atomically, creates a backup before the first mutation, and refuses malformed configuration. It copies the bridge into the application data directory and writes a stable launcher around the exact running Node runtime. Packaged Electron launchers set `ELECTRON_RUN_AS_NODE=1`; Windows uses a quoted `.cmd` wrapper, while macOS/Linux use a quoted executable POSIX wrapper. Status distinguishes a configuration entry from a missing or unrunnable launcher/runtime. Removing a hook removes only the managed entry. The bridge exits immediately outside an AIKombinat execution and never receives prompts, file contents, provider credentials, or the general administrative MCP token.
+The managed installer adds one user-level AIKombinat `PreToolUse` entry, preserves unrelated settings and hooks, writes atomically, creates a backup before the first mutation, and refuses malformed configuration. It copies the bridge into the application data directory and writes a stable launcher around the exact running Node runtime. Status verifies that the launcher references the expected runtime and bridge and that the copied bridge SHA-256 still matches the managed definition; a modified copy is incompatible, never verified. Packaged Electron launchers set `ELECTRON_RUN_AS_NODE=1`; Windows uses a quoted `.cmd` wrapper, while macOS/Linux use a quoted executable POSIX wrapper. Status distinguishes a configuration entry from a missing or unrunnable launcher/runtime. Removing a hook removes only the managed entry. The bridge exits immediately outside an AIKombinat execution and never receives prompts, file contents, provider credentials, or the general administrative MCP token.
 
 Claude uses its native user `settings.json` hook representation. Every managed definition has a schema/bridge/path/runtime hash and an installation timestamp. `verified` requires a real hook event carrying that same hash after the current installation; an older observation or a changed/reinstalled definition remains `installed_unverified`. Codex supports a separate `hooks.json`; if the same config layer already uses inline hooks, AIKombinat reports `manual_action_required` rather than creating a competing representation. Codex hook definitions may require manual trust. AIKombinat reports `needs_trust` separately and never passes `--dangerously-bypass-hook-trust`.
 
@@ -44,9 +54,9 @@ Before launch, the server records size, line count, and SHA-256. It rechecks ide
 
 ## Lifecycle and recovery
 
-Delegation runs persist `starting`, `running`, `completed`, `failed`, `cancelled`, or `recovery_required` state with PID and process identity. Spawn adoption persists PID/identity before releasing its reservation, including a late spawn after parent cancellation. A running or unresolved worker consumes provider capacity. Timeout, transport failure, and parent Stop apply the same stop matrix: confirmed termination or exit clears ownership; `not_owned` clears stale ownership without another signal; `unresolved` retains ownership in `recovery_required`. Fallback eligibility is independent of ownership release, and late completion cannot overwrite `recovery_required`.
+Delegation runs persist `starting`, `running`, `completed`, `failed`, `cancelled`, or `recovery_required` state with PID and process identity. Spawn adoption persists PID/identity before releasing its reservation, including a late spawn after parent cancellation. Any row with `process_pid > 0` is owned regardless of lifecycle status and consumes provider capacity until reconciliation clears it. Timeout, transport failure, and parent Stop apply the same stop matrix: confirmed termination or exit clears ownership; `not_owned` clears stale ownership without another signal; `unresolved` retains ownership in `recovery_required`. Fallback eligibility is independent of ownership release, and late completion cannot overwrite `recovery_required`.
 
-Startup recovery reconciles orphan workers. The existing 30-second retained-process tick also passively reconciles `recovery_required` workers: dead or identity-mismatched PIDs release ownership without signalling a mismatched process, matched PIDs receive safe cleanup, and unverifiable live PIDs remain retained. Ownership updates compare PID plus identity, so an older asynchronous reconciliation cannot clear superseding state. Every real delegation capacity release goes through the coalesced `ExecutorPool` availability callback and wakes ordinary `waiting_executor` Todos.
+Startup recovery and the existing 30-second passive tick both use the canonical all-PID query, including anomalous terminal rows. Recovery is single-flight, so overlapping ticks share one pass and cannot concurrently probe or signal the same PID. Dead or identity-mismatched PIDs release ownership without signalling a mismatched process, matched PIDs receive safe cleanup, and unverifiable live PIDs remain retained. Ownership updates compare status, PID, and identity, so an older asynchronous reconciliation cannot clear superseding state. Every real delegation capacity release goes through the coalesced `ExecutorPool` availability callback and wakes ordinary `waiting_executor` Todos once.
 
 ## Telemetry and privacy
 
@@ -59,12 +69,13 @@ Normal telemetry never stores prompts, file contents, environment variables, raw
 1. Claude `@file` references can bypass `PreToolUse Read`.
 2. Codex may read through shell/unified exec; V1 records telemetry but does not attempt complete shell parsing or blocking.
 3. Hooks are cost-optimization guardrails, not a sandbox security boundary.
-4. Worker quality may miss implicit cross-file context.
-5. `no_match` is not proof of absence.
-6. One process per delegation adds startup latency.
-7. Parent tokens saved are unknown unless a provider exposes sufficient real usage data.
-8. A worker Execution Profile must be explicitly configured.
-9. Non-managed Codex hooks may require manual trust.
-10. V1 handles one file per `bulk_read`.
+4. Claude is the only provider with a proven V1 worker isolation contract; Codex and Antigravity candidates fail open to the next eligible candidate or direct read.
+5. Worker quality may miss implicit cross-file context.
+6. `no_match` is not proof of absence.
+7. One process per delegation adds startup latency.
+8. Parent tokens saved are unknown unless a provider exposes sufficient real usage data.
+9. A worker Execution Profile must be explicitly configured.
+10. Non-managed Codex hooks may require manual trust.
+11. V1 handles one file per `bulk_read`.
 
 V2 large output/log routing, generic summarization, code generation, architecture/debugging/review delegation, adaptive cost routing, DAGs, and persistent workers are intentionally out of scope.

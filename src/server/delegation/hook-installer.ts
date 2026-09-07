@@ -27,6 +27,7 @@ interface ManagedDefinition {
   group: HookGroup;
   launcherPath: string;
   bridgeCopyPath: string;
+  bridgeSha256: string;
   runtimePath: string;
   packagedElectron: boolean;
   platform: NodeJS.Platform;
@@ -89,7 +90,7 @@ export function resolveManagedHookDefinition(
     ? { type: 'command', command: `${shellQuote(launcherPath, platform)} codex ${definitionHash}`, timeout: 5 }
     : { type: 'command', command: launcherPath, args: ['claude', definitionHash], timeout: 5 };
   return {
-    provider, definitionHash, launcherPath, bridgeCopyPath, runtimePath, packagedElectron, platform,
+    provider, definitionHash, launcherPath, bridgeCopyPath, bridgeSha256, runtimePath, packagedElectron, platform,
     group: { matcher: provider === 'claude' ? 'Read|Bash|PowerShell' : '.*', hooks: [hook] },
   };
 }
@@ -153,6 +154,15 @@ function launcherDiagnostic(definition: ManagedDefinition): string | null {
   if (!fs.existsSync(definition.launcherPath)) return `Managed hook launcher is missing: ${definition.launcherPath}`;
   if (!fs.existsSync(definition.bridgeCopyPath)) return `Managed hook bridge is missing: ${definition.bridgeCopyPath}`;
   if (!fs.existsSync(definition.runtimePath)) return `Managed hook runtime is missing: ${definition.runtimePath}`;
+  const actualBridgeSha256 = crypto.createHash('sha256').update(fs.readFileSync(definition.bridgeCopyPath)).digest('hex');
+  if (actualBridgeSha256 !== definition.bridgeSha256) return `Managed hook bridge integrity mismatch: ${definition.bridgeCopyPath}`;
+  const launcher = fs.readFileSync(definition.launcherPath, 'utf8');
+  if (!launcher.includes(shellQuote(definition.runtimePath, definition.platform))) {
+    return `Managed hook launcher does not reference the expected runtime: ${definition.runtimePath}`;
+  }
+  if (!launcher.includes(shellQuote(definition.bridgeCopyPath, definition.platform))) {
+    return `Managed hook launcher does not reference the expected bridge: ${definition.bridgeCopyPath}`;
+  }
   if (definition.platform !== 'win32') {
     try {
       if ((fs.statSync(definition.launcherPath).mode & 0o111) === 0) return `Managed hook launcher is not executable: ${definition.launcherPath}`;

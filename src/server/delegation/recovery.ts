@@ -3,22 +3,26 @@ import { isProcessAlive, verifyProcessIdentity, type ProcessIdentity } from '../
 import { logger } from '../logging/logger.js';
 import { executorPool } from '../services/executor-pool.js';
 import {
-  getRecoveryRequiredDelegationRuns, getUnresolvedDelegationRuns, updateOwnedDelegationRun,
+  getDelegationRunsWithPersistedProcess, updateOwnedDelegationRun,
   type DelegationProcessOwnership,
 } from './store.js';
 
-export async function recoverDelegationRuns(
-  options: { passive?: boolean } = {},
-): Promise<{ reconciled: number; recoveryRequired: number }> {
+export interface DelegationRecoveryReport { reconciled: number; recoveryRequired: number }
+
+let recoveryFlight: Promise<DelegationRecoveryReport> | null = null;
+
+async function runDelegationRecovery(): Promise<DelegationRecoveryReport> {
   let reconciled = 0;
   let recoveryRequired = 0;
-  const rows = options.passive ? getRecoveryRequiredDelegationRuns() : getUnresolvedDelegationRuns();
+  const rows = getDelegationRunsWithPersistedProcess();
   for (const row of rows) {
     const pid = row.process_pid!;
     const ownership: DelegationProcessOwnership = { pid, processIdentity: row.process_identity };
     const release = (errorCode: string) => {
-      const changed = updateOwnedDelegationRun(row.id, ownership, ['running', 'recovery_required'], {
-        status: 'failed', finished: true, processPid: null, processIdentity: null, errorCode,
+      const terminal = row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled';
+      const changed = updateOwnedDelegationRun(row.id, ownership, [row.status], {
+        status: terminal ? row.status : 'failed', finished: true, processPid: null, processIdentity: null,
+        ...(!terminal ? { errorCode } : {}),
       });
       if (changed) executorPool.notifyCapacityReleased();
       return changed;
@@ -45,7 +49,7 @@ export async function recoverDelegationRuns(
         continue;
       }
     }
-    const retained = updateOwnedDelegationRun(row.id, ownership, ['running', 'recovery_required'], {
+    const retained = updateOwnedDelegationRun(row.id, ownership, [row.status], {
       status: 'recovery_required', errorCode: `process_identity_${verdict}`,
     });
     if (retained) recoveryRequired++;
@@ -54,4 +58,12 @@ export async function recoverDelegationRuns(
     logger.info('delegation.recovery', { msg: 'delegation worker recovery completed', reconciled, recoveryRequired });
   }
   return { reconciled, recoveryRequired };
+}
+
+export function recoverDelegationRuns(
+  _options: { passive?: boolean } = {},
+): Promise<DelegationRecoveryReport> {
+  if (recoveryFlight) return recoveryFlight;
+  recoveryFlight = runDelegationRecovery().finally(() => { recoveryFlight = null; });
+  return recoveryFlight;
 }
