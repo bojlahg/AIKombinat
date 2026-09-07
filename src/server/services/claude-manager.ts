@@ -26,13 +26,13 @@ export type ClaudeMode = CliMode;
 // server-only secrets so an agent or raw-shell can't read them — otherwise a
 // prompt-injected agent could exfiltrate SESSION_SECRET and forge session cookies.
 const CHILD_ENV_BLOCKLIST = new Set(['SESSION_SECRET', 'AUTH_PASSWORD', 'TUNNEL_TOKEN']);
-function childEnv(): Record<string, string> {
+function childEnv(overrides?: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined || CHILD_ENV_BLOCKLIST.has(k)) continue;
     out[k] = v;
   }
-  return out;
+  return { ...out, ...(overrides ?? {}) };
 }
 
 // node-pty ships its macOS/Linux `spawn-helper` as a prebuilt binary. Some npm
@@ -221,6 +221,8 @@ export class ClaudeManager {
     ptyRows?: number,
     effort?: string,
     promptPolicy?: PromptPolicy,
+    runtimeEnv?: Record<string, string>,
+    delegationMcp?: { configPath?: string; command: string; args: string[] },
   ): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
@@ -235,7 +237,7 @@ export class ClaudeManager {
 
     const adapter = getAdapter(tool);
     const selection: LaunchModelSelection = typeof model === 'string' ? { model } : (model ?? {});
-    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy });
+    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp });
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them
@@ -307,7 +309,7 @@ export class ClaudeManager {
       const result = await this.spawnAndLog(
         async () => {
           await assertToolCompatible();
-          return this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows);
+          return this.startWithPty(adapter, args, worktreePath, stdinPrompt, mode === 'interactive', ptyCols, ptyRows, runtimeEnv);
         },
         adapter,
         spawnFields,
@@ -319,7 +321,7 @@ export class ClaudeManager {
     const result = await this.spawnAndLog(
       async () => {
         await assertToolCompatible();
-        return this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy);
+        return this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy, runtimeEnv);
       },
       adapter,
       spawnFields,
@@ -396,7 +398,7 @@ export class ClaudeManager {
   /**
    * Spawn using node-pty for CLIs that require a TTY.
    */
-  private startWithPty(adapter: CliAdapter, args: string[], cwd: string, stdinPrompt?: string, interactive?: boolean, ptyCols?: number, ptyRows?: number): Promise<{
+  private startWithPty(adapter: CliAdapter, args: string[], cwd: string, stdinPrompt?: string, interactive?: boolean, ptyCols?: number, ptyRows?: number, runtimeEnv?: Record<string, string>): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
     stderr: NodeJS.ReadableStream;
@@ -425,7 +427,7 @@ export class ClaudeManager {
           cols: ptyCols ?? 200,
           rows: ptyRows ?? 50,
           cwd,
-          env: childEnv(),
+          env: childEnv(runtimeEnv),
         });
       } catch (err) {
         reject(new Error(
@@ -595,7 +597,7 @@ export class ClaudeManager {
   /**
    * Spawn using child_process for standard CLIs.
    */
-  private startWithSpawn(adapter: ReturnType<typeof getAdapter>, args: string[], cwd: string, prompt: string, mode: CliMode, promptPolicy?: PromptPolicy): Promise<{
+  private startWithSpawn(adapter: ReturnType<typeof getAdapter>, args: string[], cwd: string, prompt: string, mode: CliMode, promptPolicy?: PromptPolicy, runtimeEnv?: Record<string, string>): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
     stderr: NodeJS.ReadableStream;
@@ -616,7 +618,7 @@ export class ClaudeManager {
           // Safe: prompts are delivered via stdin, not as command-line arguments
           shell: process.platform === 'win32',
           windowsHide: true,
-          env: childEnv(),
+          env: childEnv(runtimeEnv),
         });
       } catch (err) {
         reject(new Error(

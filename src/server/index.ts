@@ -69,6 +69,11 @@ import { assertTestRuntimePathAllowed } from './utils/test-fs-guard.js';
 import { logger } from './logging/logger.js';
 import { printStartupBanner, logShutdown } from './services/startup-diagnostics.js';
 import { httpErrorLogger, httpStatusLogger } from './middleware/http-logging.js';
+import delegationRouter, { internalDelegationRouter } from './routes/delegation.js';
+import { cleanupDelegationTelemetry } from './delegation/store.js';
+import { getDelegationSettings } from './delegation/settings.js';
+import { setDelegationServerPort } from './delegation/runtime.js';
+import { recoverDelegationRuns } from './delegation/recovery.js';
 
 
 
@@ -128,6 +133,11 @@ app.use(express.json({ limit: '50mb' }));
 // Failed responses are diagnosable from the terminal, not only from DevTools.
 app.use(httpStatusLogger);
 
+// Execution-scoped capability authentication is handled by this least-privilege
+// router itself. It is mounted before browser/session auth so hook and stdio MCP
+// child processes never receive the general application bearer token.
+app.use('/internal/delegation', internalDelegationRouter);
+
 // Initialize database
 getDatabase();
 
@@ -139,6 +149,7 @@ checkAllTools().then(() => {
 }).catch(() => { /* ignore */ });
 
 await recoverPersistedProcesses();
+await recoverDelegationRuns();
 
 // Startup recovery: reconcile agent forums left behind by a crash, restart or a
 // Stop that never completed — their unfinished turns and any orphan CLI process
@@ -243,6 +254,12 @@ if (cleaned > 0) {
     retentionDays: LOG_RETENTION_DAYS,
   });
 }
+const delegationCleaned = cleanupDelegationTelemetry(getDelegationSettings().telemetryRetentionDays);
+if (delegationCleaned > 0) {
+  logger.info('startup.cleanup.delegation', {
+    scope: '[startup]', msg: `cleaned up ${delegationCleaned} expired delegation telemetry rows`, count: delegationCleaned,
+  });
+}
 
 // Auto-cleanup old debug log files
 for (const p of getAllProjects()) {
@@ -339,6 +356,7 @@ app.use('/api', personalRouter);
 app.use('/api', favoritesRouter);
 app.use('/api', resourcesRouter);
 app.use('/api', mcpRouter);
+app.use('/api', delegationRouter);
 mountPluginRoutes(app);
 
 resourceManager.setAvailabilityCallback(() => {
@@ -480,6 +498,7 @@ const bindHost = resolveBindHost();
 
 function tryListen(port: number, attempt: number) {
   server.listen(port, bindHost, () => {
+    setDelegationServerPort(port);
     const tunnelEnabled = process.env.TUNNEL_ENABLED === 'true';
     printStartupBanner({ port, requestedPort, tunnelEnabled });
     orchestrator.startStaleProcessChecker();

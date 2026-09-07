@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 36 tables, 427 columns, 43 foreign keys
+Stats: 40 tables, 495 columns, 48 foreign keys
 
 ## Diagram
 
@@ -46,6 +46,11 @@ erDiagram
     memory_nodes ||--o{ memory_edges : "to_node_id"
     projects ||--o{ memory_logs : "project_id"
     todos ||--o{ todo_execution_rounds : "todo_id"
+    todos ||--o{ delegation_parent_executions : "owner_id"
+    delegation_parent_executions ||--o{ delegation_tool_observations : "parent_execution_id"
+    delegation_parent_executions ||--o{ delegation_runs : "parent_execution_id"
+    execution_profiles ||--o{ delegation_runs : "execution_profile_id"
+    delegation_parent_executions ||--o{ delegation_fallback_grants : "parent_execution_id"
     projects ||--o{ agent_forums : "project_id"
     agent_forums ||--o{ agent_forum_members : "forum_id"
     cli_models ||--o{ agent_forum_members : "cli_model_id"
@@ -497,6 +502,82 @@ erDiagram
         DATETIME finished_at
         DATETIME created_at
         DATETIME updated_at
+    }
+    delegation_parent_executions {
+        TEXT id PK
+        TEXT owner_type
+        TEXT owner_id FK
+        TEXT work_dir
+        TEXT execution_snapshot
+        TEXT provider
+        TEXT model
+        TEXT effective_model
+        TEXT policy_mode
+        TEXT capability_hash UK
+        TEXT status
+        INTEGER process_pid
+        TEXT process_identity
+        DATETIME created_at
+        DATETIME finished_at
+    }
+    delegation_tool_observations {
+        TEXT id PK
+        TEXT parent_execution_id FK
+        TEXT parent_provider
+        TEXT parent_model
+        TEXT parent_effective_model
+        TEXT tool_name
+        TEXT operation_type
+        TEXT source_path_relative
+        INTEGER requested_offset
+        INTEGER requested_limit
+        INTEGER file_size
+        TEXT command_kind
+        INTEGER command_raw_length
+        TEXT command_hash
+        TEXT policy_mode
+        TEXT decision
+        TEXT decision_reason
+        INTEGER hook_latency_ms
+        DATETIME created_at
+    }
+    delegation_runs {
+        TEXT id PK
+        TEXT parent_execution_id FK
+        TEXT parent_owner_type
+        TEXT parent_owner_id
+        TEXT operation
+        TEXT status
+        TEXT execution_profile_id FK
+        TEXT execution_snapshot
+        TEXT source_path_relative
+        TEXT source_sha256
+        INTEGER source_bytes
+        INTEGER source_chars
+        INTEGER source_lines
+        TEXT query_hash
+        INTEGER query_length
+        DATETIME started_at
+        DATETIME finished_at
+        INTEGER latency_ms
+        INTEGER process_pid
+        TEXT process_identity
+        INTEGER worker_input_tokens
+        INTEGER worker_output_tokens
+        INTEGER returned_chars
+        INTEGER context_avoided_chars
+        TEXT error_code
+        TEXT error_detail_bounded
+        INTEGER fallback_granted
+    }
+    delegation_fallback_grants {
+        TEXT id PK
+        TEXT parent_execution_id FK
+        TEXT canonical_path_hash
+        TEXT source_sha256
+        INTEGER uses_remaining
+        DATETIME expires_at
+        DATETIME created_at
     }
     agent_forums {
         TEXT id PK

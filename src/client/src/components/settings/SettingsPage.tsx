@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { Bot, Cloud, KeyRound, MonitorCog, Plug, Settings, TerminalSquare } from 'lucide-react';
+import { Bot, Cloud, KeyRound, MonitorCog, Plug, Settings, TerminalSquare, Workflow } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import PasswordSettingsPanel from '../PasswordSettingsPanel';
 import SessionSettingsPanel from '../SessionSettingsPanel';
@@ -9,6 +9,7 @@ import McpSettingsPanel from '../McpSettingsPanel';
 import type { WsEvent } from '../../hooks/useWebSocket';
 import GeneralSettingsPanel from './GeneralSettingsPanel';
 import AgentsSettingsPanel from './AgentsSettingsPanel';
+import DelegationSettingsPanel from './DelegationSettingsPanel';
 
 export interface SettingsPageProps {
   onEvent?: (cb: (event: WsEvent) => void) => () => void;
@@ -21,6 +22,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
   const tabs = [
     { id: 'general', label: t('settings.tabs.general'), icon: MonitorCog },
     { id: 'agents', label: t('settings.tabs.agents'), icon: Bot },
+    { id: 'delegation', label: t('settings.tabs.delegation'), icon: Workflow },
     { id: 'account', label: t('settings.tabs.account'), icon: KeyRound },
     { id: 'terminals', label: t('settings.tabs.session'), icon: TerminalSquare },
     { id: 'tunnel', label: t('settings.tabs.tunnel'), icon: Cloud },
@@ -67,6 +69,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPanel />} />
               <Route path="agents" element={<AgentsSettingsPanel onEvent={onEvent} />} />
+              <Route path="delegation" element={<DelegationSettingsPanel />} />
               <Route path="account" element={<PasswordSettingsPanel />} />
               <Route path="terminals" element={<SessionSettingsPanel />} />
               <Route path="tunnel" element={<TunnelSettingsPanel onDirtyChange={setTunnelDirty} />} />

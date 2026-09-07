@@ -157,6 +157,25 @@ describe('cli-adapters', () => {
     }
   });
 
+  it('injects only the execution-scoped bulk_read MCP without weakening provider safety', () => {
+    const delegationMcp = { configPath: 'temporary-mcp.json', command: 'node', args: ['bridge.js'] };
+    const claude = getAdapter('claude').buildArgs({
+      mode: 'headless', prompt: 'Implement', sandboxMode: 'strict', promptPolicy: 'implementation',
+      workDir: 'workspace', delegationMcp,
+    });
+    expect(claude).toContain('mcp__kombinat-delegation__bulk_read');
+    expect(claude).toEqual(expect.arrayContaining(['--mcp-config', 'temporary-mcp.json', '--strict-mcp-config']));
+    expect(claude).not.toContain('--dangerously-skip-permissions');
+
+    const codex = getAdapter('codex').buildArgs({
+      mode: 'headless', prompt: 'Implement', sandboxMode: 'strict', promptPolicy: 'implementation',
+      workDir: 'workspace', projectPath: 'workspace', delegationMcp,
+    });
+    expect(codex.some((value) => value.includes('mcp_servers.kombinat-delegation.command'))).toBe(true);
+    expect(codex).not.toContain('--dangerously-bypass-hook-trust');
+    expect(codex).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+  });
+
   it('makes review intent read-only and omits the task-completion suffix', () => {
     const claude = getAdapter('claude');
     const claudeArgs = claude.buildArgs({

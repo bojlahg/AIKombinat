@@ -5,6 +5,7 @@ import { resolveExecutionConfig, type ResolvedExecutionConfig } from './executio
 import { providerQuotaService } from './provider-quota.js';
 import { logger } from '../logging/logger.js';
 import { hasUnresolvedProcess } from './process-ownership.js';
+import { getActiveDelegationUsage } from '../delegation/store.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -204,6 +205,8 @@ export class ExecutorPool {
       if (options.excludeDiscussionId && res.ownerId === options.excludeDiscussionId) continue;
       if (res.tool === tool) count++;
     }
+
+    count += getActiveDelegationUsage(tool);
 
     return count;
   }

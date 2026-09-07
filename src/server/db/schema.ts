@@ -416,6 +416,104 @@ export function initDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_todo ON todo_execution_rounds(todo_id, round_index);
     CREATE INDEX IF NOT EXISTS idx_todo_execution_rounds_run_token ON todo_execution_rounds(run_token);
 
+    CREATE TABLE IF NOT EXISTS delegation_parent_executions (
+      id TEXT PRIMARY KEY,
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo')),
+      owner_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+      work_dir TEXT NOT NULL,
+      execution_snapshot TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT,
+      effective_model TEXT,
+      policy_mode TEXT NOT NULL,
+      capability_hash TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'completed', 'failed', 'cancelled')),
+      process_pid INTEGER,
+      process_identity TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      finished_at DATETIME
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_delegation_parent_owner
+      ON delegation_parent_executions(owner_type, owner_id, status);
+
+    CREATE TABLE IF NOT EXISTS delegation_tool_observations (
+      id TEXT PRIMARY KEY,
+      parent_execution_id TEXT NOT NULL REFERENCES delegation_parent_executions(id) ON DELETE CASCADE,
+      parent_provider TEXT NOT NULL,
+      parent_model TEXT,
+      parent_effective_model TEXT,
+      tool_name TEXT NOT NULL,
+      operation_type TEXT NOT NULL,
+      source_path_relative TEXT,
+      requested_offset INTEGER,
+      requested_limit INTEGER,
+      file_size INTEGER,
+      command_kind TEXT,
+      command_raw_length INTEGER,
+      command_hash TEXT,
+      policy_mode TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      decision_reason TEXT NOT NULL,
+      hook_latency_ms INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_delegation_observations_parent
+      ON delegation_tool_observations(parent_execution_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_delegation_observations_retention
+      ON delegation_tool_observations(created_at);
+
+    CREATE TABLE IF NOT EXISTS delegation_runs (
+      id TEXT PRIMARY KEY,
+      parent_execution_id TEXT NOT NULL REFERENCES delegation_parent_executions(id) ON DELETE CASCADE,
+      parent_owner_type TEXT NOT NULL,
+      parent_owner_id TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'completed', 'failed', 'cancelled', 'recovery_required')),
+      execution_profile_id TEXT REFERENCES execution_profiles(id),
+      execution_snapshot TEXT,
+      source_path_relative TEXT NOT NULL,
+      source_sha256 TEXT NOT NULL,
+      source_bytes INTEGER NOT NULL,
+      source_chars INTEGER NOT NULL,
+      source_lines INTEGER NOT NULL,
+      query_hash TEXT NOT NULL,
+      query_length INTEGER NOT NULL,
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      finished_at DATETIME,
+      latency_ms INTEGER,
+      process_pid INTEGER,
+      process_identity TEXT,
+      worker_input_tokens INTEGER,
+      worker_output_tokens INTEGER,
+      returned_chars INTEGER,
+      context_avoided_chars INTEGER,
+      error_code TEXT,
+      error_detail_bounded TEXT,
+      fallback_granted INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_delegation_runs_parent
+      ON delegation_runs(parent_execution_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_delegation_runs_process
+      ON delegation_runs(status, process_pid);
+    CREATE INDEX IF NOT EXISTS idx_delegation_runs_retention
+      ON delegation_runs(started_at);
+
+    CREATE TABLE IF NOT EXISTS delegation_fallback_grants (
+      id TEXT PRIMARY KEY,
+      parent_execution_id TEXT NOT NULL REFERENCES delegation_parent_executions(id) ON DELETE CASCADE,
+      canonical_path_hash TEXT NOT NULL,
+      source_sha256 TEXT NOT NULL,
+      uses_remaining INTEGER NOT NULL DEFAULT 1,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_delegation_fallback_lookup
+      ON delegation_fallback_grants(parent_execution_id, canonical_path_hash, source_sha256, expires_at);
+
     CREATE TABLE IF NOT EXISTS agent_forums (
       id TEXT PRIMARY KEY,
       project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,

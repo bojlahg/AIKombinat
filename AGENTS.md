@@ -53,6 +53,7 @@ These encode constraints that aren't obvious from the code. Apply when touching 
 - **Floating Window state gating**: `SessionWindowsHost` persists `OpenGroup[]` to `sessionGroups:{projectId}` localStorage. Persist must be **gated on `sessions` having loaded** so empty-during-load doesn't nuke restored state. Hydrate in `useState` initializer (synchronous), not a post-mount effect — a persist effect can race and write `[]` first.
 - **Raw Binary Streaming**: **DB `session_raw_chunks` are the single source of truth for replay** — `session:subscribe` flushes the in-flight buffer then sends only DB chunks. Never replay from both ring buffer + DB (causes duplicate output).
 - **Native Focus Handoff (Electron)**: React `element.focus()` doesn't reclaim native HWND focus from xterm.js. Use the IPC bridge: `electronAPI.imeReset()` → `mainWindow.webContents.focus()` in main process, then RAF twice before focusing the target.
+- **Delegation Router V1 boundary**: Delegation is disabled by default and exposes only execution-scoped `bulk_read`. Hooks are fail-open cost guardrails, not security enforcement; workers run one process per request at depth 1, receive no repository tools/MCP, and never make implementation or architecture decisions. Never persist source/prompt/raw shell text or invent token savings.
 
 ## UI Guidelines
 

@@ -37,6 +37,11 @@ export interface CliBuildOptions extends LaunchModelSelection {
   sandboxMode?: SandboxMode;
   continueSession?: boolean;
   promptPolicy?: PromptPolicy;
+  delegationMcp?: {
+    configPath?: string;
+    command: string;
+    args: string[];
+  };
 }
 
 export interface ProbedModel {
@@ -486,7 +491,7 @@ export class AntigravityOutputDecoder implements CliOutputDecoder {
 const claudeAdapter: CliAdapter = {
   command: 'claude',
   displayName: 'Claude CLI',
-  compatibilityFlags: ['--permission-mode', '--allowedTools', '--disallowedTools'],
+  compatibilityFlags: ['--permission-mode', '--allowedTools', '--disallowedTools', '--mcp-config', '--strict-mcp-config'],
   supportsInteractive: true,
   outputFormat: 'stream-json',
   delayStdinUntilReady: true,
@@ -499,7 +504,7 @@ const claudeAdapter: CliAdapter = {
       blocksInitialPrompt: true,
     },
   ],
-  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy }) {
+  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy, delegationMcp }) {
     const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'claude');
     const args: string[] = [];
     if (sandboxMode === 'strict') {
@@ -518,6 +523,7 @@ const claudeAdapter: CliAdapter = {
           `Write(${normalizedWorkDir}/**)`,
           'Bash(*)', 'Glob(*)', 'Grep(*)', 'TodoRead', 'TodoWrite', 'WebFetch(*)',
         );
+        if (delegationMcp) args.push('mcp__kombinat-delegation__bulk_read');
       }
     } else {
       args.push('--dangerously-skip-permissions');
@@ -529,6 +535,7 @@ const claudeAdapter: CliAdapter = {
     if (normalizedModel) args.push('--model', normalizedModel);
     if (effort) args.push('--effort', effort);
     if (maxTurns && maxTurns > 0) args.push('--max-turns', String(maxTurns));
+    if (delegationMcp?.configPath) args.push('--mcp-config', delegationMcp.configPath, '--strict-mcp-config');
     if (extraOptions) {
       args.push(...validateProviderExtraOptions('claude', extraOptions));
     }
@@ -631,7 +638,7 @@ const codexAdapter: CliAdapter = {
     '--skip-git-repo-check', '--sandbox', '--approve-for-me',
     '--dangerously-bypass-approvals-and-sandbox', '--add-dir', '--model', '--last', '-c',
   ],
-  buildArgs({ mode, model, effectiveModel, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession, promptPolicy }) {
+  buildArgs({ mode, model, effectiveModel, effort, extraOptions, workDir, projectPath, sandboxMode, continueSession, promptPolicy, delegationMcp }) {
     const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'codex');
     const args: string[] = [];
     if (mode !== 'interactive') {
@@ -657,6 +664,10 @@ const codexAdapter: CliAdapter = {
     }
     if (normalizedModel) args.push('--model', normalizedModel);
     if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
+    if (delegationMcp) {
+      args.push('-c', `mcp_servers.kombinat-delegation.command=${JSON.stringify(delegationMcp.command)}`);
+      args.push('-c', `mcp_servers.kombinat-delegation.args=${JSON.stringify(delegationMcp.args)}`);
+    }
     if (extraOptions) {
       args.push(...validateProviderExtraOptions('codex', extraOptions));
     }

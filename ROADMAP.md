@@ -42,15 +42,13 @@ restart.
 
 ---
 
-### Next experiment: Delegation Router
+### Implemented experiment: Delegation Router V0/V1
 
 V0 — Telemetry
-- observe potential delegatable operations
-- file reads
-- large command/test output
-- latency/input/output sizes
+- observes provider tool calls and large file reads
+- records normalized, privacy-bounded metadata and hook latency
 - NO prompt/source content in telemetry
-- no interception yet
+- bounded 30-day retention by default
 
 V1 — bulk_read
 - first real delegated operation
@@ -64,11 +62,14 @@ V1 — bulk_read
 - one delegation -> one worker execution in V1
 - no persistent worker pool yet
 - delegationDepth prevents recursion
+- disabled by default; telemetry is the recommended first enabled mode
+- Claude full-file `Read` supports conservative suggest/enforce; Codex shell reads remain telemetry-only
 
-Then:
-Real-world measurement
+Current next step:
+Real-world measurement of character reduction, worker latency, fallback frequency,
+primary-agent follow-through, and task/review outcomes.
 
-Then:
+Next experiment (not implemented):
 V2 — large output / logs
 - test/build/compiler output summarization
 

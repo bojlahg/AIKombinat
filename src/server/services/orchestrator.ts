@@ -31,6 +31,8 @@ import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
 import { assertNoUnresolvedProcess, hasUnresolvedProcess } from './process-ownership.js';
 import { reconcileRetainedProcesses, type StartupProcessProbe } from './startup-process-recovery.js';
+import { bulkReadService } from '../delegation/bulk-read.js';
+import { prepareTodoDelegationLaunch, type PreparedDelegationLaunch } from '../delegation/runtime.js';
 
 
 /**
@@ -277,6 +279,7 @@ export class Orchestrator {
 
     try {
       for (const todo of running) {
+        await bulkReadService.cancelForOwner(todo.id);
         if (todo.process_pid) {
           const stopResult = todo.process_identity
             ? await claudeManager.stopClaude(todo.process_pid, parseProcessIdentity(todo.process_identity))
@@ -460,6 +463,7 @@ export class Orchestrator {
     executorPool.releaseReservation(todoId);
     let unresolved = false;
     try {
+      await bulkReadService.cancelForOwner(todoId);
       if (todo.process_pid) {
         const stopResult = todo.process_identity
           ? await claudeManager.stopClaude(todo.process_pid, parseProcessIdentity(todo.process_identity))
@@ -1015,6 +1019,7 @@ export class Orchestrator {
     let debugSession: DebugSession | null = null;
     let executionStartRowid = 0;
     let streamDrainPromise: Promise<void> | null = null;
+    let delegationLaunch: PreparedDelegationLaunch | null = null;
 
     if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
       executorPool.releaseReservation(todoId);
@@ -1285,6 +1290,15 @@ export class Orchestrator {
 
       const launch = launchSelection(executionConfig);
       const launchedModel = launch.effectiveModel ?? launch.model;
+      delegationLaunch = currentRound?.phase === 'review' ? null : prepareTodoDelegationLaunch({
+        todoId,
+        workDir,
+        provider: resolvedCliTool,
+        model: launch.model,
+        effectiveModel: launch.effectiveModel,
+        executionSnapshot: executionConfig ? executionSnapshot(executionConfig) : { agent: resolvedCliTool },
+        mode,
+      });
 
       logger.info('todo.execution.started', {
         msg: `${isContinue ? 'rework' : (currentRound?.phase ?? 'implementation')} started`,
@@ -1305,9 +1319,19 @@ export class Orchestrator {
         : currentRound?.phase === 'rework' || isContinue
           ? 'rework'
           : 'implementation';
-      const result = await claudeManager.startClaude(workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath, sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy);
+      const result = delegationLaunch
+        ? await claudeManager.startClaude(
+          workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath,
+          sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy,
+          delegationLaunch.runtimeEnv, delegationLaunch.delegationMcp,
+        )
+        : await claudeManager.startClaude(
+          workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath,
+          sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy,
+        );
       pid = result.pid;
       exitPromise = result.exitPromise;
+      delegationLaunch?.markStarted(pid, result.processIdentity ?? null);
 
       if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
         let terminationConfirmed = true;
@@ -1326,6 +1350,7 @@ export class Orchestrator {
           this.finishTodoStopOnLateExit(todoId, pid, false);
           return;
         }
+        delegationLaunch?.finish('cancelled');
         if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
         else resourceManager.releaseOwner('todo', todoId);
         this.activeResourceRuns.delete(todoId);
@@ -1376,6 +1401,7 @@ export class Orchestrator {
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
+      delegationLaunch?.finish('failed');
       this.failCurrentRoundAndTodo(todoId, projectId, currentRound, message, roundNumber, adapter?.displayName);
       return;
     }
@@ -1397,6 +1423,7 @@ export class Orchestrator {
       // Check if todo is intentionally stopping (or project is stopping)
       const currentTodo = queries.getTodoById(todoId);
       const isStopping = this.stoppingTodoIds.has(todoId) || (currentTodo && this.isStoppingProjects.has(currentTodo.project_id));
+      delegationLaunch?.finish(isStopping ? 'cancelled' : exitCode === 0 ? 'completed' : 'failed');
       if (isStopping) {
         return;
       }
