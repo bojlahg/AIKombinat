@@ -11,7 +11,7 @@ export interface DelegationRecoveryReport { reconciled: number; recoveryRequired
 
 let recoveryFlight: Promise<DelegationRecoveryReport> | null = null;
 
-async function runDelegationRecovery(): Promise<DelegationRecoveryReport> {
+async function runDelegationRecovery(options: { passive?: boolean }): Promise<DelegationRecoveryReport> {
   let reconciled = 0;
   let recoveryRequired = 0;
   const rows = getDelegationRunsWithPersistedProcess();
@@ -38,6 +38,7 @@ async function runDelegationRecovery(): Promise<DelegationRecoveryReport> {
       if (release('process_identity_mismatch')) reconciled++;
       continue;
     }
+    if (options.passive && claudeManager.isRunning(pid)) continue;
     if (verdict === 'match') {
       let stopped;
       try { stopped = await claudeManager.stopClaude(pid, identity); }
@@ -61,9 +62,9 @@ async function runDelegationRecovery(): Promise<DelegationRecoveryReport> {
 }
 
 export function recoverDelegationRuns(
-  _options: { passive?: boolean } = {},
+  options: { passive?: boolean } = {},
 ): Promise<DelegationRecoveryReport> {
   if (recoveryFlight) return recoveryFlight;
-  recoveryFlight = runDelegationRecovery().finally(() => { recoveryFlight = null; });
+  recoveryFlight = runDelegationRecovery(options).finally(() => { recoveryFlight = null; });
   return recoveryFlight;
 }

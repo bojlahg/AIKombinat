@@ -178,8 +178,8 @@ export async function readProcessIdentity(pid: number): Promise<ProcessIdentity 
 
   if (process.platform === 'win32') {
     const script =
-      `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction SilentlyContinue; `
-      + 'if ($p) { "{0}`t{1}" -f $p.CreationDate.ToUniversalTime().ToString("o"), $p.Name }';
+      `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; `
+      + 'if ($p) { try { "{0}`t{1}" -f $p.StartTime.ToUniversalTime().ToString("o"), ($p.ProcessName + ".exe") } catch {} }';
     const out = await runIdentityProbe('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
     if (!out) return null;
     const [startedAt, command] = out.split('\t');

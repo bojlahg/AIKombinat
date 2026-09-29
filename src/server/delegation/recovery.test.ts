@@ -10,7 +10,7 @@ vi.mock('../utils/process-tree.js', () => ({
   isProcessAlive: vi.fn(), verifyProcessIdentity: vi.fn(),
 }));
 vi.mock('../services/claude-manager.js', () => ({
-  claudeManager: { stopClaude: vi.fn() },
+  claudeManager: { stopClaude: vi.fn(), isRunning: vi.fn() },
 }));
 
 const processTree = await import('../utils/process-tree.js');
@@ -29,6 +29,7 @@ describe('delegation recovery', () => {
     vi.mocked(processTree.isProcessAlive).mockReturnValue(true);
     vi.mocked(processTree.verifyProcessIdentity).mockResolvedValue('match');
     vi.mocked(claudeManager.stopClaude).mockResolvedValue({ status: 'terminated', pid: 900, graceful: false });
+    vi.mocked(claudeManager.isRunning).mockReturnValue(false);
   });
   afterEach(() => { executorPool.setAvailabilityCallback(null); vi.clearAllMocks(); testDb.close(); workspace.cleanup(); });
 
@@ -65,6 +66,18 @@ describe('delegation recovery', () => {
     const id = runningRun();
     await recoverDelegationRuns();
     expect(claudeManager.stopClaude).toHaveBeenCalledWith(900, { pid: 900, startTime: 'owned' });
+    expect(store.getDelegationRun(id)).toMatchObject({ status: 'failed', process_pid: null });
+  });
+
+  it('does not reconcile a live worker still tracked by this server during a passive tick', async () => {
+    const id = runningRun();
+    vi.mocked(claudeManager.isRunning).mockReturnValue(true);
+    expect(await recoverDelegationRuns({ passive: true })).toEqual({ reconciled: 0, recoveryRequired: 0 });
+    expect(store.getDelegationRun(id)).toMatchObject({ status: 'running', process_pid: 900 });
+    expect(claudeManager.stopClaude).not.toHaveBeenCalled();
+
+    vi.mocked(claudeManager.isRunning).mockReturnValue(false);
+    expect(await recoverDelegationRuns({ passive: true })).toEqual({ reconciled: 1, recoveryRequired: 0 });
     expect(store.getDelegationRun(id)).toMatchObject({ status: 'failed', process_pid: null });
   });
 

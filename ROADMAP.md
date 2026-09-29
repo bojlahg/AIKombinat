@@ -70,8 +70,11 @@ V1 — bulk_read
 - finished parent execution telemetry follows bounded retention without deleting unresolved child ownership
 
 Current next step:
-Real-world measurement of character reduction, worker latency, fallback frequency,
-primary-agent follow-through, and task/review outcomes.
+Broaden the [first real-world Claude V1 smoke](docs/Delegation_Router_V1_Real_World_Smoke_Report.md)
+across varied repositories. It verified the hook, MCP worker, enforce-mode targeted
+reads, and real character/latency metrics, while showing a worker relevance miss
+and suggest-mode non-adoption after a full read. Measure fallback frequency,
+primary follow-through, task/review outcomes, and total cost before wider rollout.
 
 Next experiment (not implemented):
 V2 — large output / logs

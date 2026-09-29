@@ -67,6 +67,22 @@ describe('delegation hook installer', () => {
     expect(result.stdout).toBe('');
   });
 
+  it('fails open when the delegation service is unreachable', () => {
+    const result = spawnSync(process.execPath, [delegationHookBridgePath, 'claude', 'a'.repeat(64)], {
+      input: JSON.stringify({ tool_name: 'Read', tool_input: { file_path: 'large.ts' } }),
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH ?? '',
+        AIKOMBINAT_DELEGATION_ENDPOINT: 'http://127.0.0.1:1',
+        AIKOMBINAT_EXECUTION_ID: 'service-failure-smoke',
+        AIKOMBINAT_DELEGATION_CAPABILITY: 'test-capability',
+        AIKOMBINAT_DELEGATION_DEPTH: '0',
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
   it('installs a runnable launcher under an app-data path containing spaces', async () => {
     const home = workspace.createSubdir('home with spaces');
     const status = await installDelegationHook('claude', home);
@@ -74,12 +90,18 @@ describe('delegation hook installer', () => {
     expect(status).toMatchObject({ state: 'installed_unverified', installed: true, launcherRunnable: true });
     expect(fs.existsSync(definition.launcherPath)).toBe(true);
     const config = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'));
-    expect(config.hooks.PreToolUse[0].hooks[0]).toMatchObject({
-      command: definition.launcherPath,
-      args: ['claude', definition.definitionHash],
-    });
+    const hook = config.hooks.PreToolUse[0].hooks[0];
+    if (process.platform === 'win32') {
+      expect(hook).toMatchObject({
+        shell: 'powershell',
+        command: `& '${definition.launcherPath.replace(/'/g, "''")}' claude ${definition.definitionHash}`,
+      });
+      expect(hook.args).toBeUndefined();
+    } else {
+      expect(hook).toMatchObject({ command: definition.launcherPath, args: ['claude', definition.definitionHash] });
+    }
     const inert = process.platform === 'win32'
-      ? spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', 'call', definition.launcherPath, 'claude', definition.definitionHash], {
+      ? spawnSync('powershell.exe', ['-NoProfile', '-Command', hook.command], {
         input: '{}', encoding: 'utf8', env: { PATH: process.env.PATH ?? '' },
       })
       : spawnSync(definition.launcherPath, ['claude', definition.definitionHash], {

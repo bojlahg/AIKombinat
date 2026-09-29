@@ -12,6 +12,8 @@ AIKombinat 프로젝트는 **Vitest**를 테스트 프레임워크로 사용합�
 
 ## 빠른 시작
 
+Delegation Router V1의 실제 Claude CLI 검증 결과와 재현 가능한 fixture 생성 방법은 [real-world smoke report](Delegation_Router_V1_Real_World_Smoke_Report.md)에 기록되어 있습니다. 이 검증은 mock 테스트를 대체하지 않으며, `npm run typecheck`, `npm test`, `npm run build`를 함께 실행합니다.
+
 ### 전체 테스트 실행
 ```bash
 npm test

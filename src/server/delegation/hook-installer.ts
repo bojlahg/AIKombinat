@@ -11,7 +11,7 @@ import { getDatabase } from '../db/connection.js';
 export type DelegationHookProvider = 'claude' | 'codex';
 export type DelegationHookState = 'not_installed' | 'installed_unverified' | 'needs_trust' | 'verified' | 'incompatible' | 'manual_action_required' | 'error';
 
-interface HookCommand { type: 'command'; command: string; args?: string[]; timeout?: number }
+interface HookCommand { type: 'command'; command: string; args?: string[]; shell?: 'powershell'; timeout?: number }
 interface HookGroup { matcher: string; hooks: HookCommand[] }
 interface HookFile { hooks?: Record<string, HookGroup[]>; [key: string]: unknown }
 
@@ -33,7 +33,7 @@ interface ManagedDefinition {
   platform: NodeJS.Platform;
 }
 
-const HOOK_SCHEMA_VERSION = 2;
+const HOOK_SCHEMA_VERSION = 3;
 const HOOK_BRIDGE_VERSION = 1;
 const bridgePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../bin/aikombinat-hook.js');
 
@@ -88,7 +88,9 @@ export function resolveManagedHookDefinition(
   const definitionHash = crypto.createHash('sha256').update(normalized).digest('hex');
   const hook: HookCommand = provider === 'codex'
     ? { type: 'command', command: `${shellQuote(launcherPath, platform)} codex ${definitionHash}`, timeout: 5 }
-    : { type: 'command', command: launcherPath, args: ['claude', definitionHash], timeout: 5 };
+    : platform === 'win32'
+      ? { type: 'command', shell: 'powershell', command: `& '${launcherPath.replace(/'/g, "''")}' claude ${definitionHash}`, timeout: 5 }
+      : { type: 'command', command: launcherPath, args: ['claude', definitionHash], timeout: 5 };
   return {
     provider, definitionHash, launcherPath, bridgeCopyPath, bridgeSha256, runtimePath, packagedElectron, platform,
     group: { matcher: provider === 'claude' ? 'Read|Bash|PowerShell' : '.*', hooks: [hook] },

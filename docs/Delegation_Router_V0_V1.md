@@ -12,7 +12,7 @@ Each delegation performs bounded immediate admission through the existing Model 
 
 | Provider | Primary hook | V1 worker | Isolation strategy | Real smoke |
 |---|---:|---:|---|---|
-| Claude | yes | supported | Tool-less `--tools ""`, empty worker-only strict MCP config, disabled filesystem setting sources, disposable scratch cwd | NOT RUN |
+| Claude | yes | supported | Tool-less `--tools ""`, empty worker-only strict MCP config, disabled filesystem setting sources, disposable scratch cwd | PASS with limitations on Windows; [report](Delegation_Router_V1_Real_World_Smoke_Report.md) |
 | Codex | yes | unsupported | `--sandbox read-only` does not prove tool-less or scratch-only host reads | UNSUPPORTED |
 | Antigravity | n/a for V1 primary hook | unsupported | `--sandbox` documents terminal restrictions, not a tool-less or scratch-only read boundary | UNSUPPORTED |
 
@@ -29,6 +29,8 @@ Settings → Delegation contains explicit enablement, mode, worker Execution Pro
 - `enforce_bulk_read` may deny only a confidently identified large Claude full-file `Read` when a worker route is immediately healthy. Targeted reads remain allowed. Missing context, server failure, an unconfigured worker, exhausted/busy candidates, or temporary fallback always fail open.
 
 Existing installations remain disabled after upgrade. Telemetry is the recommended first enabled mode.
+
+The [real-world V1 smoke](Delegation_Router_V1_Real_World_Smoke_Report.md) verified a managed Claude hook event, a Claude worker call, enforce-mode full-read denial, and targeted primary reads. Suggest mode recorded guidance but did not cause the primary to delegate after the full file was already returned. Response-character reduction is not a primary-token savings measurement, and worker relevance needs broader sampling.
 
 ## Provider hooks
 
