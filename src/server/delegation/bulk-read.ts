@@ -201,6 +201,8 @@ export const defaultWorkerInvoker: WorkerInvoker = async ({ runId, parent, ident
       exitCode: decoded.exitCode,
       pid: result.pid,
       processIdentity: result.processIdentity,
+      inputTokens: decoded.inputTokens,
+      outputTokens: decoded.outputTokens,
     };
   } finally {
     try { fs.rmSync(workerDir, { recursive: true, force: true }); } catch { /* best-effort */ }
@@ -324,6 +326,10 @@ export class BulkReadService {
         const code = statusAfterWorker === 'recovery_required' ? 'recovery_required' : 'cancelled';
         return { status: 'failed', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: code, message: 'The parent execution was cancelled.', fallback_granted: false };
       }
+      updateDelegationRun(runId, {
+        workerInputTokens: worker.inputTokens ?? null,
+        workerOutputTokens: worker.outputTokens ?? null,
+      });
       if (worker.exitCode !== 0) {
         const classification = classifyProviderFailure(config.cliTool, worker.exitCode, worker.output.slice(-64 * 1024));
         if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
@@ -357,7 +363,6 @@ export class BulkReadService {
       const returnedChars = JSON.stringify(result).length;
       updateDelegationRun(runId, {
         status: 'completed', finished: true, latencyMs: Date.now() - startedAt,
-        workerInputTokens: worker.inputTokens ?? null, workerOutputTokens: worker.outputTokens ?? null,
         returnedChars, contextAvoidedChars: Math.max(0, identity.chars - returnedChars), processPid: null, processIdentity: null,
       });
       logger.info('delegation.run.completed', { msg: 'bulk_read delegation completed', delegationId: runId, latencyMs: Date.now() - startedAt, returnedChars });

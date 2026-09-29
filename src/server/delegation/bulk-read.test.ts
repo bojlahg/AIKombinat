@@ -59,12 +59,13 @@ describe('bulk_read', () => {
       emptyMcp = fs.readFileSync(args[16]!.emptyMcpConfigPath, 'utf8');
       return {
         pid: 991, processIdentity: { pid: 991, startedAt: 'fake' }, command: 'fake-claude', args: [], stdin: null,
-        stdout: Readable.from([JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: JSON.stringify({ summary: 'safe', ranges: [] }) })]),
+        stdout: Readable.from([JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: JSON.stringify({ summary: 'safe', ranges: [] }),
+          usage: { input_tokens: 7, output_tokens: 2 } })]),
         stderr: Readable.from([]), exitPromise: Promise.resolve(0),
       };
     });
 
-    await defaultWorkerInvoker({
+    const invoked = await defaultWorkerInvoker({
       runId: 'fake-run', parent, identity, query: 'find relevant lines', executionConfig: config,
       timeoutMs: 1000, onStarted: vi.fn(),
     });
@@ -78,19 +79,23 @@ describe('bulk_read', () => {
     expect(captured![14]).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
     expect(captured![16]).toMatchObject({ provider: 'claude', strategy: 'tools_disabled', scratchDirectory: captured![0] });
     expect(emptyMcp).toBe('{"mcpServers":{}}\n');
+    expect(invoked).toMatchObject({ inputTokens: 7, outputTokens: 2 });
   });
 
   it('returns server-extracted evidence and the frozen execution snapshot', async () => {
     fs.writeFileSync(path.join(root, 'source.ts'), 'one\ntwo\nthree\nfour\nfive\n');
     const service = new BulkReadService(async ({ onStarted }) => {
       onStarted(123, { pid: 123, startTime: 'frozen' });
-      return { output: JSON.stringify({ summary: 'found', ranges: [{ start_line: 2, end_line: 4, reason: 'match', symbols: ['two'] }] }), exitCode: 0 };
+      return { output: JSON.stringify({ summary: 'found', ranges: [{ start_line: 2, end_line: 4, reason: 'match', symbols: ['two'] }] }), exitCode: 0, inputTokens: 20, outputTokens: 3 };
     });
     const result = await service.run(parent, { path: 'source.ts', query: 'Where is two?' });
     expect(result.status).toBe('ok');
     expect(result.ranges?.[0].anchor_snippet).toContain('2: two');
     expect(result.worker_execution).toMatchObject({ effectiveModel: 'claude-test-frozen' });
     expect(JSON.stringify(result)).not.toContain('SOURCE_DATA');
+    expect(testDb.prepare('SELECT worker_input_tokens, worker_output_tokens FROM delegation_runs ORDER BY started_at DESC LIMIT 1').get()).toEqual({
+      worker_input_tokens: 20, worker_output_tokens: 3,
+    });
   });
 
   it('returns stale when the file changes during the worker call', async () => {
@@ -111,8 +116,11 @@ describe('bulk_read', () => {
     expect(consumeFallback(parent.id, identity.canonicalPath, identity.sha256)).toBe(true);
     expect(consumeFallback(parent.id, identity.canonicalPath, identity.sha256)).toBe(false);
 
-    const noMatch = new BulkReadService(async ({ onStarted }) => { onStarted(126, null); return { output: JSON.stringify({ summary: 'none', ranges: [] }), exitCode: 0 }; });
+    const noMatch = new BulkReadService(async ({ onStarted }) => { onStarted(126, null); return { output: JSON.stringify({ summary: 'none', ranges: [] }), exitCode: 0, inputTokens: 8, outputTokens: 2 }; });
     expect(await noMatch.run(parent, { path: file, query: 'missing' })).toMatchObject({ status: 'no_match', fallback_granted: true });
+    expect(testDb.prepare('SELECT worker_input_tokens, worker_output_tokens FROM delegation_runs WHERE status = ?').get('completed')).toEqual({
+      worker_input_tokens: 8, worker_output_tokens: 2,
+    });
   });
 
   it('grants direct fallback when no candidate is immediately available', async () => {

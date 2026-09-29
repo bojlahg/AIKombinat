@@ -256,7 +256,7 @@ function main(): void {
       console.error('Run: npm run docs:erd');
       process.exit(1);
     }
-    if (existing !== generated) {
+    if (existing.replace(/\r\n/g, '\n') !== generated) {
       console.error('docs/ERD.md is out of sync with src/server/db/schema.ts');
       console.error('Run: npm run docs:erd (and commit the result)');
       process.exit(1);

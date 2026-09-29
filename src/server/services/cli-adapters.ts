@@ -60,6 +60,8 @@ export interface CliDecodedOutput {
   output: string;
   exitCode: number;
   diagnostic?: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface CliOutputDecoder {
@@ -609,10 +611,25 @@ const claudeAdapter: CliAdapter = {
       return { output: '', exitCode: 1, diagnostic: `Claude stream failed: missing result event; ${(stderr || stdout).slice(-1_000)}` };
     }
     const successful = resultEvent.subtype === 'success' && resultEvent.is_error !== true;
-    if (successful && typeof resultEvent.result === 'string') return { output: resultEvent.result, exitCode };
+    const usage = resultEvent.usage && typeof resultEvent.usage === 'object'
+      ? resultEvent.usage as Record<string, unknown> : null;
+    const tokenCount = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+    const input = tokenCount(usage?.input_tokens);
+    const cacheCreation = tokenCount(usage?.cache_creation_input_tokens ?? 0);
+    const cacheRead = tokenCount(usage?.cache_read_input_tokens ?? 0);
+    const inputTotal = input === null || cacheCreation === null || cacheRead === null
+      ? null : input + cacheCreation + cacheRead;
+    const output = tokenCount(usage?.output_tokens);
+    const reportedUsage = {
+      ...(inputTotal !== null && Number.isSafeInteger(inputTotal) ? { inputTokens: inputTotal } : {}),
+      ...(output !== null ? { outputTokens: output } : {}),
+    };
+    if (successful && typeof resultEvent.result === 'string') return { output: resultEvent.result, exitCode, ...reportedUsage };
     return {
       output: '', exitCode: 1,
       diagnostic: `Claude stream failed: subtype=${String(resultEvent.subtype ?? 'unknown')}; ${(stderr || stdout).slice(-1_000)}`,
+      ...reportedUsage,
     };
   },
   probeModels() {

@@ -14,8 +14,16 @@ describe('cli-adapters', () => {
     const payload = JSON.stringify({ summary: 'found', ranges: [] });
     const stdout = [
       JSON.stringify({ type: 'system', subtype: 'init' }),
-      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: payload }),
+      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: payload,
+        usage: { input_tokens: 10, cache_creation_input_tokens: 4, cache_read_input_tokens: 6, output_tokens: 3 } }),
     ].join('\n');
+    expect(decodeDelegationWorkerOutput('claude', stdout, '', 0)).toEqual({ output: payload, exitCode: 0, inputTokens: 20, outputTokens: 3 });
+  });
+
+  it('leaves Claude worker token counts absent when the result has no valid usage', () => {
+    const payload = JSON.stringify({ summary: 'none', ranges: [] });
+    const stdout = JSON.stringify({ type: 'result', subtype: 'success', result: payload,
+      usage: { input_tokens: 'unknown', output_tokens: -1 } });
     expect(decodeDelegationWorkerOutput('claude', stdout, '', 0)).toEqual({ output: payload, exitCode: 0 });
   });
 
