@@ -2,7 +2,7 @@
 // All panes (one per tab) stay mounted simultaneously — only `display` is
 // toggled — so PTY live output never drops when the user switches tabs.
 
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { X, Minus, Plus, ZoomIn, ZoomOut, ExternalLink, RotateCw, Square, Columns2, Grid2X2, Maximize2, Minimize2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { CMD, CMD_FONT } from '../terminal-theme';
@@ -10,9 +10,10 @@ import SessionPane, { type PaneIntent } from './SessionPane';
 import SessionThemePicker from '../SessionThemePicker';
 import SessionAliasInserter from '../SessionAliasInserter';
 import { useSessionFontSize } from '../../hooks/useSessionFontSize';
+import { AgentStatesContext } from '../../hooks/useAgentStates';
 import { useSessionWindowsOptional } from '../SessionWindowsHost';
 import type { LayoutPreset, LayoutStack, Path } from './groupTree';
-import type { Session } from '../../types';
+import type { AgentState, Session } from '../../types';
 import type { WsEvent } from '../../hooks/useWebSocket';
 
 export interface StackViewProps {
@@ -42,11 +43,14 @@ export interface StackViewProps {
   // chrome is hidden and the stack's tab bar carries the group's
   // minimize/close buttons. Otherwise these are undefined.
   groupActions?: {
-    onMinimizeGroup: () => void;
+    // Absent in a plain-browser popout (no window.minimize API).
+    onMinimizeGroup?: () => void;
     onCloseGroup: () => void;
     // Optional: present only in the main app window, not inside a popout
     // (a popout can't pop itself out further).
     onPopOutGroup?: () => void;
+    // Optional: present only inside a popout — hand the group back to main.
+    onReDockGroup?: () => void;
     onToggleMaximize?: () => void;
     isMaximized?: boolean;
     onApplyLayoutPreset?: (preset: LayoutPreset) => void;
@@ -90,6 +94,9 @@ export default function StackView({
   // OS window (PopoutPage mounts StackView without a SessionWindowsHost
   // above it). In that case there is nothing to raise.
   const sessionWindows = useSessionWindowsOptional();
+  // Live agent state per session (working / blocked / done) + the set of
+  // sessions that changed state while out of sight and await acknowledgement.
+  const { states: agentStates, attention } = useContext(AgentStatesContext);
   const isFocused = groupTopmost === undefined
     ? true
     : groupTopmost && (!focusedSessionId || focusedSessionId === stack.activeTab);
@@ -123,6 +130,13 @@ export default function StackView({
         const n = stack.tabs.length;
         const nextIdx = dir === 'next' ? (idx + 1) % n : (idx - 1 + n) % n;
         onTabClick(stack.tabs[nextIdx]);
+      }
+    : undefined;
+  // Ctrl+1..9 → Nth tab. Same single-tab fall-through as cycleTab.
+  const selectTab = stack.tabs.length > 1
+    ? (index: number) => {
+        const sid = stack.tabs[index];
+        if (sid) onTabClick(sid);
       }
     : undefined;
 
@@ -189,7 +203,7 @@ export default function StackView({
           overflowY: 'hidden',
         }}
       >
-        {stack.tabs.map((sid) => {
+        {stack.tabs.map((sid, tabIndex) => {
           const session = sessionsById.get(sid);
           const isActive = sid === stack.activeTab;
           const color = colors[sid] || CMD.titleText;
@@ -200,7 +214,14 @@ export default function StackView({
               : session?.status === 'completed'
                 ? CMD.info
                 : CMD.dim;
-          const details = [session?.status, session?.cli_tool, session?.cli_model, session?.branch_name]
+          // Agent state refines the process-level dot: pulsing while the
+          // agent works, amber while it waits for a human. Otherwise (idle,
+          // done, unknown) the process status colour already says it all.
+          const agent: AgentState = agentStates[sid] ?? session?.agent_state ?? 'unknown';
+          const dotColor = agent === 'working' ? CMD.info : agent === 'blocked' ? CMD.warning : statusColor;
+          const needsAttention = attention.has(sid);
+          const hotkey = stack.tabs.length > 1 && tabIndex < 9 ? `Ctrl+${tabIndex + 1}` : '';
+          const details = [session?.status, agent !== 'unknown' ? agent : '', session?.cli_tool, session?.cli_model, session?.branch_name, hotkey]
             .filter(Boolean)
             .join(' · ');
           return (
@@ -235,12 +256,15 @@ export default function StackView({
                 whiteSpace: 'nowrap',
                 maxWidth: 200,
                 position: 'relative',
+                // Attention badge: 2px bottom bar in the state colour until the tab is focused.
+                boxShadow: needsAttention ? `inset 0 -2px 0 ${dotColor}` : undefined,
               }}
               title={`${session?.title || sid}${details ? `\n${details}` : ''}`}
             >
               <span
-                aria-label={session?.status || 'unknown'}
-                style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0 }}
+                aria-label={agent !== 'unknown' ? agent : (session?.status || 'unknown')}
+                className={agent === 'working' ? 'workspace-dot-pulse' : undefined}
+                style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }}
               />
               <span
                 aria-hidden
@@ -258,7 +282,7 @@ export default function StackView({
               >
                 {'>_'}
               </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, color: needsAttention ? dotColor : undefined, fontWeight: needsAttention ? 600 : undefined }}>
                 {session?.title || sid}
               </span>
               <button
@@ -398,16 +422,30 @@ export default function StackView({
                 <ExternalLink size={14} />
               </button>
             )}
-            <button
-              data-no-drag
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={groupActions.onMinimizeGroup}
-              aria-label="minimize"
-              title={`${t('session.minimize') || 'Minimize'} (Ctrl+Shift+M)`}
-              style={groupBtnStyle}
-            >
-              <Minus size={14} />
-            </button>
+            {groupActions.onReDockGroup && (
+              <button
+                data-no-drag
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={groupActions.onReDockGroup}
+                aria-label="redock"
+                title={t('session.popout.redock') || 'Re-dock to main window'}
+                style={groupBtnStyle}
+              >
+                <ExternalLink size={14} style={{ transform: 'scaleX(-1)' }} />
+              </button>
+            )}
+            {groupActions.onMinimizeGroup && (
+              <button
+                data-no-drag
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={groupActions.onMinimizeGroup}
+                aria-label="minimize"
+                title={`${t('session.minimize') || 'Minimize'} (Ctrl+Shift+M)`}
+                style={groupBtnStyle}
+              >
+                <Minus size={14} />
+              </button>
+            )}
             <button
               data-no-drag
               onMouseDown={(e) => e.stopPropagation()}
@@ -454,6 +492,7 @@ export default function StackView({
               subscribeBinary={subscribeBinary}
               onEvent={onEvent}
               onCycleTab={cycleTab}
+              onSelectTab={selectTab}
               remountKey={remountKeys[sid] || 0}
             />
           );

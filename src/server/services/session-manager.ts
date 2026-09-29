@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { claudeManager } from './claude-manager.js';
 import { worktreeManager } from './worktree-manager.js';
 import { getAdapter, supportsInteractiveMode, type CliTool, type SandboxMode } from './cli-adapters.js';
 import { isAgentCliTool } from './provider-types.js';
 import { executionSnapshot, launchSelection, resolveExecutionConfig } from './execution-config.js';
+import { AgentStateTracker, type AgentState, type AgentStateHints } from './agent-state-detector.js';
 import { broadcaster, encodeSessionFrame } from '../websocket/broadcaster.js';
 import { applyMemoryInjection } from './memory-inject-hook.js';
 import { parseMemoryNodeIds, parseRawFilePaths, type MemoryInjectMode } from './memory-injector.js';
@@ -18,6 +20,7 @@ import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import { parseStoredResourceRequirements, RESOURCE_CATALOG } from './resource-catalog.js';
 import { resourceManager } from './resource-manager.js';
+import { hasClaudeConversation } from '../lib/claude-conversations.js';
 import * as queries from '../db/queries.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
 import { assertNoUnresolvedProcess } from './process-ownership.js';
@@ -141,6 +144,7 @@ export class SessionManager {
     this.runStartupBuffers.clear();
     this.livePids.clear();
     this.pendingBaseSnapshots.clear();
+    this.agentTrackers.clear();
     this.stoppingSessionIds.clear();
   }
 
@@ -180,6 +184,87 @@ export class SessionManager {
   // instead of falling back to a HEAD-only diff that hides untracked files.
   private pendingBaseSnapshots: Map<string, Promise<void>> = new Map();
 
+  // sessionId → heuristic agent-state tracker for the current/last PTY run.
+  // Entries survive process exit so REST keeps answering `done` afterwards;
+  // a restart replaces the entry.
+  private agentTrackers: Map<string, AgentStateTracker> = new Map();
+
+  getAgentState(sessionId: string): AgentState {
+    return this.agentTrackers.get(sessionId)?.state ?? 'unknown';
+  }
+
+  /**
+   * Why `claude --resume` cannot run for this session, or null when it can.
+   * Live, not persisted: checks that the saved conversation exists on disk.
+   * Single source of truth for the REST guard, startSession and the
+   * `resumable` flag the client uses to show the resume button.
+   */
+  resumeBlocker(session: queries.Session, project = queries.getProjectById(session.project_id)): string | null {
+    if (!project) return 'Project not found';
+    const cliTool = (session.cli_tool || project.cli_tool || 'claude') as CliTool;
+    if (cliTool === 'raw-shell') return 'Resume is not supported for raw shell sessions';
+    // Antigravity/Codex have the adapter flag but their interactive resume is
+    // not yet validated.
+    if (cliTool !== 'claude') return 'Resume is only supported for Claude sessions';
+    const worktreeDir = session.use_worktree && project.is_git_repo && session.worktree_path ? session.worktree_path : null;
+    if (!session.cli_session_id) {
+      // Sessions started before the id was stored fall back to --continue,
+      // which picks the latest conversation in the cwd — at the project root
+      // that can easily be a todo executor's, so only allow it in a worktree.
+      return worktreeDir ? null : 'Resume requires a worktree session';
+    }
+    // Claude writes the conversation file on the first message; a session
+    // stopped before that has nothing to resume.
+    return hasClaudeConversation(worktreeDir ?? project.path, session.cli_session_id)
+      ? null
+      : 'No saved conversation for this session yet — send a message in the session first';
+  }
+
+  isResumable(session: queries.Session, project?: queries.Project): boolean {
+    return this.resumeBlocker(session, project) === null;
+  }
+
+  /**
+   * Resolve when the agent state reaches `target`, the process leaves
+   * `running`, or `timeoutMs` elapses — whichever comes first. Backs the MCP
+   * `wait_session_state` long-poll so a lead agent can block on a helper.
+   */
+  waitForAgentState(
+    sessionId: string,
+    target: 'blocked' | 'done' | 'idle',
+    timeoutMs: number,
+  ): Promise<{ matched: boolean; status: string | null; agent_state: AgentState }> {
+    const snapshot = () => {
+      const agentState = this.getAgentState(sessionId);
+      return {
+        matched: agentState === target,
+        status: queries.getSessionById(sessionId)?.status ?? null,
+        agent_state: agentState,
+      };
+    };
+    const now = snapshot();
+    if (now.matched || now.status !== 'running') return Promise.resolve(now);
+
+    return new Promise((resolve) => {
+      const finish = (): void => {
+        clearTimeout(timer);
+        broadcaster.off('session:agent-state', onState);
+        broadcaster.off('session:status-changed', onStatus);
+        resolve(snapshot());
+      };
+      const onState = (e: { sessionId: string; state: AgentState }): void => {
+        if (e.sessionId === sessionId && e.state === target) finish();
+      };
+      const onStatus = (e: { sessionId: string; status: string }): void => {
+        if (e.sessionId === sessionId && e.status !== 'running') finish();
+      };
+      // ponytail: no res.close handling; an abandoned waiter is freed by the ≤10min route timeout cap
+      const timer = setTimeout(finish, timeoutMs);
+      broadcaster.on('session:agent-state', onState);
+      broadcaster.on('session:status-changed', onStatus);
+    });
+  }
+
   /** Resolves once the session's diff-base snapshot (if in flight) is in the DB. */
   async waitForBaseSnapshot(sessionId: string): Promise<void> {
     const pending = this.pendingBaseSnapshots.get(sessionId);
@@ -194,11 +279,16 @@ export class SessionManager {
    * Memory-bounded by the upstream ring buffer in claudeManager and by
    * `trimSessionRawChunks` (~2MB rolling) on the DB side.
    */
-  private subscribeRawForSession(sessionId: string, pid: number, runToken: SessionRunToken): void {
+  private subscribeRawForSession(sessionId: string, pid: number, runToken: SessionRunToken, hints?: AgentStateHints): void {
     let pending: Buffer[] = [];
     let pendingBytes = 0;
     let bytesSinceTrim = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tracker = new AgentStateTracker(hints, (state, reason) => {
+      broadcaster.broadcast({ type: 'session:agent-state', sessionId, state, reason });
+    });
+    this.agentTrackers.set(sessionId, tracker);
 
     const flush = (): void => {
       if (timer) { clearTimeout(timer); timer = null; }
@@ -238,6 +328,7 @@ export class SessionManager {
       try {
         broadcaster.sendBinaryToSubscribers(sessionId, encodeSessionFrame(sessionId, buf));
       } catch { /* ignore */ }
+      tracker.feed(chunk);
 
       if (pendingBytes >= RAW_FLUSH_BYTES) {
         flush();
@@ -391,22 +482,12 @@ export class SessionManager {
       useWorktree = !!session.use_worktree && !!project.is_git_repo;
       const resume = !!opts?.continueSession;
       if (resume) {
-        if (isRawShell) {
-          throw new Error('Resume is not supported for raw shell sessions');
-        }
-        // --continue is currently only wired for Claude in interactive mode.
-        // Antigravity/Codex have the adapter flag but their interactive resume is
-        // not yet validated, so reject early with a clear message.
-        if (resolvedCliTool !== 'claude') {
-          throw new Error('Resume is only supported for Claude sessions');
-        }
-        // claude --continue picks the latest conversation in the cwd. If the
-        // session runs at the project root, that latest can easily be a todo
-        // executor's conversation — refuse and force a worktree session.
-        if (!useWorktree || !session.worktree_path) {
-          throw new Error('Resume requires a worktree session');
-        }
+        const blocker = this.resumeBlocker({ ...session, cli_tool: resolvedCliTool }, project);
+        if (blocker) throw new Error(blocker);
       }
+      const cliSessionId = resolvedCliTool === 'claude'
+        ? (resume ? session.cli_session_id ?? undefined : randomUUID())
+        : undefined;
 
       adapter = getAdapter(resolvedCliTool);
 
@@ -516,6 +597,7 @@ export class SessionManager {
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
         opts?.cols ?? 100, opts?.rows ?? 30,
         launch.effort,
+        undefined, undefined, undefined, undefined, cliSessionId,
       );
       const pid = result.pid;
       const exitPromise = result.exitPromise;
@@ -543,7 +625,7 @@ export class SessionManager {
         return;
       }
 
-      this.subscribeRawForSession(sessionId, pid, runToken);
+      this.subscribeRawForSession(sessionId, pid, runToken, adapter.agentStateHints);
 
       // Atomic drain: persist process_pid, remove the buffer, replay queued
       // bytes — all in a single synchronous block. JS being single-threaded
@@ -577,10 +659,14 @@ export class SessionManager {
         queries.createSessionLog(
           sessionId,
           'output',
-          `Resumed Claude session via --continue (cwd: ${workDir}) — picks latest conversation in this directory`,
+          cliSessionId
+            ? `Resumed Claude session via --resume ${cliSessionId}`
+            : `Resumed Claude session via --continue (cwd: ${workDir}) — picks latest conversation in this directory`,
         );
+      } else if (cliSessionId) {
+        queries.updateSession(sessionId, { cli_session_id: cliSessionId });
       }
-      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'running', worktree_path: worktreePath, branch_name: branchName });
+      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'running', worktree_path: worktreePath, branch_name: branchName, cli_session_id: cliSessionId });
       broadcastProjectStatus(session.project_id);
 
       // Handle process exit
@@ -589,7 +675,10 @@ export class SessionManager {
         this.flushAndForgetRaw(runToken);
         this.runInitialPrompts.delete(runToken);
         this.runStartupBuffers.delete(runToken);
-        if (this.livePids.get(sessionId) === pid) this.livePids.delete(sessionId);
+        if (this.livePids.get(sessionId) === pid) {
+          this.livePids.delete(sessionId);
+          this.agentTrackers.get(sessionId)?.exit('exit');
+        }
         if (hasResources) resourceManager.releaseRun(runToken);
         hasResources = false;
 
@@ -646,7 +735,7 @@ export class SessionManager {
             try { queries.updateSessionStatus(sessionId, status); } catch { /* ignore */ }
           }
           broadcaster.broadcast({ type: 'session:log', sessionId, message: msg, logType: exitCode === 0 ? 'output' : 'error' });
-          broadcaster.broadcast({ type: 'session:status-changed', sessionId, status });
+          broadcaster.broadcast({ type: 'session:status-changed', sessionId, status, resumable: this.isResumable(current, project) });
           broadcastProjectStatus(session.project_id);
           orchestrator.wakeWaitingExecutors().catch(() => {});
         }
@@ -770,12 +859,13 @@ export class SessionManager {
         this.runStartupBuffers.delete(runToken);
       }
       this.livePids.delete(sessionId);
+      this.agentTrackers.get(sessionId)?.exit('stopped');
       if (runToken !== undefined) resourceManager.releaseRun(runToken);
       else resourceManager.releaseOwner('session', sessionId);
       queries.updateSessionStatus(sessionId, 'stopped');
       queries.updateSession(sessionId, { process_pid: 0, process_identity: null });
       queries.createSessionLog(sessionId, 'output', 'Session stopped by user.');
-      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped' });
+      broadcaster.broadcast({ type: 'session:status-changed', sessionId, status: 'stopped', resumable: this.isResumable(session) });
       broadcastProjectStatus(session.project_id);
       orchestrator.wakeWaitingExecutors().catch(() => {});
     } finally {
@@ -864,119 +954,6 @@ export class SessionManager {
     const runToken = this.activeRunTokens.get(sessionId);
     if (runToken === undefined) return false;
     return this.runInitialPrompts.has(runToken);
-  }
-
-  /**
-   * Classify a filtered PTY output line into a log type.
-   * Heuristic: ● prefix = assistant response, [Tool: ...] = tool call, else = output.
-   */
-  private classifyPtyLine(line: string): { logType: string; message: string } {
-    // Claude TUI response lines start with ● (bullet)
-    if (/^●\s/.test(line)) {
-      return { logType: 'assistant', message: line.replace(/^●\s*/, '') };
-    }
-    // Tool call lines: [Tool: Read], ⏺ Read(file_path: ...), etc.
-    if (/^\[Tool:\s*\w+\]/.test(line)) {
-      const match = line.match(/^\[Tool:\s*(\w+)\]\s*(.*)/);
-      if (match) {
-        return { logType: 'tool_use', message: JSON.stringify({ tool: match[1], summary: match[2].trim() }) };
-      }
-    }
-    // Tool call variant: ⏺ ToolName (shown in some TUI versions)
-    if (/^⏺\s+\w+/.test(line)) {
-      const match = line.match(/^⏺\s+(\w+)\s*(.*)/);
-      if (match) {
-        return { logType: 'tool_use', message: JSON.stringify({ tool: match[1], summary: match[2].trim() }) };
-      }
-    }
-    return { logType: 'output', message: line };
-  }
-
-  /**
-   * Stream PTY output to session logs with heuristic classification.
-   * Accumulates consecutive assistant lines into a single log entry.
-   */
-  private streamToSessionLogs(sessionId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream): void {
-    stdout.setEncoding('utf8' as BufferEncoding);
-    stderr.setEncoding('utf8' as BufferEncoding);
-
-    // Accumulator for consecutive assistant lines (merged into one block)
-    let assistantBuffer: string[] = [];
-    let assistantFlushTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const flushAssistant = () => {
-      if (assistantBuffer.length === 0) return;
-      const text = assistantBuffer.join('\n');
-      assistantBuffer = [];
-      try {
-        queries.createSessionLog(sessionId, 'assistant', text);
-        broadcaster.broadcast({ type: 'session:log', sessionId, message: text, logType: 'assistant' });
-      } catch { /* session may have been deleted */ }
-    };
-
-    const processStdoutLine = (line: string) => {
-      const { logType, message } = this.classifyPtyLine(line);
-
-      if (logType === 'assistant') {
-        // Accumulate assistant lines; flush after 300ms gap or on non-assistant line
-        assistantBuffer.push(message);
-        if (assistantFlushTimer) clearTimeout(assistantFlushTimer);
-        assistantFlushTimer = setTimeout(flushAssistant, 300);
-        return;
-      }
-
-      // Non-assistant line: flush any buffered assistant text first
-      if (assistantBuffer.length > 0) {
-        if (assistantFlushTimer) { clearTimeout(assistantFlushTimer); assistantFlushTimer = null; }
-        flushAssistant();
-      }
-
-      try {
-        queries.createSessionLog(sessionId, logType, message);
-        broadcaster.broadcast({ type: 'session:log', sessionId, message, logType });
-      } catch { /* session may have been deleted */ }
-    };
-
-    let stdoutBuffer = '';
-    stdout.on('data', (chunk: string) => {
-      stdoutBuffer += chunk;
-      const lines = stdoutBuffer.split('\n');
-      stdoutBuffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        processStdoutLine(line.trim());
-      }
-    });
-    stdout.on('end', () => {
-      if (stdoutBuffer.trim()) {
-        processStdoutLine(stdoutBuffer.trim());
-      }
-      // Flush remaining assistant buffer
-      if (assistantFlushTimer) { clearTimeout(assistantFlushTimer); assistantFlushTimer = null; }
-      flushAssistant();
-    });
-
-    let stderrBuffer = '';
-    stderr.on('data', (chunk: string) => {
-      stderrBuffer += chunk;
-      const lines = stderrBuffer.split('\n');
-      stderrBuffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          queries.createSessionLog(sessionId, 'error', line.trim());
-          broadcaster.broadcast({ type: 'session:log', sessionId, message: line.trim(), logType: 'error' });
-        } catch { /* ignore */ }
-      }
-    });
-    stderr.on('end', () => {
-      if (stderrBuffer.trim()) {
-        try {
-          queries.createSessionLog(sessionId, 'error', stderrBuffer.trim());
-          broadcaster.broadcast({ type: 'session:log', sessionId, message: stderrBuffer.trim(), logType: 'error' });
-        } catch { /* ignore */ }
-      }
-    });
   }
 }
 

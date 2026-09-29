@@ -152,6 +152,24 @@ export function insertAtSide(
   });
 }
 
+// Docks a batch of sessions at a zone of the stack at `path`: `center`
+// appends them as tabs, a side wraps them in a new stack beside it. Activates
+// `activeId` (must be one of `ids`; defaults to the last). Used by the
+// cross-window dock receivers; same rules as SessionWindowsHost.dockGroup.
+export function insertSessionsAt(
+  root: LayoutNode,
+  path: Path,
+  side: DockSide,
+  ids: string[],
+  activeId?: string,
+): LayoutNode {
+  const active = activeId && ids.includes(activeId) ? activeId : ids[ids.length - 1];
+  const inserted = side === 'center'
+    ? ids.reduce((r, id) => insertIntoStack(r, path, id), root)
+    : insertAtSide(root, path, side, makeStack(ids, active));
+  return setActiveTab(inserted, active);
+}
+
 // Replaces the node at `path` with the result of `transform`, applying
 // simplification along the way (1-child splits collapse, same-orientation
 // nested splits flatten).
@@ -258,6 +276,74 @@ export function dockTab(
     ? insertIntoStack(afterRemove, newDstPath, sessionId)
     : insertAtSide(afterRemove, newDstPath, side, makeStack([sessionId]));
   return setActiveTab(newRoot, sessionId);
+}
+
+export type NavDir = 'left' | 'right' | 'up' | 'down';
+
+// Keyboard pane navigation: the stack adjacent to the stack at `from` in
+// direction `dir`. Climbs until a split along that axis has a sibling on that
+// side (so from C in H[A, V[B, H[C,D]]] moving left reaches A), then descends
+// into the sibling toward the pane overlapping the source's cross-axis centre.
+// Returns null at the tree edge.
+export function neighborStack(root: LayoutNode, from: Path, dir: NavDir): Path | null {
+  const axis: LayoutSplit['orientation'] = dir === 'left' || dir === 'right' ? 'horizontal' : 'vertical';
+  const forward = dir === 'right' || dir === 'down';
+  for (let depth = from.length - 1; depth >= 0; depth--) {
+    const split = getNode(root, from.slice(0, depth));
+    if (!split || split.kind !== 'split' || split.orientation !== axis) continue;
+    const sibling = from[depth] + (forward ? 1 : -1);
+    if (sibling < 0 || sibling >= split.children.length) continue;
+    const pos = crossAxisCenter(root, from, depth, axis);
+    return [...from.slice(0, depth), sibling, ...descendToward(split.children[sibling], forward, pos, axis)];
+  }
+  return null;
+}
+
+// Source stack's centre along the cross axis as a 0..1 fraction of the split
+// at `depth`: every cross-axis split below it narrows the range by its sizes.
+function crossAxisCenter(root: LayoutNode, from: Path, depth: number, axis: LayoutSplit['orientation']): number {
+  let lo = 0;
+  let hi = 1;
+  for (let d = depth; d < from.length; d++) {
+    const node = getNode(root, from.slice(0, d));
+    if (!node || node.kind !== 'split' || node.orientation === axis) continue;
+    const total = node.sizes.reduce((a, b) => a + b, 0) || 1;
+    const before = node.sizes.slice(0, from[d]).reduce((a, b) => a + b, 0) / total;
+    const size = node.sizes[from[d]] / total;
+    const span = hi - lo;
+    hi = lo + span * (before + size);
+    lo = lo + span * before;
+  }
+  return (lo + hi) / 2;
+}
+
+// Walk down to a stack: along the nav axis take the nearest edge; across it
+// pick the child whose range contains `pos`, rescaling pos into that child.
+function descendToward(node: LayoutNode, forward: boolean, pos: number, axis: LayoutSplit['orientation']): Path {
+  const path: Path = [];
+  let cur = node;
+  let p = pos;
+  while (cur.kind === 'split') {
+    let index = cur.children.length - 1;
+    if (cur.orientation === axis) {
+      index = forward ? 0 : cur.children.length - 1;
+    } else {
+      const total = cur.sizes.reduce((a, b) => a + b, 0) || 1;
+      let acc = 0;
+      for (let i = 0; i < cur.children.length; i++) {
+        const size = cur.sizes[i] / total;
+        if (p < acc + size || i === cur.children.length - 1) {
+          index = i;
+          p = size > 0 ? (p - acc) / size : 0.5;
+          break;
+        }
+        acc += size;
+      }
+    }
+    path.push(index);
+    cur = cur.children[index];
+  }
+  return path;
 }
 
 // Clean up a tree by removing any session ids not in `validIds`. Returns null

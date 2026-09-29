@@ -2055,7 +2055,7 @@ export default function GitStatusPanel({ project, refreshTrigger, onEvent, sendM
 
       {/* Sidebar error (branch/tag actions) */}
       {sidebarError && (
-        <div className="mb-2 px-3 py-2 bg-status-error/10 text-status-error text-xs flex items-center justify-between rounded-md border border-status-error/30">
+        <div className="mb-2 px-3 py-2 bg-status-error/10 text-status-error text-xs flex items-center justify-between rounded-md">
           <span>{sidebarError}</span>
           <button onClick={() => setSidebarError(null)} className="ml-2 shrink-0 hover:text-status-error">&times;</button>
         </div>

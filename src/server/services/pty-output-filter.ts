@@ -74,7 +74,29 @@ function advanceBlockState(line: string, state: PtyFilterState): boolean {
 
 // ── Noise detection patterns ──
 
-const SPINNER_CHARS = '✶✻✽✢✧✦✱·⊹◈⟡⋆✸✹✺⊛⊕⊗*+＋＊✚✕✖';
+export const SPINNER_CHARS = '✶✻✽✢✧✦✱✳·⊹◈⟡⋆✸✹✺⊛⊕⊗*+＋＊✚✕✖';
+// Compiled once; isAnimationCollision runs per line during TUI repaints.
+// Only used via replace()/match(), which reset lastIndex, so sharing the 'g' ones is safe.
+const SPINNER_NOISE_RE = new RegExp(`[${SPINNER_CHARS}…\\s]`, 'g');
+const SPINNER_ANY_RE = new RegExp(`[${SPINNER_CHARS}]`, 'g');
+const SPINNER_LEAD_RE = new RegExp(`^[${SPINNER_CHARS}]\\s+(.+)$`);
+
+/**
+ * ANSI escape code stripper — replaces cursor movement with spaces to preserve
+ * word gaps. Shared by the PTY auto-respond path, the agent-state detector and
+ * the MCP output reader.
+ */
+export function stripAnsi(str: string): string {
+  // Step 1: Replace cursor movement/positioning sequences with a space
+  // C=forward, G=column absolute, H/f=row;col position
+  let result = str.replace(/\x1B\[\d*[CG]|\x1B\[\d+;\d+[Hf]/g, ' ');
+  // Step 2: Strip all remaining ANSI sequences
+  // CSI may carry a private-parameter prefix (`\x1B[?25l`, `\x1B[>0q`).
+  result = result.replace(/\x1B\[[?>=<]?[0-9;]*[A-Za-z]|\x1B\].*?(?:\x07|\x1B\\)|\x1B[()][A-Z0-9]|\x1B[>=<]|\x1B\[[\?]?[0-9;]*[hlJKm]/g, '');
+  // Step 3: Collapse runs of multiple spaces into one
+  result = result.replace(/ {2,}/g, ' ');
+  return result;
+}
 
 const NOISE_PATTERNS: RegExp[] = [
   // Box drawing / separator lines (allow trailing prompt chars like > $ %)
@@ -159,7 +181,7 @@ function isAnimationCollision(line: string): boolean {
   const stripped = line
     .replace(/\(thought for \d+s?\)/gi, '')
     .replace(/\(?think(?:ing)?\)?/gi, '')
-    .replace(new RegExp(`[${SPINNER_CHARS}…\\s]`, 'g'), '');
+    .replace(SPINNER_NOISE_RE, '');
   // If nothing or only punctuation remains, it's pure noise.
   if (stripped.length === 0) return true;
   // Keep lines with real response signals.
@@ -168,15 +190,13 @@ function isAnimationCollision(line: string): boolean {
   const thinkingCount = (line.match(/\(thinking\)/gi) || []).length;
   if (thinkingCount >= 2) return true;
   // Three or more spinner chars interspersed with text = collision.
-  const spinnerCount = (line.match(new RegExp(`[${SPINNER_CHARS}]`, 'g')) || []).length;
+  const spinnerCount = (line.match(SPINNER_ANY_RE) || []).length;
   if (spinnerCount >= 3) return true;
   // Single leading spinner char followed by fragmented short-word content
   // (e.g. "✶ r P ec", "* t i a n" — spinner frames where cursor repositioning
   // became spaces). Require ≥3 tokens, all ≤3 chars, to avoid catching real
   // markdown bullets like "* First item".
-  const spinnerLeadMatch = line.match(
-    new RegExp(`^[${SPINNER_CHARS}]\\s+(.+)$`),
-  );
+  const spinnerLeadMatch = line.match(SPINNER_LEAD_RE);
   if (spinnerLeadMatch) {
     // Strip trailing (thinking)/(thought for Ns) markers so the remaining
     // tokens represent only the fragmented word content.

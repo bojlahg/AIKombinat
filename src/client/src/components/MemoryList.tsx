@@ -1122,10 +1122,10 @@ interface LintModalProps {
 }
 
 const ISSUE_COLORS: Record<string, string> = {
-  contradiction: 'text-status-error bg-status-error/10 border-status-error/30',
+  contradiction: 'text-status-error bg-status-error/10 border-warm-200',
   orphan: 'text-warm-500 bg-warm-100 border-warm-200',
-  duplicate: 'text-status-warning bg-status-warning/10 border-status-warning/30',
-  stale: 'text-accent bg-accent/10 border-accent/30',
+  duplicate: 'text-status-warning bg-status-warning/10 border-warm-200',
+  stale: 'text-accent bg-accent/10 border-warm-200',
 };
 
 function LintModal({ projectId, nodes, onClose, onChanged }: LintModalProps) {

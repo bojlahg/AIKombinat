@@ -680,7 +680,7 @@ export default function TodoList({
       </div>
       {!isStacked && dragSourceId && todos.find(t => t.id === dragSourceId)?.depends_on && (
         <div
-          className="mt-3 border-2 border-dashed border-status-error/30 rounded-lg p-4 text-center text-sm text-status-error transition-colors hover:border-status-error/30 hover:text-status-error hover:bg-status-error/10"
+          className="mt-3 border-2 border-dashed border-warm-300 rounded-lg p-4 text-center text-sm text-status-error transition-colors hover:border-warm-400 hover:text-status-error hover:bg-status-error/10"
           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
           onDrop={(e) => {
             e.preventDefault();

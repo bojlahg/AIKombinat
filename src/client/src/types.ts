@@ -6,6 +6,7 @@ export interface Project {
   is_git_repo: number;
   vcs_type: string | null;
   svn_enabled: number;
+  hidden_tabs: string | null;
   max_concurrent: number;
   claude_model: string | null;
   claude_options: string | null;
@@ -309,6 +310,10 @@ export interface DiscussionWithMessages extends Discussion {
 
 // ── Sessions ──
 
+// Server-side heuristic read of what the CLI agent in a session is doing.
+// blocked = waiting for a human (prompt idle, question, approval dialog).
+export type AgentState = 'working' | 'blocked' | 'idle' | 'done' | 'unknown';
+
 export interface Session {
   id: string;
   project_id: string;
@@ -333,9 +338,12 @@ export interface Session {
   memory_raw_file_paths?: string | null;
   tag_id?: string | null;
   resource_requirements?: string | null;
+  cli_session_id?: string | null; // Claude conversation UUID; set once the session has started
   created_at: string;
   updated_at: string;
   is_git_repo?: number; // joined from the owning project (read-only)
+  agent_state?: AgentState; // live, not persisted — present on REST reads only
+  resumable?: boolean; // live, not persisted — REST reads and status broadcasts; true when a saved Claude conversation exists
 }
 
 export type ResourceKey = string;

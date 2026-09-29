@@ -178,6 +178,18 @@ describe('svnManager.getDiff against a revision', () => {
   it('rejects a non-numeric revision', async () => {
     await expect(svnManager.getDiff(wcPath, undefined, '40; rm')).rejects.toThrow('Invalid revision');
   });
+
+  it('relativizes progress lines passed to onLine and leaves other lines intact', async () => {
+    const seen: string[] = [];
+    const updateStdout = [`Updating '${wcPath}':`, `U    ${wcPath}/src/plain.ts`].join('\n');
+    vi.mocked(runSvn).mockImplementationOnce(async (_args, _cwd, onLine) => {
+      updateStdout.split('\n').forEach((line) => onLine!(line));
+      return { stdout: updateStdout, stderr: '' };
+    });
+    await svnManager.update(wcPath, undefined, (line) => seen.push(line));
+    expect(seen).toContain('U    src/plain.ts');
+    expect(seen).toContain(`Updating '${wcPath}':`);
+  });
 });
 
 // ── Property-only changes (e.g. an svn:externals bump on a directory) ──────

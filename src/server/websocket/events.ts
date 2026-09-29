@@ -3,6 +3,7 @@ import type { ResourceKey } from '../services/resource-catalog.js';
 
 export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
 export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
+import type { AgentState } from '../services/agent-state-detector.js';
 
 export type WSEvent =
   | { type: 'todo:status-changed'; todoId: string; status: string; mode?: string; worktree_path?: string | null; branch_name?: string | null }
@@ -20,9 +21,10 @@ export type WSEvent =
   | { type: 'discussion:message-changed'; discussionId: string; messageId: string; agentId: string; agentName: string; round: number; status: string }
   | { type: 'discussion:log'; discussionId: string; messageId: string; message: string; logType: string; agentName: string }
   | { type: 'discussion:commit'; discussionId: string; messageId: string; commitHash: string; message: string }
-  | { type: 'session:status-changed'; sessionId: string; status: string; worktree_path?: string | null; branch_name?: string | null }
+  | { type: 'session:status-changed'; sessionId: string; status: string; worktree_path?: string | null; branch_name?: string | null; cli_session_id?: string | null; resumable?: boolean }
   | { type: 'session:log'; sessionId: string; message: string; logType: string }
   | { type: 'session:replay-end'; sessionId: string }
+  | { type: 'session:agent-state'; sessionId: string; state: AgentState; reason?: string }
   | { type: 'rate-limit:updated'; resetsAt: number; status: string | null }
   | { type: 'resource:updated'; resourceKeys: ResourceKey[] }
   | { type: 'vault:changed'; projectId: string }

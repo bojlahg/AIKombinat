@@ -11,6 +11,7 @@ export interface Project {
   is_git_repo: number;
   vcs_type: string | null;
   svn_enabled: number;
+  hidden_tabs: string | null;
   max_concurrent: number;
   claude_model: string | null;
   claude_options: string | null;
@@ -69,7 +70,7 @@ export function getProjectById(id: string): Project | undefined {
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | undefined;
 }
 
-export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'default_review_profile_id' | 'default_max_review_rounds' | 'color'>>): Project | undefined {
+export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'hidden_tabs' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'default_review_profile_id' | 'default_max_review_rounds' | 'color'>>): Project | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -80,6 +81,7 @@ export function updateProject(id: string, updates: Partial<Pick<Project, 'name' 
   if (updates.is_git_repo !== undefined) { fields.push('is_git_repo = ?'); values.push(updates.is_git_repo); }
   if (updates.vcs_type !== undefined) { fields.push('vcs_type = ?'); values.push(updates.vcs_type); }
   if (updates.svn_enabled !== undefined) { fields.push('svn_enabled = ?'); values.push(updates.svn_enabled); }
+  if (updates.hidden_tabs !== undefined) { fields.push('hidden_tabs = ?'); values.push(updates.hidden_tabs); }
   if (updates.max_concurrent !== undefined) { fields.push('max_concurrent = ?'); values.push(updates.max_concurrent); }
   if (updates.claude_model !== undefined) { fields.push('claude_model = ?'); values.push(updates.claude_model); }
   if (updates.claude_options !== undefined) { fields.push('claude_options = ?'); values.push(updates.claude_options); }
@@ -344,6 +346,26 @@ export function getTodosWithPersistedProcess(): Todo[] {
   return getDatabase().prepare('SELECT * FROM todos WHERE process_pid IS NOT NULL AND process_pid > 0').all() as Todo[];
 }
 
+/** Counters for the sidebar status dot — aggregated in SQL, not by loading rows. */
+export function getProjectStatusCounts(projectId: string): {
+  total: number; running: number; completed: number; running_sessions: number; running_discussions: number;
+} {
+  const db = getDatabase();
+  const todos = db.prepare(
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(status = 'running'), 0) AS running,
+            COALESCE(SUM(status = 'completed'), 0) AS completed
+     FROM todos WHERE project_id = ?`
+  ).get(projectId) as { total: number; running: number; completed: number };
+  const sessions = db.prepare(
+    "SELECT COUNT(*) AS n FROM sessions WHERE project_id = ? AND status = 'running'"
+  ).get(projectId) as { n: number };
+  const discussions = db.prepare(
+    "SELECT COUNT(*) AS n FROM discussions WHERE project_id = ? AND status = 'running'"
+  ).get(projectId) as { n: number };
+  return { ...todos, running_sessions: sessions.n, running_discussions: discussions.n };
+}
+
 export function deleteTodo(id: string): boolean {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM todos WHERE id = ?').run(id);
@@ -369,7 +391,7 @@ export function createTaskLog(todoId: string, logType: string, message: string, 
     `INSERT INTO task_logs (id, todo_id, log_type, message, round_number, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(id, todoId, logType, message, roundNumber, now);
-  return db.prepare('SELECT * FROM task_logs WHERE id = ?').get(id) as TaskLog;
+  return { id, todo_id: todoId, log_type: logType, message, round_number: roundNumber, created_at: now };
 }
 
 export function getTaskLogsByTodoId(todoId: string): TaskLog[] {
@@ -1411,7 +1433,7 @@ export function createDiscussionLog(discussionId: string, messageId: string | nu
     `INSERT INTO discussion_logs (id, discussion_id, message_id, log_type, message, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(id, discussionId, messageId, logType, message, now);
-  return db.prepare('SELECT * FROM discussion_logs WHERE id = ?').get(id) as DiscussionLog;
+  return { id, discussion_id: discussionId, message_id: messageId, log_type: logType, message, created_at: now };
 }
 
 export function getDiscussionLogs(discussionId: string, messageId?: string): DiscussionLog[] {
@@ -1457,6 +1479,7 @@ export interface Session {
   memory_raw_file_paths: string | null;
   tag_id: string | null;
   resource_requirements: string | null;
+  cli_session_id: string | null;
   created_at: string;
   updated_at: string;
   is_git_repo?: number; // joined from projects (read-only); not a sessions column
@@ -1516,7 +1539,7 @@ export function getSessionById(id: string): Session | undefined {
   return db.prepare('SELECT s.*, p.is_git_repo FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = ?').get(id) as Session | undefined;
 }
 
-export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'process_identity' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements'>>): Session | undefined {
+export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'process_identity' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements' | 'cli_session_id'>>): Session | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1544,6 +1567,7 @@ export function updateSession(id: string, updates: Partial<Pick<Session, 'title'
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
   if (updates.tag_id !== undefined) { fields.push('tag_id = ?'); values.push(updates.tag_id); }
   if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
+  if (updates.cli_session_id !== undefined) { fields.push('cli_session_id = ?'); values.push(updates.cli_session_id); }
 
   if (fields.length === 0) return getSessionById(id);
 
@@ -1706,7 +1730,7 @@ export function createSessionLog(sessionId: string, logType: string, message: st
     `INSERT INTO session_logs (id, session_id, log_type, message, created_at)
      VALUES (?, ?, ?, ?, ?)`
   ).run(id, sessionId, logType, message, now);
-  return db.prepare('SELECT * FROM session_logs WHERE id = ?').get(id) as SessionLog;
+  return { id, session_id: sessionId, log_type: logType, message, created_at: now };
 }
 
 export function getSessionLogsBySessionId(sessionId: string): SessionLog[] {
@@ -1785,6 +1809,33 @@ export function getSessionRawChunks(sessionId: string): SessionRawChunk[] {
   return db.prepare(
     'SELECT session_id, seq, bytes, created_at FROM session_raw_chunks WHERE session_id = ? ORDER BY seq ASC'
   ).all(sessionId) as SessionRawChunk[];
+}
+
+/**
+ * Newest chunks whose combined size reaches maxBytes, returned oldest-first.
+ * For tail reads: avoids materialising the whole (up to 2MB) history.
+ */
+export function getSessionRawChunksTail(sessionId: string, maxBytes: number): SessionRawChunk[] {
+  const db = getDatabase();
+  const out: SessionRawChunk[] = [];
+  let bytes = 0;
+  const rows = db.prepare(
+    'SELECT session_id, seq, bytes, created_at FROM session_raw_chunks WHERE session_id = ? ORDER BY seq DESC'
+  ).iterate(sessionId) as IterableIterator<SessionRawChunk>;
+  for (const row of rows) {
+    out.push(row);
+    bytes += row.bytes.length;
+    if (bytes >= maxBytes) break;
+  }
+  return out.reverse();
+}
+
+export function getSessionRawBytesTotal(sessionId: string): number {
+  const db = getDatabase();
+  const row = db.prepare(
+    'SELECT COALESCE(SUM(length(bytes)), 0) AS n FROM session_raw_chunks WHERE session_id = ?'
+  ).get(sessionId) as { n: number };
+  return row.n;
 }
 
 export function deleteSessionRawChunks(sessionId: string): number {
@@ -3195,4 +3246,3 @@ export function updateAgentForumTurn(
   db.prepare(`UPDATE agent_forum_turns SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   return getAgentForumTurnById(id);
 }
-

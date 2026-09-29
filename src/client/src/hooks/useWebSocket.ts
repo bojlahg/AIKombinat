@@ -20,12 +20,15 @@ export interface WsEvent {
   mode?: string;
   worktree_path?: string | null;
   branch_name?: string | null;
+  cli_session_id?: string | null;
+  resumable?: boolean;
   scheduleId?: string;
   runId?: string;
   isActive?: boolean;
   reason?: string;
   // Session events
   sessionId?: string;
+  state?: string; // session:agent-state
   // Discussion events
   discussionId?: string;
   messageId?: string;
@@ -57,7 +60,6 @@ export interface WsEvent {
   };
   // Quota events
   tool?: string;
-  state?: string;
   source?: string | null;
   resetAt?: string | null;
   resourceKeys?: string[];

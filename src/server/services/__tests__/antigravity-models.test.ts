@@ -535,10 +535,8 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     oldDb.prepare(`INSERT INTO todos (id, project_id, title, cli_tool, cli_model, cli_model_id) VALUES (?, ?, 'Task', 'antigravity', 'gemini-3.7-flash-high', ?)`).run(todoId, projId, idHigh);
 
     // Run current system migration on this old DB
-    expect(() => {
-      initDatabase(oldDb);
-      normalizeAntigravityCatalogAndExecutors(oldDb);
-    }).not.toThrow();
+    expect(() => initDatabase(oldDb)).not.toThrow();
+    expect(() => normalizeAntigravityCatalogAndExecutors(oldDb)).not.toThrow();
 
     // Verify canonical model was added with status='available'
     const canonical = oldDb.prepare(`SELECT * FROM cli_models WHERE cli_tool = 'antigravity' AND model_value = 'gemini-3.7-flash'`).get() as Record<string, unknown>;

@@ -331,6 +331,18 @@ export function initDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_node_id);
     CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_node_id);
 
+    -- FK / filter columns used by the hot list queries and by ON DELETE CASCADE
+    -- (foreign_keys = ON): without these, every parent delete full-scans each
+    -- child table. session_raw_chunks is covered by its (session_id, seq) PK.
+    CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id);
+    CREATE INDEX IF NOT EXISTS idx_task_logs_todo ON task_logs(todo_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_discussions_project ON discussions(project_id);
+    CREATE INDEX IF NOT EXISTS idx_discussion_messages_discussion ON discussion_messages(discussion_id);
+    CREATE INDEX IF NOT EXISTS idx_discussion_logs_discussion ON discussion_logs(discussion_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
+    CREATE INDEX IF NOT EXISTS idx_session_logs_session ON session_logs(session_id, created_at);
+
     CREATE TABLE IF NOT EXISTS memory_logs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -669,8 +681,14 @@ export function initDatabase(db: Database.Database): void {
     { table: 'sessions', column: 'memory_raw_file_paths', definition: 'TEXT' },
     { table: 'sessions', column: 'tag_id', definition: 'TEXT' },
     { table: 'sessions', column: 'session_alias_id', definition: 'TEXT' },
+    // Claude conversation UUID passed as --session-id at start; resume uses
+    // --resume <id>, so root (non-worktree) sessions never hit --continue's
+    // "latest conversation in cwd" ambiguity.
+    { table: 'sessions', column: 'cli_session_id', definition: 'TEXT' },
     { table: 'projects', column: 'vcs_type', definition: 'TEXT' },
     { table: 'projects', column: 'svn_enabled', definition: 'INTEGER DEFAULT 0' },
+    // UI-only: JSON array of primary tab keys hidden for this project. NULL = all visible.
+    { table: 'projects', column: 'hidden_tabs', definition: 'TEXT' },
     { table: 'projects', column: 'is_svn_wc', definition: 'INTEGER DEFAULT 0' },
     { table: 'projects', column: 'color', definition: 'TEXT' },
     { table: 'projects', column: 'sort_order', definition: 'INTEGER NOT NULL DEFAULT 0' },
@@ -726,6 +744,9 @@ export function initDatabase(db: Database.Database): void {
     { table: 'agent_forum_turns', column: 'process_identity', definition: 'TEXT' },
     { table: 'delegation_tool_observations', column: 'managed_definition_hash', definition: 'TEXT' },
     { table: 'delegation_tool_observations', column: 'observed_at', definition: 'DATETIME' },
+    // Analytics "clear" watermark: todos created at/before this are hidden from
+    // the analytics tab. NULL = never cleared. Non-destructive.
+    { table: 'projects', column: 'analytics_cleared_at', definition: 'TEXT' },
   ];
 
   for (const { table, column, definition } of migrations) {
@@ -734,6 +755,13 @@ export function initDatabase(db: Database.Database): void {
     } catch {
       // Column already exists - ignore
     }
+  }
+
+  for (const statement of [
+    'CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)',
+    'CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)',
+  ]) {
+    try { db.exec(statement); } catch { /* Legacy tables may not have status yet. */ }
   }
 
   // Ensure index on retry_of_round_id exists

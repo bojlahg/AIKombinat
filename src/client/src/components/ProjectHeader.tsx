@@ -9,6 +9,7 @@ import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool, getToolConfig } from '../cli-tools';
 import { getClientPlugins } from '../plugins/registry';
 import HarnessPanel from '../plugins/harness/HarnessPanel';
+import ProjectProcessesPanel from './ProjectProcessesPanel';
 import { Pencil, FolderOpen, Settings, BarChart3, RotateCcw, AlertTriangle, Terminal, GitBranch } from 'lucide-react';
 import IconButton from './IconButton';
 
@@ -37,6 +38,12 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
   const [useWorktree, setUseWorktree] = useState(project.use_worktree !== 0);
   const [npmAutoInstall, setNpmAutoInstall] = useState(!!project.npm_auto_install);
   const [svnEnabled, setSvnEnabled] = useState(!!project.svn_enabled);
+  // Primary tabs hidden for this project (JSON array in projects.hidden_tabs; [] = all visible).
+  const [hiddenTabs, setHiddenTabs] = useState<string[]>(() => {
+    try { return project.hidden_tabs ? JSON.parse(project.hidden_tabs) : []; } catch { return []; }
+  });
+  // Each gets its own settings section (like SVN). Terminals/Automation stay fixed.
+  const toggleableTabs = ['web', 'files', 'planner', 'sessions', ...(project.is_git_repo ? ['git'] : [])];
   // True when the project folder is detected as an SVN working copy. Drives
   // the SVN settings tab — shown for any SVN working copy regardless of git
   // presence (a folder can be both), or when SVN is already enabled so the
@@ -145,6 +152,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
         use_worktree: useWorktree ? 1 : 0,
         npm_auto_install: npmAutoInstall ? 1 : 0,
         svn_enabled: svnEnabled ? 1 : 0,
+        hidden_tabs: hiddenTabs.length > 0 ? JSON.stringify(hiddenTabs) : null,
         show_token_usage: showTokenUsage ? 1 : 0,
         claude_options: claudeOptions || null,
         default_review_profile_id: defaultReviewProfileId || null,
@@ -291,6 +299,7 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
             {[
               { key: 'harness', label: t('tabs.harness') },
               { key: 'execution', label: t('header.execConfig') },
+              ...toggleableTabs.map((key) => ({ key, label: t(`tabs.${key}`) })),
               ...(showSvnTab ? [{ key: 'svn', label: t('tabs.svn') || 'SVN' }] : []),
             ].map((s) => (
               <button
@@ -694,6 +703,30 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
           </div>
 
           </>
+          )}
+
+          {/* One settings tab per hideable primary tab (web/files/planner/sessions/git), same shape as SVN below. */}
+          {toggleableTabs.includes(settingsSection) && (
+          <div className="p-4 border border-warm-200 rounded-xl">
+            <h4 className="text-sm font-semibold text-warm-700 mb-2">{t(`tabs.${settingsSection}`)}</h4>
+            <p className="text-2xs text-warm-500 mb-3">{t('header.tabShowHint')}</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!hiddenTabs.includes(settingsSection)}
+                onChange={(e) => setHiddenTabs((prev) => (e.target.checked ? prev.filter((k) => k !== settingsSection) : [...prev, settingsSection]))}
+                className="rounded-md"
+              />
+              <span className="text-xs text-warm-600">{t('header.tabShowEnable').replace('{tab}', t(`tabs.${settingsSection}`))}</span>
+            </label>
+          </div>
+          )}
+
+          {/* Terminal tab only: on-demand process view for running sessions. */}
+          {settingsSection === 'sessions' && (
+            <div className="mt-3">
+              <ProjectProcessesPanel projectId={project.id} />
+            </div>
           )}
 
           {settingsSection === 'svn' && (

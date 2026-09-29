@@ -19,11 +19,13 @@ import {
   removeTab,
   insertAtSide,
   insertIntoStack,
+  insertSessionsAt,
   setActiveTab as treeSetActiveTab,
   reorderTab as treeReorderTab,
   setSplitSizes as treeSetSplitSizes,
   pruneInvalid,
   allSessionIds,
+  activeSessionIds,
   simplify,
   applyLayoutPreset as treeApplyLayoutPreset,
   type LayoutPreset,
@@ -45,6 +47,8 @@ import { ApiError } from '../api/client';
 import { useI18n } from '../i18n';
 import { useToast } from '../hooks/useToast';
 import { useDialog } from '../hooks/useDialog';
+import { useNotification } from '../hooks/useNotification';
+import { AgentStatesContext, useAgentStates } from '../hooks/useAgentStates';
 import type { Session } from '../types';
 import type { WsEvent } from '../hooks/useWebSocket';
 import {
@@ -54,6 +58,8 @@ import {
   heldPopoutIds,
   registerPopoutWindow,
   screenToClient,
+  clientToScreen,
+  pageZoom,
   isClientPointInWindow,
   startViewportTracking,
   HEARTBEAT_MS,
@@ -331,6 +337,7 @@ export default function SessionWindowsHost({
   const { t } = useI18n();
   const { warning: toastWarning } = useToast();
   const { confirm } = useDialog();
+  const { sendNotification } = useNotification();
   // Read persisted state synchronously on the very first render. Previously
   // we left `groups` empty until a separate hydrate effect could run after
   // `sessions` arrived, but the persist effect (below) fires on the same
@@ -1219,14 +1226,20 @@ export default function SessionWindowsHost({
   // Last focus time, reported in probe results so the sender can prefer the
   // most recently focused (≈ topmost) window when several overlap the cursor.
   const focusAtRef = useRef(typeof document !== 'undefined' && document.hasFocus() ? Date.now() : 0);
+  // Whether this OS window has focus — a state change in the topmost pane
+  // only counts as "seen" while the user is actually looking at this window.
+  const [winFocused, setWinFocused] = useState(() => typeof document !== 'undefined' && document.hasFocus());
   useEffect(() => {
-    const onFocus = () => { focusAtRef.current = Date.now(); };
+    const onFocus = () => { focusAtRef.current = Date.now(); setWinFocused(true); };
+    const onBlur = () => setWinFocused(false);
     window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
     // Keep the screen→client offset fresh from real mouse events so a
     // cross-window dock-probe from a popout hit-tests at the right spot here.
     const stopTrack = startViewportTracking();
     return () => {
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
       stopTrack();
       if (remoteDockClearTimerRef.current) clearTimeout(remoteDockClearTimerRef.current);
     };
@@ -1502,7 +1515,13 @@ export default function SessionWindowsHost({
           }
           if (remoteDockClearTimerRef.current) clearTimeout(remoteDockClearTimerRef.current);
           remoteDockClearTimerRef.current = setTimeout(() => setRemoteDock(null), 800);
-          bus.post({ t: 'dock-probe-result', from: MAIN_WINDOW_ID, to: msg.from, hit: true, focusAt: focusAtRef.current });
+          // Hit rect in screen DIPs so the dragged window can mirror the diamond.
+          const z = pageZoom();
+          bus.post({
+            t: 'dock-probe-result', from: MAIN_WINDOW_ID, to: msg.from, hit: true, focusAt: focusAtRef.current,
+            rect: { ...clientToScreen(hit.rect.x, hit.rect.y), w: hit.rect.w * z, h: hit.rect.h * z },
+            zone: hit.zone,
+          });
         } else {
           if (remoteDockRef.current) setRemoteDock(null);
           bus.post({ t: 'dock-probe-result', from: MAIN_WINDOW_ID, to: msg.from, hit: false, focusAt: focusAtRef.current });
@@ -1510,13 +1529,14 @@ export default function SessionWindowsHost({
       } else if (msg.t === 'dock-end') {
         setRemoteDock(null);
       } else if (msg.t === 'dock-commit' && msg.to === MAIN_WINDOW_ID) {
-        // Adopt the dragged session into the committed stack. Recompute the
+        // Adopt the dragged session(s) into the committed stack. Recompute the
         // target at the commit coords; fall back to the last probed hover.
         const p = screenToClient(msg.x, msg.y);
         const hit = isClientPointInWindow(p) ? hitTestStackAt(p.x, p.y) : null;
         const target = (hit && hit.zone) ? hit : (remoteDockRef.current?.zone ? remoteDockRef.current : null);
         let accepted = false;
-        // Reject only when the session is already open in a MAIN-OWNED group —
+        const ids = msg.sessions.map(s => s.id);
+        // Reject only when a session is already open in a MAIN-OWNED group —
         // that would double-subscribe the same PTY binary stream. A session
         // handed over from a popout is still tracked here as ownerWindowId=its
         // popout (we keep the popped-out group in `groups` but never render it),
@@ -1524,7 +1544,7 @@ export default function SessionWindowsHost({
         const mainOwned = groupsRef.current.filter(
           (g) => (g.ownerWindowId || MAIN_WINDOW_ID) === MAIN_WINDOW_ID,
         );
-        if (target && target.zone && !findGroupBySessionId(mainOwned, msg.sessionId)) {
+        if (target && target.zone && !ids.some(id => findGroupBySessionId(mainOwned, id))) {
           const dst = groupsRef.current.find(g => g.id === target.groupId);
           const node = dst ? getNode(dst.root, target.path) : null;
           if (dst && node && node.kind === 'stack') {
@@ -1535,17 +1555,14 @@ export default function SessionWindowsHost({
             const z = zCounterRef.current;
             setGroups(prev => prev.map(g => {
               if (g.id !== dst.id) return g;
-              const inserted = zone === 'center'
-                ? insertIntoStack(g.root, path, msg.sessionId)
-                : insertAtSide(g.root, path, zone, makeStack([msg.sessionId]));
-              const root = treeSetActiveTab(inserted, msg.sessionId);
+              const root = insertSessionsAt(g.root, path, zone, ids, msg.activeId);
               const colors = { ...g.colors };
-              if (!colors[msg.sessionId]) colors[msg.sessionId] = msg.color || assignColor(Object.values(colors));
-              const intents = {
-                ...g.intents,
-                [msg.sessionId]: (msg.intentInfo as { intent: WindowIntent; nonce: number } | undefined)
-                  ?? { intent: 'open' as WindowIntent, nonce: 0 },
-              };
+              const intents = { ...g.intents };
+              for (const s of msg.sessions) {
+                if (!colors[s.id]) colors[s.id] = s.color || assignColor(Object.values(colors));
+                intents[s.id] = (s.intentInfo as { intent: WindowIntent; nonce: number } | undefined)
+                  ?? { intent: 'open' as WindowIntent, nonce: 0 };
+              }
               return { ...g, root, colors, intents, z, minimized: false };
             }));
             // Cross-project sessions resolve through the foreign-session
@@ -1554,7 +1571,7 @@ export default function SessionWindowsHost({
           }
         }
         setRemoteDock(null);
-        bus.post({ t: 'dock-commit-ack', from: MAIN_WINDOW_ID, to: msg.from, sessionId: msg.sessionId, accepted });
+        bus.post({ t: 'dock-commit-ack', from: MAIN_WINDOW_ID, to: msg.from, commitId: msg.commitId, accepted });
       }
     };
     const unsub = bus.subscribe(onMsg);
@@ -1772,9 +1789,28 @@ export default function SessionWindowsHost({
     { id: null, z: -Infinity },
   ).id;
 
+  // Agent attention: sessions "in plain sight" are the active tabs of the
+  // topmost group while this window is focused; anything else that turns
+  // blocked/done gets a tab badge + browser notification.
+  // ponytail: every active tab of the topmost group counts as focused (which split pane has DOM focus is ignored)
+  const topmostGroup = visibleGroups.find((g) => g.id === topmostGroupId);
+  const focusedKey = winFocused && topmostGroup ? activeSessionIds(topmostGroup.root).join(',') : '';
+  const focusedIds = useMemo(() => new Set(focusedKey ? focusedKey.split(',') : []), [focusedKey]);
+  const agentStates = useAgentStates(onEvent, focusedIds, (sid, state) => {
+    // Only sessions whose tab THIS window renders — minimized groups belong
+    // to the dock tray, popped groups to their popout window.
+    const g = findGroupBySessionId(groupsRef.current, sid);
+    if (!g || g.minimized || (g.ownerWindowId || MAIN_WINDOW_ID) !== MAIN_WINDOW_ID) return;
+    sendNotification(
+      t(state === 'blocked' ? 'notification.sessionBlocked' : 'notification.sessionDone'),
+      sessionsById.get(sid)?.title || sid,
+    );
+  });
+
   return (
     <SessionWindowsContext.Provider value={api}>
       <SessionWindowStateContext.Provider value={windowStates}>
+      <AgentStatesContext.Provider value={agentStates}>
       {children}
       {(() => {
         // Compact CSS stacking rank (1..n) from the logical z order. group.z
@@ -1818,6 +1854,7 @@ export default function SessionWindowsHost({
       {remoteDock && (
         <DockOverlay targetRect={remoteDock.rect} activeZone={remoteDock.zone} />
       )}
+      </AgentStatesContext.Provider>
       </SessionWindowStateContext.Provider>
     </SessionWindowsContext.Provider>
   );

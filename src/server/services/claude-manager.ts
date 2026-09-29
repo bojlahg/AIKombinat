@@ -19,6 +19,7 @@ import {
   verifyProcessIdentity,
   type ProcessIdentity,
 } from '../utils/process-tree.js';
+import { stripAnsi } from './pty-output-filter.js';
 
 export type ClaudeMode = CliMode;
 
@@ -229,6 +230,7 @@ export class ClaudeManager {
       scratchDirectory: string;
       emptyMcpConfigPath: string;
     },
+    cliSessionId?: string,
   ): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
@@ -243,7 +245,7 @@ export class ClaudeManager {
 
     const adapter = getAdapter(tool);
     const selection: LaunchModelSelection = typeof model === 'string' ? { model } : (model ?? {});
-    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation });
+    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation, cliSessionId });
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them
@@ -449,18 +451,6 @@ export class ClaudeManager {
         write: (d) => { try { ptyProcess.write(d); } catch { /* exited */ } },
         resize: (cols, rows) => { try { ptyProcess.resize(cols, rows); } catch { /* exited */ } },
       });
-      // ANSI escape code stripper — replaces cursor movement with spaces to preserve word gaps
-      const stripAnsi = (str: string) => {
-        // Step 1: Replace cursor movement/positioning sequences with a space
-        // C=forward, G=column absolute, H/f=row;col position
-        let result = str.replace(/\x1B\[\d*[CG]|\x1B\[\d+;\d+[Hf]/g, ' ');
-        // Step 2: Strip all remaining ANSI sequences
-        result = result.replace(/\x1B\[[0-9;]*[A-Za-z]|\x1B\].*?(?:\x07|\x1B\\)|\x1B[()][A-Z0-9]|\x1B[>=<]|\x1B\[[\?]?[0-9;]*[hlJKm]/g, '');
-        // Step 3: Collapse runs of multiple spaces into one
-        result = result.replace(/ {2,}/g, ' ');
-        return result;
-      };
-
       // Create a Readable stream from pty data (PTY merges stdout+stderr)
       const stdoutStream = new Readable({ read() {} });
       let stdinDelivered = false;
@@ -468,7 +458,6 @@ export class ClaudeManager {
 
       // Trust prompt tracking: block stdin delivery only while trust prompt is visible
       let trustPending = false;
-      const filterState: PtyFilterState | null = interactive ? createPtyFilterState() : null;
 
       ptyProcess.onData((data) => {
         // Raw byte fan-out: feeds xterm.js terminal subscribers and history ring.
@@ -520,13 +509,11 @@ export class ClaudeManager {
           }
         }
 
-        // Push to stream — filter TUI noise for interactive mode
-        if (filterState) {
-          const filtered = filterInteractivePtyOutput(clean, filterState);
-          if (filtered) stdoutStream.push(filtered);
-        } else {
-          stdoutStream.push(clean);
-        }
+        // Push to stream — headless PTY only. Interactive sessions have no
+        // consumer for this stream (session-manager subscribes to raw bytes via
+        // subscribeRaw instead), and a Readable nobody reads never drains, so
+        // pushing here would buffer every filtered chunk for the session's lifetime.
+        if (!interactive) stdoutStream.push(clean);
       });
 
       // Empty stderr (PTY combines both streams)
@@ -553,11 +540,6 @@ export class ClaudeManager {
       const exitPromise = new Promise<number>((resolveExit) => {
         ptyProcess.onExit(({ exitCode }) => {
           exited = true;
-          // Flush remaining filter buffer before closing stream
-          if (filterState?.lineBuffer) {
-            const final = filterInteractivePtyOutput('\n', filterState);
-            if (final) stdoutStream.push(final);
-          }
           stdoutStream.push(null);
           this.markExited(pid);
           this.stdinStreams.delete(pid);

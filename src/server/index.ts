@@ -261,6 +261,8 @@ if (delegationCleaned > 0) {
     scope: '[startup]', msg: `cleaned up ${delegationCleaned} expired delegation telemetry rows`, count: delegationCleaned,
   });
 }
+// Boot-only cleanup never fires on an always-on server; re-run daily.
+setInterval(() => cleanOldLogs(LOG_RETENTION_DAYS), 24 * 60 * 60 * 1000).unref();
 
 // Auto-cleanup old debug log files
 for (const p of getAllProjects()) {

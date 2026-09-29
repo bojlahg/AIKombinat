@@ -476,16 +476,19 @@ function createWindow(port) {
       return { action: 'deny' };
     });
     guest.on('will-navigate', (e, navUrl) => { if (!isWebScheme(navUrl)) e.preventDefault(); });
+    // Nothing else can be under the pointer inside a guest, so apply directly.
+    guest.on('zoom-changed', (_e, dir) => stepPageZoom(guest, dir));
   });
 
-  // Chromium handles Ctrl+wheel / pinch as a page-zoom gesture in the browser
-  // process and never dispatches a DOM `wheel` event to the renderer, so the
-  // terminal's own Ctrl+wheel font-zoom can't see it. Cancel the page zoom
-  // (pin the level to 0) and forward the direction so the focused terminal can
-  // bump its font size instead.
+  // In the exe, Ctrl+wheel never reaches the renderer as a DOM `wheel` event;
+  // Chromium reports it browser-side as zoom-changed and Electron applies no
+  // zoom itself. Forward the direction and let the renderer route it: over a
+  // terminal → font size, elsewhere → page zoom (window:zoom below). Do NOT
+  // touch the zoom level here — the old setZoomLevel(0) reset any page zoom
+  // the user had set via Ctrl+=/- to 100% on every wheel tick (ime-debug
+  // 2026-09-08).
   const wireTerminalZoom = (contents, label) => {
     contents.on('zoom-changed', (_e, zoomDirection) => {
-      contents.setZoomLevel(0);
       contents.send('terminal:zoom', zoomDirection);
       imeDebugLog(label, { event: 'zoom-changed', dir: zoomDirection });
     });
@@ -574,6 +577,17 @@ ipcMain.on('desktop:set-language', (_event, language) => {
   trayLanguage = language;
   rebuildTrayMenu();
 });
+// One Ctrl+wheel tick of page zoom. 0.5-level step matches Electron's
+// zoomIn/zoomOut menu roles (Ctrl+=/-), so wheel and keys share one scale.
+function stepPageZoom(contents, dir) {
+  const next = contents.getZoomLevel() + (dir === 'in' ? 0.5 : -0.5);
+  contents.setZoomLevel(Math.max(-4, Math.min(6, next))); // ~48%-299%
+}
+
+// Renderer decided the forwarded Ctrl+wheel (terminal:zoom) landed outside a
+// terminal → zoom the sender's page. Done main-side so it hits the same
+// per-host zoom store the menu roles write, and persists across restarts.
+ipcMain.on('window:zoom', (event, dir) => stepPageZoom(event.sender, dir));
 
 // Raise the sender's OS window to the front. Renderers can't do this
 // themselves: window.focus() without user activation is ignored by Chromium,
@@ -600,6 +614,22 @@ ipcMain.on('window:minimize-self', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win || win.isDestroyed() || !win.isMinimizable()) return;
   win.minimize();
+});
+
+// Move the sender's OS window (popout tab-bar drag). 'start' snapshots the
+// bounds; each 'move' carries the TOTAL cursor delta since then (renderer
+// screenX DIPs = bounds DIPs), so a dropped or reordered IPC can't drift the
+// window. setBounds rather than setPosition keeps the size pinned — under
+// fractional display scaling repeated setPosition can grow/shrink by 1px.
+const moveStartBounds = new WeakMap(); // BrowserWindow → bounds at gesture start
+ipcMain.on('window:move-self', (event, p) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || win === mainWindow) return;
+  if (win.isMaximized() || win.isFullScreen()) return;
+  if (!p || p.phase === 'start') { moveStartBounds.set(win, win.getBounds()); return; }
+  const s = moveStartBounds.get(win);
+  if (!s || !Number.isFinite(p.dx) || !Number.isFinite(p.dy)) return;
+  win.setBounds({ ...s, x: Math.round(s.x + p.dx), y: Math.round(s.y + p.dy) }, false);
 });
 
 ipcMain.on('ime:reset', (event, payload) => {

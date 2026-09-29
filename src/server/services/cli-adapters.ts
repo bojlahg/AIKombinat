@@ -4,6 +4,7 @@ import { execFile } from 'child_process';
 import { getModelByValue } from '../db/queries.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 import { logger } from '../logging/logger.js';
+import type { AgentStateHints } from './agent-state-detector.js';
 
 export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
@@ -37,6 +38,7 @@ export interface CliBuildOptions extends LaunchModelSelection {
   projectPath?: string;
   sandboxMode?: SandboxMode;
   continueSession?: boolean;
+  cliSessionId?: string;
   promptPolicy?: PromptPolicy;
   delegationMcp?: {
     configPath?: string;
@@ -396,6 +398,11 @@ export interface CliAdapter {
    */
   stdinSubmitSequence?: string;
   /**
+   * Regexes the agent-state detector runs over stripped PTY output to tell
+   * working (spinner) from blocked (dialog). Absent → state stays `unknown`.
+   */
+  agentStateHints?: AgentStateHints;
+  /**
    * Best-effort probe for currently supported models. Returns null when the
    * CLI is unreachable or its help output yields no recognizable model ids;
    * callers should fall back to the bundled registry.
@@ -513,7 +520,29 @@ const claudeAdapter: CliAdapter = {
       blocksInitialPrompt: true,
     },
   ],
-  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation }) {
+  // `Yes, I trust` is deliberately absent from `blocked`: the auto-respond rule
+  // above answers it within milliseconds, so nothing would flip the state back.
+  // `title` is the primary signal (same rules as herdr's claude.toml): Claude
+  // Code sets the terminal title to "◐ <name>"/"◑ <name>" while a turn runs and
+  // "✳ <name>" when it is back at the prompt. Sticky and independent of how the
+  // spinner line is painted, so a minutes-long thinking pause stays `working`.
+  // The `working` regex below is the fallback for PTYs where no title arrives.
+  // `working` alternatives, in order: legacy "(esc to interrupt)" hint; the
+  // long-thinking status "still thinking with xhigh effort", which Claude Code
+  // 2.1.x repaints colour-pulsing several times a second with or without the
+  // glyph (nothing else matched those frames → 1s quiet timer flapped
+  // working→blocked and spammed notifications); the first spinner paint
+  // "✻ Kneading…" (glyph + verb + ellipsis); tool status sub-lines; and the
+  // ~10Hz repaint frames, which after ANSI stripping are the glyph plus a few
+  // words or recoloured single letters (" ✽ d g ", " ✢ still thinking … ").
+  // Those last rules are anchored to the whole chunk so prose never matches;
+  // ASCII `*`/`·` only take single letters so markdown bullets stay out.
+  agentStateHints: {
+    title: { working: /^[⠀-⣿◐-◓] /, idle: /^✳ / },
+    working: /esc to interrupt|still thinking|[✶✻✽✢✧✦✱✳⊹◈⟡⋆✸✹✺⊛⊕⊗]\s*\S[^\n]{0,60}…|⎿\s*(?:Running|Waiting|Thinking|Working)|^\s*[✶✻✽✢✧✦✱✳](?:\s+\S+){0,8}\s*$|^\s*[·*+](?:\s+\S){0,6}\s*$/,
+    blocked: /Do you want to|Would you like to|Yes, allow|Allow once|Yes, I accept|❯\s*1\.|\(y\/n\)|Esc to cancel/i,
+  },
+  buildArgs({ mode, prompt, model, effectiveModel, effort, extraOptions, maxTurns, workDir, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation, cliSessionId }) {
     const { slug: normalizedModel } = resolveLaunchModel({ model, effectiveModel }, 'claude');
     const args: string[] = [];
     if (promptPolicy === 'read-only-worker') {
@@ -566,7 +595,14 @@ const claudeAdapter: CliAdapter = {
     if (mode !== 'interactive') {
       args.push('--print', '--verbose', '--output-format', 'stream-json');
     }
-    if (continueSession) args.push('--continue');
+    // Pin the conversation UUID on start so resume can target it exactly;
+    // sessions started before the id was stored fall back to --continue.
+    if (continueSession) {
+      if (cliSessionId) args.push('--resume', cliSessionId);
+      else args.push('--continue');
+    } else if (cliSessionId) {
+      args.push('--session-id', cliSessionId);
+    }
     if (normalizedModel) args.push('--model', normalizedModel);
     if (effort) args.push('--effort', effort);
     if (maxTurns && maxTurns > 0) args.push('--max-turns', String(maxTurns));

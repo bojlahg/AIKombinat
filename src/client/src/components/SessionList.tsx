@@ -286,10 +286,8 @@ export default function SessionList({
             const canStart = ['pending', 'failed', 'stopped', 'completed'].includes(session.status);
             const canStop = session.status === 'running';
             const canEdit = session.status !== 'running';
-            const canResume =
-              ['stopped', 'failed', 'completed'].includes(session.status) &&
-              (session.cli_tool ?? 'claude') === 'claude' &&
-              !!session.worktree_path;
+            // Server-decided (saved conversation exists, CLI supports it).
+            const canResume = ['stopped', 'failed', 'completed'].includes(session.status) && !!session.resumable;
             const isEditing = editingId === session.id;
             const winState = windowStates[session.id] ?? 'closed';
             const isPopped = winState === 'popped';
@@ -458,10 +456,7 @@ export default function SessionList({
         const canStart = ['pending', 'failed', 'stopped', 'completed'].includes(session.status);
         const canStop = session.status === 'running';
         const canEdit = session.status !== 'running';
-        const canResume =
-          ['stopped', 'failed', 'completed'].includes(session.status) &&
-          (session.cli_tool ?? 'claude') === 'claude' &&
-          !!session.worktree_path;
+        const canResume = ['stopped', 'failed', 'completed'].includes(session.status) && !!session.resumable;
         const canCleanup = session.status !== 'running' && (!!session.worktree_path || !!session.branch_name);
         const winState = windowStates[session.id] ?? 'closed';
         const isPopped = winState === 'popped';

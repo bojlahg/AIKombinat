@@ -337,6 +337,16 @@ describe('Database Queries', () => {
       expect(text).not.toContain('PREFIX_HEADER_');
       expect(text).toBe(largeContent.slice(largeContent.length - maxBytes));
     });
+
+    it('getSessionRawChunksTail returns the newest chunks covering maxBytes, oldest first', () => {
+      for (let i = 0; i < 5; i++) {
+        queries.appendSessionRawChunk(sessionId, Buffer.alloc(100, i));
+      }
+      expect(queries.getSessionRawChunksTail(sessionId, 250).map(r => r.seq)).toEqual([2, 3, 4]);
+      expect(queries.getSessionRawChunksTail(sessionId, 10_000).map(r => r.seq)).toEqual([0, 1, 2, 3, 4]);
+      expect(queries.getSessionRawBytesTotal(sessionId)).toBe(500);
+      expect(queries.getSessionRawBytesTotal('missing')).toBe(0);
+    });
   });
 
   describe('getRecentTaskLogText', () => {
@@ -385,6 +395,25 @@ describe('Database Queries', () => {
       expect(textLimitedBytes.length).toBeLessThanOrEqual(60);
       expect(textLimitedBytes).toContain('log-row-0249');
       expect(textLimitedBytes).not.toContain('log-row-0200');
+    });
+  });
+
+  describe('getProjectStatusCounts', () => {
+    it('aggregates todo/session/discussion counters in SQL', () => {
+      const project = queries.createProject('Counts', '/tmp/counts');
+      const a = queries.createTodo(project.id, 'A');
+      const b = queries.createTodo(project.id, 'B');
+      queries.createTodo(project.id, 'C');
+      queries.updateTodoStatus(a.id, 'running');
+      queries.updateTodoStatus(b.id, 'completed');
+      const s = queries.createSession(project.id, 'S');
+      queries.updateSessionStatus(s.id, 'running');
+      expect(queries.getProjectStatusCounts(project.id)).toEqual({
+        total: 3, running: 1, completed: 1, running_sessions: 1, running_discussions: 0,
+      });
+      expect(queries.getProjectStatusCounts('missing')).toEqual({
+        total: 0, running: 0, completed: 0, running_sessions: 0, running_discussions: 0,
+      });
     });
   });
 });

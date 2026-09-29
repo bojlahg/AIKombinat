@@ -1230,7 +1230,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         </div>
       )}
       {dropZoneInvalid && (
-        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-status-error/30 bg-status-error/10">
+        <div className="mt-1.5 flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-warm-300 bg-status-error/10">
           <Ban size={14} className="text-status-error flex-shrink-0" />
           <span className="text-xs font-medium text-status-error">{t('dnd.cyclicWarning')}</span>
         </div>

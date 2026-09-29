@@ -415,7 +415,7 @@ describe('Test Hardening & Boundary Guard Suite', () => {
         args: [],
         workDir: safeDir,
       });
-      expect(fs.existsSync(debugSession.filePath)).toBe(true);
+      await vi.waitFor(() => expect(fs.existsSync(debugSession.filePath)).toBe(true));
       debugSession.finalize(0);
     });
 
