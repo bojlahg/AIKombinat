@@ -16,6 +16,7 @@ These are implemented foundations rather than future roadmap items:
 
 - Model Catalog in SQLite.
 - Claude Code / Codex / Antigravity model discovery.
+- OpenCode Executor V1 for headless implementation/rework and read-only review, with exact CLI-discovered models, Execution Profiles and Executor Pool admission. [Real Muse/Stop smoke](docs/OpenCode_Executor_V1_Smoke_Report.md) verified OpenCode 1.18.33; interactive/resume, V2, backend-aware quota and Delegation worker isolation remain follow-ups.
 - Provider-native effort metadata and Antigravity provider-variant resolution.
 - Execution Profiles with ordered executor/model/effort candidates.
 - Late runtime executor resolution and persisted execution snapshots.

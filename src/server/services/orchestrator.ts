@@ -1025,6 +1025,7 @@ export class Orchestrator {
     let debugSession: DebugSession | null = null;
     let executionStartRowid = 0;
     let streamDrainPromise: Promise<void> | null = null;
+    let openCodeAssistantOutput = '';
     let delegationLaunch: PreparedDelegationLaunch | null = null;
 
     if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
@@ -1365,6 +1366,12 @@ export class Orchestrator {
       // Debug logging: capture full stdin/stdout/stderr to file
       let stdout = result.stdout;
       let stderr = result.stderr;
+      if (resolvedCliTool === 'opencode' && currentRound) {
+        stdout.setEncoding('utf8');
+        stdout.on('data', (chunk: string) => {
+          openCodeAssistantOutput = (openCodeAssistantOutput + chunk).slice(-64 * 1024);
+        });
+      }
       if (project.debug_logging) {
         debugSession = debugLogger.startSession({
           todoId, projectPath, cliTool: resolvedCliTool,
@@ -1649,7 +1656,9 @@ export class Orchestrator {
           const tokenUsage = logStreamer.getTokenUsage(todoId);
 
           if (todo.review_enabled && currentRound) {
-            const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
+            const combinedOutput = resolvedCliTool === 'opencode'
+              ? openCodeAssistantOutput
+              : queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
             const advanceResult = await reviewPipeline.advanceRoundOnSuccess(
               todoId,
               currentRound.id,

@@ -4,8 +4,9 @@ import { execFile } from 'child_process';
 import { getModelByValue } from '../db/queries.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 import { logger } from '../logging/logger.js';
+import { OpenCodeOutputDecoder } from './opencode.js';
 
-export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
+export type CliTool = 'claude' | 'antigravity' | 'codex' | 'opencode' | 'raw-shell';
 export type CliMode = 'headless' | 'interactive' | 'verbose';
 export type SandboxMode = 'strict' | 'permissive';
 
@@ -49,6 +50,7 @@ export interface CliBuildOptions extends LaunchModelSelection {
     scratchDirectory: string;
     emptyMcpConfigPath: string;
   };
+  opencodeStandalone?: boolean;
 }
 
 export interface ProbedModel {
@@ -291,6 +293,11 @@ const COMMON_RESERVED_OPTIONS = new Set([
 ]);
 
 const PROVIDER_RESERVED_OPTIONS: Record<ProviderTool, ReadonlySet<string>> = {
+  opencode: new Set([
+    ...COMMON_RESERVED_OPTIONS, '--standalone', '--server', '--auto', '--yolo',
+    '--dangerously-skip-permissions', '--agent', '--format', '--file', '-f',
+    '--session', '-s', '--fork', '--prompt', '--thinking', '--title', '-m', '-c',
+  ]),
   claude: new Set([
     ...COMMON_RESERVED_OPTIONS,
     '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions',
@@ -826,7 +833,30 @@ const rawShellAdapter: CliAdapter = {
   },
 };
 
+const opencodeAdapter: CliAdapter = {
+  command: 'opencode',
+  displayName: 'OpenCode',
+  supportsInteractive: false,
+  compatibilityFlags: ['--standalone', '--format', '--model', '--agent'],
+  buildArgs({ mode, model, effectiveModel, effort, continueSession, promptPolicy, extraOptions, opencodeStandalone }) {
+    if (mode === 'interactive' || continueSession || effort || promptPolicy === 'read-only-worker') {
+      throw new Error('OpenCode V1 does not support interactive, resume, effort overrides, or Delegation workers.');
+    }
+    const selected = effectiveModel ?? model;
+    if (!selected || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*\/[a-zA-Z0-9][a-zA-Z0-9_./:+-]*(?:#[a-zA-Z0-9_.-]+)?$/.test(selected)) {
+      throw new Error('OpenCode requires an exact provider/model ID.');
+    }
+    if (extraOptions?.trim()) throw new Error('OpenCode V1 does not accept extra CLI options.');
+    return ['run', ...(opencodeStandalone ? ['--standalone'] : []), '--format', 'json', '--model', selected, '--agent',
+      promptPolicy === 'review' || promptPolicy === 'discussion' ? 'aikombinat-review' : 'aikombinat-build'];
+  },
+  needsStdin: () => true,
+  formatStdinPrompt: (prompt) => prompt + '\n',
+  createOutputDecoder: () => new OpenCodeOutputDecoder(),
+};
+
 const adapters: Record<CliTool, CliAdapter> = {
+  opencode: opencodeAdapter,
   claude: claudeAdapter,
   antigravity: antigravityAdapter,
   codex: codexAdapter,

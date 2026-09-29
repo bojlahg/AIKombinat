@@ -41,6 +41,24 @@ sudo dnf groupinstall "Development Tools"  # Fedora/RHEL
 npm install -g @anthropic-ai/claude-code
 ```
 
+### OpenCode headless executor (optional)
+
+OpenCode requires a CLI on the AIKombinat server's PATH; installing or opening its GUI alone does not verify that CLI. The verified runtime is OpenCode **1.18.33**:
+
+```bash
+npm install -g opencode-ai@1.18.33
+opencode --version
+opencode run --help
+opencode models --help
+opencode models --refresh
+```
+
+Existing users can keep their configured installation. Configure provider credentials through OpenCode itself; do not paste credentials into AIKombinat profiles. In Settings → Agents, refresh the Model Catalog, add an exact discovered `provider/model` to an Execution Profile, then select that profile for a Todo or its review/rework phases. OpenCode has no effort selector or Provider Quota V1 badge.
+
+AIKombinat verifies the V1 CLI contract (`run --format json --model --agent` and `models`). Version 1.18.33 has no `--standalone`; its un-attached `run` creates a private in-process server. A CLI advertising `--standalone` uses it. OpenCode 2.x has a different permissions contract and is reported as incompatible in this iteration.
+
+Prompts travel over stdin. Each execution gets managed build or read-only review permissions, with no interactive permission questions. The temporary configuration is removed after process exit; global provider/auth configuration is preserved. Permissions restrict tools and workspace access but are not an OS sandbox. Interactive sessions, resume, arbitrary CLI options and Delegation workers are unsupported. See the [verified smoke report](OpenCode_Executor_V1_Smoke_Report.md).
+
 ### cloudflared 설치 (외부 접속이 필요한 경우만)
 
 ```bash

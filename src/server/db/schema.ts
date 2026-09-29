@@ -76,7 +76,7 @@ export function initDatabase(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS cli_models (
       id TEXT PRIMARY KEY,
-      cli_tool TEXT NOT NULL CHECK (cli_tool IN ('claude', 'codex', 'antigravity')),
+      cli_tool TEXT NOT NULL CHECK (cli_tool IN ('claude', 'codex', 'antigravity', 'opencode')),
       model_value TEXT NOT NULL,
       model_label TEXT NOT NULL,
       supported_efforts TEXT,
@@ -791,6 +791,8 @@ export function initDatabase(db: Database.Database): void {
     // unique index creation may fail if dedupe missed a corner case; leave index off rather than crash startup
   }
 
+  migrateOpenCodeCatalog(db);
+
   // Normalize catalogs created by older versions without turning a bundled
   // registry into a second source of truth.
   db.prepare(`UPDATE cli_models SET source = CASE WHEN source IN ('user', 'manual') THEN 'manual' ELSE 'cli' END`).run();
@@ -847,6 +849,28 @@ export function initDatabase(db: Database.Database): void {
   migrateAgentForumTurnHistory(db);
   enforceAgentForumUniqueIndexes(db);
 }
+function migrateOpenCodeCatalog(db: Database.Database): void {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cli_models'").get() as { sql: string };
+  if (row.sql.includes("'opencode'")) return;
+  const sql = row.sql.replace(/CHECK\s*\(\s*cli_tool\s+IN\s*\([^)]*\)\s*\)/i,
+    "CHECK (cli_tool IN ('claude', 'codex', 'antigravity', 'opencode'))");
+  if (sql === row.sql) throw new Error('Cannot safely migrate cli_models CLI constraint');
+  const foreignKeys = db.pragma('foreign_keys', { simple: true });
+  const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'cli_models' AND sql IS NOT NULL").all() as { sql: string }[];
+  const columns = (db.pragma('table_info(cli_models)') as { name: string }[]).map((column) => `"${column.name.replace(/"/g, '""')}"`).join(', ');
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(sql.replace(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`\[]?cli_models["`\]]?/i, 'CREATE TABLE cli_models_opencode_migration'));
+      db.exec(`INSERT INTO cli_models_opencode_migration (${columns}) SELECT ${columns} FROM cli_models`);
+      db.exec('DROP TABLE cli_models');
+      db.exec('ALTER TABLE cli_models_opencode_migration RENAME TO cli_models');
+      for (const index of indexes) db.exec(index.sql);
+      if ((db.pragma('foreign_key_check') as unknown[]).length > 0) throw new Error('OpenCode migration violated foreign key integrity');
+    })();
+  } finally { db.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`); }
+}
+
 function dropColumnIfPresent(db: Database.Database, table: string, column: string): void {
   const columns = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) return;

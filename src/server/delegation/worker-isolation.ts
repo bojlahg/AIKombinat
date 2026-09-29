@@ -10,6 +10,10 @@ export interface DelegationWorkerIsolationCapability {
 }
 
 const CAPABILITIES: Record<Exclude<CliTool, 'raw-shell'>, DelegationWorkerIsolationCapability> = {
+  opencode: {
+    provider: 'opencode', proven: false, strategy: 'unsupported',
+    evidence: 'OpenCode permissions are guardrails, not a proven tool-less or scratch-only isolation boundary.',
+  },
   claude: {
     provider: 'claude',
     proven: true,

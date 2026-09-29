@@ -356,6 +356,8 @@ export const ko = {
     'catalog.lastSeen': '마지막 확인',
     'catalog.never': '없음',
     'catalog.models': '모델',
+    'catalog.cliReady': 'CLI 준비됨',
+    'catalog.cliUnavailable': 'CLI 미설치 또는 호환되지 않음',
     'catalog.deleteModel': '모델 삭제',
     'catalog.saveFailed': '모델 저장 실패',
     'catalog.refreshFailed': '새로 고침에 실패했습니다. 기존 카탈로그를 유지했습니다.',

@@ -354,6 +354,8 @@ export const en = {
     'catalog.lastSeen': 'Last seen',
     'catalog.never': 'Never',
     'catalog.models': 'models',
+    'catalog.cliReady': 'CLI ready',
+    'catalog.cliUnavailable': 'CLI missing or incompatible',
     'catalog.deleteModel': 'Delete model',
     'catalog.saveFailed': 'Failed to save models',
     'catalog.refreshFailed': 'Refresh failed. Existing catalog retained.',

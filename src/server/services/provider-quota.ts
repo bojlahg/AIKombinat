@@ -1,12 +1,12 @@
 import * as queries from '../db/queries.js';
-import type { AgentCliTool } from '../db/queries.js';
+import type { QuotaProviderTool } from '../db/queries.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import { logger } from '../logging/logger.js';
 
 export type QuotaState = 'available' | 'exhausted' | 'unknown';
 
 export interface ProviderQuotaStateRecord {
-  tool: AgentCliTool;
+  tool: QuotaProviderTool;
   state: QuotaState;
   source: string;
   observedAt: string;
@@ -15,13 +15,13 @@ export interface ProviderQuotaStateRecord {
 }
 
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes default cooldown
-const TRACKED_TOOLS: AgentCliTool[] = ['claude', 'codex', 'antigravity'];
+const TRACKED_TOOLS: QuotaProviderTool[] = ['claude', 'codex', 'antigravity'];
 
 export class ProviderQuotaService {
-  private cache: Map<AgentCliTool, ProviderQuotaStateRecord> = new Map();
+  private cache: Map<QuotaProviderTool, ProviderQuotaStateRecord> = new Map();
   private cooldownMsOverride: number | null = null;
   private availabilityCallback: (() => void) | null = null;
-  private resetTimers: Map<AgentCliTool, NodeJS.Timeout> = new Map();
+  private resetTimers: Map<QuotaProviderTool, NodeJS.Timeout> = new Map();
 
   getCooldownMs(): number {
     if (this.cooldownMsOverride !== null) return this.cooldownMsOverride;
@@ -53,7 +53,7 @@ export class ProviderQuotaService {
     }
   }
 
-  private clearTimer(tool: AgentCliTool): void {
+  private clearTimer(tool: QuotaProviderTool): void {
     const timer = this.resetTimers.get(tool);
     if (timer) {
       clearTimeout(timer);
@@ -68,7 +68,7 @@ export class ProviderQuotaService {
     this.resetTimers.clear();
   }
 
-  private scheduleExhaustionTimer(tool: AgentCliTool, record: ProviderQuotaStateRecord): void {
+  private scheduleExhaustionTimer(tool: QuotaProviderTool, record: ProviderQuotaStateRecord): void {
     this.clearTimer(tool);
     if (record.state !== 'exhausted') return;
 
@@ -179,7 +179,7 @@ export class ProviderQuotaService {
     return false;
   }
 
-  getQuotaState(tool: AgentCliTool): ProviderQuotaStateRecord {
+  getQuotaState(tool: QuotaProviderTool): ProviderQuotaStateRecord {
     let record = this.cache.get(tool);
 
     if (!record) {
@@ -260,7 +260,7 @@ export class ProviderQuotaService {
   }
 
   markExhausted(
-    tool: AgentCliTool,
+    tool: QuotaProviderTool,
     options: { source: string; reason?: string | null; resetAt?: string | null },
   ): ProviderQuotaStateRecord {
     const observedAt = new Date().toISOString();
@@ -311,7 +311,7 @@ export class ProviderQuotaService {
   }
 
   markAvailable(
-    tool: AgentCliTool,
+    tool: QuotaProviderTool,
     options: { source?: string } = {},
   ): ProviderQuotaStateRecord {
     const current = this.getQuotaState(tool);
@@ -369,7 +369,7 @@ export class ProviderQuotaService {
   }
 
   markUnknown(
-    tool: AgentCliTool,
+    tool: QuotaProviderTool,
     options: { source?: string; reason?: string | null } = {},
   ): ProviderQuotaStateRecord {
     const previous = this.cache.get(tool);

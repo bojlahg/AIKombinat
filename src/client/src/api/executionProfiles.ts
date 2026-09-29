@@ -1,6 +1,6 @@
 import { del, get, patch, post } from './client';
 
-export type AgentCliTool = 'claude' | 'codex' | 'antigravity';
+export type AgentCliTool = 'claude' | 'codex' | 'antigravity' | 'opencode';
 
 export interface ExecutionProfileExecutor {
   id: string;

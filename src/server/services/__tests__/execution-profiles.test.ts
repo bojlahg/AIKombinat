@@ -62,6 +62,20 @@ describe('execution profiles', () => {
     expect(queries.getExecutionProfileById(profile.id)).toMatchObject({ slug: 'complex', name: 'Complex task', executors: [{ cli_tool: 'claude' }, { cli_tool: 'codex' }] });
   });
 
+  it('accepts OpenCode profile candidates through the API and rejects unsupported effort overrides', async () => {
+    const model = queries.addModel('opencode', 'provider/model', 'OpenCode', []);
+    const created = await apiRequest(executionProfilesModule.default, '/execution-profiles', {
+      method: 'POST', body: JSON.stringify({ name: 'OpenCode', description: '',
+        executors: [{ cliModelId: model.id, effortValue: null, priority: 0, isEnabled: true }] }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ executors: [{ cliTool: 'opencode', modelValue: 'provider/model' }] });
+    const invalid = await apiRequest(executionProfilesModule.default, '/execution-profiles', {
+      method: 'POST', body: JSON.stringify({ name: 'Unsupported effort', executors: [{ cliModelId: model.id, effortValue: 'high' }] }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+
   it('generates collision-safe slugs from the profile name and keeps them stable', async () => {
     const create = () => apiRequest(executionProfilesModule.default, '/execution-profiles', {
       method: 'POST', body: JSON.stringify({ name: 'Complex Work', description: 'Planning guidance', executors: [] }),

@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { claudeManager } from './claude-manager.js';
 import { getAdapter, type CliTool, type SandboxMode } from './cli-adapters.js';
-import { isAgentCliTool } from './provider-types.js';
+import { isAgentCliTool, isQuotaProviderTool } from './provider-types.js';
 import { executionSnapshot, launchSelection, resolveExecutionConfig } from './execution-config.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import * as queries from '../db/queries.js';
@@ -699,7 +699,7 @@ export class AgentForumOrchestrator {
           resolvedCliTool = executionConfig.cliTool;
         }
 
-        if (isAgentCliTool(resolvedCliTool)) {
+        if (isQuotaProviderTool(resolvedCliTool)) {
           const quota = providerQuotaService.getQuotaState(resolvedCliTool);
           if (quota.state === 'exhausted') {
             const adapter = getAdapter(resolvedCliTool);
@@ -853,7 +853,7 @@ export class AgentForumOrchestrator {
       const errorOutput = stderrParts.join('\n').trim();
 
       if (exitCode === 0) {
-        if (isAgentCliTool(resolvedCliTool)) {
+        if (isQuotaProviderTool(resolvedCliTool)) {
           providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
         }
 
@@ -946,7 +946,7 @@ export class AgentForumOrchestrator {
         const combinedOutput = [fullOutput, errorOutput].filter(Boolean).join('\n');
         const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
         if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
-          if (isAgentCliTool(resolvedCliTool)) {
+          if (isQuotaProviderTool(resolvedCliTool)) {
             providerQuotaService.markExhausted(resolvedCliTool, {
               source: 'runtime_rejection',
               reason: classification.reason,

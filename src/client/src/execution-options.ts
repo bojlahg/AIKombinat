@@ -1,4 +1,4 @@
-export type AgentCliTool = 'claude' | 'codex' | 'antigravity';
+export type AgentCliTool = 'claude' | 'codex' | 'antigravity' | 'opencode';
 
 export interface CatalogModel {
   id?: string;
@@ -14,6 +14,7 @@ export const PROVIDER_EFFORT_FALLBACKS: Record<AgentCliTool, string[]> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],
   codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   antigravity: ['low', 'medium', 'high'],
+  opencode: [],
 };
 
 export function visibleModelOptions(models: CatalogModel[], selectedValue?: string | null): CatalogModel[] {

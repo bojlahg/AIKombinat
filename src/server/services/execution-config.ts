@@ -28,6 +28,7 @@ function parsedEfforts(model: queries.CliModel): string[] | null {
 
 function effortConfig(model: queries.CliModel | undefined, effort: string | null | undefined) {
   const nativeEffort = effort && effort !== 'provider-default' ? effort : undefined;
+  if (model?.cli_tool === 'opencode' && nativeEffort) throw new Error('OpenCode V1 does not support effort overrides.');
   const supportedEfforts = model ? parsedEfforts(model) : null;
   if (model?.cli_tool === 'antigravity' && model.provider_variants && !nativeEffort) {
     throw new Error(`Antigravity model "${model.model_label}" requires an explicit effort selection (${(supportedEfforts ?? []).join(', ')}).`);

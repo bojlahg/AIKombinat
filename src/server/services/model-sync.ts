@@ -12,6 +12,7 @@ import {
 } from '../db/queries.js';
 import { getAdapter, type CliTool, type ProbedModel } from './cli-adapters.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
+import { OPEN_CODE_MODEL_ID } from './opencode.js';
 
 const MODEL_REFRESH_TTL_MS = 6 * 60 * 60 * 1000;
 const DISCOVERY_TIMEOUT_MS = 10_000;
@@ -432,7 +433,23 @@ async function discoverClaude(version: string): Promise<ModelDiscoveryResult> {
   return { models: [...merged.values()], source: 'claude-documented', authoritative: false, primarySucceeded: true };
 }
 
-export async function discoverModelCatalog(tool: CliTool, version = ''): Promise<ModelDiscoveryResult> {
+export function parseOpenCodeModels(output: string): DiscoveredModel[] {
+  const values = stripTerminalSequences(output).split(/\r?\n/).map((line) => line.trim())
+    .filter((value) => OPEN_CODE_MODEL_ID.test(value));
+  return [...new Set(values)].sort().map((value) => ({ value, label: value, supportedEfforts: [] }));
+}
+
+export async function discoverOpenCode(run = execCommand, refresh = false): Promise<ModelDiscoveryResult> {
+  const args = ['models', ...(refresh ? ['--refresh'] : [])];
+  const result = await run('opencode', args);
+  const models = parseOpenCodeModels(result.stdout);
+  const success = result.exitCode === 0 && !result.timeout && models.length > 0;
+  return { models: success ? models : [], source: 'opencode-models', authoritative: success,
+    primarySucceeded: success, diagnostics: [diagnostic(`opencode ${args.join(' ')}`, result, models.length, 'opencode-models')] };
+}
+
+export async function discoverModelCatalog(tool: CliTool, version = '', refresh = false): Promise<ModelDiscoveryResult> {
+  if (tool === 'opencode') return discoverOpenCode(execCommand, refresh);
   if (tool === 'antigravity') {
     const primary = await discoverAntigravity();
     return primary ?? { models: [], source: 'registry', authoritative: false, primarySucceeded: false };
@@ -449,11 +466,12 @@ export async function discoverModelCatalog(tool: CliTool, version = ''): Promise
 
 export async function refreshModelCatalog(
   tool: CliTool,
-  options: { version?: string; discover?: (tool: CliTool, version: string) => Promise<ModelDiscoveryResult> } = {},
+  options: { version?: string; explicitRefresh?: boolean; discover?: (tool: CliTool, version: string) => Promise<ModelDiscoveryResult> } = {},
 ): Promise<ModelDiscoveryResult> {
   const now = new Date().toISOString();
-  const discover = options.discover ?? discoverModelCatalog;
-  const discovered = await discover(tool, options.version ?? '');
+  const discovered = options.discover
+    ? await options.discover(tool, options.version ?? '')
+    : await discoverModelCatalog(tool, options.version ?? '', options.explicitRefresh ?? false);
   const result = discovered.models.length > 0 ? discovered : { ...discovered, authoritative: false, primarySucceeded: false };
   if (result.models.length === 0) return { ...result, added: 0, updated: 0, restored: 0, markedMissing: 0 };
 

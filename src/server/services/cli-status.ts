@@ -11,6 +11,7 @@ export interface CliToolStatus {
   version: string | null;
   /** Cached flags from provider help; omitted for non-AI tools and test mocks. */
   capabilities?: string[];
+  usable?: boolean;
 }
 
 interface CacheEntry {
@@ -23,6 +24,7 @@ const CHECK_TIMEOUT = 5_000; // 5 seconds
 const cache = new Map<string, CacheEntry>();
 
 const TOOLS = [
+  { tool: 'opencode', command: 'opencode', helpArgs: ['run', '--help'], secondaryHelpArgs: ['models', '--help'] },
   { tool: 'claude', command: 'claude' },
   { tool: 'antigravity', command: 'agy', helpArgs: ['--help'] },
   // Resume owns --last while sandbox/approval flags belong to exec. Probe both
@@ -72,7 +74,11 @@ async function checkTool(
   if (versionProbe.error) return { tool, installed: false, version: null };
 
   const version = versionProbe.stdout.trim().split('\n')[0].trim() || null;
-  if (!isVcs) {
+  const capabilities = parseCliHelpFlags(helpProbes.map((probe) => `${probe.stdout}\n${probe.stderr}`).join('\n'));
+  const usable = tool !== 'opencode' || (!!version && /^1\./.test(version)
+    && helpProbes.every((probe) => !probe.error)
+    && ['--format', '--model', '--agent'].every((flag) => capabilities.includes(flag)));
+  if (!isVcs && usable) {
     await maybeTriggerSync(tool as CliTool, version);
   }
   const helpText = helpProbes
@@ -83,6 +89,7 @@ async function checkTool(
     tool,
     installed: true,
     version,
+    ...(tool === 'opencode' ? { usable } : {}),
     ...(helpArgs ? { capabilities: parseCliHelpFlags(helpText) } : {}),
   };
 }

@@ -356,6 +356,8 @@ export const ru = {
     'catalog.lastSeen': 'Последний раз обнаружена',
     'catalog.never': 'Никогда',
     'catalog.models': 'моделей',
+    'catalog.cliReady': 'CLI готов',
+    'catalog.cliUnavailable': 'CLI отсутствует или несовместим',
     'catalog.deleteModel': 'Удалить модель',
     'catalog.saveFailed': 'Не удалось сохранить модели',
     'catalog.refreshFailed': 'Обновление не удалось. Существующий каталог сохранён.',

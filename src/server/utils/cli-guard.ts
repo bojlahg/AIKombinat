@@ -8,6 +8,8 @@ const AI_CLI_BASENAMES = new Set([
   'codex',
   'agy',
   'antigravity',
+  'opencode',
+  'opencode2',
 ]);
 
 /**

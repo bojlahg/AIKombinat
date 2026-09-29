@@ -181,5 +181,16 @@ export function classifyProviderFailure(
     }
   }
 
+  if (tool === 'opencode') {
+    const reason = /missing\/incompatible|not recognized|not found on PATH/i.test(cleanOutput) ? 'CLI missing/incompatible'
+      : /model.*(?:unavailable|not found|does not exist)|ModelNotFound/i.test(cleanOutput) ? 'model unavailable'
+      : /auth|unauthorized|api.?key|401/i.test(cleanOutput) ? 'authentication failure'
+      : /empty-success/i.test(cleanOutput) ? 'empty-success anomaly'
+      : /transport|decode|malformed/i.test(cleanOutput) ? 'transport/decode failure'
+      : /stopped|interrupted/i.test(cleanOutput) ? 'stopped'
+      : 'runtime/provider error';
+    return { category: reason === 'authentication failure' ? 'auth_error' : 'other', reason: `OpenCode ${reason}` };
+  }
+
   return { category: 'other', reason: null };
 }

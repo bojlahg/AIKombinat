@@ -4,6 +4,8 @@ export interface CliToolStatus {
   tool: string;
   installed: boolean;
   version: string | null;
+  usable?: boolean;
+  capabilities?: string[];
 }
 
 export interface ProviderQuotaState {

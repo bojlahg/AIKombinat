@@ -4,6 +4,7 @@ import AgentsSettingsPanel from '../../components/settings/AgentsSettingsPanel';
 import { I18nProvider } from '../../i18n';
 
 const catalog = {
+  opencode: [{ id: 'o1', value: 'provider/model', label: 'OpenCode Model', status: 'available', source: 'cli', supportedEfforts: [], sortOrder: 0, lastSeenAt: null, lastCheckedAt: null }],
   claude: [
     { id: 'c1', value: 'claude-opus-5', label: 'Opus 5', status: 'available', source: 'cli', supportedEfforts: ['high'], sortOrder: 0, lastSeenAt: null, lastCheckedAt: null },
     { id: 'c2', value: 'claude-sonnet-5', label: 'Sonnet 5', status: 'available', source: 'cli', supportedEfforts: ['medium'], sortOrder: 1, lastSeenAt: null, lastCheckedAt: null },
@@ -50,6 +51,26 @@ describe('Agents settings model catalog and profiles UX', () => {
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  it('shows OpenCode catalog/profile candidates and CLI status without fabricating a quota badge', async () => {
+    fetchMock.mockImplementation(async (input: string) => {
+      if (input === '/api/models') return response(catalog);
+      if (input === '/api/cli/status') return response([{ tool: 'opencode', installed: true, usable: true, version: '1.18.33' }]);
+      if (input === '/api/cli/quota') return response([]);
+      if (input.startsWith('/api/execution-profiles')) return response(profiles);
+      return response({});
+    });
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Models' }));
+    const group = screen.getByText('OpenCode').closest('.rounded-xl') as HTMLElement;
+    expect(within(group).getByText('CLI ready (1.18.33)')).toBeInTheDocument();
+    expect(within(group).queryByText(/Quota:/)).not.toBeInTheDocument();
+    expect(within(group).getByLabelText('OpenCode provider/model Label')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
+    fireEvent.change(screen.getByLabelText('Agent 1'), { target: { value: 'opencode' } });
+    expect(screen.getByLabelText('Model Catalog 1')).toHaveValue('o1');
+    expect(screen.getByLabelText('Effort 1')).toHaveValue('');
+  });
 
   it('separates tabs, preserves drafts, bulk-saves only one agent, and collapses sections', async () => {
     render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import * as profilesApi from '../../api/executionProfiles';
-import { type ProviderQuotaState } from '../../api/cli-status';
+import { type ProviderQuotaState, type CliToolStatus } from '../../api/cli-status';
 
 import type { WsEvent } from '../../hooks/useWebSocket';
 
@@ -14,12 +14,13 @@ type Model = {
 type RefreshResult = { source: string; authoritative: boolean; added: number; updated: number; restored: number; markedMissing: number };
 
 const AGENTS: Array<{ value: Tool; label: string }> = [
-  { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }, { value: 'antigravity', label: 'Antigravity' },
+  { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }, { value: 'antigravity', label: 'Antigravity' }, { value: 'opencode', label: 'OpenCode' },
 ];
 const FALLBACK_EFFORTS: Record<Tool, string[]> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],
   codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   antigravity: [],
+  opencode: [],
 };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -47,9 +48,10 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
   const [models, setModels] = useState<Record<string, Model[]>>({});
   const [savedModels, setSavedModels] = useState<Record<string, Model[]>>({});
   const [quotas, setQuotas] = useState<Record<string, ProviderQuotaState>>({});
+  const [cliStatuses, setCliStatuses] = useState<CliToolStatus[]>([]);
   const [profiles, setProfiles] = useState<profilesApi.ExecutionProfile[]>([]);
   const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
-  const [collapsedAgents, setCollapsedAgents] = useState<Record<Tool, boolean>>({ claude: false, codex: false, antigravity: false });
+  const [collapsedAgents, setCollapsedAgents] = useState<Record<Tool, boolean>>({ claude: false, codex: false, antigravity: false, opencode: false });
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState<Tool | null>(null);
   const [saving, setSaving] = useState<Tool | null>(null);
@@ -66,7 +68,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
           return;
         }
 
-        const validTool = tool as Tool;
+        const validTool = tool as ProviderQuotaState['tool'];
         const validState = state as ProviderQuotaState['state'];
 
         setQuotas((prev) => {
@@ -107,8 +109,10 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
       json<Record<string, Model[]>>('/api/models'),
       profilesApi.getProfiles(true),
       json<ProviderQuotaState[]>('/api/cli/quota').catch(() => [] as ProviderQuotaState[]),
+      json<CliToolStatus[]>('/api/cli/status').catch(() => [] as CliToolStatus[]),
     ])
-      .then(([catalog, executionProfiles, quotaList]) => {
+      .then(([catalog, executionProfiles, quotaList, statuses]) => {
+        setCliStatuses(Array.isArray(statuses) ? statuses : []);
         setModels(catalog);
         setSavedModels(catalog);
         setProfiles(executionProfiles);
@@ -267,8 +271,15 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
             <button className="flex items-center gap-2 text-left" aria-expanded={!collapsed} onClick={() => setCollapsedAgents((current) => ({ ...current, [agent.value]: !current[agent.value] }))}>
               {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
               <span className="font-semibold">{agent.label}</span>
+              {cliStatuses.find((status) => status.tool === agent.value) && <span className="text-xs text-warm-500">
+                {(() => {
+                  const status = cliStatuses.find((item) => item.tool === agent.value)!;
+                  return `${status.installed && status.usable !== false ? t('catalog.cliReady') : t('catalog.cliUnavailable')}${status.version ? ` (${status.version})` : ''}`;
+                })()}
+              </span>}
               <span className="text-xs text-warm-500">{agentModels.length} {t('catalog.models')}</span>
               {(() => {
+                if (agent.value === 'opencode') return null;
                 const quota = quotas[agent.value];
                 const quotaState = quota?.state ?? 'unknown';
                 const quotaLabel = quotaState === 'available'

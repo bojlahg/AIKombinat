@@ -7,6 +7,7 @@ import { createRequire } from 'module';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { getAdapter, type CliAdapter, type CliTool, type CliMode, type LaunchModelSelection, type PromptPolicy, type SandboxMode } from './cli-adapters.js';
+import { createOpenCodeConfig } from './opencode.js';
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
@@ -243,7 +244,12 @@ export class ClaudeManager {
 
     const adapter = getAdapter(tool);
     const selection: LaunchModelSelection = typeof model === 'string' ? { model } : (model ?? {});
-    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation });
+    const openCodeStatus = tool === 'opencode' ? await getToolStatus(tool) : null;
+    if (tool === 'opencode' && (!openCodeStatus?.installed || openCodeStatus.usable === false)) {
+      throw new Error('OpenCode CLI missing/incompatible: install the verified OpenCode 1.x CLI on PATH.');
+    }
+    const args = adapter.buildArgs({ mode, prompt, ...selection, effort, extraOptions, maxTurns, workDir: worktreePath, projectPath: projectPath || worktreePath, sandboxMode, continueSession, promptPolicy, delegationMcp, delegationWorkerIsolation,
+      opencodeStandalone: openCodeStatus?.capabilities?.includes('--standalone') });
 
     // Shared spawn diagnostics for every feature (todo, review, forum, session,
     // discussion). Features add their own summaries on top; none of them
@@ -327,7 +333,19 @@ export class ClaudeManager {
     const result = await this.spawnAndLog(
       async () => {
         await assertToolCompatible();
-        return this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy, runtimeEnv);
+        const managed = tool === 'opencode' ? createOpenCodeConfig(promptPolicy) : undefined;
+        const cleanup = () => {
+          try { managed?.cleanup(); } catch (error) {
+            logger.warn('opencode.config.cleanup-failed', { msg: 'Could not remove execution-local OpenCode config',
+              message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        try {
+          const launched = await this.startWithSpawn(adapter, args, worktreePath, prompt, mode, promptPolicy,
+            { ...runtimeEnv, ...managed?.env });
+          void launched.exitPromise.then(cleanup, cleanup);
+          return launched;
+        } catch (error) { cleanup(); throw error; }
       },
       adapter,
       spawnFields,

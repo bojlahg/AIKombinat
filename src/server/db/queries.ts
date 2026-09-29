@@ -758,7 +758,8 @@ export function getScheduleRunsByScheduleId(scheduleId: string, limit = 50): (Sc
 
 // ── CLI Models ──
 
-export type AgentCliTool = 'claude' | 'codex' | 'antigravity';
+export type QuotaProviderTool = 'claude' | 'codex' | 'antigravity';
+export type AgentCliTool = QuotaProviderTool | 'opencode';
 
 export interface CliModel {
   id: string;
@@ -777,7 +778,7 @@ export interface CliModel {
   updated_at: string;
 }
 
-export type ModelSource = 'registry' | 'claude-alias' | 'claude-help' | 'claude-documented' | 'antigravity-models' | 'antigravity-models-json' | 'antigravity-model-command' | 'codex-app-server' | 'codex-cache';
+export type ModelSource = 'registry' | 'claude-alias' | 'claude-help' | 'claude-documented' | 'antigravity-models' | 'antigravity-models-json' | 'antigravity-model-command' | 'codex-app-server' | 'codex-cache' | 'opencode-models';
 
 export function getModelsByTool(tool: string, includeSuperseded = false): CliModel[] {
   const db = getDatabase();
@@ -2621,7 +2622,7 @@ export function setAppSetting(key: string, value: string): void {
 export type QuotaState = 'available' | 'exhausted' | 'unknown';
 
 export interface ProviderQuotaStateRow {
-  tool: AgentCliTool;
+  tool: QuotaProviderTool;
   state: QuotaState;
   source: string;
   reason: string | null;
@@ -2630,7 +2631,7 @@ export interface ProviderQuotaStateRow {
   updated_at: string;
 }
 
-export function getProviderQuotaState(tool: AgentCliTool): ProviderQuotaStateRow | undefined {
+export function getProviderQuotaState(tool: QuotaProviderTool): ProviderQuotaStateRow | undefined {
   const db = getDatabase();
   return db.prepare('SELECT * FROM provider_quota_state WHERE tool = ?').get(tool) as ProviderQuotaStateRow | undefined;
 }
@@ -2641,7 +2642,7 @@ export function getAllProviderQuotaStates(): ProviderQuotaStateRow[] {
 }
 
 export function upsertProviderQuotaState(data: {
-  tool: AgentCliTool;
+  tool: QuotaProviderTool;
   state: QuotaState;
   source: string;
   reason?: string | null;
@@ -2671,7 +2672,7 @@ export function upsertProviderQuotaState(data: {
   );
 }
 
-export function deleteProviderQuotaState(tool: AgentCliTool): boolean {
+export function deleteProviderQuotaState(tool: QuotaProviderTool): boolean {
   const db = getDatabase();
   return db.prepare('DELETE FROM provider_quota_state WHERE tool = ?').run(tool).changes > 0;
 }

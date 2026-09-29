@@ -14,6 +14,27 @@ AIKombinat 프로젝트는 **Vitest**를 테스트 프레임워크로 사용합�
 
 Delegation Router V1의 실제 Claude CLI 검증 결과와 재현 가능한 fixture 생성 방법은 [real-world smoke report](Delegation_Router_V1_Real_World_Smoke_Report.md)에 기록되어 있습니다. 이 검증은 mock 테스트를 대체하지 않으며, `npm run typecheck`, `npm test`, `npm run build`를 함께 실행합니다.
 
+### OpenCode Executor V1
+
+The [OpenCode smoke report](OpenCode_Executor_V1_Smoke_Report.md) records real CLI discovery, implementation, review and Stop results. Automated tests block accidental real OpenCode launches and cover migration, catalog preservation, adapter transport, NDJSON decoding, profiles, pool admission and UI selection:
+
+```bash
+npx vitest run src/server/services/__tests__/opencode.test.ts src/server/services/__tests__/opencode-status.test.ts src/server/services/__tests__/claude-manager.test.ts src/server/services/__tests__/execution-profiles.test.ts
+npm run typecheck
+npm test
+npm run build
+npm run docs:erd:check
+git diff --check
+```
+
+For an explicit real smoke, use a configured compatible OpenCode CLI and a **new disposable directory** outside any working repository:
+
+```bash
+npx tsx scripts/smoke-opencode.ts /path/to/new-opencode-smoke
+```
+
+On Windows, use an absolute path such as `D:/Temp/new-opencode-smoke`. The script refuses an existing directory, creates its own fixture Git repository and SQLite database, refreshes real models, selects discovered free Muse (or another discovered free model), runs implementation/review, an invalid-model failure and Stop, and writes `report.json` with exit code 1 on any failed assertion. No paid model is substituted. Provider availability can change; this is a separate real inference check, not part of ordinary unit tests. The fixture is committed locally, never pushed. Rerun using a new directory.
+
 ### 전체 테스트 실행
 ```bash
 npm test

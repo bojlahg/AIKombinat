@@ -38,6 +38,7 @@ const DEFAULT_CONCURRENCY: Record<CliTool, number> = {
   claude: 2,
   codex: 2,
   antigravity: 2,
+  opencode: 2,
   'raw-shell': 10,
 };
 
@@ -302,10 +303,10 @@ export class ExecutorPool {
 
     // 1. CLI/tool is installed and usable
     const toolStatus = await getToolStatus(cliTool);
-    if (!toolStatus || !toolStatus.installed) {
+    if (!toolStatus || !toolStatus.installed || toolStatus.usable === false) {
       return {
         candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-        status: 'unavailable', reason: 'CLI not installed',
+        status: 'unavailable', reason: toolStatus?.usable === false ? 'CLI incompatible with the verified OpenCode V1 contract' : 'CLI not installed',
       };
     }
 
@@ -333,6 +334,10 @@ export class ExecutorPool {
     }
 
     // 3. Configured effort/model combination is valid
+    if (cliTool === 'opencode' && effort) {
+      return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+        status: 'invalid', reason: 'OpenCode V1 does not support effort overrides' };
+    }
     let supported: string[] | null = null;
     if (catalogModel.supported_efforts) {
       try {

@@ -1,4 +1,4 @@
-export type CliTool = 'claude' | 'antigravity' | 'codex' | 'raw-shell';
+export type CliTool = 'claude' | 'antigravity' | 'codex' | 'opencode' | 'raw-shell';
 
 export interface CliToolConfig {
   value: CliTool;
@@ -12,6 +12,7 @@ const DEFAULT_CLI_TOOLS: CliToolConfig[] = [
   { value: 'claude', label: 'Claude Code', supportsInteractive: true },
   { value: 'antigravity', label: 'Antigravity CLI', supportsInteractive: true },
   { value: 'codex', label: 'Codex CLI', supportsInteractive: true },
+  { value: 'opencode', label: 'OpenCode', supportsInteractive: false },
   { value: 'raw-shell', label: 'Raw Shell', supportsInteractive: true },
 ];
 

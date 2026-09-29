@@ -10,6 +10,12 @@ vi.mock('../../utils/process-tree.js', async (importOriginal) => {
 });
 import { ClaudeManager, Utf8StreamDecoder } from '../claude-manager.js';
 import * as cliStatus from '../cli-status.js';
+import { getAdapter } from '../cli-adapters.js';
+const syntheticNode = process.platform === 'win32' ? 'node' : process.execPath;
+const syntheticArgs = (source: string) => {
+  const code = `eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())`;
+  return ['-e', process.platform === 'win32' ? `"${code}"` : code];
+};
 
 describe('ClaudeManager', () => {
   describe('isRunning', () => {
@@ -56,6 +62,35 @@ describe('ClaudeManager', () => {
   });
 
   describe('provider stream transport', () => {
+    it('delivers OpenCode stdin, decodes split UTF-8 and separates stderr from assistant JSON', async () => {
+      const manager = new ClaudeManager();
+      const adapter = { ...getAdapter('opencode'), command: syntheticNode };
+      const source = `let input=''; process.stdin.setEncoding('utf8'); process.stdin.on('data', s => input+=s);
+        process.stdin.on('end', () => { if(input !== 'PRIVATE Привет\\n') return process.exit(9);
+          process.stderr.write('provider diagnostic\\n');
+          const wire=Buffer.from(JSON.stringify({type:'text',part:{id:'a',text:'{"verdict":"approved","summary":"Привет 😀","issues":[]}'}})+'\\n');
+          for(const byte of wire) process.stdout.write(Buffer.from([byte])); });`;
+      const result = await (manager as any).startWithSpawn(adapter, syntheticArgs(source), process.cwd(), 'PRIVATE Привет', 'headless', 'review');
+      let output = ''; let stderr = '';
+      result.stdout.setEncoding('utf8'); result.stdout.on('data', (chunk: string) => { output += chunk; });
+      result.stderr.setEncoding('utf8'); result.stderr.on('data', (chunk: string) => { stderr += chunk; });
+      await expect(result.exitPromise).resolves.toBe(0);
+      expect(JSON.parse(output)).toEqual({ verdict: 'approved', summary: 'Привет 😀', issues: [] });
+      expect(stderr).toContain('provider diagnostic');
+      expect(manager.isRunning(result.pid)).toBe(false);
+    });
+
+    it('rejects synthetic OpenCode exit zero without an assistant result through the process lifecycle', async () => {
+      const manager = new ClaudeManager();
+      const result = await (manager as any).startWithSpawn({ ...getAdapter('opencode'), command: syntheticNode },
+        syntheticArgs("process.stdin.resume(); process.stdin.on('end', () => process.exit(0));"), process.cwd(), 'prompt', 'headless');
+      let diagnostic = '';
+      result.stderr.on('data', (chunk: Buffer) => { diagnostic += chunk.toString(); });
+      result.stdout.resume();
+      await expect(result.exitPromise).resolves.toBe(1);
+      expect(diagnostic).toContain('empty-success anomaly');
+      expect(manager.isRunning(result.pid)).toBe(false);
+    });
     it.each(['Привет', '你好世界', 'hello 😀', 'ASCII + Кириллица + 日本語 + 🚀'])('preserves UTF-8 at every byte boundary: %s', (sample) => {
       const bytes = Buffer.from(sample, 'utf8');
       for (let split = 0; split <= bytes.length; split++) {

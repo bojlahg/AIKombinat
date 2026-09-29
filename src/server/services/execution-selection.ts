@@ -6,6 +6,9 @@ export function validateAntigravityExecutionEffort(
   model: queries.CliModel,
   rawEffort: unknown,
 ): string | null {
+  if (model.cli_tool === 'opencode' && typeof rawEffort === 'string' && rawEffort.trim() && rawEffort.trim() !== 'provider-default') {
+    throw new ExecutionSelectionError('OpenCode V1 does not support effort overrides.');
+  }
   if (model.cli_tool !== 'antigravity') {
     return typeof rawEffort === 'string' && rawEffort.trim() && rawEffort.trim() !== 'provider-default'
       ? rawEffort.trim()

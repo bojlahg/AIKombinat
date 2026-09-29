@@ -22,8 +22,8 @@ router.get('/models', (_req: Request, res: Response) => {
 
 router.post('/models/refresh', async (_req: Request, res: Response) => {
   try {
-    const results = await Promise.all((['claude', 'codex', 'antigravity'] as const).map(async (tool) => {
-      const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '' });
+    const results = await Promise.all((['claude', 'codex', 'antigravity', 'opencode'] as const).map(async (tool) => {
+      const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '', explicitRefresh: true });
       return { tool, success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, added: result.added ?? 0, updated: result.updated ?? 0, restored: result.restored ?? 0, markedMissing: result.markedMissing ?? 0, diagnostics: result.diagnostics ?? [] };
     }));
     const success = results.every((result) => result.success);
@@ -40,7 +40,7 @@ router.post('/models/refresh/:cliTool', async (req: Request<{ cliTool: string }>
   }
   try {
     const tool = req.params.cliTool;
-    const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '' });
+    const result = await refreshModelCatalog(tool, { version: queries.getCliVersion(tool)?.last_version ?? '', explicitRefresh: true });
     const body = { success: result.primarySucceeded, source: result.source, authoritative: result.authoritative, added: result.added ?? 0, updated: result.updated ?? 0, restored: result.restored ?? 0, markedMissing: result.markedMissing ?? 0, diagnostics: result.diagnostics ?? [] };
     if (!result.primarySucceeded) {
       res.status(503).json({ ...body, error: `Live ${tool} model discovery failed; the cached catalog was retained.` });
