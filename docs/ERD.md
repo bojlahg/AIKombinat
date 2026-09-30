@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 59 tables, 660 columns, 81 foreign keys
+Stats: 61 tables, 690 columns, 84 foreign keys
 
 ## Diagram
 
@@ -92,6 +92,9 @@ erDiagram
     agent_forum_messages |o--o{ agent_forum_messages : "parent_message_id"
     agent_forums ||--o{ agent_forum_turns : "forum_id"
     agent_forum_members ||--o{ agent_forum_turns : "member_id"
+    provider_accounts ||--o{ provider_account_quota_state : "provider_account_id"
+    provider_accounts ||--o{ account_failover_events : "from_account_id"
+    provider_accounts ||--o{ account_failover_events : "to_account_id"
 
     orchestrators {
         TEXT id PK
@@ -132,6 +135,7 @@ erDiagram
         TEXT started_at
         TEXT finished_at
         TEXT created_at
+        TEXT quota_chain_id
     }
     orchestrator_messages {
         TEXT id PK
@@ -225,6 +229,7 @@ erDiagram
         TEXT review_baseline
         DATETIME created_at
         DATETIME updated_at
+        TEXT quota_chain_id
         TEXT provider_account_id FK
         TEXT account_policy
         TEXT cli_tool
@@ -870,6 +875,38 @@ erDiagram
         INTEGER sort_order
         TEXT created_at
         TEXT updated_at
+    }
+    provider_account_quota_state {
+        TEXT provider_account_id PK
+        TEXT provider
+        TEXT state
+        TEXT source
+        TEXT reason
+        TEXT observed_at
+        TEXT reset_at
+        TEXT window_type
+        REAL used_value
+        REAL remaining_value
+        TEXT unit
+        TEXT confidence
+        TEXT created_at
+        TEXT updated_at
+    }
+    account_failover_events {
+        TEXT id PK
+        TEXT owner_type
+        TEXT owner_id
+        TEXT chain_id
+        TEXT round_id
+        TEXT from_account_id FK
+        TEXT to_account_id FK
+        TEXT provider
+        TEXT reason
+        TEXT classification
+        TEXT reset_at
+        INTEGER attempt_index_from
+        INTEGER attempt_index_to
+        TEXT created_at
     }
 ```
 

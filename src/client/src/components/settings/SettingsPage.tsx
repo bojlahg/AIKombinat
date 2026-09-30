@@ -72,7 +72,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
             <Routes>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPanel />} />
-              <Route path="provider-accounts" element={<div className="p-5"><ProviderAccountsPanel /></div>} />
+              <Route path="provider-accounts" element={<div className="p-5"><ProviderAccountsPanel onEvent={onEvent} /></div>} />
               <Route path="agents" element={<AgentsSettingsPanel onEvent={onEvent} />} />
               <Route path="delegation" element={<DelegationSettingsPanel />} />
               <Route path="resources" element={<ResourcesSettingsPanel onEvent={onEvent} />} />

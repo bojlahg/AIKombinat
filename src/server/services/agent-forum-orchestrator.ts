@@ -700,7 +700,7 @@ export class AgentForumOrchestrator {
         }
 
         if (isQuotaProviderTool(resolvedCliTool)) {
-          const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+          const quota = executionConfig?.providerAccountId ? providerQuotaService.getAccountQuotaState(executionConfig.providerAccountId) : providerQuotaService.getQuotaState(resolvedCliTool);
           if (quota.state === 'exhausted') {
             const adapter = getAdapter(resolvedCliTool);
             this.markTurnSkipped(forumId, turn.id, member,
@@ -854,7 +854,7 @@ export class AgentForumOrchestrator {
 
       if (exitCode === 0) {
         if (isQuotaProviderTool(resolvedCliTool)) {
-          providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+          if (executionConfig?.providerAccountId) providerQuotaService.markAccountAvailable(executionConfig.providerAccountId, { source: 'execution_success' });
         }
 
         // Parse and validate structured output
@@ -947,7 +947,7 @@ export class AgentForumOrchestrator {
         const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
         if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
           if (isQuotaProviderTool(resolvedCliTool)) {
-            providerQuotaService.markExhausted(resolvedCliTool, {
+            if (executionConfig?.providerAccountId) providerQuotaService.markAccountExhausted(executionConfig.providerAccountId, {
               source: 'runtime_rejection',
               reason: classification.reason,
               resetAt: classification.resetAt,

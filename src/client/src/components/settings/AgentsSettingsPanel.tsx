@@ -263,7 +263,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
       {(['profiles', 'models', 'accounts'] as const).map((value) => <button key={value} role="tab" aria-selected={tab === value} className={`px-4 py-2.5 text-sm font-semibold ${tab === value ? 'border-b-2 text-primary-500' : 'text-warm-500'}`} onClick={() => setTab(value)}>{value === 'accounts' ? t('accounts.title') : t(`profiles.tab.${value}`)}</button>)}
     </div>
 
-      {tab === 'accounts' && <ProviderAccountsPanel />}
+      {tab === 'accounts' && <ProviderAccountsPanel onEvent={onEvent} />}
       {tab === 'models' && <section className="space-y-4">
       <div><h2 className="text-lg font-semibold">{t('catalog.title')}</h2><p className="text-sm text-warm-500">{t('catalog.description')}</p></div>
       {AGENTS.map((agent) => {

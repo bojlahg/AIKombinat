@@ -17,7 +17,7 @@ const store = await import('../src/server/orchestration/store.js');
 const { resourceManager } = await import('../src/server/services/resource-manager.js');
 const { resourceFabric } = await import('../src/server/services/resource-fabric.js');
 const { providerQuotaService } = await import('../src/server/services/provider-quota.js');
-const report: Record<string, unknown> = { baseline: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), OS: process.platform };
+const report: Record<string, unknown> = { baseline: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), OS: process.platform, Node: process.version };
 const todoIds: string[] = [];
 let orchestrationId: string | null = null;
 async function waitFor(predicate: () => boolean, timeout = 120_000) {
@@ -51,6 +51,9 @@ try {
   await waitFor(() => ['completed', 'failed', 'waiting_quota', 'waiting_executor'].includes(queries.getTodoById(todo.id)!.status));
   const result = queries.getTodoById(todo.id)!;
   report.todo = { status: result.status, snapshot: JSON.parse(result.execution_snapshot ?? '{}') };
+  report.accountQuotaAfterTodo = providerQuotaService.getAccountQuotaState(JSON.parse(result.execution_snapshot!).providerAccountId);
+  report.providerAggregateAfterTodo = providerQuotaService.getQuotaState('claude');
+  if (providerQuotaService.getAccountQuotaState(JSON.parse(result.execution_snapshot!).providerAccountId).state !== 'available') throw new Error('Real Todo quota observation failed');
   if (result.status !== 'completed' || !JSON.parse(result.execution_snapshot ?? '{}').providerAccountId) throw new Error('Real compatibility Todo failed');
   await orchestratorAgent.initialize();
   const primary = store.createOrchestration(project.id, { title: 'Account identity primary smoke', primary_execution_profile_id: profile.id,
@@ -58,6 +61,7 @@ try {
   orchestrationId = primary.id; await orchestratorAgent.start(primary.id);
   await waitFor(() => ['completed', 'failed', 'paused'].includes(store.getOrchestration(primary.id).status));
   report.orchestrator = { status: store.getOrchestration(primary.id).status, turns: store.turns(primary.id).map(turn => ({ status: turn.status, snapshot: JSON.parse(turn.execution_snapshot ?? '{}') })) };
+  report.accountQuotaAfterPrimary = store.turns(primary.id).filter(turn => turn.status === 'completed').map(turn => providerQuotaService.getAccountQuotaState(JSON.parse(turn.execution_snapshot!).providerAccountId));
   if (store.getOrchestration(primary.id).status !== 'completed') throw new Error('Real primary smoke failed');
   const openCode = await getToolStatus('opencode');
   report.opencode = { realSmoke: openCode?.installed ? 'available; choose a configured model to run' : 'unavailable', accountIdentity: null };

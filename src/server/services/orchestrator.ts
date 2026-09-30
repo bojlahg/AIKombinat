@@ -1,3 +1,4 @@
+import { attemptedAccounts, quotaChain, setQuotaChain, prepareTodoQuotaRetry, bindFailoverTarget } from './account-failover.js';
 import fs from 'fs';
 import path from 'path';
 import { worktreeManager } from './worktree-manager.js';
@@ -122,7 +123,7 @@ export class Orchestrator {
       if (parseProcessIdentity(todo.process_identity)?.remote) continue;
       if (!this.isProcessAlive(todo.process_pid)) {
         try {
-          if (todo.review_enabled) {
+          if (queries.getActiveExecutionRound(todo.id)) {
             const activeRound = queries.getActiveExecutionRound(todo.id);
             if (activeRound) {
               queries.updateExecutionRound(activeRound.id, {
@@ -304,7 +305,7 @@ export class Orchestrator {
             continue;
           }
         }
-        if (todo.review_enabled) {
+        if (queries.getActiveExecutionRound(todo.id)) {
           const activeRound = queries.getActiveExecutionRound(todo.id);
           if (activeRound) {
             queries.updateExecutionRound(activeRound.id, {
@@ -326,7 +327,7 @@ export class Orchestrator {
       }
 
       for (const todo of waiting) {
-        if (todo.review_enabled) {
+        if (queries.getActiveExecutionRound(todo.id)) {
           const activeRound = queries.getActiveExecutionRound(todo.id);
           if (activeRound) {
             queries.updateExecutionRound(activeRound.id, {
@@ -489,7 +490,7 @@ export class Orchestrator {
         }
       }
 
-      if (todo.review_enabled) {
+      if (queries.getActiveExecutionRound(todoId)) {
         const activeRound = queries.getActiveExecutionRound(todoId);
         if (activeRound) {
           queries.updateExecutionRound(activeRound.id, {
@@ -539,7 +540,7 @@ export class Orchestrator {
     void claudeManager.whenExited(pid, parseProcessIdentity(queries.getTodoById(todoId)?.process_identity)).then(() => {
       const current = queries.getTodoById(todoId);
       if (!current || current.process_pid !== pid) return;
-      const activeRound = current.review_enabled ? queries.getActiveExecutionRound(todoId) : undefined;
+      const activeRound = queries.getActiveExecutionRound(todoId);
       if (activeRound) {
         queries.updateExecutionRound(activeRound.id, {
           status: 'stopped',
@@ -736,6 +737,20 @@ export class Orchestrator {
       }
     }
 
+    if (!todo.review_enabled) {
+      currentRound = queries.getActiveExecutionRound(todoId);
+      if (!currentRound) {
+        setQuotaChain('todo', todoId, null);
+        currentRound = queries.createExecutionRound(todoId, isContinue ? 'rework' : 'implementation', queries.getNextExecutionRoundIndex(todoId), uuidv4(), {
+          inputPayload: continueOptions?.followUpPrompt ?? todo.description ?? todo.title,
+        });
+      }
+    }
+    const chainId = quotaChain('todo', todoId);
+    const quotaSourceRound = chainId && currentRound?.retry_of_round_id ? queries.getExecutionRoundById(currentRound.retry_of_round_id) : undefined;
+    const quotaSource = quotaSourceRound?.execution_snapshot ? JSON.parse(quotaSourceRound.execution_snapshot) : null;
+    const excludedProviderAccountIds = attemptedAccounts('todo', todoId, chainId);
+
     const taskContent = (isContinue
       ? continueOptions!.followUpPrompt
       : (todo.description || todo.title || '')
@@ -815,6 +830,9 @@ export class Orchestrator {
     if (effectiveProfileId) {
       try {
         const selection = await executorPool.selectExecutor({
+          excludedProviderAccountIds,
+          preferredCandidateId: quotaSource?.executorCandidateId,
+          onlyCandidateId: quotaSource?.accountPolicy && quotaSource.accountPolicy !== 'automatic' ? quotaSource.executorCandidateId : undefined,
           executionProfileId: effectiveProfileId,
           interactive: mode === 'interactive',
           excludeTodoId: todoId,
@@ -958,10 +976,12 @@ export class Orchestrator {
           : null;
         resolvedCliTool = executionConfig?.cliTool ?? cliTool;
 
+        executionConfig = executorPool.bindManualAccount(executionConfig, { excludeTodoId: todoId, excludedProviderAccountIds });
+
         // Quota preflight for manual execution (agents only, not raw-shell)
         if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-          const quota = providerQuotaService.getQuotaState(resolvedCliTool);
-          if (quota.state === 'exhausted') {
+          const quota = executionConfig?.providerAccountId ? providerQuotaService.getAccountQuotaState(executionConfig.providerAccountId) : providerQuotaService.getQuotaState(resolvedCliTool);
+          if (quota.state === 'exhausted' || (executionConfig?.providerAccountId && excludedProviderAccountIds.includes(executionConfig.providerAccountId))) {
             executorPool.releaseReservation(todoId);
             const adapter = getAdapter(resolvedCliTool);
             const quotaMsg = `${adapter.displayName} waiting for provider quota (${quota.reason || 'provider quota is currently exhausted'}).`;
@@ -986,7 +1006,7 @@ export class Orchestrator {
           }
         }
 
-        executionConfig = executorPool.bindManualAccount(executionConfig, { excludeTodoId: todoId });
+        executionConfig = executorPool.bindManualAccount(executionConfig, { excludeTodoId: todoId, excludedProviderAccountIds });
         const reserved = executorPool.reserveSlot(todoId, resolvedCliTool, { excludeTodoId: todoId, providerAccountId: executionConfig?.providerAccountId });
         if (!reserved) {
           queries.updateTodoStatus(todoId, 'waiting_executor');
@@ -1173,7 +1193,7 @@ export class Orchestrator {
         workDir = worktreePath ?? projectPath;
         if (isContinue) {
           prompt = continueOptions!.followUpPrompt;
-        } else if (todo.review_enabled && currentRound?.input_payload) {
+        } else if (currentRound?.input_payload) {
           prompt = currentRound.input_payload;
         } else {
           prompt = todo.description || todo.title || '';
@@ -1182,7 +1202,7 @@ export class Orchestrator {
         workDir = projectPath;
         if (isContinue) {
           prompt = continueOptions!.followUpPrompt;
-        } else if (todo.review_enabled && currentRound?.input_payload) {
+        } else if (currentRound?.input_payload) {
           prompt = currentRound.input_payload;
         } else {
           prompt = todo.description || todo.title || '';
@@ -1308,6 +1328,7 @@ export class Orchestrator {
         queries.createTaskLog(todoId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`, roundNumber);
       }
 
+      bindFailoverTarget('todo', todoId, chainId, executionConfig?.providerAccountId);
       const launch = launchSelection(executionConfig);
       const launchedModel = launch.effectiveModel ?? launch.model;
       delegationLaunch = currentRound?.phase === 'review' || resourceBinding?.transport === 'ssh' ? null : prepareTodoDelegationLaunch({
@@ -1343,12 +1364,12 @@ export class Orchestrator {
         : await localTransport.launch(async () => delegationLaunch
         ? await claudeManager.startClaude(
           workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath,
-          sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy,
+          sandboxMode, isContinue && !chainId, undefined, undefined, launch.effort, promptPolicy,
           { ...delegationLaunch.runtimeEnv, ...resourceBinding?.environment }, delegationLaunch.delegationMcp,
         )
         : await claudeManager.startClaude(
           workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath,
-          sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy,
+          sandboxMode, isContinue && !chainId, undefined, undefined, launch.effort, promptPolicy,
           ...(resourceBinding && Object.keys(resourceBinding.environment).length ? [resourceBinding.environment] as const : [] as const),
         ));
       pid = result.pid;
@@ -1472,7 +1493,7 @@ export class Orchestrator {
       let delegated: queries.Todo | null = null;
       // Only update if still in running state (not manually stopped or superseded)
       if (currentTodo && currentTodo.status === 'running') {
-        if (todo.review_enabled && currentRound) {
+        if (currentRound) {
           const freshRound = queries.getExecutionRoundById(currentRound.id);
           if (!freshRound || freshRound.run_token !== currentRound.run_token || freshRound.status !== 'running') {
             // Late callback from an older or superseded execution round — discard
@@ -1485,6 +1506,23 @@ export class Orchestrator {
           const isContextExhausted = logStreamer.isContextExhausted(todoId);
           const tokenUsage = logStreamer.getTokenUsage(todoId);
 
+          // Check for runtime quota / rate-limit rejection (scoped to current execution)
+          const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
+          const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
+
+          if ((classification.category === 'quota_exhausted' || classification.category === 'rate_limited') && executionConfig?.providerAccountId && currentRound) {
+            const retry = prepareTodoQuotaRetry(todoId, currentRound, executionConfig, classification, pid ?? 0);
+            executorPool.releaseReservation(todoId);
+            if (retry && !this.stoppingTodoIds.has(todoId) && !this.isStoppingProjects.has(projectId)) {
+              await this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain);
+            } else {
+              broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: queries.getTodoById(todoId)?.status ?? 'failed' });
+            }
+            this.broadcastProjectStatus(projectId);
+            this.wakeWaitingExecutors().catch(() => {});
+            return;
+          }
+
           // Heuristic: also flag if input_tokens > 85% of context_window (Claude only)
           const heuristicExhausted = resolvedCliTool === 'claude'
             && tokenUsage?.context_window
@@ -1495,6 +1533,7 @@ export class Orchestrator {
           const shouldAutoSwitch = (isContextExhausted || heuristicExhausted) && fallback;
 
           if (shouldAutoSwitch) {
+            if (!todo.review_enabled && currentRound) queries.updateExecutionRound(currentRound.id, { status: 'failed', error_message: 'context_exhausted', finished_at: new Date().toISOString() });
             // Save token usage before clearing logs
             queries.updateTodo(todoId, {
               process_pid: 0,
@@ -1524,112 +1563,8 @@ export class Orchestrator {
             return;
           }
 
-          // Check for runtime quota / rate-limit rejection (scoped to current execution)
-          const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
-          const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
-
-          if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
-            if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-              providerQuotaService.markExhausted(resolvedCliTool, {
-                source: 'runtime_rejection',
-                reason: classification.reason,
-                resetAt: classification.resetAt,
-              });
-            }
-
-            const quotaMsg = `[quota] ${adapter.displayName} quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
-            logger.warn('todo.execution.quota-rejected', {
-              msg: 'provider rejected the run: quota exhausted',
-              provider: resolvedCliTool,
-              exitCode,
-              reason: clampLine(classification.reason || 'runtime quota rejection'),
-              round: roundNumber,
-            });
-            queries.createTaskLog(todoId, 'warning', quotaMsg, roundNumber);
-
-            if (effectiveProfileId) {
-              // Profile execution: re-evaluate with next eligible candidate in effective profile
-              queries.updateTodo(todoId, {
-                process_pid: 0,
-                execution_snapshot: null,
-              });
-              queries.updateTodoStatus(todoId, 'pending');
-              if (currentRound) {
-                queries.updateExecutionRound(currentRound.id, {
-                  status: 'pending',
-                  execution_snapshot: null,
-                });
-                const updated = queries.getExecutionRoundById(currentRound.id);
-                if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
-              }
-              queries.createTaskLog(
-                todoId,
-                'output',
-                `[quota] Switching to next candidate in profile after ${adapter.displayName} quota exhaustion...`,
-                roundNumber,
-              );
-              this.startSingleTodo(todoId, projectPath, projectId, mode, autoChain, continueOptions).catch((err) => {
-                logger.error('todo.quota-switch.failed', {
-                  msg: 'switching to the next profile candidate after quota exhaustion failed',
-                  todoId,
-                  projectId,
-                  provider: resolvedCliTool,
-                  round: roundNumber,
-                  err,
-                });
-                try {
-                  if (todo.review_enabled && currentRound) {
-                    reviewPipeline.handleRoundFailure(todoId, currentRound.id, 'Profile candidate switch failed.');
-                  } else {
-                    queries.updateTodoStatus(todoId, 'failed');
-                  }
-                  queries.createTaskLog(todoId, 'error', 'Profile candidate switch failed.', roundNumber);
-                } catch { /* ignore */ }
-                broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-                this.broadcastProjectStatus(projectId);
-              });
-              this.wakeWaitingExecutors().catch(() => {});
-              return;
-            } else {
-              // Manual execution: do not silently switch executor; fail clearly with quota diagnostic
-              const failMsg = `${adapter.displayName} execution failed: provider quota exhausted (${classification.reason || 'runtime quota rejection'}).`;
-              logger.error('todo.execution.failed', {
-                msg: 'execution failed: provider quota exhausted',
-                provider: resolvedCliTool,
-                category: classification.category,
-                exitCode,
-                round: roundNumber,
-                reason: clampLine(classification.reason || 'runtime quota rejection'),
-              });
-              try {
-                if (todo.review_enabled && currentRound) {
-                  reviewPipeline.handleRoundFailure(todoId, currentRound.id, failMsg);
-                } else {
-                  queries.updateTodoStatus(todoId, 'failed');
-                }
-                queries.createTaskLog(todoId, 'error', failMsg, roundNumber);
-                queries.updateTodo(todoId, {
-                  process_pid: 0,
-                  ...(tokenUsage ? {
-                    token_usage: JSON.stringify(tokenUsage),
-                    total_cost_usd: tokenUsage.total_cost ?? null,
-                    total_tokens: ((tokenUsage.input_tokens ?? 0) + (tokenUsage.output_tokens ?? 0)) || null,
-                  } : {}),
-                });
-              } catch {
-                try { queries.updateTodoStatus(todoId, 'failed'); } catch { /* ignore */ }
-              }
-
-              captureReviewMetadata(todoId).catch(() => { /* ignore */ });
-              broadcaster.broadcast({ type: 'todo:log', todoId, message: failMsg, logType: 'error' });
-              broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
-              this.broadcastProjectStatus(projectId);
-              this.wakeWaitingExecutors().catch(() => {});
-              return;
-            }
-          }
-
           // Normal failure path
+          if (!todo.review_enabled && currentRound) queries.updateExecutionRound(currentRound.id, { status: 'failed', finished_at: new Date().toISOString() });
           const failMsg = `${adapter.displayName} exited with code ${exitCode}.`;
           logger.error('todo.execution.failed', {
             msg: `process failed with exit code ${exitCode}`,
@@ -1666,8 +1601,11 @@ export class Orchestrator {
           this.broadcastProjectStatus(projectId);
         } else {
           // Success path
+          if (chainId && executionConfig?.accountPolicy === 'automatic') logger.info('execution.account-failover.completed', { ownerType: 'todo', ownerId: todoId, toAccountId: executionConfig.providerAccountId });
+          setQuotaChain('todo', todoId, null);
+          if (!todo.review_enabled && currentRound) queries.updateExecutionRound(currentRound.id, { status: 'completed', finished_at: new Date().toISOString() });
           if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-            providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+            if (executionConfig?.providerAccountId) providerQuotaService.markAccountAvailable(executionConfig.providerAccountId, { source: 'execution_success' });
           }
 
           logger.info('todo.execution.completed', {

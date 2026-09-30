@@ -161,7 +161,7 @@ export class ExecutorPool {
     }
     if (options.providerAccountId) {
       const account = getProviderAccount(options.providerAccountId);
-      if (!account || account.provider !== tool || accountIneligibleReason(account) || this.getActiveAccountUsage(account.id, { ...options, excludeReservationOwnerId: ownerId }) >= account.max_concurrency) return false;
+      if (!account || account.provider !== tool || accountIneligibleReason(account) || providerQuotaService.getAccountQuotaState(account.id).state === 'exhausted' || this.getActiveAccountUsage(account.id, { ...options, excludeReservationOwnerId: ownerId }) >= account.max_concurrency) return false;
     }
     this.reservations.set(ownerId, { ownerId, tool, providerAccountId: options.providerAccountId ?? null, createdAt: Date.now() });
     return true;
@@ -284,6 +284,9 @@ export class ExecutorPool {
       interactive?: boolean;
       allowedCliTools?: readonly CliTool[];
       requireDelegationWorkerIsolation?: boolean;
+    excludedProviderAccountIds?: readonly string[];
+    preferredCandidateId?: string;
+    onlyCandidateId?: string;
       providerAccountId?: string | null;
       excludeTodoId?: string;
       excludeSessionId?: string;
@@ -404,18 +407,42 @@ export class ExecutorPool {
       };
     }
 
-    // 4. Provider quota is not known-exhausted
-    if (cliTool === 'claude' || cliTool === 'codex' || cliTool === 'antigravity') {
-      const quotaState = providerQuotaService.getQuotaState(cliTool);
-      if (quotaState.state === 'exhausted') {
-        const reasonDetail = quotaState.reason ? `: ${quotaState.reason}` : '';
+    if (isAccountProvider(cliTool)) {
+      let accounts: ProviderAccount[];
+      try { accounts = accountCandidates(cliTool, candidate.account_policy, candidate.provider_account_id); }
+      catch { return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority, status: 'invalid', reason: 'Invalid account policy or provider account' }; }
+      accounts.sort((a, b) => {
+        const rank = (account: ProviderAccount) => (providerQuotaService.getAccountQuotaState(account.id).state === 'available' ? 0 : 2) + (account.health_state === 'available' ? 0 : 1);
+        return rank(a) - rank(b) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+      });
+      const diagnostics = accounts.map(account => {
+        const quota = providerQuotaService.getAccountQuotaState(account.id);
+        const reason = accountIneligibleReason(account)
+          ?? (options.excludedProviderAccountIds?.includes(account.id) ? 'already_attempted_in_failover_chain' : null)
+          ?? (quota.state === 'exhausted' ? `quota exhausted (reset ${quota.resetAt ?? 'unknown'})` : null);
+        const busy = !reason && this.getActiveAccountUsage(account.id, options) >= account.max_concurrency;
+        return { account, reason: reason ?? (busy ? 'account concurrency limit reached' : null), busy };
+      });
+      const eligible = diagnostics.find(item => !item.reason);
+      if (!eligible) return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+        status: diagnostics.some(item => item.busy) ? 'busy' : diagnostics.some(item => item.reason?.startsWith('quota exhausted') || item.reason === 'already_attempted_in_failover_chain') ? 'quota_exhausted' : 'unavailable',
+        reason: diagnostics.map(item => `${item.account.label}: ${item.reason}`).join('; ') || 'No compatibility account configured' };
+      // 5. Provider/tool has an available concurrency slot
+      if (!this.hasAvailableSlot(cliTool, {
+        excludeTodoId: options.excludeTodoId,
+        excludeSessionId: options.excludeSessionId,
+        excludeDiscussionId: options.excludeDiscussionId,
+        excludeReservationOwnerId: options.excludeReservationOwnerId,
+      })) {
         return {
           candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-          status: 'quota_exhausted', reason: `provider quota exhausted${reasonDetail}`,
+          status: 'busy', reason: 'provider concurrency limit reached',
         };
       }
-    }
 
+      return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+        providerAccountId: eligible.account.id, providerAccountLabel: eligible.account.label, status: 'available', reason: 'available' };
+    }
     // 5. Provider/tool has an available concurrency slot
     if (!this.hasAvailableSlot(cliTool, {
       excludeTodoId: options.excludeTodoId,
@@ -429,22 +456,6 @@ export class ExecutorPool {
       };
     }
 
-    if (isAccountProvider(cliTool)) {
-      let accounts: ProviderAccount[];
-      try { accounts = accountCandidates(cliTool, candidate.account_policy, candidate.provider_account_id); }
-      catch { return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority, status: 'invalid', reason: 'Invalid account policy or provider account' }; }
-      const diagnostics = accounts.map(account => {
-        const reason = accountIneligibleReason(account);
-        const busy = !reason && this.getActiveAccountUsage(account.id, options) >= account.max_concurrency;
-        return { account, reason: reason ?? (busy ? 'account concurrency limit reached' : null), busy };
-      });
-      const eligible = diagnostics.find(item => !item.reason);
-      if (!eligible) return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-        status: diagnostics.some(item => item.busy) ? 'busy' : 'unavailable',
-        reason: diagnostics.map(item => `${item.account.label}: ${item.reason}`).join('; ') || 'No compatibility account configured' };
-      return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-        providerAccountId: eligible.account.id, providerAccountLabel: eligible.account.label, status: 'available', reason: 'available' };
-    }
     return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority, status: 'available', reason: 'available' };
   }
 
@@ -454,11 +465,15 @@ export class ExecutorPool {
     return accountUsage(id, true, [...excluded, ...reservations.map(res => res.ownerId)]) + reservations.filter(res => res.providerAccountId === id).length;
   }
 
-  bindManualAccount(config: ResolvedExecutionConfig | null, options: { excludeTodoId?: string; excludeSessionId?: string; excludeDiscussionId?: string } = {}): ResolvedExecutionConfig | null {
+  bindManualAccount(config: ResolvedExecutionConfig | null, options: { excludeTodoId?: string; excludeSessionId?: string; excludeDiscussionId?: string; excludedProviderAccountIds?: readonly string[] } = {}): ResolvedExecutionConfig | null {
     if (!config || config.accountPolicy !== 'automatic') return config;
-    const candidates = accountCandidates(config.cliTool, 'automatic');
-    const account = candidates.find(account => !accountIneligibleReason(account) && this.getActiveAccountUsage(account.id, options) < account.max_concurrency);
-    return account ? { ...config, ...accountIdentity(account, 'automatic') } : config;
+    const candidates = accountCandidates(config.cliTool, 'automatic').sort((a, b) => {
+      const rank = (account: ProviderAccount) => (providerQuotaService.getAccountQuotaState(account.id).state === 'available' ? 0 : 2) + (account.health_state === 'available' ? 0 : 1);
+      return rank(a) - rank(b) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+    });
+    const account = candidates.find(account => !accountIneligibleReason(account) && !options.excludedProviderAccountIds?.includes(account.id) && providerQuotaService.getAccountQuotaState(account.id).state !== 'exhausted' && this.getActiveAccountUsage(account.id, options) < account.max_concurrency);
+    const bound = account ?? candidates.find(account => !accountIneligibleReason(account) && !options.excludedProviderAccountIds?.includes(account.id) && providerQuotaService.getAccountQuotaState(account.id).state !== 'exhausted');
+    return bound ? { ...config, ...accountIdentity(bound, 'automatic') } : config;
   }
 
   private selectMutex: Promise<void> = Promise.resolve();
@@ -472,6 +487,9 @@ export class ExecutorPool {
     reserveOwnerId?: string;
     allowedCliTools?: readonly CliTool[];
     requireDelegationWorkerIsolation?: boolean;
+    excludedProviderAccountIds?: readonly string[];
+    preferredCandidateId?: string;
+    onlyCandidateId?: string;
   }): Promise<PoolSelectionResult> {
     let release: () => void;
     const prevMutex = this.selectMutex;
@@ -513,6 +531,9 @@ export class ExecutorPool {
     reserveOwnerId?: string;
     allowedCliTools?: readonly CliTool[];
     requireDelegationWorkerIsolation?: boolean;
+    excludedProviderAccountIds?: readonly string[];
+    preferredCandidateId?: string;
+    onlyCandidateId?: string;
   }): Promise<PoolSelectionResult> {
     const evaluatedAt = new Date().toISOString();
     if (!input.executionProfileId) {
@@ -527,7 +548,7 @@ export class ExecutorPool {
     }
 
     // Keep deterministic priority ordering
-    const sortedExecutors = [...profile.executors].sort((a, b) => a.priority - b.priority || a.created_at.localeCompare(b.created_at));
+    const sortedExecutors = [...profile.executors].filter(candidate => !input.onlyCandidateId || candidate.id === input.onlyCandidateId).sort((a, b) => Number(b.id === input.preferredCandidateId) - Number(a.id === input.preferredCandidateId) || a.priority - b.priority || a.created_at.localeCompare(b.created_at));
 
     const evaluations: CandidateEvaluation[] = [];
     let selectedCandidate: queries.ExecutionProfileExecutor | undefined;
@@ -535,6 +556,7 @@ export class ExecutorPool {
 
     for (const candidate of sortedExecutors) {
       const evaluation = await this.evaluateCandidate(candidate, {
+        excludedProviderAccountIds: input.excludedProviderAccountIds,
         interactive: input.interactive,
         allowedCliTools: input.allowedCliTools,
         requireDelegationWorkerIsolation: input.requireDelegationWorkerIsolation,

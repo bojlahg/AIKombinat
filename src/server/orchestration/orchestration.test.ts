@@ -372,7 +372,7 @@ describe('ExecutorPool and cancel ownership', () => {
     executorPool.setLimit('claude', 0);
     expect((await executorPool.selectExecutor({ executionProfileId: mixed.id, allowedCliTools: ['claude'] })).status).toBe('waiting_executor');
     executorPool.setLimit('claude', 2);
-    vi.spyOn(providerQuotaService, 'getQuotaState').mockReturnValue({ state: 'exhausted', tool: 'claude', reason: 'fixture', source: 'test', nextCheckAt: null } as never);
+    vi.spyOn(providerQuotaService, 'getAccountQuotaState').mockReturnValue({ state: 'exhausted', tool: 'claude', reason: 'fixture', source: 'test', nextCheckAt: null } as never);
     expect((await executorPool.selectExecutor({ executionProfileId: mixed.id, allowedCliTools: ['claude'] })).status).toBe('waiting_quota');
     const p = parent(), turn = running(p.id); store.updateTurn(turn.id, { status: 'failed', process_pid: 999999 });
     expect(executorPool.getActiveToolUsage('claude')).toBe(1);

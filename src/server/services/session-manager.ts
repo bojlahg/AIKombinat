@@ -322,6 +322,7 @@ export class SessionManager {
           executionConfig = resolveExecutionConfig({ cliTool: original.agent, model: original.model, cliEffort: original.effort,
             providerAccountId: original.providerAccountId, accountPolicy: 'fixed', interactive: true });
           resolvedCliTool = executionConfig.cliTool;
+          if (providerQuotaService.getAccountQuotaState(original.providerAccountId).state === 'exhausted') throw new Error('Original session account quota exhausted');
           if (!executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId, providerAccountId: executionConfig.providerAccountId })) throw new Error('Original session account is busy');
           hasReservation = true;
         } else if (original.agent !== 'raw-shell' && original.agent !== 'opencode') {
@@ -364,9 +365,10 @@ export class SessionManager {
           resolvedCliTool = executionConfig.cliTool;
         }
 
+        executionConfig = executorPool.bindManualAccount(executionConfig, { excludeSessionId: sessionId });
         // Quota preflight for manual session (agents only, not raw-shell)
         if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-          const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+          const quota = executionConfig?.providerAccountId ? providerQuotaService.getAccountQuotaState(executionConfig.providerAccountId) : providerQuotaService.getQuotaState(resolvedCliTool);
           if (quota.state === 'exhausted') {
             adapter = getAdapter(resolvedCliTool);
             throw new Error(
@@ -626,7 +628,7 @@ export class SessionManager {
 
           if (exitCode === 0) {
             if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-              providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+              if (executionConfig?.providerAccountId) providerQuotaService.markAccountAvailable(executionConfig.providerAccountId, { source: 'execution_success' });
             }
           } else {
             const logsText = queries.getRecentSessionLogText(sessionId, startLogRowid, 32 * 1024);
@@ -635,7 +637,7 @@ export class SessionManager {
             const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
             if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
               if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-                providerQuotaService.markExhausted(resolvedCliTool, {
+                if (executionConfig?.providerAccountId) providerQuotaService.markAccountExhausted(executionConfig.providerAccountId, {
                   source: 'runtime_rejection',
                   reason: classification.reason,
                   resetAt: classification.resetAt,

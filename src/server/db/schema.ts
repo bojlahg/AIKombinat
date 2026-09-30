@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'node:os';
 import { migrateProviderAccounts } from './provider-accounts.js';
+import { migrateAccountQuota } from './account-quota.js';
 
 export function migrateOrchestratorResourceChecks(db: Database.Database): void {
   const tables = ['resource_requests', 'resource_leases'];
@@ -799,6 +800,8 @@ export function initDatabase(db: Database.Database): void {
 
   // Backwards-compatible migration: add new columns to existing DBs
   const migrations = [
+    { table: 'todos', column: 'quota_chain_id', definition: 'TEXT' },
+    { table: 'orchestrator_turns', column: 'quota_chain_id', definition: 'TEXT' },
     { table: 'todos', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
     { table: 'todos', column: 'account_policy', definition: "TEXT NOT NULL DEFAULT 'inherited_default'" },
     { table: 'sessions', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
@@ -1034,6 +1037,7 @@ export function initDatabase(db: Database.Database): void {
     ['cli_models', 'last_verified_at'], ['cli_models', 'availability_status'],
   ] as const) dropColumnIfPresent(db, table, column);
   migrateProviderAccounts(db);
+  migrateAccountQuota(db);
   db.exec(`DELETE FROM execution_profile_executors
     WHERE rowid NOT IN (
       SELECT MIN(rowid) FROM execution_profile_executors

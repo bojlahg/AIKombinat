@@ -537,8 +537,8 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
       isEnabled: true,
       sortOrder: 2,
       executors: [
-        { cli_model_id: claudeModel.id, priority: 1 },
-        { cli_model_id: codexModel.id, priority: 2 },
+        { cli_model_id: claudeModel.id, priority: 1, account_policy: 'automatic' },
+        { cli_model_id: codexModel.id, priority: 2, account_policy: 'automatic' },
       ],
     });
 
@@ -942,7 +942,8 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     expect(mockClaudeStarts[0].prompt).toContain('Simple fix');
 
     const rounds = queries.getExecutionRoundsByTodoId(todo.id);
-    expect(rounds).toHaveLength(0);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].phase).toBe('implementation');
 
     nextExitResolvers[0](0);
     await new Promise((r) => setTimeout(r, 60));

@@ -118,6 +118,8 @@ This must be a generic layer for Claude, Codex, Antigravity, and future provider
 
 #### Provider Accounts V1
 
+Status: **READY_WITH_LIMITATIONS** — isolated runtime identity is shipped; verified authentication strategies remain provider-specific.
+
 Expected concerns:
 
 - persistent account records with stable IDs and human labels;
@@ -132,6 +134,8 @@ Expected concerns:
 Authentication may differ by provider (`system_keyring`, isolated OS user/security context, API key, OAuth profile, config directory, environment, external helper, etc.). Generic orchestration should consume an account context without depending on how that provider stores credentials.
 
 #### Account-aware Quota V2
+
+Status: **READY_WITH_LIMITATIONS** — persisted account quota, derived aggregates, account cooldown/wake, APIs and live UI are locally validated. See [implementation](docs/Account_Aware_Quota_V2.md) and [smoke evidence](docs/Account_Aware_Quota_V2_Smoke_Report.md). Final pushed-commit CI acceptance is pending.
 
 Move quota state from only the provider level to the provider-account level.
 
@@ -178,6 +182,8 @@ Possible windows may include short rolling limits, weekly limits, account-wide l
 The system must remain useful without quantitative telemetry. Reactive detection of a real quota-exhausted response is a valid source of truth when no reliable remaining-usage API exists.
 
 #### Automatic Account Failover
+
+Status: **READY_WITH_LIMITATIONS** — automatic Todo/Review/Rework and Orchestrator attempts are bounded, preserve workspaces and durable lineage; fixed/inherited accounts and interactive Sessions stay pinned. Final pushed-commit CI acceptance is pending. Next experiment: **Consensus Review V1**.
 
 On a classified account-level provider failure:
 

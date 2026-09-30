@@ -1534,3 +1534,7 @@ Configure Settings → Resources, scan the local node and reserve desktop CPU/RA
 ## Provider Accounts V1 setup
 
 Open Settings → Agents → Accounts. Existing Claude, Codex and Antigravity CLI logins appear as inherited accounts. For an additional Claude account, configure a server environment variable containing the API key, then save only its variable name as an environment-reference account. Never paste credentials into labels or descriptions. Set account concurrency and enable state, then select a fixed account or automatic policy in an execution profile. Manual Todo, Session and Schedule forms support fixed account selection. Health tests are non-mutating; unknown health can still be eligible. See [supported strategies and security boundaries](Provider_Accounts_V1.md).
+
+## Account-aware quota and automatic failover
+
+See [Quota V2](Account_Aware_Quota_V2.md). Select automatic account policy on an Execution Profile candidate to permit quota-only account failover. Fixed/inherited policies wait for their selected account. PROVIDER_QUOTA_COOLDOWN_MS defaults to 300000; MAX_ACCOUNT_FAILOVERS_PER_PHASE defaults to 3 (hard maximum 8). Settings → Provider Accounts shows Health and Quota separately; Clear exhaustion resets quota to unknown and wakes admission. Session resume remains pinned.

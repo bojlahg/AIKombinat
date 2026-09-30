@@ -1,3 +1,4 @@
+import { setQuotaChain } from './account-failover.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/connection.js';
 import {
@@ -138,6 +139,7 @@ export class ExecutionRoundRetryService {
         throw new RetryConflictError('Another execution round is already active for this task.');
       }
 
+      setQuotaChain('todo', todoId, null);
       const nextRoundIndex = getNextExecutionRoundIndex(todoId);
       const attemptIndex = (freshRound.attempt_index && freshRound.attempt_index >= 1 ? freshRound.attempt_index : 1) + 1;
       const newRunToken = uuidv4();

@@ -152,16 +152,16 @@ export function requestTurn(id: string, trigger = 'event', retry = 0): Turn | nu
     const orchestration = getOrchestration(id);
     const active = turns(id).find(turn => turn.process_pid > 0 || ['pending', 'waiting_executor', 'waiting_quota', 'starting', 'running'].includes(turn.status));
     if (active || terminalStatuses.includes(orchestration.status) || ['paused', 'cancelling'].includes(orchestration.status)) return null;
+    const pending = events(id).filter(event => !event.consumed_at && !event.assigned_turn_id && matches(event, orchestration));
+    if (trigger === 'event' && !pending.length) return null;
     if (orchestration.turn_count >= orchestration.max_turns) {
       updateOrchestration(id, { status: 'paused', waiting_reason: 'turn_budget_exhausted' });
       addEvent(id, 'system.budget_warning', 'budget', id, `budget:turns:${orchestration.max_turns}`, { reason: 'turn_budget_exhausted', max_turns: orchestration.max_turns });
       publish('status-changed', id); return null;
     }
-    const pending = events(id).filter(event => !event.consumed_at && !event.assigned_turn_id && matches(event, orchestration));
-    if (trigger === 'event' && !pending.length) return null;
     const batch = selectEventBatch(pending);
     const turnId = randomUUID();
-    getDatabase().prepare(`INSERT INTO orchestrator_turns (id, orchestrator_id, turn_index, status, trigger_type, retry_count, created_at) VALUES (?,?,?,'pending',?,?,?)`).run(turnId, id, orchestration.turn_count + 1, trigger, retry, now());
+    getDatabase().prepare(`INSERT INTO orchestrator_turns (id, orchestrator_id, turn_index, status, trigger_type, retry_count, created_at) VALUES (?,?,?,'pending',?,?,?)`).run(turnId, id, Math.max(0, ...turns(id).map(turn => turn.turn_index)) + 1, trigger, retry, now());
     for (const event of batch) getDatabase().prepare('UPDATE orchestrator_events SET assigned_turn_id = ? WHERE id = ?').run(turnId, event.id);
     updateOrchestration(id, { turn_count: orchestration.turn_count + 1, status: 'pending' });
     logger.info('orchestrator.turn.requested', { orchestratorId: id, turnId, trigger });

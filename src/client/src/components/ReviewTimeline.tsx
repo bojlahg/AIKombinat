@@ -1,3 +1,4 @@
+import ExecutionAccountIdentity from './ExecutionAccountIdentity';
 import React, { useState } from 'react';
 import type { Todo, TodoExecutionRound, ReviewResult, ReviewIssueSeverity, RoundPhase } from '../types';
 import { useI18n } from '../i18n';
@@ -148,7 +149,7 @@ export default function ReviewTimeline({
       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span className="font-semibold text-sm text-slate-100">{t('review.pipeline.title')}</span>
+          <span className="font-semibold text-sm text-slate-100">{t(todo.review_enabled ? 'review.pipeline.title' : 'accounts.executionHistory')}</span>
           {todo.pipeline_phase && (
             <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
               {t(`review.pipeline.phase.${todo.pipeline_phase}`)}
@@ -293,6 +294,7 @@ export default function ReviewTimeline({
                   </div>
                 </div>
 
+                <ExecutionAccountIdentity snapshot={round.execution_snapshot} />
                 {/* Error message */}
                 {round.error_message && (
                   <div className="mt-2 p-2 rounded bg-red-950/40 border border-red-900/50 text-red-300 text-xs flex items-start gap-2">

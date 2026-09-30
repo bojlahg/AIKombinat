@@ -1021,10 +1021,10 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
                 <ReviewTimeline
                   todo={todo}
                   rounds={rounds}
-                  onApprove={handleApproveReview}
-                  onRequestRework={handleRequestRework}
-                  onStopLoop={handleStopReviewLoop}
-                  onRetryRound={handleRetryRound}
+                  onApprove={todo.review_enabled ? handleApproveReview : undefined}
+                  onRequestRework={todo.review_enabled ? handleRequestRework : undefined}
+                  onStopLoop={todo.review_enabled ? handleStopReviewLoop : undefined}
+                  onRetryRound={todo.review_enabled ? handleRetryRound : undefined}
                   loadingAction={reviewActionLoading}
                 />
               </section>

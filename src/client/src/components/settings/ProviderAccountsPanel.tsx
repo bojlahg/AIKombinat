@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { getAccounts, saveAccount, testAccount, deleteAccount, type ProviderAccount } from '../../api/providerAccounts';
+import { getAccounts, saveAccount, testAccount, deleteAccount, resetAccountQuota, type ProviderAccount } from '../../api/providerAccounts';
 import { useI18n } from '../../i18n';
 
-export default function ProviderAccountsPanel() {
+import type { WsEvent } from '../../hooks/useWebSocket';
+
+export default function ProviderAccountsPanel({ onEvent }: { onEvent?: (cb: (event: WsEvent) => void) => () => void } = {}) {
   const { t } = useI18n();
   const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
   const [error, setError] = useState('');
@@ -15,6 +17,9 @@ export default function ProviderAccountsPanel() {
   const strategy = strategies.includes('environment_reference') ? 'environment_reference' : strategies[0];
   const reload = () => getAccounts().then(setAccounts);
   useEffect(() => { reload().catch(error => setError(String(error))); }, []);
+  useEffect(() => onEvent?.(event => {
+    if (event.type.startsWith('provider-account:')) reload().catch(error => setError(String(error)));
+  }), [onEvent]);
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError('');
     try { await action(); await reload(); } catch (error) { setError(String(error)); } finally { setBusy(false); }
@@ -28,6 +33,13 @@ export default function ProviderAccountsPanel() {
       <h3 className="font-semibold">{provider}</h3>
       {accounts.filter(account => account.provider === provider).map(account => <div key={account.id} className="rounded-xl bg-theme-card p-3 space-y-2">
         <div className="flex flex-wrap gap-3 text-xs"><span>{account.slug}</span><span>{t('accounts.health')}: {t(`accounts.${account.is_enabled ? account.health_state : 'disabled'}`)}</span><span>{t('accounts.usage')}: {account.active_usage}/{account.max_concurrency}</span><span>{t(`accounts.${account.auth_strategy}`)}</span></div>
+        <div className="flex flex-wrap gap-3 text-xs">
+          <span className={account.quota?.state === 'exhausted' ? 'text-status-warning' : account.quota?.state === 'available' ? 'text-status-success' : 'text-theme-muted'}>{t('quota.title')}: {t(`quota.state.${account.quota?.state ?? 'unknown'}`)}</span>
+          {account.quota?.resetAt && <span>{t('quota.resetsAt').replace('{time}', new Date(account.quota.resetAt).toLocaleString())}</span>}
+          {account.quota && <span>{t('accounts.quotaSource')}: {t(`accounts.quotaSource.${account.quota.source}`)}</span>}
+          {account.quota?.observedAt && <span>{t('accounts.quotaObserved')}: <time>{new Date(account.quota.observedAt).toLocaleString()}</time></span>}
+        </div>
+        {account.quota?.reason && <p className="text-xs text-theme-muted">{account.quota.reason}</p>}
         {account.last_health_at && <time className="text-xs text-theme-muted">{new Date(account.last_health_at).toLocaleString()}</time>}
         {account.health_reason && <p className="text-xs text-theme-muted">{account.health_reason}</p>}
         <label className="block text-xs">{t('accounts.label')}<input className="input-field" maxLength={128} value={account.label} onChange={event => change(account.id, { label: event.target.value })} /></label>
@@ -38,6 +50,7 @@ export default function ProviderAccountsPanel() {
           <label className="text-xs"><input type="checkbox" checked={!!account.is_enabled} disabled={busy} onChange={event => run(() => saveAccount(account.id, { is_enabled: event.target.checked }))} /> {t('accounts.enabled')}</label>
           <button className="btn-secondary btn-sm" disabled={busy} onClick={() => run(() => saveAccount(account.id, { label: account.label, description: account.description, max_concurrency: account.max_concurrency, auth_config: JSON.parse(account.auth_config_json) }))}>{t('common.save')}</button>
           <button className="btn-secondary btn-sm" disabled={busy} onClick={() => run(() => testAccount(account.id))}>{t('accounts.test')}</button>
+          <button className="btn-secondary btn-sm" disabled={busy} onClick={() => run(() => resetAccountQuota(account.id))}>{t('accounts.quotaReset')}</button>
           {account.auth_strategy !== 'inherited' && <button className="btn-secondary btn-sm" disabled={busy} onClick={() => run(() => deleteAccount(account.id))}>{t('common.delete')}</button>}
         </div>
       </div>)}

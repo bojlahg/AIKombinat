@@ -15,11 +15,11 @@ An inherited account uses the CLI's existing login. Startup creates one compatib
 
 ## Selection and ownership
 
-Execution profile candidates support `inherited_default`, `fixed` and `automatic`. Manual Todo, Schedule and Session selection supports inherited login or a fixed account ID. Fixed selection never silently falls back. Automatic selection prefers enabled, healthy accounts, then unknown accounts, ordered deterministically by sort order, creation time and ID. Auth-error and unavailable accounts are ineligible. Available health receives preference for five minutes after its last observation; older observations no longer outrank unknown accounts. Probes run only on explicit request, never during rendering.
+Execution profile candidates support `inherited_default`, `fixed` and `automatic`. Manual Todo, Schedule and Session selection supports inherited login or a fixed account ID. Fixed selection never silently falls back. Automatic selection prefers enabled, healthy accounts, then unknown accounts, ordered deterministically by sort order, creation time and ID. Auth-error and unavailable accounts are ineligible. V2 ranks quota availability before health, then applies deterministic account ordering. Probes run only on explicit request, never during rendering.
 
 Admission enforces both provider aggregate capacity and account concurrency, with synchronous reservations under the pool selection mutex. Persisted process ownership continues to count even after a workflow leaves running status. A running process retains its resolved account when settings change. Fresh primary turns can independently choose accounts; Session resume requires the original saved account and rejects unknown or ineligible identity.
 
-Snapshots store account ID, slug, label, strategy and requested policy. They contain no credential or resolved environment value. Renaming an account does not rewrite history. Legacy snapshots remain readable as Legacy / Unknown; accountless executions have null account identity. Schedules copy their account policy and ID into generated Todos. Provider-wide quota behavior remains unchanged; account quota failover belongs to V2.
+Snapshots store account ID, slug, label, strategy and requested policy. They contain no credential or resolved environment value. Renaming an account does not rewrite history. Legacy snapshots remain readable as Legacy / Unknown; accountless executions have null account identity. Schedules copy their account policy and ID into generated Todos. Quota now follows [Account-aware Quota V2](Account_Aware_Quota_V2.md): account observations are canonical, provider state is derived, and only automatic account policies rotate after a confirmed quota rejection.
 
 ## Storage and API
 
@@ -30,3 +30,5 @@ Snapshots store account ID, slug, label, strategy and requested policy. They con
 Runtime credentials have a scoped redaction lifetime through confirmed process exit. Output is redacted before replay, raw chunks, diagnostics and opt-in debug logs; streaming redaction handles credentials split across chunks. Server authentication/tunnel secrets remain excluded by the existing child environment sanitizer. Neither runtime binding nor probing mutates global `process.env`.
 
 See [smoke evidence and limitations](Provider_Accounts_V1_Smoke_Report.md), [ERD](ERD.md) and [testing](TESTING.md).
+
+V1 status: READY_WITH_LIMITATIONS (provider-specific account strategy limits remain). Account lifecycle and quota WebSocket events are supplied by V2.

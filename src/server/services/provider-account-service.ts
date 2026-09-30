@@ -1,3 +1,5 @@
+import { broadcaster } from '../websocket/broadcaster.js';
+import { providerQuotaService } from './provider-quota.js';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { getDatabase } from '../db/connection.js';
@@ -134,6 +136,9 @@ export function saveProviderAccount(input: Record<string, unknown>, id?: string)
       changed ? 'unknown' : previous?.health_state ?? 'unknown', changed ? null : previous?.health_reason ?? null,
       changed ? null : previous?.last_health_at ?? null, concurrency, sortOrder, previous?.created_at ?? now, now);
   logger.info(id ? 'provider-account.updated' : 'provider-account.created', { accountId, provider });
+  providerQuotaService.getAccountQuotaState(accountId);
+  broadcaster.broadcast({ type: id ? 'provider-account:updated' : 'provider-account:created', accountId });
+  providerQuotaService.accountsChanged(provider);
   return getProviderAccount(accountId)!;
 }
 export function setAccountHealth(id: string, state: AccountHealth, reason = ''): void {
@@ -141,6 +146,9 @@ export function setAccountHealth(id: string, state: AccountHealth, reason = ''):
   getDatabase().prepare('UPDATE provider_accounts SET health_state=?, health_reason=?, last_health_at=?, updated_at=? WHERE id=?')
     .run(state, redactString(reason).slice(0, 1024), now, now, id);
   logger.info('provider-account.health', { accountId: id, state });
+  broadcaster.broadcast({ type: 'provider-account:health', accountId: id });
+  const account = getProviderAccount(id);
+  if (account) providerQuotaService.accountsChanged(account.provider);
 }
 export async function probeProviderAccount(id: string): Promise<ProviderAccount> {
   const account = getProviderAccount(id);
@@ -204,5 +212,8 @@ export function deleteProviderAccount(id: string, reserved = false): void {
   if (!getProviderAccount(id)) throw new Error('Account not found');
   if (reserved || accountUsage(id)) throw new Error('Account is in use');
   if (getProviderAccount(id)!.auth_strategy === 'inherited') throw new Error('Compatibility account cannot be deleted');
+  const provider = getProviderAccount(id)!.provider;
   getDatabase().prepare('DELETE FROM provider_accounts WHERE id=?').run(id);
+  broadcaster.broadcast({ type: 'provider-account:deleted', accountId: id });
+  providerQuotaService.accountsChanged(provider);
 }

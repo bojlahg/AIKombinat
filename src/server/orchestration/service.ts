@@ -1,3 +1,6 @@
+import { providerQuotaService } from '../services/provider-quota.js';
+import { classifyProviderFailure } from '../services/failure-classifier.js';
+import { attemptedAccounts, quotaChain, setQuotaChain, recordFailover, bindFailoverTarget, QUOTA_RECOVERY_PROMPT } from '../services/account-failover.js';
 import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../db/connection.js';
 import * as queries from '../db/queries.js';
@@ -39,6 +42,7 @@ export class OrchestratorAgentService {
   private active = new Map<string, PrimaryExecution>();
   private launching = new Set<string>();
   private expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private unsubscribeQuota: (() => void) | null = null;
   private readonly wakeListener = () => this.wake();
   constructor(private readonly launcher: PrimaryLauncher = launchPrimary) {}
   async initialize(): Promise<void> {
@@ -46,6 +50,7 @@ export class OrchestratorAgentService {
     store.reconcileChildren();
     reconcileResources();
     this.enabled = true;
+    this.unsubscribeQuota = providerQuotaService.onAvailability(this.wakeListener);
     todoLifecycle.on('status', this.wakeListener);
     store.orchestrationSignals.on('wake', this.wakeListener);
     this.wake();
@@ -55,7 +60,7 @@ export class OrchestratorAgentService {
     this.requested = true;
     if (this.dispatching) return;
     this.dispatching = true;
-    setImmediate(() => this.dispatch().catch(error => logger.error('orchestrator.dispatch.failed', { err: error })).finally(() => { this.dispatching = false; if (this.requested) this.wake(); }));
+    setImmediate(() => (this.enabled ? this.dispatch() : Promise.resolve()).catch(error => logger.error('orchestrator.dispatch.failed', { err: error })).finally(() => { this.dispatching = false; if (this.requested) this.wake(); }));
   }
   private async dispatch(): Promise<void> {
     do {
@@ -91,14 +96,18 @@ export class OrchestratorAgentService {
     try {
       const parent = store.getOrchestration(id);
       store.validateProfile(parent.primary_execution_profile_id, true);
-      const selection = await executorPool.selectExecutor({ executionProfileId: parent.primary_execution_profile_id, allowedCliTools: ['claude'], reserveOwnerId: turnId });
+      const chain = quotaChain('orchestrator', turnId);
+      const previousAttempt = chain ? store.turns(id).filter(row => row.id !== turnId && quotaChain('orchestrator', row.id) === chain).at(-1) : undefined;
+      const previousSnapshot = previousAttempt?.execution_snapshot ? JSON.parse(previousAttempt.execution_snapshot) : null;
+      const selection = await executorPool.selectExecutor({ preferredCandidateId: previousSnapshot?.executorCandidateId, onlyCandidateId: previousSnapshot?.accountPolicy && previousSnapshot.accountPolicy !== 'automatic' ? previousSnapshot.executorCandidateId : undefined, excludedProviderAccountIds: attemptedAccounts('orchestrator', id, chain), executionProfileId: parent.primary_execution_profile_id, allowedCliTools: ['claude'], reserveOwnerId: turnId });
       const fresh = store.getOrchestration(id), turn = store.getTurn(turnId);
       if (!this.enabled || ['paused','cancelling', ...store.terminalStatuses].includes(fresh.status) || !['pending','waiting_executor','waiting_quota'].includes(turn.status)) { executorPool.releaseReservation(turnId, true); return; }
       if (selection.status === 'waiting_executor' || selection.status === 'waiting_quota') {
         store.updateTurn(turnId, { status: selection.status }); store.updateOrchestration(id, { status: selection.status }); store.publish('status-changed', id); return;
       }
       if (!selection.selectedConfig) throw new Error('no_eligible_claude_executor');
-      const context = buildContext(id, turnId);
+      const context = (chain ? QUOTA_RECOVERY_PROMPT + '\n\n' : '') + buildContext(id, turnId);
+      bindFailoverTarget('orchestrator', id, chain, selection.selectedConfig.providerAccountId);
       store.updateTurn(turnId, { status: 'running', input_context_hash: store.hash(context), execution_snapshot: JSON.stringify(executionSnapshot(selection.selectedConfig)), started_at: store.now() });
       store.updateOrchestration(id, { status: 'running' });
       this.launching.add(turnId);
@@ -130,14 +139,20 @@ export class OrchestratorAgentService {
     const execution = this.active.get(turnId);
     await execution?.revoke(); this.active.delete(turnId);
     const turn = store.getTurn(turnId), parent = store.getOrchestration(id);
+    if (!['running','starting','stopped'].includes(turn.status)) return;
     store.updateTurn(turnId, { process_pid: 0, process_identity: null });
     executorPool.notifyCapacityReleased();
     if (['paused','cancelling','cancelled'].includes(parent.status) || turn.status === 'stopped') {
       store.updateTurn(turnId, { status: 'stopped', finished_at: store.now() });
       getDatabase().prepare('UPDATE orchestrator_events SET assigned_turn_id = NULL WHERE assigned_turn_id = ? AND consumed_at IS NULL').run(turnId);
       if (parent.status === 'cancelling') await this.cancel(id);
+    } else if (this.handleQuotaExit(id, turnId, result)) {
+      store.publish('turn-finished', id); store.publish('status-changed', id); this.wake(); return;
     } else if (result.code !== 0 || !turn.terminal_action) this.failTurn(id, turnId, result.code === 0 ? 'protocol_error' : 'failed', result.code === 0 ? 'primary_exited_without_terminal_action' : 'primary_process_failed');
     else {
+      const snapshot = JSON.parse(turn.execution_snapshot ?? '{}');
+      if (snapshot.providerAccountId) providerQuotaService.markAccountAvailable(snapshot.providerAccountId);
+      if (quotaChain('orchestrator', turnId) && snapshot.accountPolicy === 'automatic') logger.info('execution.account-failover.completed', { ownerType: 'orchestrator', ownerId: id, turnId, toAccountId: snapshot.providerAccountId });
       getDatabase().transaction(() => {
         const timestamp = store.now();
         store.updateTurn(turnId, { status: 'completed', finished_at: timestamp });
@@ -160,6 +175,33 @@ export class OrchestratorAgentService {
       logger.info(turn.terminal_action === 'finish' ? 'orchestrator.finished' : 'orchestrator.turn.completed', { orchestratorId: id, turnId });
     }
     store.publish('turn-finished', id); store.publish('status-changed', id); this.wake();
+  }
+  private handleQuotaExit(id: string, turnId: string, result: { code: number; output: string; error: string }): boolean {
+    const turn = store.getTurn(turnId);
+    const snapshot = JSON.parse(turn.execution_snapshot ?? '{}');
+    if (!snapshot.providerAccountId || result.code === 0 || turn.terminal_action) return false;
+    const classification = classifyProviderFailure(snapshot.agent, result.code, `${result.output}\n${result.error}`.slice(-65536));
+    if (classification.category !== 'quota_exhausted' && classification.category !== 'rate_limited') return false;
+    getDatabase().transaction(() => {
+      const chain = quotaChain('orchestrator', turnId) ?? turnId;
+      store.updateTurn(turnId, { status: 'failed', error_message: `account_quota_failover: ${classification.category}`, finished_at: store.now() });
+      providerQuotaService.markAccountExhausted(snapshot.providerAccountId, { source: 'runtime_rejection', reason: classification.reason, resetAt: classification.resetAt });
+      const allowed = snapshot.accountPolicy !== 'automatic' || recordFailover('orchestrator', id, chain, turnId, { ...snapshot, cliTool: snapshot.agent }, classification);
+      if (!allowed) {
+        store.updateOrchestration(id, { status: 'failed', waiting_reason: 'failover_budget_exhausted' });
+        getDatabase().prepare('UPDATE orchestrator_events SET assigned_turn_id=NULL WHERE assigned_turn_id=? AND consumed_at IS NULL').run(turnId);
+        return;
+      }
+      const nextId = randomUUID();
+      const nextIndex = Math.max(...store.turns(id).map(row => row.turn_index)) + 1;
+      getDatabase().prepare(`INSERT INTO orchestrator_turns
+        (id,orchestrator_id,turn_index,status,trigger_type,retry_count,quota_chain_id,created_at)
+        VALUES (?,?,?,'pending','account_quota_failover',?,?,?)`).run(nextId, id, nextIndex, turn.retry_count, chain, store.now());
+      setQuotaChain('orchestrator', turnId, chain);
+      getDatabase().prepare('UPDATE orchestrator_events SET assigned_turn_id=? WHERE assigned_turn_id=? AND consumed_at IS NULL').run(nextId, turnId);
+      store.updateOrchestration(id, { status: 'pending', waiting_reason: 'account_quota_failover' });
+    }).immediate();
+    return true;
   }
   private failTurn(id: string, turnId: string, status: string, reason: string): void {
     getDatabase().transaction(() => {
@@ -237,6 +279,7 @@ export class OrchestratorAgentService {
   }
   async shutdown(): Promise<void> {
     this.enabled = false;
+    this.unsubscribeQuota?.(); this.unsubscribeQuota = null;
     todoLifecycle.off('status', this.wakeListener); store.orchestrationSignals.off('wake', this.wakeListener);
     if (this.expiryTimer) clearTimeout(this.expiryTimer);
     for (const parent of store.listOrchestrations()) {

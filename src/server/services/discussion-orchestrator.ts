@@ -378,7 +378,7 @@ export class DiscussionOrchestrator {
 
       // Quota preflight for manual discussion turn (agents only, not raw-shell)
       if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-        const quota = providerQuotaService.getQuotaState(resolvedCliTool);
+        const quota = executionConfig?.providerAccountId ? providerQuotaService.getAccountQuotaState(executionConfig.providerAccountId) : providerQuotaService.getQuotaState(resolvedCliTool);
         if (quota.state === 'exhausted') {
           const adapter = getAdapter(resolvedCliTool);
           logger.warn('discussion.admission.waiting-quota', {
@@ -472,7 +472,7 @@ export class DiscussionOrchestrator {
 
         if (exitCode === 0) {
           if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-            providerQuotaService.markAvailable(resolvedCliTool, { source: 'execution_success' });
+            if (executionConfig?.providerAccountId) providerQuotaService.markAccountAvailable(executionConfig.providerAccountId, { source: 'execution_success' });
           }
 
           queries.updateDiscussionMessage(messageId, {
@@ -490,7 +490,7 @@ export class DiscussionOrchestrator {
           const classification = classifyProviderFailure(resolvedCliTool, exitCode, fullOutput);
           if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
             if (resolvedCliTool === 'claude' || resolvedCliTool === 'codex' || resolvedCliTool === 'antigravity') {
-              providerQuotaService.markExhausted(resolvedCliTool, {
+              if (executionConfig?.providerAccountId) providerQuotaService.markAccountExhausted(executionConfig.providerAccountId, {
                 source: 'runtime_rejection',
                 reason: classification.reason,
                 resetAt: classification.resetAt,

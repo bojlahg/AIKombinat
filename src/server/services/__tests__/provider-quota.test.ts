@@ -130,7 +130,7 @@ describe('Quota Awareness V1', () => {
     const selection = await executorPool.selectExecutor({ executionProfileId: profile.id });
     expect(selection.status).toBe('waiting_quota');
     expect(selection.evaluations[0].status).toBe('quota_exhausted');
-    expect(selection.evaluations[0].reason).toContain('provider quota exhausted');
+    expect(selection.evaluations[0].reason).toContain('quota exhausted');
   });
 
   it('4. exhausted first candidate -> second candidate selected', async () => {
@@ -166,7 +166,7 @@ describe('Quota Awareness V1', () => {
       cliTool: 'claude',
       status: 'quota_exhausted',
     });
-    expect(selection.evaluations[0].reason).toContain('provider quota exhausted');
+    expect(selection.evaluations[0].reason).toContain('quota exhausted');
     expect(selection.evaluations[1]).toMatchObject({
       cliTool: 'codex',
       status: 'available',
@@ -226,9 +226,9 @@ describe('Quota Awareness V1', () => {
     const quotaLog = logs.find((l) => l.message.includes('Waiting for provider quota'));
     expect(quotaLog).toBeDefined();
     expect(quotaLog?.message).toContain('Claude / Claude 3.7 Sonnet / high:');
-    expect(quotaLog?.message).toContain('quota_exhausted - provider quota exhausted');
+    expect(quotaLog?.message).toContain('quota_exhausted - Existing CLI Login: quota exhausted');
     expect(quotaLog?.message).toContain('Codex / GPT-5 / medium:');
-    expect(quotaLog?.message).toContain('quota_exhausted - provider quota exhausted');
+    expect(quotaLog?.message).toContain('quota_exhausted - Existing CLI Login: quota exhausted');
   });
 
   it('6. runtime Claude quota rejection marks Claude exhausted and allows Codex fallback', async () => {
@@ -239,8 +239,8 @@ describe('Quota Awareness V1', () => {
       name: 'Runtime Fallback Profile',
       description: '',
       executors: [
-        { cli_model_id: claude.id, effort_value: 'high', priority: 1 },
-        { cli_model_id: codex.id, effort_value: 'medium', priority: 2 },
+        { cli_model_id: claude.id, effort_value: 'high', priority: 1, account_policy: 'automatic' },
+        { cli_model_id: codex.id, effort_value: 'medium', priority: 2, account_policy: 'automatic' },
       ],
     });
 
@@ -291,7 +291,7 @@ describe('Quota Awareness V1', () => {
     // Claude must now be marked exhausted in ProviderQuotaService
     const claudeQuota = providerQuotaService.getQuotaState('claude');
     expect(claudeQuota.state).toBe('exhausted');
-    expect(claudeQuota.source).toBe('runtime_rejection');
+    expect(claudeQuota.source).toBe('account_aggregate');
 
     // The task should now have automatically switched to Codex and is running!
     const refreshedTodo = queries.getTodoById(todo.id);
@@ -341,7 +341,7 @@ describe('Quota Awareness V1', () => {
 
     const codexQuota = providerQuotaService.getQuotaState('codex');
     expect(codexQuota.state).toBe('exhausted');
-    expect(codexQuota.source).toBe('runtime_rejection');
+    expect(codexQuota.source).toBe('account_aggregate');
   });
 
   it('8. runtime Antigravity quota rejection marks Antigravity exhausted', async () => {
@@ -381,7 +381,7 @@ describe('Quota Awareness V1', () => {
 
     const agyQuota = providerQuotaService.getQuotaState('antigravity');
     expect(agyQuota.state).toBe('exhausted');
-    expect(agyQuota.source).toBe('runtime_rejection');
+    expect(agyQuota.source).toBe('account_aggregate');
   });
 
   it('9. unrelated process failure does NOT change quota state', async () => {
@@ -436,7 +436,7 @@ describe('Quota Awareness V1', () => {
 
     const updatedState = providerQuotaService.getQuotaState('claude');
     expect(updatedState.state).toBe('unknown');
-    expect(updatedState.source).toBe('cooldown_expired');
+    expect(updatedState.source).toBe('account_aggregate');
 
     vi.useRealTimers();
   });
@@ -496,7 +496,7 @@ describe('Quota Awareness V1', () => {
     await new Promise((r) => setTimeout(r, 40));
 
     expect(providerQuotaService.getQuotaState('claude').state).toBe('available');
-    expect(providerQuotaService.getQuotaState('claude').source).toBe('execution_success');
+    expect(providerQuotaService.getQuotaState('claude').source).toBe('account_aggregate');
   });
 
   it('11b. stale success cannot erase newer active exhaustion, but expired exhaustion can become available', async () => {
@@ -561,15 +561,15 @@ describe('Quota Awareness V1', () => {
     await new Promise((r) => setTimeout(r, 40));
 
     const failedTodo = queries.getTodoById(todo.id);
-    expect(failedTodo?.status).toBe('failed');
+    expect(failedTodo?.status).toBe('waiting_quota');
     // Did NOT spawn another CLI process (Codex / etc.)
     expect(startSpy).toHaveBeenCalledTimes(1);
 
     // Clear error message in logs
     const logs = queries.getTaskLogsByTodoId(todo.id);
-    const quotaErrorLog = logs.find((l) => l.message.includes('provider quota exhausted'));
+    const quotaErrorLog = logs.find((l) => l.message.includes('quota exhausted'));
     expect(quotaErrorLog).toBeDefined();
-    expect(quotaErrorLog?.log_type).toBe('error');
+    expect(quotaErrorLog?.log_type).toBe('warning');
   });
 
   it('12b. manual Todo preflight blocks launch of already exhausted provider without spawning CLI', async () => {
@@ -695,7 +695,7 @@ describe('Quota Awareness V1', () => {
     expect(updatedDisc?.status).toBe('paused');
 
     const logs = queries.getDiscussionLogs(disc.id);
-    const quotaWarn = logs.find((l) => l.message.includes('provider quota exhausted'));
+    const quotaWarn = logs.find((l) => l.message.includes('quota exhausted'));
     expect(quotaWarn).toBeDefined();
     expect(quotaWarn?.log_type).toBe('warning');
   });
@@ -714,7 +714,7 @@ describe('Quota Awareness V1', () => {
     // Query state again -> loads from SQLite table
     const reloaded = providerQuotaService.getQuotaState('claude');
     expect(reloaded.state).toBe('exhausted');
-    expect(reloaded.source).toBe('runtime_rejection');
+    expect(reloaded.source).toBe('account_aggregate');
     expect(reloaded.reason).toBe('Quota limit exceeded');
     expect(reloaded.resetAt).toBe(futureResetAt);
   });
@@ -750,7 +750,7 @@ describe('Quota Awareness V1', () => {
 
     // Distinct statuses and reasons
     expect(claudeEval?.status).toBe('quota_exhausted');
-    expect(claudeEval?.reason).toContain('provider quota exhausted');
+    expect(claudeEval?.reason).toContain('quota exhausted');
 
     expect(codexEval?.status).toBe('busy');
     expect(codexEval?.reason).toBe('provider concurrency limit reached');
@@ -799,7 +799,7 @@ describe('Quota Awareness V1', () => {
     // Claude quota must be marked exhausted from raw PTY chunk
     const claudeQuota = providerQuotaService.getQuotaState('claude');
     expect(claudeQuota.state).toBe('exhausted');
-    expect(claudeQuota.source).toBe('runtime_rejection');
+    expect(claudeQuota.source).toBe('account_aggregate');
     expect(claudeQuota.reason).toContain('usage limit reached');
   });
 
@@ -842,7 +842,7 @@ describe('Quota Awareness V1', () => {
 
     const agyQuota = providerQuotaService.getQuotaState('antigravity');
     expect(agyQuota.state).toBe('exhausted');
-    expect(agyQuota.source).toBe('runtime_rejection');
+    expect(agyQuota.source).toBe('account_aggregate');
     expect(agyQuota.reason).toContain('RESOURCE_EXHAUSTED');
   });
 
@@ -1039,8 +1039,8 @@ describe('Quota Awareness V1', () => {
       name: 'Multi Candidate',
       description: 'Fallback profile',
       executors: [
-        { cli_model_id: claude.id, effort_value: 'high', priority: 1 },
-        { cli_model_id: codex.id, effort_value: 'high', priority: 2 },
+        { cli_model_id: claude.id, effort_value: 'high', priority: 1, account_policy: 'automatic' },
+        { cli_model_id: codex.id, effort_value: 'high', priority: 2, account_policy: 'automatic' },
       ],
     });
 
@@ -1127,7 +1127,7 @@ describe('Quota Awareness V1', () => {
     await new Promise((r) => setTimeout(r, 60));
 
     const refreshed = queries.getTodoById(todo.id);
-    expect(refreshed?.status).toBe('failed');
+    expect(refreshed?.status).toBe('waiting_quota');
     expect(refreshed?.cli_tool).toBe('claude'); // NOT changed to codex
     expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
   });
@@ -1231,7 +1231,7 @@ describe('Quota Awareness V1', () => {
     await new Promise((r) => setTimeout(r, 60));
 
     expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
-    expect(providerQuotaService.getQuotaState('claude').source).toBe('runtime_rejection');
+    expect(providerQuotaService.getQuotaState('claude').source).toBe('account_aggregate');
   });
 
   it('24. output emitted around replay/subscription boundary is persisted exactly once without duplicates', async () => {
@@ -1399,15 +1399,15 @@ describe('Quota Awareness V1', () => {
     // First call after expiration: transitions exhausted -> unknown and broadcasts
     const state2 = providerQuotaService.getQuotaState('claude');
     expect(state2.state).toBe('unknown');
-    expect(broadcastSpy).toHaveBeenCalledTimes(1);
-    expect(broadcastSpy).toHaveBeenCalledWith({
+    expect(broadcastSpy).toHaveBeenCalledTimes(2);
+    expect(broadcastSpy).toHaveBeenCalledWith(expect.objectContaining({
       type: 'quota:updated',
       tool: 'claude',
       state: 'unknown',
-      source: 'cooldown_expired',
+      source: 'account_aggregate',
       reason: null,
       resetAt: null,
-    });
+    }));
 
     // Subsequent calls: already unknown, no duplicate broadcast
     broadcastSpy.mockClear();
@@ -1472,7 +1472,7 @@ describe('Quota Awareness V1', () => {
     await new Promise((r) => setTimeout(r, 40));
 
     // 7. Verify classification now completes and provider becomes exhausted
-    expect(queries.getTodoById(todo.id)?.status).toBe('failed');
+    expect(queries.getTodoById(todo.id)?.status).toBe('waiting_quota');
     expect(providerQuotaService.getQuotaState('claude').state).toBe('exhausted');
     expect(providerQuotaService.getQuotaState('claude').reason).toContain('usage limit reached');
   });
@@ -1792,14 +1792,7 @@ describe('Quota Awareness V1', () => {
     providerQuotaService.setCooldownMs(cooldownMs);
 
     // Persist exhausted state at T0
-    queries.upsertProviderQuotaState({
-      tool: 'claude',
-      state: 'exhausted',
-      source: 'runtime_rejection',
-      observed_at: new Date(t0).toISOString(),
-      reason: 'Rate limit',
-      reset_at: null,
-    });
+    testDb.prepare(`UPDATE provider_account_quota_state SET state='exhausted', source='runtime_rejection', observed_at=?, reason='Rate limit', reset_at=NULL WHERE provider='claude'`).run(new Date(t0).toISOString());
 
     // Advance to T0 + 4 minutes (240s elapsed, 60s remaining)
     vi.setSystemTime(t0 + 4 * 60 * 1000);
@@ -1819,6 +1812,7 @@ describe('Quota Awareness V1', () => {
 
     // After another 35 seconds (T0 + 5m + 5s) -> cooldown expires around T0 + 5m (NOT T0 + 9m)
     vi.advanceTimersByTime(35 * 1000);
+    await Promise.resolve();
     expect(availableNotified).toBe(true);
     expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
 
@@ -1834,14 +1828,7 @@ describe('Quota Awareness V1', () => {
     providerQuotaService.setCooldownMs(cooldownMs);
 
     // Persist exhausted state at T0
-    queries.upsertProviderQuotaState({
-      tool: 'claude',
-      state: 'exhausted',
-      source: 'runtime_rejection',
-      observed_at: new Date(t0).toISOString(),
-      reason: 'Rate limit',
-      reset_at: null,
-    });
+    testDb.prepare(`UPDATE provider_account_quota_state SET state='exhausted', source='runtime_rejection', observed_at=?, reason='Rate limit', reset_at=NULL WHERE provider='claude'`).run(new Date(t0).toISOString());
 
     // Advance to T0 + 6 minutes (cooldown already expired while server was offline)
     vi.setSystemTime(t0 + 6 * 60 * 1000);
@@ -1856,6 +1843,7 @@ describe('Quota Awareness V1', () => {
 
     // Must be unknown and notified
     expect(providerQuotaService.getQuotaState('claude').state).toBe('unknown');
+    await Promise.resolve();
     expect(availableNotified).toBe(true);
 
     vi.useRealTimers();

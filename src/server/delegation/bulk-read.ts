@@ -333,13 +333,14 @@ export class BulkReadService {
       if (worker.exitCode !== 0) {
         const classification = classifyProviderFailure(config.cliTool, worker.exitCode, worker.output.slice(-64 * 1024));
         if (classification.category === 'quota_exhausted' || classification.category === 'rate_limited') {
-          providerQuotaService.markExhausted(config.cliTool as 'claude' | 'codex' | 'antigravity', {
+          if (config.providerAccountId) providerQuotaService.markAccountExhausted(config.providerAccountId, {
             source: 'runtime_rejection', reason: classification.reason, resetAt: classification.resetAt,
           });
           return failWithoutOwnership('quota_exhausted', classification.reason || 'Delegation Worker quota exhausted.');
         }
         return failWithoutOwnership('process_failure', `Delegation Worker exited with code ${worker.exitCode}.`);
       }
+      if (config.providerAccountId) providerQuotaService.markAccountAvailable(config.providerAccountId);
       if (!recheckDelegationFile(identity)) {
         updateDelegationRun(runId, { status: 'failed', finished: true, latencyMs: Date.now() - startedAt, errorCode: 'stale', errorDetailBounded: 'The source file changed while the Delegation Worker was running.', processPid: null, processIdentity: null });
         return { status: 'stale', file: identity.relativePath, file_sha256: identity.sha256, line_count: identity.lines, query, error_code: 'stale', message: 'The source file changed while the Delegation Worker was running.', fallback_granted: false };
