@@ -318,7 +318,8 @@ describe('Resource Manager V1', () => {
     testDb.prepare('UPDATE todos SET created_at = ? WHERE id = ?').run(priority ? '2026-01-01T00:00:02.000Z' : '2026-01-01T00:00:00.000Z', first.id);
     testDb.prepare('UPDATE todos SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:01.000Z', second.id);
     const run = createMockCliResult(5002);
-    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce(run);
+    const nextRun = createMockCliResult(5003);
+    vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce(run).mockResolvedValueOnce(nextRun);
     installResourceWake();
     resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: holder.id, runToken: 'holder-run', resources: ['gpu.0'] });
     await orchestrator.startTodo(first.id);
@@ -331,6 +332,11 @@ describe('Resource Manager V1', () => {
     expect(queries.getTodoById(second.id)?.status).toBe('waiting_resource');
     expect(resourceManager.getStatus().find((resource) => resource.key === 'gpu.0')?.leases[0].ownerId).toBe(first.id);
     run.resolveExit(0);
+    await tick();
+    await orchestrator.wakeWaitingResources();
+    expect(queries.getTodoById(second.id)?.status).toBe('running');
+    resourceManager.setAvailabilityCallback(null);
+    nextRun.resolveExit(0);
     await tick();
   });
 

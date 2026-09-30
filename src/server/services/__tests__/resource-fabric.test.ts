@@ -9,7 +9,7 @@ import { canonicalJson, requirementsSchema } from '../resource-requirements.js';
 import { matchResources, capabilityMatches } from '../resource-matcher.js';
 import * as probes from '../resource-probes.js';
 import { assertManagedOpenCodeShell, OPEN_CODE_SHELL_GUARD, openCodePolicy } from '../opencode.js';
-import { discoverRemoteOpenCode, remoteOpenCodeArgs, type RemoteOpenCodeCapabilities } from '../remote-opencode.js';
+import { discoverRemoteOpenCode, remoteOpenCodeArgs, prepareRemoteOpenCodeArgs, type RemoteOpenCodeCapabilities } from '../remote-opencode.js';
 import { selectSmokeGpu, assertSmokeRemoteRoot } from '../resource-acceptance.js';
 
 let db: Database.Database;
@@ -34,7 +34,7 @@ function candidate(id = randomUUID(), changes: Partial<ComputeNode> = {}) {
 function requires(value: FabricRequirements['requires']): FabricRequirements { return { version: 2, requires: value, prefers: {} }; }
 
 beforeEach(() => { db = new Database(':memory:'); initDatabase(db); vi.spyOn(broadcaster, 'broadcast').mockImplementation(() => undefined); });
-afterEach(() => { vi.restoreAllMocks(); db.close(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); db.close(); });
 
 describe('Resource Fabric matcher', () => {
   it('selects only a free scheduler-eligible GPU even when external avoidance is disabled', () => {
@@ -159,16 +159,24 @@ describe('Atomic bindings and persisted capacity', () => {
     expect(() => manager.acquireAtomic(request)).toThrow('new run token');
     expect(manager.acquireAtomic({ ...request, ownerId: second, runToken: 'two' }).status).toBe('acquired');
   });
-  it('applies reserve-after-current before the release wake callback', () => {
+  it('blocks pending/reserved admission before release wake and admits automatically on unreserve', () => {
     const { a, owner } = install(), manager = new ResourceManager(), fabric = new ResourceFabric();
     const resources = requires({ resources: [{ kind: 'gpu', count: 2 }] });
     manager.acquireAtomic({ ownerType: 'todo', ownerId: owner(), runToken: 'one', resources });
     fabric.setInstancePolicy(a.instances[0].id, 'reserved', true, 'desktop');
     expect(getResourceInstances().find(instance => instance.id === a.instances[0].id)?.desired_policy).toBe('reserved');
     const second = owner(); let result = '';
-    manager.setAvailabilityCallback(() => { result = manager.acquireAtomic({ ownerType: 'todo', ownerId: second, runToken: 'two', resources }).status; });
+    const admit = () => { result = manager.acquireAtomic({ ownerType: 'todo', ownerId: second, runToken: 'two', resources }).status; };
+    admit(); expect(result).toBe('busy');
+    const inserted = vi.fn(); db.function('observe_waiter_lease', inserted);
+    db.exec(`CREATE TRIGGER observe_waiter AFTER INSERT ON resource_leases WHEN NEW.owner_id = '${second}' BEGIN SELECT observe_waiter_lease(); END`);
+    manager.setAvailabilityCallback(admit);
     manager.releaseRun('one'); expect(result).toBe('busy');
     expect(getResourceInstances().find(instance => instance.id === a.instances[0].id)).toMatchObject({ policy: 'reserved', desired_policy: null });
+    expect(inserted).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT COUNT(*) count FROM resource_leases WHERE owner_id = ?').get(second)).toEqual({ count: 0 });
+    fabric.setAvailabilityCallback(admit); fabric.setInstancePolicy(a.instances[0].id, 'enabled');
+    expect(result).toBe('acquired'); expect(inserted).toHaveBeenCalledTimes(2);
   });
   it('returns immutable bound history as inactive after confirmed release and retains unresolved remote activity', async () => {
     const { owner } = install(), manager = new ResourceManager();
@@ -350,6 +358,27 @@ describe('Remote process identity and Stop', () => {
 describe('Remote OpenCode capability and exact-model contract', () => {
   const capabilities = (standalone = false): RemoteOpenCodeCapabilities => ({ observed_at: new Date().toISOString(), context: 'fixture', installed: true, compatible: true, version: '1.18.33', flags: ['--format', '--model', '--agent', ...(standalone ? ['--standalone'] : [])], models: ['opencode/fixture-free'], models_verified: true });
   const options = { mode: 'headless' as const, prompt: 'fixture', model: 'opencode/fixture-free' };
+  it.each([undefined, '0', 'true'])('rejects without explicit opt-in (%s) before probes or transport preparation', async value => {
+    vi.stubEnv('AIKOMBINAT_EXPERIMENTAL_REMOTE_OPENCODE', value);
+    const runner = vi.fn(), call = vi.fn();
+    await expect(prepareRemoteOpenCodeArgs('absent-node', options, runner)).rejects.toThrow('remote_opencode_unsupported_v2');
+    await expect(new SshTransport(call).launch({} as never, '/nonexistent-fixture', 'opencode', options)).rejects.toThrow('remote_opencode_unsupported_v2');
+    expect(runner).not.toHaveBeenCalled(); expect(call).not.toHaveBeenCalled();
+    expect(db.prepare('SELECT COUNT(*) count FROM remote_executions').get()).toEqual({ count: 0 });
+  });
+  it('opt-in still probes capabilities and requires the exact model', async () => {
+    vi.stubEnv('AIKOMBINAT_EXPERIMENTAL_REMOTE_OPENCODE', '1');
+    const node = new ResourceFabric().createSshNode('Opt-in fixture', { host: 'fixture', auth_mode: 'config', workspace_root: '/jobs' });
+    db.prepare('UPDATE compute_nodes SET identity = ? WHERE id = ?').run('host', node.id);
+    db.prepare('INSERT INTO resource_observations VALUES (?, ?, ?)').run(node.id, canonicalJson(candidate().node.observation), new Date().toISOString());
+    const runner = vi.fn(async (_command: string, args: string[]) => ({ code: 0, timed_out: false, stderr: '', stdout: args.at(-1)!.includes('--version') ? '1.18.33\n' : args.at(-1)!.includes("'run'") ? '--format --model --agent' : args.at(-1)!.includes('--help') ? 'models help' : 'opencode/fixture-free\n' }));
+    await expect(prepareRemoteOpenCodeArgs(node.id, { ...options, model: 'opencode/missing' }, runner)).rejects.toThrow('model_unavailable_on_node');
+    expect(runner).toHaveBeenCalledTimes(4);
+    expect(await prepareRemoteOpenCodeArgs(node.id, options, runner)).not.toContain('--standalone');
+    db.prepare('DELETE FROM resource_observations WHERE node_id = ?').run(node.id);
+    runner.mockResolvedValue({ code: 0, timed_out: false, stderr: '', stdout: '2.0.0' });
+    await expect(prepareRemoteOpenCodeArgs(node.id, options, runner)).rejects.toThrow('remote_opencode_unsupported');
+  });
   it('does not inject --standalone when the remote CLI lacks it', () => expect(remoteOpenCodeArgs({ ...options, opencodeStandalone: true }, capabilities())).not.toContain('--standalone'));
   it('includes --standalone when the remote CLI advertises it', () => expect(remoteOpenCodeArgs(options, capabilities(true))).toContain('--standalone'));
   it('rejects an exact model absent on the remote node', () => expect(() => remoteOpenCodeArgs({ ...options, effectiveModel: 'opencode/missing' }, capabilities())).toThrow('model_unavailable_on_node'));
@@ -372,5 +401,9 @@ describe('Remote OpenCode capability and exact-model contract', () => {
     await discoverRemoteOpenCode(node.id, runner); expect(runner).toHaveBeenCalledTimes(8);
     db.prepare('UPDATE compute_node_connections SET connection_json = ? WHERE node_id = ?').run(canonicalJson({ ...node.connection, host: 'other' }), node.id);
     await discoverRemoteOpenCode(node.id, runner); expect(runner).toHaveBeenCalledTimes(12);
+    db.prepare('UPDATE compute_nodes SET identity = ? WHERE id = ?').run('new-host', node.id);
+    await discoverRemoteOpenCode(node.id, runner); expect(runner).toHaveBeenCalledTimes(16);
+    db.prepare('UPDATE compute_nodes SET identity_changed = 1 WHERE id = ?').run(node.id);
+    await expect(discoverRemoteOpenCode(node.id, runner)).rejects.toThrow('remote_opencode_node_unverified');
   });
 });

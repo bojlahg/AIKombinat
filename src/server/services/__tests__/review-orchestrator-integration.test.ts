@@ -117,6 +117,8 @@ const { orchestrator } = await import('../orchestrator.js');
 const { reviewPipeline, InvalidTransitionError } = await import('../review-pipeline.js');
 const { executorPool } = await import('../executor-pool.js');
 const { resourceManager } = await import('../resource-manager.js');
+const { resourceFabric } = await import('../resource-fabric.js');
+const { sshTransport } = await import('../execution-transport.js');
 const { providerQuotaService } = await import('../provider-quota.js');
 const { claudeManager } = await import('../claude-manager.js');
 
@@ -180,6 +182,7 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     resourceManager.shutdown();
     resourceManager.setAvailabilityCallback(null);
     executorPool.resetLimits();
@@ -188,6 +191,28 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     testDb.close();
     currentWorkspace = null;
     workspace.cleanup();
+  });
+
+  it('rejects unsupported remote OpenCode before preparation and releases acquired leases and executor capacity', async () => {
+    vi.stubEnv('AIKOMBINAT_EXPERIMENTAL_REMOTE_OPENCODE', undefined);
+    const node = resourceFabric.createSshNode('Remote fixture', { host: 'fixture', auth_mode: 'config', workspace_root: '/jobs' });
+    testDb.prepare("UPDATE compute_nodes SET identity = 'fixture', scheduler_state = 'online' WHERE id = ?").run(node.id);
+    const inventory = { platform: { os: 'linux', arch: 'x86_64', hostname: 'fixture' }, cpu: { logical_threads: 4, physical_cores: 2, threads_per_core: 2, flags: [] }, memory: { total_bytes: 8 * 1024 ** 3 }, storage: [], gpus: [], capabilities: {} };
+    testDb.prepare('INSERT INTO inventory_snapshots VALUES (?, ?, ?, ?, ?)').run('remote-inventory', node.id, JSON.stringify(inventory), '[]', new Date().toISOString());
+    const todo = queries.createTodo(project.id, 'Fix add.cjs', 'Fix the addition fixture.');
+    queries.updateTodo(todo.id, { cli_tool: 'opencode', review_enabled: 0, resource_requirements: JSON.stringify({ version: 2, requires: { node_id: node.id, cpu: { threads: 1 } }, prefers: {} }) });
+    const launch = vi.spyOn(sshTransport, 'launch'), release = vi.spyOn(executorPool, 'releaseReservation');
+    const worktree = (await import('../worktree-manager.js')).worktreeManager;
+    vi.mocked(worktree.createWorktree).mockClear();
+    await orchestrator.startTodo(todo.id, 'headless');
+    expect(queries.getTodoById(todo.id)).toMatchObject({ status: 'failed', process_pid: 0, execution_mode: null });
+    expect(queries.getTaskLogsByTodoId(todo.id).some(log => log.message.includes('remote_opencode_unsupported_v2'))).toBe(true);
+    expect(launch).not.toHaveBeenCalled(); expect(worktree.createWorktree).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(todo.id); expect(executorPool.getActiveToolUsage('opencode')).toBe(0);
+    expect(testDb.prepare('SELECT COUNT(*) count FROM resource_leases WHERE owner_id = ?').get(todo.id)).toEqual({ count: 0 });
+    expect(testDb.prepare('SELECT COUNT(*) count FROM remote_executions').get()).toEqual({ count: 0 });
+    expect(testDb.prepare('SELECT status FROM resource_requests WHERE owner_id = ?').get(todo.id)).toEqual({ status: 'bound' });
+    expect(testDb.prepare('SELECT COUNT(*) count FROM resource_bindings').get()).toEqual({ count: 1 });
   });
 
   it('1. Automatic approved flow: Implementation -> Review (approved) -> Completed', async () => {

@@ -10,7 +10,7 @@ import { getComputeNode } from './resource-fabric.js';
 import { shellQuote, sshArgs, type ProbeResult } from './resource-probes.js';
 import { getAdapter, type CliTool, type CliBuildOptions } from './cli-adapters.js';
 import { createOpenCodeConfig, OPEN_CODE_SHELL_GUARD } from './opencode.js';
-import { discoverRemoteOpenCode, remoteOpenCodeArgs } from './remote-opencode.js';
+import { assertRemoteOpenCodeEnabled, prepareRemoteOpenCodeArgs } from './remote-opencode.js';
 import { canonicalJson } from './resource-requirements.js';
 import type { FabricBinding } from './resource-fabric-types.js';
 import type { ProcessIdentity } from '../utils/process-tree.js';
@@ -105,11 +105,12 @@ export class SshTransport implements ExecutionTransport {
     return { status: 'unresolved', pid: identity.pid, reason: 'remote_termination_not_confirmed' };
   }
   async launch(binding: FabricBinding, localWorkspace: string, tool: CliTool, options: CliBuildOptions): Promise<TransportResult> {
+    if (tool === 'opencode') assertRemoteOpenCodeEnabled();
     assertExternalAiCliAllowed(tool);
     if (options.mode !== 'headless' || options.continueSession || !['raw-shell', 'opencode'].includes(tool)) throw new Error('SSH V2 supports headless raw-shell/OpenCode without resume');
     const node = getComputeNode(binding.node_id);
     if (!node.identity || node.identity_changed || node.scheduler_state !== 'online') throw new Error('SSH node identity/health not verified');
-    const openCodeArgs = tool === 'opencode' ? remoteOpenCodeArgs(options, await discoverRemoteOpenCode(node.id)) : null;
+    const openCodeArgs = tool === 'opencode' ? await prepareRemoteOpenCodeArgs(node.id, options) : null;
     const commit = await git(['rev-parse', 'HEAD'], localWorkspace);
     if (!/^[a-f0-9]{40,64}$/.test(commit)) throw new Error('Remote execution requires a committed Git repository');
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-bundle-'));

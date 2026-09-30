@@ -25,6 +25,7 @@ import { hasResourceRequirements } from './resource-requirements.js';
 import type { FabricBinding } from './resource-fabric-types.js';
 import { localTransport, remoteWorkspace, sshTransport, RemoteLaunchUnresolved } from './execution-transport.js';
 import { resourceManager } from './resource-manager.js';
+import { assertRemoteOpenCodeEnabled } from './remote-opencode.js';
 import { reviewPipeline } from './review-pipeline.js';
 import { logger } from '../logging/logger.js';
 import { runWithLogContext, tag } from '../logging/context.js';
@@ -1073,6 +1074,7 @@ export class Orchestrator {
         return;
       }
       resourceBinding = acquisition.binding;
+      if (resourceBinding?.transport === 'ssh' && resolvedCliTool === 'opencode') assertRemoteOpenCodeEnabled();
       if (resourceBinding?.transport === 'ssh' && (mode !== 'headless' || todo.review_enabled || todo.images || !project.is_git_repo)) throw new Error('SSH V2 requires a headless Git Todo without review or image attachments');
       if (hasResourceRequirements(requirements)) {
         this.activeResourceRuns.set(todoId, resourceRunToken);

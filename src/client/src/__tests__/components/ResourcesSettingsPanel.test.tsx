@@ -30,9 +30,9 @@ describe('Resource Fabric settings', () => {
     data.instances[0].vram_bytes = 16311 * 1024 ** 2;
     panel(); await ready(); expect(screen.getByText(/Detected VRAM: 15.93 GiB/)).toBeInTheDocument();
   });
-  it('labels remote OpenCode as experimental with node-specific prerequisites', async () => {
+  it('labels remote OpenCode as unsupported in Resource Fabric V2', async () => {
     data.nodes[0].transport = 'ssh';
-    panel(); await ready(); expect(screen.getByText(/Remote OpenCode is experimental/)).toBeInTheDocument();
+    panel(); await ready(); expect(screen.getByText(/Remote OpenCode is not supported in Resource Fabric V2/)).toBeInTheDocument();
   });
   it('shows local topology, external usage and waiting reasons', async () => {
     panel(); await ready();

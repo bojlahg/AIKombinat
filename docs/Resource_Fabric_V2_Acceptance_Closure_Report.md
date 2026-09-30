@@ -1,6 +1,8 @@
 # Resource Fabric V2 acceptance closure
 
-Conclusion: **READY_WITH_LIMITATIONS**.
+Historical conclusion at this run: **READY_WITH_LIMITATIONS**. Superseded by the
+[final closure report](Resource_Fabric_V2_Final_Closure_Report.md): real
+reserve-after-current passed and the current V2 status is **READY_FOR_ORCHESTRATOR**.
 
 Real GPU binding, contention and automatic wake passed. Real controller restart,
 natural-exit reconciliation and Force Stop passed. Reserve-after-current could
@@ -90,9 +92,11 @@ remote spawn; the normal clean launch-failure path releases acquired leases.
 Automated tests exercise both standalone decisions, present/missing exact
 models, freshness, cache persistence and connection invalidation.
 
-SSH's accepted executor is raw-shell. Remote OpenCode is explicitly
-**experimental**, with prerequisites shown in EN/KO/RU UI and documentation;
-its real edit/test/output smoke remains pending on a configured compatible host.
+SSH's accepted executor is raw-shell. The final production contract is
+**UNSUPPORTED_IN_V2** for remote OpenCode; capability probing is retained for
+future work. EN/KO/RU UI now states this explicitly. Normal admission rejects
+before preparation/launch and releases resources and executor capacity. The
+developer opt-in defaults OFF and does not count as supported V2 acceptance.
 
 ## Controller restart and observation loss
 
@@ -167,6 +171,7 @@ evidence: `logs/resource-fabric-first-gpu-evidence.json`. Remote fixtures are
 under dedicated `resource-acceptance-20260930-closure2` (GPU) and `closure4`
 (successful lifecycle) roots. Temporary DBs and runtime logs remain for audit.
 
-Next step: finish reserve-after-current on a safely available GPU and verify
-remote OpenCode on a configured/free compatible host. **Orchestrator Agent V1
-remains gated.**
+The final closure subsequently completed reserve-after-current on a safely free
+local GPU and excluded remote OpenCode from V2 support. Next step:
+**Orchestrator Agent V1**, in a separate task. The pending statements above
+describe this earlier run only; see the final report for current evidence.

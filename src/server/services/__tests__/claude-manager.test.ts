@@ -12,6 +12,7 @@ import { ClaudeManager, Utf8StreamDecoder } from '../claude-manager.js';
 import * as cliStatus from '../cli-status.js';
 import { getAdapter } from '../cli-adapters.js';
 import { sshTransport } from '../execution-transport.js';
+import { logger } from '../../logging/logger.js';
 const syntheticNode = process.platform === 'win32' ? 'node' : process.execPath;
 const syntheticArgs = (source: string) => {
   const code = `eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())`;
@@ -19,6 +20,23 @@ const syntheticArgs = (source: string) => {
 };
 
 describe('ClaudeManager', () => {
+  it('handles native headless spawn failure without an unhandled process error', async () => {
+    const manager = new ClaudeManager(), adapter = getAdapter('raw-shell');
+    await expect((manager as any).startWithSpawn(adapter, adapter.buildArgs({ mode: 'headless', prompt: 'exit 0' }), `${process.cwd()}/missing-headless-fixture-${Date.now()}`, 'exit 0', 'headless')).rejects.toThrow('Failed to get PID');
+    await new Promise(resolve => setImmediate(resolve));
+  });
+  it('executes a headless raw-shell command with the bound GPU environment and exits naturally', async () => {
+    const manager = new ClaudeManager();
+    const prompt = process.platform === 'win32' ? 'Write-Output $env:CUDA_VISIBLE_DEVICES; exit 0' : 'printf "%s\\n" "$CUDA_VISIBLE_DEVICES"; exit 0';
+    const pty = vi.spyOn(manager as any, 'startWithPty');
+    const debug = vi.spyOn(logger, 'debug');
+    const result = await manager.startClaude(process.cwd(), prompt, undefined, undefined, 'headless', 'raw-shell', undefined, undefined, 'permissive', false, undefined, undefined, undefined, undefined, { CUDA_VISIBLE_DEVICES: '1' });
+    let output = ''; result.stdout.on('data', chunk => { output += chunk.toString(); });
+    expect(await result.exitPromise).toBe(0);
+    expect(output.trim()).toBe('1'); expect(pty).not.toHaveBeenCalled();
+    expect(JSON.stringify(debug.mock.calls)).not.toContain(prompt);
+    vi.restoreAllMocks();
+  });
   describe('isRunning', () => {
     it('keeps local exit lifecycle separate from a remote process with the same numeric PID', async () => {
       const manager = new ClaudeManager(), pid = 424243;
@@ -179,4 +197,3 @@ describe('ClaudeManager', () => {
     });
   });
 });
-

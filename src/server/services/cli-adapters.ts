@@ -822,11 +822,14 @@ const rawShellAdapter: CliAdapter = {
   outputFormat: 'text',
   delayStdinUntilReady: false,
   stdinSubmitSequence: '\r',
-  buildArgs() {
+  buildArgs({ mode, prompt }) {
+    if (mode === 'headless') return process.platform === 'win32'
+      ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', prompt]
+      : ['-c', prompt];
     return [...rawShellInfo.args];
   },
-  needsStdin() {
-    return true;
+  needsStdin(mode) {
+    return mode !== 'headless';
   },
   formatStdinPrompt() {
     return '';

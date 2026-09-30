@@ -275,7 +275,7 @@ export class ClaudeManager {
       msg: `${adapter.displayName} spawn requested`,
       ...spawnFields,
       command: adapter.command,
-      args: redactArgs(args).join(' '),
+      args: redactArgs(tool === 'raw-shell' && mode === 'headless' ? args.slice(0, -1) : args).join(' '),
       cwd: worktreePath,
     });
 
@@ -310,7 +310,7 @@ export class ClaudeManager {
       }
     };
 
-    if (adapter.requiresTty || mode === 'interactive') {
+    if ((adapter.requiresTty && !(tool === 'raw-shell' && mode === 'headless')) || mode === 'interactive') {
       // Empty prompt (sessions stash the real prompt in pendingInitialPrompts and
       // deliver it later via writeToStdin) must NOT produce a stdinPrompt — the
       // delayStdinUntilReady path would otherwise write '\n'→submitSeq ('\r' or
@@ -641,8 +641,8 @@ export class ClaudeManager {
           cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           // shell needed on Windows to resolve .cmd shims (claude.cmd, agy.cmd)
-          // Safe: prompts are delivered via stdin, not as command-line arguments
-          shell: process.platform === 'win32',
+          // Headless raw-shell uses native argv; AI prompts are delivered via stdin.
+          shell: process.platform === 'win32' && !(adapter === getAdapter('raw-shell') && mode === 'headless'),
           windowsHide: true,
           env: childEnv(runtimeEnv),
         });
@@ -655,6 +655,7 @@ export class ClaudeManager {
 
       const pid = child.pid;
       if (pid === undefined) {
+        child.once('error', () => undefined);
         reject(new Error(`Failed to get PID for ${adapter.displayName} process`));
         return;
       }

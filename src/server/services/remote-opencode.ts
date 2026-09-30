@@ -16,6 +16,10 @@ export interface RemoteOpenCodeCapabilities {
   models_verified: boolean;
 }
 
+export function assertRemoteOpenCodeEnabled(): void {
+  if (process.env.AIKOMBINAT_EXPERIMENTAL_REMOTE_OPENCODE !== '1') throw new Error('remote_opencode_unsupported_v2');
+}
+
 export async function discoverRemoteOpenCode(nodeId: string, runner: CommandRunner = runProbe): Promise<RemoteOpenCodeCapabilities> {
   if (runner === runProbe) assertExternalAiCliAllowed('opencode');
   const node = getComputeNode(nodeId);
@@ -51,4 +55,9 @@ export function remoteOpenCodeArgs(options: CliBuildOptions, capabilities: Remot
   if (!capabilities.models_verified) throw new Error('remote_opencode_models_unverified');
   if (!model || !capabilities.models.includes(model)) throw new Error('model_unavailable_on_node');
   return getAdapter('opencode').buildArgs({ ...options, opencodeStandalone: capabilities.flags.includes('--standalone') });
+}
+
+export async function prepareRemoteOpenCodeArgs(nodeId: string, options: CliBuildOptions, runner: CommandRunner = runProbe): Promise<string[]> {
+  assertRemoteOpenCodeEnabled();
+  return remoteOpenCodeArgs(options, await discoverRemoteOpenCode(nodeId, runner));
 }
