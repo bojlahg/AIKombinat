@@ -1,3 +1,5 @@
+import { parseResourceRequirements } from '../utils/resource-requirements';
+import type { ResourceRequirements } from '../types';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { GitBranch, Play, RotateCcw, Square, Trash2, TerminalSquare, Archive, Edit2, ExternalLink, Maximize2, Plus } from 'lucide-react';
 import CursorContextMenu, {
@@ -121,7 +123,7 @@ export default function SessionList({
       memoryNodeIds: parseMemoryNodeIds(editingSession.memory_node_ids ?? null),
       memoryRawFilePaths: parseRawFilePaths(editingSession.memory_raw_file_paths ?? null),
       tagId: editingSession.tag_id ?? null,
-      resourceRequirements: parseRawFilePaths(editingSession.resource_requirements ?? null),
+      resourceRequirements: parseResourceRequirements(editingSession.resource_requirements ?? null),
     };
   }, [editingSession]);
 
@@ -155,7 +157,7 @@ export default function SessionList({
     cliModel?: string,
     cliEffort?: string | null,
     executionProfileId?: string | null,
-    resourceRequirements?: string[],
+    resourceRequirements?: ResourceRequirements,
   ) => {
     setCreating(true);
     try {
@@ -191,7 +193,7 @@ export default function SessionList({
     cliModel?: string,
     cliEffort?: string | null,
     executionProfileId?: string | null,
-    resourceRequirements?: string[],
+    resourceRequirements?: ResourceRequirements,
   ) => {
     if (!editingId) return;
     setSaving(true);

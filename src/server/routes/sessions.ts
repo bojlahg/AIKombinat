@@ -11,7 +11,7 @@ import { writeImageToClipboard } from '../services/clipboard-writer.js';
 import { claudeManager } from '../services/claude-manager.js';
 import { createGit } from '../lib/git.js';
 import { listDiffFiles, snapshotWorkingTree } from '../lib/git-diff.js';
-import { normalizeResourceKeys, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
+import { normalizeResourceRequirements, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
 
@@ -65,7 +65,7 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       ? (memory_node_ids.length > 0 ? JSON.stringify(memory_node_ids.map(String)) : null)
       : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRaw = normalizeRawFilePaths(memory_raw_file_paths);
-    const normalizedResources = serializeResourceRequirements(normalizeResourceKeys(resource_requirements ?? []));
+    const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
 
     const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
     const session = queries.createSession(
@@ -318,7 +318,7 @@ router.put('/sessions/:id', (req: Request<{ id: string }>, res: Response) => {
       }
     }
     if (req.body.resource_requirements !== undefined) {
-      updates.resource_requirements = serializeResourceRequirements(normalizeResourceKeys(req.body.resource_requirements));
+      updates.resource_requirements = serializeResourceRequirements(normalizeResourceRequirements(req.body.resource_requirements));
     }
     const updated = queries.updateSession(req.params.id, updates as any);
     res.json(updated);

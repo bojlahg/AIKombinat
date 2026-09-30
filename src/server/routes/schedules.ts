@@ -5,7 +5,7 @@ import { scheduler } from '../services/scheduler.js';
 import { logStreamer } from '../services/log-streamer.js';
 import { cleanupTodoImages } from './images.js';
 import { ExecutionSelectionError, normalizeExecutionSelection } from '../services/execution-selection.js';
-import { normalizeResourceKeys, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
+import { normalizeResourceRequirements, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
 
 const router = Router();
 
@@ -43,7 +43,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
     }
 
     const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
-    const normalizedResources = serializeResourceRequirements(normalizeResourceKeys(resource_requirements ?? []));
+    const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
     const schedule = queries.createSchedule(
       req.params.id, title, description,
       isOnce ? '* * * * *' : cron_expression,
@@ -141,7 +141,7 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
       updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_model_id = execution.cliModelId; updates.cli_effort = execution.cliEffort; updates.execution_profile_id = execution.executionProfileId;
     }
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
-    if (resource_requirements !== undefined) updates.resource_requirements = serializeResourceRequirements(normalizeResourceKeys(resource_requirements));
+    if (resource_requirements !== undefined) updates.resource_requirements = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements));
     if (review_enabled !== undefined) updates.review_enabled = review_enabled ? 1 : 0;
     if (review_profile_id !== undefined) updates.review_profile_id = review_profile_id;
     if (rework_profile_id !== undefined) updates.rework_profile_id = rework_profile_id;

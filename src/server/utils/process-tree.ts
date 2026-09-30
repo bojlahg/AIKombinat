@@ -100,6 +100,7 @@ export async function terminateProcessTree(
 /** Instance-specific fingerprint of one OS process. */
 export interface ProcessIdentity {
   pid: number;
+  remote?: { nodeId: string; bindingId: string; workspace: string; pid: number; startedAt: string; bootId: string };
   /**
    * OS-reported creation time, in whatever native representation the platform
    * gives us. Opaque: only ever compared with another reading from the same
@@ -239,6 +240,7 @@ export function parseProcessIdentity(serialized: string | null | undefined): Pro
       pid: parsed.pid,
       startedAt: parsed.startedAt,
       command: typeof parsed.command === 'string' ? parsed.command : null,
+      ...(parsed.remote ? { remote: parsed.remote } : {}),
     };
   } catch {
     return null;

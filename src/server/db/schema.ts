@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
+import os from 'node:os';
 
 export function initDatabase(db: Database.Database): void {
   db.exec(`
@@ -225,6 +226,93 @@ export function initDatabase(db: Database.Database): void {
     -- doubled index-write cost on the PTY streaming insert path.
     DROP INDEX IF EXISTS idx_session_raw_chunks_session;
 
+    CREATE TABLE IF NOT EXISTS compute_nodes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      transport TEXT NOT NULL CHECK (transport IN ('local', 'ssh')),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      scheduler_state TEXT NOT NULL DEFAULT 'online' CHECK (scheduler_state IN ('online', 'draining', 'maintenance', 'offline', 'disabled')),
+      identity TEXT,
+      identity_changed INTEGER NOT NULL DEFAULT 0,
+      last_scan_at TEXT,
+      last_health_at TEXT,
+      last_error TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_compute_nodes_local ON compute_nodes(transport) WHERE transport = 'local';
+    CREATE TABLE IF NOT EXISTS compute_node_connections (
+      node_id TEXT PRIMARY KEY REFERENCES compute_nodes(id) ON DELETE CASCADE,
+      connection_json TEXT NOT NULL CHECK (length(connection_json) <= 4096)
+    );
+    CREATE TABLE IF NOT EXISTS inventory_snapshots (
+      id TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL REFERENCES compute_nodes(id) ON DELETE CASCADE,
+      inventory_json TEXT NOT NULL CHECK (length(inventory_json) <= 131072),
+      diff_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_node ON inventory_snapshots(node_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS resource_policies (
+      node_id TEXT PRIMARY KEY REFERENCES compute_nodes(id) ON DELETE CASCADE,
+      policy_json TEXT NOT NULL CHECK (length(policy_json) <= 8192)
+    );
+    CREATE TABLE IF NOT EXISTS resource_instances (
+      id TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL REFERENCES compute_nodes(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('gpu', 'custom')),
+      legacy_key TEXT UNIQUE,
+      hardware_uuid TEXT,
+      local_index INTEGER,
+      model TEXT NOT NULL,
+      vram_bytes INTEGER NOT NULL DEFAULT 0,
+      origin TEXT NOT NULL CHECK (origin IN ('detected', 'manual', 'configured')),
+      present INTEGER NOT NULL DEFAULT 1,
+      policy TEXT NOT NULL DEFAULT 'enabled' CHECK (policy IN ('enabled', 'reserved', 'disabled')),
+      desired_policy TEXT CHECK (desired_policy IN ('reserved')),
+      reserve_reason TEXT,
+      UNIQUE(node_id, hardware_uuid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_resource_instances_node ON resource_instances(node_id);
+    CREATE TABLE IF NOT EXISTS resource_requests (
+      id TEXT PRIMARY KEY,
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo', 'session')),
+      owner_id TEXT NOT NULL,
+      run_token TEXT NOT NULL UNIQUE,
+      requirements_json TEXT NOT NULL CHECK (length(requirements_json) <= 16384),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'waiting', 'bound', 'cancelled', 'failed')),
+      priority INTEGER NOT NULL DEFAULT 0,
+      reasons_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_resource_requests_waiting ON resource_requests(status, priority DESC, created_at, id);
+    CREATE INDEX IF NOT EXISTS idx_resource_requests_owner ON resource_requests(owner_type, owner_id);
+    CREATE TABLE IF NOT EXISTS resource_bindings (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL UNIQUE REFERENCES resource_requests(id),
+      node_id TEXT NOT NULL REFERENCES compute_nodes(id),
+      binding_json TEXT NOT NULL CHECK (length(binding_json) <= 16384),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_resource_bindings_node ON resource_bindings(node_id);
+    CREATE TABLE IF NOT EXISTS resource_binding_items (
+      id TEXT PRIMARY KEY,
+      binding_id TEXT NOT NULL REFERENCES resource_bindings(id) ON DELETE CASCADE,
+      resource_instance_id TEXT REFERENCES resource_instances(id),
+      resource_key TEXT NOT NULL,
+      amount INTEGER NOT NULL CHECK (amount > 0)
+    );
+    CREATE TABLE IF NOT EXISTS resource_observations (
+      node_id TEXT PRIMARY KEY REFERENCES compute_nodes(id) ON DELETE CASCADE,
+      observation_json TEXT NOT NULL CHECK (length(observation_json) <= 131072),
+      observed_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS remote_executions (
+      binding_id TEXT PRIMARY KEY REFERENCES resource_bindings(id),
+      workspace TEXT NOT NULL,
+      pid INTEGER,
+      identity_json TEXT,
+      status TEXT NOT NULL CHECK (status IN ('preparing', 'running', 'exited', 'recovery_required')),
+      exit_code INTEGER
+    );
     CREATE TABLE IF NOT EXISTS resource_leases (
       id TEXT PRIMARY KEY,
       resource_key TEXT NOT NULL,
@@ -700,6 +788,7 @@ export function initDatabase(db: Database.Database): void {
     { table: 'projects', column: 'auto_delegate', definition: 'TEXT' },
     // Parent todo id when this todo was auto-created as a delegated review task.
     { table: 'todos', column: 'delegated_from', definition: 'TEXT' },
+    { table: 'resource_leases', column: 'binding_id', definition: 'TEXT REFERENCES resource_bindings(id)' },
     { table: 'todos', column: 'resource_requirements', definition: 'TEXT' },
     { table: 'sessions', column: 'resource_requirements', definition: 'TEXT' },
     { table: 'schedules', column: 'resource_requirements', definition: 'TEXT' },
@@ -1393,4 +1482,14 @@ export function enforceAgentForumUniqueIndexes(db: Database.Database): void {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to enforce AgentForum uniqueness invariants: ${message}`);
   }
+  db.transaction(() => {
+    let local = db.prepare("SELECT id FROM compute_nodes WHERE transport = 'local'").get() as { id: string } | undefined;
+    if (!local) {
+      local = { id: uuidv4() };
+      db.prepare("INSERT INTO compute_nodes (id, name, transport) VALUES (?, ?, 'local')").run(local.id, os.hostname());
+      for (const [key, label] of [['unity.editor', 'Unity Editor'], ['android.emulator', 'Android Emulator'], ['gpu.0', 'GPU 0'], ['local.llm', 'Local LLM'], ['cpu.heavy', 'CPU Heavy']]) {
+        db.prepare("INSERT INTO resource_instances (id, node_id, kind, legacy_key, model, origin) VALUES (?, ?, 'custom', ?, ?, 'configured')").run(uuidv4(), local.id, key, label);
+      }
+    }
+  })();
 }

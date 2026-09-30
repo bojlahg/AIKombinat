@@ -1,3 +1,4 @@
+import type { ResourceRequirements } from '../types';
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import TabHoverHelp from './HoverHelp';
@@ -235,7 +236,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     });
   }, [onEvent, sendNotification, t]);
 
-  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => {
+  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements) => {
     if (!id) return;
     const newTodo = await todosApi.createTodo(id, {
       title, description, cli_tool: cliTool, cli_model: cliModel, cli_effort: cliEffort, execution_profile_id: executionProfileId,
@@ -295,7 +296,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setTodos((prev) => prev.filter((t) => t.id !== todoId));
   }, []);
 
-  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => {
+  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements) => {
     const updated = await todosApi.updateTodo(todoId, {
       title, description, cli_tool: cliTool, cli_model: cliModel, cli_effort: cliEffort, execution_profile_id: executionProfileId,
       depends_on: dependsOn ?? null, max_turns: maxTurns ?? null,
@@ -449,7 +450,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     skipIfRunning?: boolean;
     scheduleType: 'recurring' | 'once';
     runAt?: string;
-    resourceRequirements?: string[];
+    resourceRequirements?: ResourceRequirements;
   }) => {
     if (!id) return;
     const newSchedule = await schedulesApi.createSchedule(id, {
@@ -480,7 +481,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
   }, []);
 
-  const handleEditSchedule = useCallback(async (scheduleId: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; resource_requirements?: string[] }) => {
+  const handleEditSchedule = useCallback(async (scheduleId: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; resource_requirements?: ResourceRequirements }) => {
     const updated = await schedulesApi.updateSchedule(scheduleId, updates);
     setSchedules((prev) => prev.map((s) => (s.id === scheduleId ? updated : s)));
   }, []);

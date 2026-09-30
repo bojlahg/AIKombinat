@@ -16,7 +16,8 @@ import { orchestrator } from './orchestrator.js';
 import { providerQuotaService } from './provider-quota.js';
 import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
-import { parseStoredResourceRequirements, RESOURCE_CATALOG } from './resource-catalog.js';
+import { parseStoredResourceRequirements } from './resource-catalog.js';
+import { hasResourceRequirements } from './resource-requirements.js';
 import { resourceManager } from './resource-manager.js';
 import * as queries from '../db/queries.js';
 import { parseProcessIdentity } from '../utils/process-tree.js';
@@ -376,17 +377,17 @@ export class SessionManager {
 
       const requirements = parseStoredResourceRequirements(session.resource_requirements);
       const acquisition = resourceManager.acquireAtomic({
-        ownerType: 'session', ownerId: sessionId, runToken, resources: requirements,
+        ownerType: 'session', ownerId: sessionId, runToken, resources: requirements, workspacePath: project.path,
       });
       if (acquisition.status === 'busy') {
         const busyLabels = acquisition.busy.map((busy) => {
-          const definition = RESOURCE_CATALOG.find((resource) => resource.key === busy.key)!;
-          return `${definition.label} (${definition.key})`;
+          const definition = resourceManager.getStatus().find(resource => resource.key === busy.key);
+          return definition ? `${definition.label} (${definition.key})` : busy.key;
         });
         throw new Error(`Required resources are busy: ${busyLabels.join(', ')}`);
       }
-      hasResources = requirements.length > 0;
-      if (hasResources) queries.createSessionLog(sessionId, 'output', `[resource-manager] Acquired resources: ${requirements.join(', ')}`);
+      hasResources = hasResourceRequirements(requirements);
+      if (hasResources) queries.createSessionLog(sessionId, 'output', `[resource-manager] Acquired resources: ${acquisition.resources.join(', ')}`);
 
       useWorktree = !!session.use_worktree && !!project.is_git_repo;
       const resume = !!opts?.continueSession;
@@ -412,8 +413,8 @@ export class SessionManager {
 
       // Persist execution identity and mark status='running' synchronously, then immediately release reservation
       const snapshotStr = executionConfig
-        ? JSON.stringify(executionSnapshot(executionConfig))
-        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool });
+        ? JSON.stringify({ ...executionSnapshot(executionConfig), resourceBinding: acquisition.binding })
+        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool, resourceBinding: acquisition.binding });
       queries.updateSession(sessionId, { execution_snapshot: snapshotStr });
       if (executionConfig) {
         queries.createSessionLog(sessionId, 'info', `[execution] ${snapshotStr}`);
@@ -511,12 +512,13 @@ export class SessionManager {
         return;
       }
 
-      const result = await claudeManager.startClaude(
+      const launchArguments: Parameters<typeof claudeManager.startClaude> = [
         workDir, '', launch, undefined, 'interactive', resolvedCliTool,
         undefined, project.path, (project.sandbox_mode as SandboxMode) || 'strict', resume,
-        opts?.cols ?? 100, opts?.rows ?? 30,
-        launch.effort,
-      );
+        opts?.cols ?? 100, opts?.rows ?? 30, launch.effort,
+      ];
+      if (acquisition.binding && Object.keys(acquisition.binding.environment).length) launchArguments.push(undefined, acquisition.binding.environment);
+      const result = await claudeManager.startClaude(...launchArguments);
       const pid = result.pid;
       const exitPromise = result.exitPromise;
 

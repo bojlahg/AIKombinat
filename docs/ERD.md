@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 41 tables, 500 columns, 48 foreign keys
+Stats: 51 tables, 561 columns, 59 foreign keys
 
 ## Diagram
 
@@ -37,6 +37,17 @@ erDiagram
     execution_profiles ||--o{ sessions : "execution_profile_id"
     sessions ||--o{ session_logs : "session_id"
     sessions ||--o{ session_raw_chunks : "session_id"
+    compute_nodes ||--o{ compute_node_connections : "node_id"
+    compute_nodes ||--o{ inventory_snapshots : "node_id"
+    compute_nodes ||--o{ resource_policies : "node_id"
+    compute_nodes ||--o{ resource_instances : "node_id"
+    resource_requests ||--o{ resource_bindings : "request_id"
+    compute_nodes ||--o{ resource_bindings : "node_id"
+    resource_bindings ||--o{ resource_binding_items : "binding_id"
+    resource_instances ||--o{ resource_binding_items : "resource_instance_id"
+    compute_nodes ||--o{ resource_observations : "node_id"
+    resource_bindings ||--o{ remote_executions : "binding_id"
+    resource_bindings ||--o{ resource_leases : "binding_id"
     projects ||--o{ planner_items : "project_id"
     projects ||--o{ planner_tags : "project_id"
     projects ||--o{ planner_pages : "project_id"
@@ -343,6 +354,86 @@ erDiagram
         DATETIME created_at
         KEY PRIMARY
     }
+    compute_nodes {
+        TEXT id PK
+        TEXT name
+        TEXT transport
+        INTEGER enabled
+        TEXT scheduler_state
+        TEXT identity
+        INTEGER identity_changed
+        TEXT last_scan_at
+        TEXT last_health_at
+        TEXT last_error
+    }
+    compute_node_connections {
+        TEXT node_id PK
+        TEXT connection_json
+    }
+    inventory_snapshots {
+        TEXT id PK
+        TEXT node_id FK
+        TEXT inventory_json
+        TEXT diff_json
+        TEXT created_at
+    }
+    resource_policies {
+        TEXT node_id PK
+        TEXT policy_json
+    }
+    resource_instances {
+        TEXT id PK
+        TEXT node_id FK
+        TEXT kind
+        TEXT legacy_key UK
+        TEXT hardware_uuid
+        INTEGER local_index
+        TEXT model
+        INTEGER vram_bytes
+        TEXT origin
+        INTEGER present
+        TEXT policy
+        TEXT desired_policy
+        TEXT reserve_reason
+    }
+    resource_requests {
+        TEXT id PK
+        TEXT owner_type
+        TEXT owner_id
+        TEXT run_token UK
+        TEXT requirements_json
+        TEXT status
+        INTEGER priority
+        TEXT reasons_json
+        TEXT created_at
+    }
+    resource_bindings {
+        TEXT id PK
+        TEXT request_id FK,UK
+        TEXT node_id FK
+        TEXT binding_json
+        TEXT created_at
+    }
+    resource_binding_items {
+        TEXT id PK
+        TEXT binding_id FK
+        TEXT resource_instance_id FK
+        TEXT resource_key
+        INTEGER amount
+    }
+    resource_observations {
+        TEXT node_id PK
+        TEXT observation_json
+        TEXT observed_at
+    }
+    remote_executions {
+        TEXT binding_id PK
+        TEXT workspace
+        INTEGER pid
+        TEXT identity_json
+        TEXT status
+        INTEGER exit_code
+    }
     resource_leases {
         TEXT id PK
         TEXT resource_key
@@ -353,6 +444,7 @@ erDiagram
         DATETIME acquired_at
         DATETIME heartbeat_at
         DATETIME expires_at
+        TEXT binding_id FK
     }
     planner_items {
         TEXT id PK

@@ -1,3 +1,4 @@
+import type { ResourceRequirements } from '../types';
 import { useState } from 'react';
 import { ChevronRight, Clock, Play, Pause, Check, Pencil, Trash2, GitMerge } from 'lucide-react';
 import type { Schedule, ScheduleRun } from '../types';
@@ -9,7 +10,7 @@ interface ScheduleItemProps {
   schedule: Schedule;
   onToggle: (id: string, activate: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: string[] }) => Promise<void>;
+  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: ResourceRequirements }) => Promise<void>;
   onTrigger: (id: string) => Promise<void>;
   onMergeRun?: (todoId: string) => Promise<void>;
   onCleanupRun?: (todoId: string) => Promise<void>;

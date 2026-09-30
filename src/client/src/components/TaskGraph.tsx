@@ -1,3 +1,4 @@
+import type { ResourceRequirements } from '../types';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import {
@@ -88,7 +89,7 @@ interface TaskGraphProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[]) => Promise<void>;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements) => Promise<void>;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStopTodo: (id: string) => Promise<void>;
   onDeleteTodo: (id: string) => Promise<void>;
@@ -131,7 +132,7 @@ export default function TaskGraph({
   debugLogging,
   showTokenUsage,
 }: TaskGraphProps) {
-  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('todo'));
   const [showForm, setShowForm] = useState(false);
   const { t } = useI18n();
   const { theme } = useTheme();

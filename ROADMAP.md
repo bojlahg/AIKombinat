@@ -406,3 +406,7 @@ These should not each invent their own scheduler, retry logic, resource locks, a
 The current roadmap does not require turning AIKombinat into a hosted multi-tenant SaaS, a universal agent protocol, a provider-account farming tool, or a fully autonomous company simulator.
 
 The near-term goal is smaller and more useful: make local AI-assisted development substantially more reliable, inspectable, quota-aware, account-aware, experimentally measurable, and capable of finishing longer chains of work without constant manual babysitting.
+
+## Resource Fabric V2 implementation
+
+Resource Fabric V2 now provides detected local/SSH nodes, policy and observations, deterministic requirements matching, persisted bindings, exclusive GPU/custom and quantitative CPU/RAM leases, resource ownership UI, and isolated Linux SSH headless execution. See [design and boundaries](docs/Resource_Fabric_V2.md) and [real smoke](docs/Resource_Fabric_V2_Smoke_Report.md). Existing GPU workloads prevented own GPU execution acceptance; this remains a validation gate before Orchestrator Agent V1. Executor Pool and provider quota remain separate layers.

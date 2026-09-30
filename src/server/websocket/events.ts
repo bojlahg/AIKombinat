@@ -25,6 +25,9 @@ export type WSEvent =
   | { type: 'session:replay-end'; sessionId: string }
   | { type: 'rate-limit:updated'; resetsAt: number; status: string | null }
   | { type: 'resource:updated'; resourceKeys: ResourceKey[] }
+  | { type: 'resource-node:updated' | 'resource-inventory:updated' | 'resource-observation:updated'; nodeId: string }
+  | { type: 'resource-request:updated' | 'resource-binding:updated'; runToken: string }
+  | { type: 'resource-lease:updated' }
   | { type: 'vault:changed'; projectId: string }
   | { type: 'git:changed'; projectId: string }
   | {

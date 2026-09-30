@@ -668,7 +668,7 @@ describe('Execution Round Retry & Recovery V1', () => {
   it('11. Retry waiting_resource -> wake -> running', async () => {
     resourceManager.acquireAtomic({
       ownerType: 'todo',
-      ownerId: 'other-todo',
+      ownerId: queries.createTodo(project.id, 'Other').id,
       runToken: 'other-token',
       resources: ['unity.editor'],
     });

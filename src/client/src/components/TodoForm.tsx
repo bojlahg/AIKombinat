@@ -1,3 +1,5 @@
+import { parseResourceRequirements } from '../utils/resource-requirements';
+import type { ResourceRequirements } from '../types';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Image as ImageIcon, X } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -28,7 +30,7 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: string[], reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
@@ -99,7 +101,7 @@ export default function TodoForm({
   );
   const [memoryInjectMode, setMemoryInjectMode] = useState<MemoryInjectMode>(initialMemoryInjectMode);
   const [vaultPaths, setVaultPaths] = useState<string[]>(parseRawFilePaths(initialMemoryRawFilePaths));
-  const [resourceRequirements, setResourceRequirements] = useState<string[]>(parseRawFilePaths(initialResourceRequirements));
+  const [resourceRequirements, setResourceRequirements] = useState<ResourceRequirements>(parseResourceRequirements(initialResourceRequirements));
   const [reviewEnabled, setReviewEnabled] = useState<boolean>(initialReviewEnabled === 1);
   const [reviewProfileId, setReviewProfileId] = useState<string>(initialReviewProfileId ?? '');
   const [reworkProfileId, setReworkProfileId] = useState<string>(initialReworkProfileId ?? '');

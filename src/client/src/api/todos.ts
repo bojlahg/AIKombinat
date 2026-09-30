@@ -1,3 +1,4 @@
+import type { ResourceRequirements } from '../types';
 import { get, post, put, del } from './client';
 import type { Todo, TaskLog, DiffResult, TaskResult, ImageMeta, TodoExecutionRound } from '../types';
 
@@ -23,7 +24,7 @@ export function createTodo(
     memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto';
     memory_node_ids?: string[];
     memory_raw_file_paths?: string[];
-    resource_requirements?: string[];
+    resource_requirements?: ResourceRequirements;
     review_enabled?: number;
     review_profile_id?: string | null;
     rework_profile_id?: string | null;
@@ -53,7 +54,7 @@ export function updateTodo(
     memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto';
     memory_node_ids?: string[];
     memory_raw_file_paths?: string[];
-    resource_requirements?: string[];
+    resource_requirements?: ResourceRequirements;
     review_enabled?: number;
     review_profile_id?: string | null;
     rework_profile_id?: string | null;

@@ -1,3 +1,4 @@
+import type { ResourceRequirements } from '../types';
 import { useEffect, useRef, useState } from 'react';
 import { GitBranch } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -25,7 +26,7 @@ export interface SessionFormInitial {
   memoryNodeIds: string[];
   memoryRawFilePaths?: string[];
   tagId?: string | null;
-  resourceRequirements?: string[];
+  resourceRequirements?: ResourceRequirements;
 }
 
 interface SessionFormProps {
@@ -44,7 +45,7 @@ interface SessionFormProps {
     cliModel?: string,
     cliEffort?: string | null,
     executionProfileId?: string | null,
-    resourceRequirements?: string[],
+    resourceRequirements?: ResourceRequirements,
   ) => void;
   onCancel: () => void;
   projectCliTool?: string;
@@ -67,7 +68,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [vaultPaths, setVaultPaths] = useState<string[]>(initial?.memoryRawFilePaths ?? []);
   const [includeLinked, setIncludeLinked] = useState<boolean>(false);
   const [tagId, setTagId] = useState<string | null>(initial?.tagId ?? null);
-  const [resourceRequirements, setResourceRequirements] = useState<string[]>(initial?.resourceRequirements ?? []);
+  const [resourceRequirements, setResourceRequirements] = useState<ResourceRequirements>(initial?.resourceRequirements ?? []);
   const [tags, setTags] = useState<SessionTag[]>([]);
   const [cliStatuses, setCliStatuses] = useState<CliToolStatus[]>([]);
   const titleRef = useRef<HTMLInputElement>(null);

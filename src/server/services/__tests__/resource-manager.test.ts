@@ -309,12 +309,13 @@ describe('Resource Manager V1', () => {
     await tick();
   });
 
-  it('admits waiting resource Todos deterministically by created_at', async () => {
+  it.each([0, 5])('admits waiting resource Todos by priority then created_at (first priority %s)', async priority => {
     const project = queries.createProject('Project', workspace.resolvePath('ordered-resource-wake'));
     const holder = resourceTodo(project.id, 'A');
     const first = resourceTodo(project.id, 'B');
     const second = resourceTodo(project.id, 'C');
-    testDb.prepare('UPDATE todos SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:00.000Z', first.id);
+    queries.updateTodo(first.id, { priority }); queries.updateTodo(second.id, { priority: 0 });
+    testDb.prepare('UPDATE todos SET created_at = ? WHERE id = ?').run(priority ? '2026-01-01T00:00:02.000Z' : '2026-01-01T00:00:00.000Z', first.id);
     testDb.prepare('UPDATE todos SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:01.000Z', second.id);
     const run = createMockCliResult(5002);
     vi.spyOn(claudeManager, 'startClaude').mockResolvedValueOnce(run);

@@ -1,19 +1,36 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { CliDecodedOutput, CliOutputDecoder, PromptPolicy } from './cli-adapters.js';
 
 export const OPEN_CODE_MODEL_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\/[a-zA-Z0-9][a-zA-Z0-9_./:+-]*(?:#[a-zA-Z0-9_.-]+)?$/;
+
+export function assertManagedOpenCodeShell(command: unknown): void {
+  if (typeof command !== 'string' || command.length > 8192 || /[><|&;`$\r\n\0]/.test(command)) {
+    throw new Error('Managed OpenCode rejects shell redirection, composition and substitution');
+  }
+}
+
+export const OPEN_CODE_SHELL_GUARD = `export const AIKombinatShellGuard = async () => ({
+  'tool.execute.before': async (input, output) => {
+    if (input.tool === 'bash' && (typeof output.args.command !== 'string' || output.args.command.length > 8192 || /[><|&;\\x60$\\r\\n\\0]/.test(output.args.command))) {
+      throw new Error('Managed OpenCode rejects shell redirection, composition and substitution');
+    }
+  }
+});`;
 
 export function openCodePolicy(review: boolean) {
   const bash: Record<string, 'allow' | 'deny'> = { '*': 'deny' };
   const commands = review
     ? ['git status', 'git status --short', 'git diff --no-ext-diff --no-textconv', 'git diff --no-ext-diff --no-textconv --stat']
-    : ['git status *', 'git diff *', 'git log *', 'git show *', 'git ls-files *', 'git rev-parse *',
-      'git add *', 'git commit *', 'npm test *', 'npm run test*', 'npm run build*', 'npm run typecheck*',
-      'node --test *', 'npx vitest *'];
+    : ['git status', 'git status --short', 'git diff --no-ext-diff --no-textconv', 'git diff --no-ext-diff --no-textconv --stat',
+      'git log --oneline -10', 'git ls-files', 'git rev-parse HEAD', 'git add *', 'git commit *',
+      'npm test', 'npm run test', 'npm run test:server', 'npm run test:client', 'npm run build', 'npm run build:server', 'npm run build:client',
+      'npm run typecheck', 'npm run typecheck:server', 'npm run typecheck:client', 'npx vitest run', 'npx vitest run *'];
   for (const command of commands) bash[command] = 'allow';
   for (const command of ['git push *', 'git reset *', 'git clean *', 'git checkout *', 'git restore *']) bash[command] = 'deny';
+  for (const construct of ['>', '|', '&', ';', '`', '$', '\n', '\r']) bash[`*${construct}*`] = 'deny';
   const sensitive = ['*.env', '*.env.*', '**/.env', '**/.env.*', '**/.git/**', '.git/**',
     '**/.aws/**', '**/.ssh/**', '**/credentials*', '**/secrets/**', '../*'];
   const read: Record<string, 'allow' | 'deny'> = { '*': 'allow' };
@@ -25,9 +42,11 @@ export function openCodePolicy(review: boolean) {
 
 export function createOpenCodeConfig(policy?: PromptPolicy) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-opencode-'));
+  const pluginPath = path.join(directory, 'shell-guard.mjs');
   const config = {
     $schema: 'https://opencode.ai/config.json',
     share: 'disabled',
+    plugin: [pathToFileURL(pluginPath).href],
     permission: { '*': 'deny' },
     agent: {
       'aikombinat-build': { description: 'AIKombinat implementation and rework', mode: 'primary',
@@ -39,6 +58,7 @@ export function createOpenCodeConfig(policy?: PromptPolicy) {
   };
   const content = JSON.stringify(config);
   try {
+    fs.writeFileSync(pluginPath, OPEN_CODE_SHELL_GUARD, { mode: 0o600 });
     fs.writeFileSync(path.join(directory, 'opencode.json'), content, { mode: 0o600 });
   } catch (error) {
     fs.rmSync(directory, { recursive: true, force: true });

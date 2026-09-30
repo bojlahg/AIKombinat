@@ -21,6 +21,9 @@ import { classifyProviderFailure } from './failure-classifier.js';
 import type { ResolvedExecutionConfig } from './execution-config.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parseStoredResourceRequirements } from './resource-catalog.js';
+import { hasResourceRequirements } from './resource-requirements.js';
+import type { FabricBinding } from './resource-fabric-types.js';
+import { localTransport, remoteWorkspace, sshTransport, RemoteLaunchUnresolved } from './execution-transport.js';
 import { resourceManager } from './resource-manager.js';
 import { reviewPipeline } from './review-pipeline.js';
 import { logger } from '../logging/logger.js';
@@ -115,6 +118,7 @@ export class Orchestrator {
       if (this.stoppingTodoIds.has(todo.id)) continue;
       if (this.isStoppingProjects.has(todo.project_id)) continue;
       if (!todo.process_pid || todo.process_pid === 0) continue;
+      if (parseProcessIdentity(todo.process_identity)?.remote) continue;
       if (!this.isProcessAlive(todo.process_pid)) {
         try {
           if (todo.review_enabled) {
@@ -292,7 +296,7 @@ export class Orchestrator {
             : await claudeManager.stopClaude(todo.process_pid);
           if (stopResult?.status === 'unresolved') {
             unresolvedStops.add(todo.id);
-            if (claudeManager.isRunning(todo.process_pid)) {
+            if (claudeManager.isRunning(todo.process_pid, parseProcessIdentity(todo.process_identity))) {
               this.finishTodoStopOnLateExit(todo.id, todo.process_pid, true);
             }
             queries.createTaskLog(todo.id, 'error', `Stop remains unresolved for PID ${todo.process_pid}; process and resource ownership were retained.`);
@@ -476,7 +480,7 @@ export class Orchestrator {
           : await claudeManager.stopClaude(todo.process_pid);
         if (stopResult?.status === 'unresolved') {
           unresolved = true;
-          if (claudeManager.isRunning(todo.process_pid)) {
+          if (claudeManager.isRunning(todo.process_pid, parseProcessIdentity(todo.process_identity))) {
             this.finishTodoStopOnLateExit(todoId, todo.process_pid, false);
           }
           queries.createTaskLog(todoId, 'error', `Stop remains unresolved for PID ${todo.process_pid}; process and resource ownership were retained.`);
@@ -531,7 +535,7 @@ export class Orchestrator {
   }
 
   private finishTodoStopOnLateExit(todoId: string, pid: number, fromProjectStop: boolean): void {
-    void claudeManager.whenExited(pid).then(() => {
+    void claudeManager.whenExited(pid, parseProcessIdentity(queries.getTodoById(todoId)?.process_identity)).then(() => {
       const current = queries.getTodoById(todoId);
       if (!current || current.process_pid !== pid) return;
       const activeRound = current.review_enabled ? queries.getActiveExecutionRound(todoId) : undefined;
@@ -1020,6 +1024,7 @@ export class Orchestrator {
 
     let adapter: ReturnType<typeof getAdapter>;
     let resourceRunToken: string | null = null;
+    let resourceBinding: FabricBinding | undefined;
     let pid: number;
     let exitPromise: Promise<number>;
     let debugSession: DebugSession | null = null;
@@ -1038,7 +1043,7 @@ export class Orchestrator {
       const requirements = parseStoredResourceRequirements(todo.resource_requirements);
       resourceRunToken = currentRound ? currentRound.run_token : uuidv4();
       const acquisition = resourceManager.acquireAtomic({
-        ownerType: 'todo', ownerId: todoId, runToken: resourceRunToken, resources: requirements,
+        ownerType: 'todo', ownerId: todoId, runToken: resourceRunToken, resources: requirements, workspacePath: projectPath,
       });
       if (acquisition.status === 'busy') {
         executorPool.releaseReservation(todoId);
@@ -1067,16 +1072,18 @@ export class Orchestrator {
         this.broadcastProjectStatus(projectId);
         return;
       }
-      if (requirements.length > 0) {
+      resourceBinding = acquisition.binding;
+      if (resourceBinding?.transport === 'ssh' && (mode !== 'headless' || todo.review_enabled || todo.images || !project.is_git_repo)) throw new Error('SSH V2 requires a headless Git Todo without review or image attachments');
+      if (hasResourceRequirements(requirements)) {
         this.activeResourceRuns.set(todoId, resourceRunToken);
-        queries.createTaskLog(todoId, 'output', `[resource-manager] Acquired resources: ${requirements.join(', ')}`, roundNumber);
+        queries.createTaskLog(todoId, 'output', `[resource-manager] Acquired resources: ${acquisition.resources.join(', ')}`, roundNumber);
       }
 
       // Persist running provider usage, then release the temporary provider reservation.
       queries.updateTodoStatus(todoId, 'running');
       const initialSnapshot = executionConfig
-        ? JSON.stringify(executionSnapshot(executionConfig))
-        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool });
+        ? JSON.stringify({ ...executionSnapshot(executionConfig), resourceBinding })
+        : JSON.stringify({ configuration: 'manual', agent: resolvedCliTool, resourceBinding });
       queries.updateTodo(todoId, {
         execution_mode: mode,
         execution_snapshot: initialSnapshot,
@@ -1220,7 +1227,7 @@ export class Orchestrator {
       const sandboxMode = (project.sandbox_mode as SandboxMode) || 'strict';
 
       // Sandbox: validate the directory used by Claude's execution-local CLI policy.
-      if (sandboxMode === 'strict' && resolvedCliTool === 'claude') {
+      if (sandboxMode === 'strict' && resolvedCliTool === 'claude' && resourceBinding?.transport !== 'ssh') {
         try {
           configureClaudeSandboxPermissions(workDir);
           queries.createTaskLog(todoId, 'output', '[sandbox] Prepared execution-local Claude permission policy');
@@ -1241,7 +1248,8 @@ export class Orchestrator {
       // Sandbox: add prompt-level path restriction for strict mode
       if (sandboxMode === 'strict') {
 
-        prompt += `\n\nIMPORTANT: Your working directory is ${workDir}. Do NOT access, read, write, or modify any files outside this directory, except for git operations that naturally access .git metadata.`;
+        const executionDirectory = resourceBinding?.transport === 'ssh' ? `${remoteWorkspace(resourceBinding)}/repo` : workDir;
+        prompt += `\n\nIMPORTANT: Your working directory is ${executionDirectory}. Do NOT access, read, write, or modify any files outside this directory, except for git operations that naturally access .git metadata.`;
       }
 
       // Inject long-term memory if configured for this todo
@@ -1291,13 +1299,13 @@ export class Orchestrator {
       const auditPrompt = prompt.length > 2000 ? prompt.slice(0, 2000) + '... [truncated]' : prompt;
       queries.createTaskLog(todoId, 'prompt', auditPrompt, roundNumber);
       if (executionConfig) {
-        queries.updateTodo(todoId, { execution_snapshot: JSON.stringify(executionSnapshot(executionConfig)) });
+        queries.updateTodo(todoId, { execution_snapshot: JSON.stringify({ ...executionSnapshot(executionConfig), resourceBinding }) });
         queries.createTaskLog(todoId, 'info', `[execution] ${JSON.stringify(executionSnapshot(executionConfig))}`, roundNumber);
       }
 
       const launch = launchSelection(executionConfig);
       const launchedModel = launch.effectiveModel ?? launch.model;
-      delegationLaunch = currentRound?.phase === 'review' ? null : prepareTodoDelegationLaunch({
+      delegationLaunch = currentRound?.phase === 'review' || resourceBinding?.transport === 'ssh' ? null : prepareTodoDelegationLaunch({
         todoId,
         workDir,
         provider: resolvedCliTool,
@@ -1325,16 +1333,19 @@ export class Orchestrator {
         : currentRound?.phase === 'rework' || isContinue
           ? 'rework'
           : 'implementation';
-      const result = delegationLaunch
+      const result = resourceBinding?.transport === 'ssh'
+        ? await sshTransport.launch(resourceBinding, workDir, resolvedCliTool, { ...launch, mode, prompt, effort: launch.effort, extraOptions: claudeOptions, maxTurns, promptPolicy, sandboxMode })
+        : await localTransport.launch(async () => delegationLaunch
         ? await claudeManager.startClaude(
           workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath,
           sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy,
-          delegationLaunch.runtimeEnv, delegationLaunch.delegationMcp,
+          { ...delegationLaunch.runtimeEnv, ...resourceBinding?.environment }, delegationLaunch.delegationMcp,
         )
         : await claudeManager.startClaude(
           workDir, prompt, launch, claudeOptions, mode, resolvedCliTool, maxTurns, projectPath,
           sandboxMode, isContinue, undefined, undefined, launch.effort, promptPolicy,
-        );
+          ...(resourceBinding && Object.keys(resourceBinding.environment).length ? [resourceBinding.environment] as const : [] as const),
+        ));
       pid = result.pid;
       exitPromise = result.exitPromise;
       delegationLaunch?.markStarted(pid, result.processIdentity ?? null);
@@ -1343,7 +1354,7 @@ export class Orchestrator {
         let terminationConfirmed = true;
         if (pid && pid > 0) {
           try {
-            const stopResult = await claudeManager.stopClaude(pid);
+            const stopResult = result.processIdentity ? await claudeManager.stopClaude(pid, result.processIdentity) : await claudeManager.stopClaude(pid);
             terminationConfirmed = stopResult?.status !== 'unresolved';
           } catch { terminationConfirmed = false; }
         }
@@ -1406,6 +1417,16 @@ export class Orchestrator {
       broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'running', mode, worktree_path: worktreePath, branch_name: branchName });
       this.broadcastProjectStatus(projectId);
     } catch (err) {
+      const retainedRemoteIdentity = err instanceof RemoteLaunchUnresolved ? err.identity : resourceBinding?.transport === 'ssh' ? sshTransport.retainedIdentity(resourceBinding.id) : null;
+      if (retainedRemoteIdentity) {
+        const recoveryMessage = 'Remote launch ownership is unresolved; leases retained for recovery';
+        queries.updateTodoStatus(todoId, 'failed');
+        queries.updateTodo(todoId, { process_pid: retainedRemoteIdentity.pid, process_identity: JSON.stringify(retainedRemoteIdentity) });
+        queries.createTaskLog(todoId, 'error', recoveryMessage, roundNumber);
+        logger.error('resource.recovery.required', { msg: recoveryMessage, todoId, bindingId: retainedRemoteIdentity.remote?.bindingId });
+        broadcaster.broadcast({ type: 'todo:status-changed', todoId, status: 'failed' });
+        return;
+      }
       if (startToken && !this.isStartupValid(todoId, startToken, projectId)) {
         if (resourceRunToken) resourceManager.releaseRun(resourceRunToken);
         else resourceManager.releaseOwner('todo', todoId);
@@ -1988,7 +2009,7 @@ export class Orchestrator {
   private async processWaitingResources(): Promise<void> {
     const waitingTodos = queries.getTodosByStatus('waiting_resource');
     const sortedWaiting = [...waitingTodos].sort(
-      (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+      (a, b) => b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
     );
     for (const todo of sortedWaiting) {
       if (this.isStoppingProjects.has(todo.project_id) || this.stoppingTodoIds.has(todo.id)) continue;

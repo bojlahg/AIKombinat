@@ -63,6 +63,7 @@ import { registerPlugin, mountPluginRoutes } from './plugins/registry.js';
 import { harnessPlugin } from './plugins/harness/index.js';
 import { resolveBindHost } from './utils/bind-host.js';
 import { resourceManager } from './services/resource-manager.js';
+import { resourceFabric } from './services/resource-fabric.js';
 import { providerQuotaService } from './services/provider-quota.js';
 import { executorPool } from './services/executor-pool.js';
 import { reviewPipeline } from './services/review-pipeline.js';
@@ -364,6 +365,10 @@ resourceManager.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
 });
 resourceManager.initialize();
+resourceFabric.setAvailabilityCallback(() => {
+  setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
+});
+resourceFabric.start();
 providerQuotaService.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingQuota().catch(() => { /* ignore */ }));
 });
@@ -458,6 +463,7 @@ function cleanup(reason = 'signal') {
   orchestrator.stopStaleProcessChecker();
   sessionManager.stopStaleProcessChecker();
   resourceManager.shutdown();
+  resourceFabric.shutdown();
   scheduler.stopAll();
   Promise.all([
     claudeManager.killAll(),

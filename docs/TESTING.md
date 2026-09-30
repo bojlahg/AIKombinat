@@ -320,3 +320,9 @@ it('should render', () => {
 | `npm run test:client` | 프론트엔드만 테스트 |
 | `npm run test:watch` | 백엔드 Watch 모드 |
 | `npm run test:coverage` | 전체 커버리지 리포트 생성 |
+
+## Resource Fabric V2 validation
+
+Run npm run typecheck, npm test, npm run build and npm run docs:erd:check. Focused server coverage is in resource-fabric.test.ts and startup-process-recovery.test.ts; ResourcesSettingsPanel.test.tsx covers settings, policies, reserves, ownership and requirement editing. Locale parity is included in client tests. Generated OpenCode shell-hook tests use no real AI CLI.
+
+For an authorized isolated Linux SSH CPU fixture, run npx tsx scripts/resource-fabric-smoke.ts <alias> <disposable-root>. The manual smoke uses its own temporary database and committed Git fixture projects, verifies scan/matcher/API ownership/capacity/wake/drain/maintenance/owned Stop, and saves an ignored JSON report. It must not stop outside jobs or consume GPUs with external workloads. See [smoke report and remaining GPU/restart drills](Resource_Fabric_V2_Smoke_Report.md).

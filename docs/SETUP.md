@@ -1512,3 +1512,7 @@ git worktree prune   # 깨진 worktree 정리
 | POST | /api/tunnel/start | 터널 시작 |
 | POST | /api/tunnel/stop | 터널 중지 |
 | WS | /ws | 실시간 이벤트 |
+
+## Resource Fabric V2 setup
+
+Configure Settings → Resources, scan the local node and reserve desktop CPU/RAM/GPU capacity. For SSH, use a trusted system alias, agent or key path and a separate Linux workspace root. Remote execution requires Python 3 and Git and currently supports headless raw-shell/OpenCode Todos only. It transfers committed Git HEAD using a bounded bundle; it does not transfer uncommitted changes or install dependencies. See [configuration, API and security boundaries](Resource_Fabric_V2.md) and [real smoke](Resource_Fabric_V2_Smoke_Report.md).

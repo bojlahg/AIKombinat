@@ -482,7 +482,7 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
 
     resourceManager.acquireAtomic({
       ownerType: 'todo',
-      ownerId: 'other-todo',
+      ownerId: queries.createTodo(project.id, 'Other').id,
       runToken: 'other-token',
       resources: ['unity.editor'],
     });
@@ -626,7 +626,7 @@ describe('Review / Rework Orchestrator Integration & Lifecycle Races', () => {
     );
 
     resourceManager.acquireAtomic({
-      ownerType: 'todo', ownerId: 'other', runToken: 'tok1', resources: ['unity.editor'],
+      ownerType: 'todo', ownerId: queries.createTodo(todo.project_id, 'Other').id, runToken: 'tok1', resources: ['unity.editor'],
     });
 
     await orchestrator.startTodo(todo.id);

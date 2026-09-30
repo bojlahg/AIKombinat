@@ -18,6 +18,7 @@ const { resourceManager } = await import('../resource-manager.js');
 const { recoverPersistedProcesses, reconcileRetainedProcesses } = await import('../startup-process-recovery.js');
 const { assertNoUnresolvedProcess } = await import('../process-ownership.js');
 const { executorPool } = await import('../executor-pool.js');
+const { sshTransport } = await import('../execution-transport.js');
 
 const PID = 424242;
 const identity: ProcessIdentity = { pid: PID, startedAt: '2026-09-06T00:00:00Z', command: 'provider.exe' };
@@ -36,6 +37,7 @@ describe('startup process recovery', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     resourceManager.shutdown();
     testDb.close();
     workspace.cleanup();
@@ -53,6 +55,22 @@ describe('startup process recovery', () => {
     queries.updateDiscussion(discussion.id, { process_pid: pid, process_identity: processIdentity });
     return { todo, session, discussion };
   }
+
+  it.each(['match', 'unverifiable', 'mismatch', 'exited'] as const)('uses remote %s ownership before consulting local numeric PID liveness', async verdict => {
+    const todo = queries.createTodo(project.id, 'Remote recovery');
+    resourceManager.acquireAtomic({ ownerType: 'todo', ownerId: todo.id, runToken: 'remote-recovery', resources: ['gpu.0'] });
+    const remoteIdentity = { ...identity, remote: { nodeId: 'remote-node', bindingId: 'binding', workspace: '/jobs/fixture', pid: PID, startedAt: '100', bootId: 'boot' } };
+    queries.updateTodoStatus(todo.id, 'running');
+    queries.updateTodo(todo.id, { process_pid: PID, process_identity: JSON.stringify(remoteIdentity) });
+    vi.spyOn(sshTransport, 'reconcile').mockResolvedValue(verdict);
+    const isAlive = vi.fn(() => false), verify = vi.fn();
+    await recoverPersistedProcesses({ isAlive, verify });
+    expect(isAlive).not.toHaveBeenCalled(); expect(verify).not.toHaveBeenCalled();
+    expect(processTree.terminateProcessTree).not.toHaveBeenCalled();
+    const retain = verdict === 'match' || verdict === 'unverifiable';
+    expect(queries.getTodoById(todo.id)?.process_pid).toBe(retain ? PID : 0);
+    expect(resourceManager.getStatus().find(entry => entry.key === 'gpu.0')?.used).toBe(retain ? 1 : 0);
+  });
 
   it('reconciles dead Todo, Session, and Discussion PIDs and clears identities', async () => {
     const owners = runningOwners();

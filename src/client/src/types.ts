@@ -339,6 +339,8 @@ export interface Session {
 }
 
 export type ResourceKey = string;
+export type { ResourceRequirements, ResourceConstraints, FabricRequirements } from '../../server/services/resource-requirements';
+export type { ComputeNode, NodeConnection, NodePolicy, ResourceInstance } from '../../server/services/resource-fabric-types';
 
 export interface ResourceStatus {
   key: ResourceKey;

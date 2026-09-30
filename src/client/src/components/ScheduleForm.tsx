@@ -1,3 +1,5 @@
+import { parseResourceRequirements } from '../utils/resource-requirements';
+import type { ResourceRequirements } from '../types';
 import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool } from '../cli-tools';
@@ -21,7 +23,7 @@ interface ScheduleFormProps {
     skipIfRunning?: boolean;
     scheduleType: ScheduleType;
     runAt?: string;
-    resourceRequirements?: string[];
+    resourceRequirements?: ResourceRequirements;
   }) => void;
   onCancel: () => void;
   initialTitle?: string;
@@ -87,10 +89,7 @@ export default function ScheduleForm({
   const [skipIfRunning, setSkipIfRunning] = useState(initialSkipIfRunning);
   const [scheduleType, setScheduleType] = useState<ScheduleType>(initialScheduleType);
   const [runAt, setRunAt] = useState(initialRunAt ? toLocalDatetimeValue(initialRunAt) : getDefaultRunAt());
-  const [resourceRequirements, setResourceRequirements] = useState<string[]>(() => {
-    if (!initialResourceRequirements) return [];
-    try { const parsed = JSON.parse(initialResourceRequirements); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
-  });
+  const [resourceRequirements, setResourceRequirements] = useState<ResourceRequirements>(() => parseResourceRequirements(initialResourceRequirements));
   const { t } = useI18n();
 
   const isOnce = scheduleType === 'once';

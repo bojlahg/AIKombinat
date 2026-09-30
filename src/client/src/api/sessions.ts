@@ -1,3 +1,4 @@
+import type { ResourceRequirements } from '../types';
 import { get, post, put, del } from './client';
 import type { Session, SessionLog } from '../types';
 
@@ -56,14 +57,14 @@ export function captureSessionSnapshot(id: string): Promise<{ available: boolean
 
 export function createSession(
   projectId: string,
-  data: { title: string; description?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null; resource_requirements?: string[] }
+  data: { title: string; description?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null; resource_requirements?: ResourceRequirements }
 ): Promise<Session> {
   return post(`/api/projects/${projectId}/sessions`, data);
 }
 
 export function updateSession(
   id: string,
-  data: { title?: string; description?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null; resource_requirements?: string[] }
+  data: { title?: string; description?: string; cli_tool?: string; cli_model?: string; cli_model_id?: string | null; cli_effort?: string | null; execution_profile_id?: string | null; use_worktree?: boolean; memory_inject_mode?: 'none' | 'all' | 'selected' | 'auto'; memory_node_ids?: string[]; memory_raw_file_paths?: string[]; tag_id?: string | null; resource_requirements?: ResourceRequirements }
 ): Promise<Session> {
   return put(`/api/sessions/${id}`, data);
 }

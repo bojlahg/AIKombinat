@@ -10,6 +10,7 @@ import type { WsEvent } from '../../hooks/useWebSocket';
 import GeneralSettingsPanel from './GeneralSettingsPanel';
 import AgentsSettingsPanel from './AgentsSettingsPanel';
 import DelegationSettingsPanel from './DelegationSettingsPanel';
+import ResourcesSettingsPanel from './ResourcesSettingsPanel';
 
 export interface SettingsPageProps {
   onEvent?: (cb: (event: WsEvent) => void) => () => void;
@@ -23,6 +24,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
     { id: 'general', label: t('settings.tabs.general'), icon: MonitorCog },
     { id: 'agents', label: t('settings.tabs.agents'), icon: Bot },
     { id: 'delegation', label: t('settings.tabs.delegation'), icon: Workflow },
+    { id: 'resources', label: t('fabric.title'), icon: MonitorCog },
     { id: 'account', label: t('settings.tabs.account'), icon: KeyRound },
     { id: 'terminals', label: t('settings.tabs.session'), icon: TerminalSquare },
     { id: 'tunnel', label: t('settings.tabs.tunnel'), icon: Cloud },
@@ -70,6 +72,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
               <Route path="general" element={<GeneralSettingsPanel />} />
               <Route path="agents" element={<AgentsSettingsPanel onEvent={onEvent} />} />
               <Route path="delegation" element={<DelegationSettingsPanel />} />
+              <Route path="resources" element={<ResourcesSettingsPanel onEvent={onEvent} />} />
               <Route path="account" element={<PasswordSettingsPanel />} />
               <Route path="terminals" element={<SessionSettingsPanel />} />
               <Route path="tunnel" element={<TunnelSettingsPanel onDirtyChange={setTunnelDirty} />} />

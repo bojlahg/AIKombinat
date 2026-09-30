@@ -11,6 +11,7 @@ vi.mock('../../utils/process-tree.js', async (importOriginal) => {
 import { ClaudeManager, Utf8StreamDecoder } from '../claude-manager.js';
 import * as cliStatus from '../cli-status.js';
 import { getAdapter } from '../cli-adapters.js';
+import { sshTransport } from '../execution-transport.js';
 const syntheticNode = process.platform === 'win32' ? 'node' : process.execPath;
 const syntheticArgs = (source: string) => {
   const code = `eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())`;
@@ -19,6 +20,22 @@ const syntheticArgs = (source: string) => {
 
 describe('ClaudeManager', () => {
   describe('isRunning', () => {
+    it('keeps local exit lifecycle separate from a remote process with the same numeric PID', async () => {
+      const manager = new ClaudeManager(), pid = 424243;
+      vi.spyOn(sshTransport, 'hasPid').mockReturnValue(true);
+      const remoteExit = vi.spyOn(sshTransport, 'whenExited').mockResolvedValue();
+      (manager as any).processes.set(pid, { pid, kill: vi.fn() });
+      const exited = manager.whenExited(pid);
+      (manager as any).markExited(pid);
+      await exited;
+      expect(remoteExit).not.toHaveBeenCalled();
+      expect(manager.isRunning(pid)).toBe(false);
+      const remoteIdentity = { pid, startedAt: '100', remote: { nodeId: 'node', bindingId: 'binding', workspace: '/jobs', pid, startedAt: '100', bootId: 'boot' } };
+      expect(manager.isRunning(pid, remoteIdentity)).toBe(true);
+      await manager.whenExited(pid, remoteIdentity);
+      expect(remoteExit).toHaveBeenCalledWith(pid, 'binding');
+      vi.restoreAllMocks();
+    });
     it('should return false for unknown PID', () => {
       const manager = new ClaudeManager();
       expect(manager.isRunning(99999)).toBe(false);

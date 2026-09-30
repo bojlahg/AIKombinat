@@ -1,7 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/connection.js';
 import { broadcaster } from '../websocket/broadcaster.js';
-import { RESOURCE_CATALOG, normalizeResourceKeys, type ResourceKey } from './resource-catalog.js';
+import { normalizeResourceRequirements, type ResourceKey } from './resource-catalog.js';
+import { canonicalJson, hasResourceRequirements, toFabricRequirements, type ResourceRequirements } from './resource-requirements.js';
+import { getComputeNodes, getResourceInstances, resourceLeaseTotals } from './resource-fabric.js';
+import { externallyBusy, matchResources } from './resource-matcher.js';
+import type { FabricBinding } from './resource-fabric-types.js';
 import { logger } from '../logging/logger.js';
 
 export type ResourceOwnerType = 'todo' | 'session';
@@ -10,7 +14,9 @@ export interface ResourceAcquireRequest {
   ownerType: ResourceOwnerType;
   ownerId: string;
   runToken: string;
-  resources: ResourceKey[];
+  resources: ResourceRequirements;
+  allowedTransports?: Array<'local' | 'ssh'>;
+  workspacePath?: string;
 }
 
 export interface ResourceLease {
@@ -62,7 +68,7 @@ export class ResourceManager {
 
   constructor(
     private readonly isProcessAlive: (pid: number) => boolean = (pid) => {
-      try { process.kill(pid, 0); return true; } catch { return false; }
+      try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
     },
   ) {}
 
@@ -71,12 +77,13 @@ export class ResourceManager {
   }
 
   acquireAtomic(request: ResourceAcquireRequest):
-    | { status: 'acquired'; runToken: string; resources: ResourceKey[] }
+    | { status: 'acquired'; runToken: string; resources: ResourceKey[]; binding?: FabricBinding }
     | { status: 'busy'; busy: BusyResource[] } {
-    const resources = normalizeResourceKeys(request.resources);
+    const normalized = normalizeResourceRequirements(request.resources);
+    const resources = Array.isArray(normalized) ? normalized : [];
     if (!request.runToken) throw new Error('runToken is required');
     if (!request.ownerId) throw new Error('ownerId is required');
-    if (resources.length === 0) {
+    if (!hasResourceRequirements(normalized)) {
       return { status: 'acquired', runToken: request.runToken, resources };
     }
 
@@ -89,41 +96,50 @@ export class ResourceManager {
 
     const result = db.transaction(() => {
       this.reconcileExpiredInTransaction(nowIso, expiresIso, removedKeys, recoveredTokens);
-      const busy: BusyResource[] = [];
-      for (const key of resources) {
-        const definition = RESOURCE_CATALOG.find((resource) => resource.key === key)!;
-        const rows = db.prepare(
-          `SELECT resource_key, amount, owner_type, owner_id, run_token, acquired_at, heartbeat_at, expires_at
-           FROM resource_leases WHERE resource_key = ? AND expires_at > ? ORDER BY acquired_at ASC, id ASC`
-        ).all(key, nowIso) as LeaseRow[];
-        const used = rows.reduce((sum, row) => sum + row.amount, 0);
-        if (used + 1 > definition.capacity) {
-          busy.push({
-            key,
-            capacity: definition.capacity,
-            used,
-            holders: rows.map((row) => ({
-              ownerType: row.owner_type,
-              ownerId: row.owner_id,
-              runToken: row.run_token,
-              acquiredAt: row.acquired_at,
-              expiresAt: row.expires_at,
-            })),
-          });
-        }
+      const existing = db.prepare('SELECT b.binding_json FROM resource_bindings b JOIN resource_requests r ON r.id = b.request_id WHERE r.run_token = ?').get(request.runToken) as { binding_json: string } | undefined;
+      if (existing) {
+        if (!db.prepare('SELECT id FROM resource_leases WHERE run_token = ?').get(request.runToken)) throw new Error('Execution attempt already released; use a new run token');
+        return { status: 'acquired' as const, runToken: request.runToken, resources, binding: JSON.parse(existing.binding_json) as FabricBinding };
       }
-      if (busy.length > 0) return { status: 'busy' as const, busy };
-
+      const requirement = toFabricRequirements(normalized);
+      const nodes = getComputeNodes();
+      const allowed = request.allowedTransports ?? (request.ownerType === 'session' ? ['local'] : ['local', 'ssh']);
+      const instances = getResourceInstances(), leased = resourceLeaseTotals();
+      const decision = matchResources(requirement, nodes.filter(node => allowed.includes(node.transport)).map(node => ({ node, instances: instances.filter(instance => instance.node_id === node.id), leased, workspacePath: request.workspacePath })));
+      const waiting = db.prepare("SELECT id FROM resource_requests WHERE owner_type = ? AND owner_id = ? AND status IN ('pending', 'waiting') ORDER BY created_at, id LIMIT 1").get(request.ownerType, request.ownerId) as { id: string } | undefined;
+      const requestId = waiting?.id ?? uuidv4();
+      const owner = db.prepare(`SELECT ${request.ownerType === 'todo' ? 'priority' : '0 AS priority'} FROM ${request.ownerType === 'todo' ? 'todos' : 'sessions'} WHERE id = ?`).get(request.ownerId) as { priority: number } | undefined;
+      if (!owner) throw new Error('Resource owner does not exist');
+      db.prepare(`INSERT INTO resource_requests (id, owner_type, owner_id, run_token, requirements_json, status, priority, reasons_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET run_token = excluded.run_token, requirements_json = excluded.requirements_json, status = excluded.status, priority = excluded.priority, reasons_json = excluded.reasons_json`).run(requestId, request.ownerType, request.ownerId, request.runToken, canonicalJson(requirement), decision.binding ? 'bound' : 'waiting', owner.priority, canonicalJson(decision.rejected), nowIso);
+      if (!decision.binding) {
+        const busy: BusyResource[] = [];
+        for (const key of resources) {
+          const instance = instances.find(instance => instance.legacy_key === key || instance.id === key)!;
+          const rows = db.prepare('SELECT * FROM resource_leases WHERE resource_key IN (?, ?) ORDER BY acquired_at, id').all(key, instance.id) as LeaseRow[];
+          if (rows.length) busy.push({ key, capacity: 1, used: rows.reduce((sum, row) => sum + row.amount, 0), holders: rows.map(row => ({ ownerType: row.owner_type, ownerId: row.owner_id, runToken: row.run_token, acquiredAt: row.acquired_at, expiresAt: row.expires_at })) });
+        }
+        if (!busy.length) busy.push({ key: decision.rejected.flatMap(rejected => rejected.reasons).join(', ') || 'no_eligible_compute_node', capacity: 0, used: 0, holders: [] });
+        return { status: 'busy' as const, busy };
+      }
+      const binding: FabricBinding = { ...decision.binding, id: uuidv4(), request_id: requestId };
+      if (binding.transport === 'ssh') binding.remote_workspace = `${nodes.find(node => node.id === binding.node_id)!.connection!.workspace_root.replace(/\/$/, '')}/jobs/${binding.id}/repo`;
+      db.prepare('INSERT INTO resource_bindings VALUES (?, ?, ?, ?, ?)').run(binding.id, requestId, binding.node_id, canonicalJson(binding), nowIso);
+      const items = binding.resource_instances.map(id => { const instance = instances.find(instance => instance.id === id)!; return { instance: id, key: resources.includes(instance.legacy_key ?? '') ? instance.legacy_key! : id, amount: 1 }; });
+      if (binding.capacity.cpu_threads) items.push({ instance: '', key: `node/${binding.node_id}/cpu`, amount: binding.capacity.cpu_threads });
+      if (binding.capacity.memory_bytes) items.push({ instance: '', key: `node/${binding.node_id}/memory`, amount: binding.capacity.memory_bytes });
+      if (!items.length) items.push({ instance: '', key: `node/${binding.node_id}/execution`, amount: 1 });
       const insert = db.prepare(
         `INSERT INTO resource_leases
-          (id, resource_key, amount, owner_type, owner_id, run_token, acquired_at, heartbeat_at, expires_at)
-         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`
+          (id, resource_key, amount, owner_type, owner_id, run_token, acquired_at, heartbeat_at, expires_at, binding_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      for (const key of resources) {
-        insert.run(uuidv4(), key, request.ownerType, request.ownerId, request.runToken, nowIso, nowIso, expiresIso);
+      for (const item of items) {
+        db.prepare('INSERT INTO resource_binding_items VALUES (?, ?, ?, ?, ?)').run(uuidv4(), binding.id, item.instance || null, item.key, item.amount);
+        insert.run(uuidv4(), item.key, item.amount, request.ownerType, request.ownerId, request.runToken, nowIso, nowIso, expiresIso, binding.id);
       }
-      return { status: 'acquired' as const, runToken: request.runToken, resources };
-    })();
+      return { status: 'acquired' as const, runToken: request.runToken, resources: items.map(item => item.key), binding };
+    }).immediate();
 
     for (const token of recoveredTokens) {
       if (!this.localRunTokens.has(token)) this.recoveredRunTokens.add(token);
@@ -132,17 +148,19 @@ export class ResourceManager {
     if (result.status === 'acquired') {
       this.localRunTokens.add(request.runToken);
       this.recoveredRunTokens.delete(request.runToken);
-      this.notifyCapacityChanged(resources, false);
+      this.notifyCapacityChanged(result.resources, false);
+      broadcaster.broadcast({ type: 'resource-binding:updated', runToken: request.runToken });
       // Individual lease bookkeeping stays at DEBUG — one line per admission
       // check would swamp the log without telling the operator anything.
-      logger.debug('resource.lease.acquired', {
-        msg: `acquired ${resources.join(', ')}`,
-        resources: resources.join(','),
+      logger.info('resource.lease.acquired', {
+        msg: `acquired ${result.resources.join(', ')}`,
+        resources: result.resources.join(','),
         ownerType: request.ownerType,
         ownerId: request.ownerId,
         runToken: request.runToken,
       });
     } else {
+      broadcaster.broadcast({ type: 'resource-request:updated', runToken: request.runToken });
       logger.warn('resource.unavailable', {
         msg: `resource unavailable: ${result.busy.map(b => `${b.key} (${b.used}/${b.capacity})`).join(', ')}`,
         resources: result.busy.map(b => b.key).join(','),
@@ -156,11 +174,16 @@ export class ResourceManager {
   releaseRun(runToken: string): number {
     const db = getDatabase();
     const rows = db.prepare('SELECT DISTINCT resource_key FROM resource_leases WHERE run_token = ?').all(runToken) as Array<{ resource_key: ResourceKey }>;
-    const result = db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
+    const result = db.transaction(() => {
+      const removed = db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
+      db.prepare("UPDATE resource_requests SET status = 'cancelled' WHERE run_token = ? AND status IN ('pending', 'waiting')").run(runToken);
+      this.applyDesiredPolicies();
+      return removed;
+    }).immediate();
     this.forgetRun(runToken);
     if (result.changes > 0) {
       this.notifyCapacityChanged(rows.map((row) => row.resource_key), true);
-      logger.debug('resource.lease.released', {
+      logger.info('resource.lease.released', {
         msg: `released ${rows.map(r => r.resource_key).join(', ')}`,
         resources: rows.map(r => r.resource_key).join(','),
         runToken,
@@ -174,7 +197,11 @@ export class ResourceManager {
     const rows = db.prepare(
       'SELECT DISTINCT resource_key, run_token FROM resource_leases WHERE owner_type = ? AND owner_id = ?'
     ).all(ownerType, ownerId) as Array<{ resource_key: ResourceKey; run_token: string }>;
-    const result = db.prepare('DELETE FROM resource_leases WHERE owner_type = ? AND owner_id = ?').run(ownerType, ownerId);
+    const result = db.transaction(() => {
+      const removed = db.prepare('DELETE FROM resource_leases WHERE owner_type = ? AND owner_id = ?').run(ownerType, ownerId);
+      db.prepare("UPDATE resource_requests SET status = 'cancelled' WHERE owner_type = ? AND owner_id = ? AND status IN ('pending', 'waiting')").run(ownerType, ownerId);
+      this.applyDesiredPolicies(); return removed;
+    }).immediate();
     for (const row of rows) this.forgetRun(row.run_token);
     if (result.changes > 0) this.notifyCapacityChanged([...new Set(rows.map((row) => row.resource_key))], true);
     return result.changes;
@@ -188,13 +215,15 @@ export class ResourceManager {
   }
 
   getStatus(): ResourceStatus[] {
-    const nowIso = new Date().toISOString();
+    const nodes = getComputeNodes();
     const rows = getDatabase().prepare(
       `SELECT resource_key, amount, owner_type, owner_id, run_token, acquired_at, heartbeat_at, expires_at
-       FROM resource_leases WHERE expires_at > ? ORDER BY acquired_at ASC, id ASC`
-    ).all(nowIso) as LeaseRow[];
-    return RESOURCE_CATALOG.map((definition) => {
-      const leases = rows.filter((row) => row.resource_key === definition.key);
+       FROM resource_leases ORDER BY acquired_at ASC, id ASC`
+    ).all() as LeaseRow[];
+    return getResourceInstances().map((instance) => {
+      const node = nodes.find(node => node.id === instance.node_id)!;
+      const definition = { key: instance.legacy_key ?? instance.id, label: instance.model, capacity: node.enabled && node.scheduler_state === 'online' && !node.identity_changed && instance.present && instance.policy === 'enabled' && !instance.desired_policy && !(instance.kind === 'gpu' && node.policy.avoid_external_gpu && externallyBusy(node, instance)) ? 1 : 0 };
+      const leases = rows.filter((row) => row.resource_key === definition.key || row.resource_key === instance.id);
       const used = leases.reduce((sum, row) => sum + row.amount, 0);
       return {
         ...definition,
@@ -296,7 +325,7 @@ export class ResourceManager {
         | undefined;
       // A persisted live PID remains owned even when startup recovery changed
       // its owner to failed because identity was mismatched/unverifiable.
-      const live = !!owner && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
+      const live = this.ownerMayBeLive(runToken, owner);
       if (live) {
         db.prepare('UPDATE resource_leases SET heartbeat_at = ?, expires_at = ? WHERE run_token = ?')
           .run(nowIso, expiresIso, runToken);
@@ -332,7 +361,7 @@ export class ResourceManager {
         const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
           | { status: string; process_pid: number | null }
           | undefined;
-        const live = !!owner && !!owner.process_pid && this.isProcessAlive(owner.process_pid);
+        const live = this.ownerMayBeLive(runToken, owner);
         if (live) {
           db.prepare('UPDATE resource_leases SET heartbeat_at = ?, expires_at = ? WHERE run_token = ?')
             .run(nowIso, expiresIso, runToken);
@@ -352,9 +381,22 @@ export class ResourceManager {
     this.recoveredRunTokens.delete(runToken);
   }
 
+  private ownerMayBeLive(runToken: string, owner: { process_pid: number | null } | undefined): boolean {
+    const remote = getDatabase().prepare(`SELECT e.status FROM remote_executions e JOIN resource_bindings b ON b.id = e.binding_id JOIN resource_requests r ON r.id = b.request_id WHERE r.run_token = ?`).get(runToken) as { status: string } | undefined;
+    if (remote) return remote.status !== 'exited';
+    try { return !!owner?.process_pid && this.isProcessAlive(owner.process_pid); } catch { return !!owner?.process_pid; }
+  }
+
+  private applyDesiredPolicies(): void {
+    getDatabase().prepare(`UPDATE resource_instances SET policy = desired_policy, desired_policy = NULL WHERE desired_policy IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM resource_leases WHERE resource_key = resource_instances.id OR resource_key = resource_instances.legacy_key)`).run();
+  }
+
   private notifyCapacityChanged(resourceKeys: ResourceKey[], wakeWaiters: boolean): void {
     if (resourceKeys.length === 0) return;
+    if (wakeWaiters) this.applyDesiredPolicies();
     broadcaster.broadcast({ type: 'resource:updated', resourceKeys: [...new Set(resourceKeys)] });
+    broadcaster.broadcast({ type: 'resource-lease:updated' });
     if (wakeWaiters) this.availabilityCallback?.();
   }
 }

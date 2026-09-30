@@ -4,7 +4,7 @@ import { getProjectById } from '../db/queries.js';
 import { validatePromptContent, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from '../services/prompt-guard.js';
 import { cleanupTodoImages } from './images.js';
 import { ExecutionSelectionError, normalizeExecutionSelection } from '../services/execution-selection.js';
-import { normalizeResourceKeys, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
+import { normalizeResourceRequirements, ResourceValidationError, serializeResourceRequirements } from '../services/resource-catalog.js';
 
 const router = Router();
 
@@ -65,7 +65,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       ? (memory_node_ids.length > 0 ? JSON.stringify(memory_node_ids.map(String)) : null)
       : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
-    const normalizedResources = serializeResourceRequirements(normalizeResourceKeys(resource_requirements ?? []));
+    const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
     const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
     const parsedMaxReviewRounds = max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3;
     const todo = createTodo(
@@ -155,7 +155,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
     const normalizedResources = resource_requirements === undefined
       ? undefined
-      : serializeResourceRequirements(normalizeResourceKeys(resource_requirements));
+      : serializeResourceRequirements(normalizeResourceRequirements(resource_requirements));
     const todo = updateTodo(req.params.id, {
       title, description, priority, cli_tool: execution?.cliTool ?? cli_tool, cli_model: execution ? execution.cliModel : cli_model, depends_on, position_x, position_y,
       ...(execution ? { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, execution_profile_id: execution.executionProfileId, cli_effort: execution.cliEffort } : {}),

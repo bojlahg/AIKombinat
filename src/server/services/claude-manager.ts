@@ -8,6 +8,7 @@ import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { getAdapter, type CliAdapter, type CliTool, type CliMode, type LaunchModelSelection, type PromptPolicy, type SandboxMode } from './cli-adapters.js';
 import { createOpenCodeConfig } from './opencode.js';
+import { sshTransport } from './execution-transport.js';
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
@@ -119,7 +120,8 @@ export class ClaudeManager {
     if (waiters) for (const resolve of waiters) resolve();
   }
 
-  whenExited(pid: number): Promise<void> {
+  whenExited(pid: number, persistedIdentity?: ProcessIdentity | null): Promise<void> {
+    if (persistedIdentity?.remote) return sshTransport.whenExited(pid, persistedIdentity.remote.bindingId);
     if (!this.processes.has(pid)) return Promise.resolve();
     return new Promise((resolve) => {
       let waiters = this.exitWaiters.get(pid);
@@ -793,7 +795,9 @@ export class ClaudeManager {
    * (necessary on Windows where shell: true wraps CLIs in cmd.exe).
    * Sends SIGTERM first, escalates to SIGKILL after 5 seconds.
    */
-  async stopClaude(pid: number, persistedIdentity?: ProcessIdentity | null): Promise<StopResult> {
+  async stopClaude(pid: number, persistedIdentity?: ProcessIdentity | null, force = false): Promise<StopResult> {
+    if (persistedIdentity?.remote) return sshTransport.stop(persistedIdentity, force);
+    if (sshTransport.hasPid(pid) && !this.processes.has(pid) && !persistedIdentity) return { status: 'unresolved', pid, reason: 'remote_identity_required' };
     const proc = this.processes.get(pid);
     if (!proc) {
       if (!isProcessAlive(pid)) {
@@ -815,7 +819,7 @@ export class ClaudeManager {
         });
         return { status: 'unresolved', pid, reason: `process_identity_${verdict}` };
       }
-      const terminated = await terminateProcessTree(pid);
+      const terminated = await terminateProcessTree(pid, force ? { escalateAfterMs: 0 } : undefined);
       return terminated
         ? { status: 'terminated', pid, graceful: false }
         : { status: 'unresolved', pid, reason: 'termination_not_confirmed' };
@@ -832,9 +836,9 @@ export class ClaudeManager {
     }
 
     // Try graceful tree-kill first (kills entire process tree)
-    try { treeKill(pid, 'SIGTERM'); } catch { /* ignore */ }
+    try { treeKill(pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* ignore */ }
 
-    let forced = false;
+    let forced = force;
     return new Promise<StopResult>((resolve) => {
       // Poll for process exit (exit handler in startWithSpawn/startWithPty deletes from map)
       const checkInterval = setInterval(() => {
@@ -876,8 +880,8 @@ export class ClaudeManager {
     });
   }
 
-  isRunning(pid: number): boolean {
-    return this.processes.has(pid);
+  isRunning(pid: number, persistedIdentity?: ProcessIdentity | null): boolean {
+    return persistedIdentity?.remote ? sshTransport.hasPid(pid) : this.processes.has(pid);
   }
 
   async killAll(): Promise<StopResult[]> {

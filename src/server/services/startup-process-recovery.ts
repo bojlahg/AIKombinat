@@ -2,6 +2,7 @@ import * as queries from '../db/queries.js';
 import { logger } from '../logging/logger.js';
 import { resourceManager } from './resource-manager.js';
 import { hasUnresolvedProcess } from './process-ownership.js';
+import { sshTransport } from './execution-transport.js';
 import {
   isProcessAlive,
   parseProcessIdentity,
@@ -71,7 +72,9 @@ async function recoverOwner(
   onlyRecoveryRequired: boolean,
 ): Promise<RecoveryOutcome> {
   const pid = owner.process_pid ?? 0;
-  const dead = pid <= 0 || !probe.isAlive(pid);
+  const identity = parseProcessIdentity(owner.process_identity);
+  const remoteVerdict = identity?.remote ? await sshTransport.reconcile(identity.remote) : null;
+  const dead = remoteVerdict !== null ? remoteVerdict === 'exited' : pid <= 0 || !probe.isAlive(pid);
   if (dead) {
     const fresh = readFreshOwnership(ownerType, owner, onlyRecoveryRequired);
     if (!fresh) return 'superseded';
@@ -95,10 +98,9 @@ async function recoverOwner(
     return 'released';
   }
 
-  const identity = parseProcessIdentity(owner.process_identity);
   let verdict: ProcessIdentityVerdict;
   try {
-    verdict = await probe.verify(pid, identity);
+    verdict = remoteVerdict === 'exited' ? 'unverifiable' : remoteVerdict ?? await probe.verify(pid, identity);
   } catch {
     verdict = 'unverifiable';
   }
