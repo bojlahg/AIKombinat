@@ -923,7 +923,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
       )}
       {activeTab === 'automation' && automationSub === 'analytics' && id && (
         <Suspense fallback={null}>
-          <AnalyticsPanel projectId={id} />
+          <AnalyticsPanel projectId={id} onEvent={onEvent} />
         </Suspense>
       )}
       {activeTab === 'git' && project.is_git_repo ? (

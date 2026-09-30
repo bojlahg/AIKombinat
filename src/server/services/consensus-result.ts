@@ -1,4 +1,5 @@
 import type { ReviewResult, ReviewIssue } from './review-result.js';
+import { reviewIssueFingerprint, compareIssueSeverity } from './review-issue-identity.js';
 
 export type ConsensusStrategy = 'majority' | 'unanimous' | 'weighted' | 'judge' | 'judge_on_disagreement';
 export interface ConsensusVote {
@@ -27,20 +28,18 @@ export function aggregateConsensus(input: {
   const verdict = !failure && !needsJudge && (input.strategy === 'weighted' ? approvedWeight > changesWeight
     : input.strategy === 'unanimous' || input.strategy === 'judge_on_disagreement' ? changes.length === 0
     : approved.length > changes.length) ? 'approved' : 'needs_changes';
-  const severity = { blocking: 0, major: 1, minor: 2 };
-  const normalize = (s: string) => s.trim().replace(/\s+/gu, ' ').toLowerCase();
   const merged = new Map<string, { issue: ReviewIssue; order: number }>();
   let order = 0;
   if (verdict === 'needs_changes') for (const vote of changes) for (const issue of vote.result!.issues) {
-    const key = JSON.stringify([normalize(issue.description), (issue.files ?? []).map(normalize).sort()]);
+    const key = reviewIssueFingerprint(issue);
     const existing = merged.get(key);
     if (!existing) merged.set(key, { issue: { ...issue, files: issue.files ? [...issue.files] : undefined }, order });
-    else if (severity[issue.severity] < severity[existing.issue.severity]) existing.issue = { ...existing.issue, severity: issue.severity };
+    else if (compareIssueSeverity(issue.severity, existing.issue.severity) < 0) existing.issue = { ...existing.issue, severity: issue.severity };
     order++;
   }
   return {
     verdict, summary: `Consensus ${input.strategy}: ${approved.length} approved, ${changes.length} needs_changes, ${failed} failed.`,
-    issues: [...merged.values()].sort((a, b) => severity[a.issue.severity] - severity[b.issue.severity] || a.order - b.order).map(v => v.issue),
+    issues: [...merged.values()].sort((a, b) => compareIssueSeverity(a.issue.severity, b.issue.severity) || a.order - b.order).map(v => v.issue),
     strategy: input.strategy, reviewer_count: input.reviewers.length, successful_count: counted.length, failed_count: failed,
     approved_votes: approved.length, needs_changes_votes: changes.length, approved_weight: approvedWeight, needs_changes_weight: changesWeight,
     needs_judge: needsJudge, failure_reason: failure ? 'reviewer_quorum_failed' : null,

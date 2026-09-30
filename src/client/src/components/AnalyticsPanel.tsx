@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
 import { Skeleton } from './Skeleton';
+import ConsensusAnalyticsPanel from './ConsensusAnalyticsPanel';
+import type { WsEvent } from '../hooks/useWebSocket';
 import * as analyticsApi from '../api/analytics';
 import type { AnalyticsData } from '../api/analytics';
 import {
@@ -21,6 +23,7 @@ type ChartTooltipProps = {
 
 interface AnalyticsPanelProps {
   projectId: string;
+  onEvent?: (cb: (event: WsEvent) => void) => () => void;
 }
 
 const PERIODS = ['7d', '30d', '90d', 'all'] as const;
@@ -96,7 +99,13 @@ function TokenTooltip({ active, payload, label }: ChartTooltipProps) {
   );
 }
 
-export default function AnalyticsPanel({ projectId }: AnalyticsPanelProps) {
+export default function AnalyticsPanel({ projectId,onEvent }: AnalyticsPanelProps) {
+  const { t } = useI18n();
+  const [tab,setTab] = useState('overview');
+  return <div className="space-y-4"><div className="flex gap-2 border-b border-theme-border"><button className={`btn-ghost ${tab==='overview' ? 'text-accent' : ''}`} onClick={()=>setTab('overview')}>{t('evaluation.overview')}</button><button className={`btn-ghost ${tab==='consensus' ? 'text-accent' : ''}`} onClick={()=>setTab('consensus')}>{t('consensus.title')}</button></div>{tab==='consensus' ? <ConsensusAnalyticsPanel key={projectId} projectId={projectId} onEvent={onEvent} /> : <OverviewAnalyticsPanel projectId={projectId} />}</div>;
+}
+
+function OverviewAnalyticsPanel({ projectId }: AnalyticsPanelProps) {
   const { t } = useI18n();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [period, setPeriod] = useState<string>('all');

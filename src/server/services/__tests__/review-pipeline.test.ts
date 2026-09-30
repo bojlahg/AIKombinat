@@ -506,6 +506,8 @@ describe('ReviewPipelineService', () => {
 
     const updated = reviewPipeline.manualApprove(todo.id);
     expect(updated.status).toBe('completed');
+    expect(testDb.prepare('SELECT action,previous_verdict FROM review_human_actions WHERE todo_id=?').all(todo.id)).toEqual([{ action: 'manual_approve',previous_verdict: 'needs_changes' }]);
+    expect(testDb.prepare('SELECT * FROM review_evaluation_feedback').all()).toEqual([]);
   });
 
   it('TC-18: manualRework creates next rework round when latest review requested changes', async () => {
@@ -554,6 +556,7 @@ describe('ReviewPipelineService', () => {
     expect(result.round.phase).toBe('rework');
     expect(result.round.status).toBe('pending');
     expect(result.round.input_payload).toContain('Refactor helper');
+    expect(testDb.prepare('SELECT action FROM review_human_actions WHERE todo_id=?').all(todo.id)).toEqual([{ action: 'manual_rework' }]);
   });
 
   it('TC-19: handleRoundStop marks active round as stopped', () => {

@@ -134,6 +134,7 @@ describe('durable consensus lifecycle', () => {
     await service.retry(failed.id);await vi.waitFor(() => expect(processes).toHaveLength(4));await complete(3,approved);
     await vi.waitFor(() => expect(getConsensusBatch(batchId)?.status).toBe('completed'));
     expect(consensusAttempts(failed.id)).toHaveLength(2);expect(consensusJobs(batchId).filter(j => consensusAttempts(j.id).length === 1)).toHaveLength(2);
+    expect(db.prepare('SELECT action,batch_id FROM review_human_actions WHERE todo_id=?').all(todo.id)).toEqual([{ action: 'retry_reviewer',batch_id: batchId }]);
     await expect(service.retry(failed.id)).rejects.toThrow('batch_already_finalized');
   });
   it('artifact mutation fails closed and stops siblings', async () => {
@@ -322,6 +323,7 @@ describe('durable consensus lifecycle', () => {
     await vi.waitFor(() => expect(processes).toHaveLength(5));await complete(4,approved);
     await vi.waitFor(() => expect(getConsensusBatch(batchId)?.status).toBe('completed'));expect(consensusAttempts(judge.id)).toHaveLength(2);
     expect(consensusJobs(batchId).filter(j=>j.role==='reviewer').every(j=>consensusAttempts(j.id).length===1)).toBe(true);
+    expect(db.prepare('SELECT action,batch_id FROM review_human_actions WHERE todo_id=?').all(todo.id)).toEqual([{ action: 'retry_judge',batch_id: batchId }]);
   });
   it('Stop during asynchronous spawn waits for identity persistence and signals that process safely', async () => {
     const spawn = vi.mocked(claudeManager.startClaude).getMockImplementation()!;

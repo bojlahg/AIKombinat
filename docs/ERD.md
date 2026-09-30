@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 66 tables, 776 columns, 98 foreign keys
+Stats: 68 tables, 796 columns, 105 foreign keys
 
 ## Diagram
 
@@ -109,6 +109,13 @@ erDiagram
     execution_profiles ||--o{ consensus_review_jobs : "execution_profile_id"
     consensus_review_jobs ||--o{ consensus_review_attempts : "review_job_id"
     consensus_review_attempts ||--o{ consensus_review_attempts : "retry_of_attempt_id"
+    projects ||--o{ review_evaluation_feedback : "project_id"
+    todos ||--o{ review_evaluation_feedback : "todo_id"
+    consensus_review_batches ||--o{ review_evaluation_feedback : "batch_id"
+    consensus_review_jobs ||--o{ review_evaluation_feedback : "review_job_id"
+    todos ||--o{ review_human_actions : "todo_id"
+    todo_execution_rounds ||--o{ review_human_actions : "review_round_id"
+    consensus_review_batches ||--o{ review_human_actions : "batch_id"
 
     orchestrators {
         TEXT id PK
@@ -1017,6 +1024,30 @@ erDiagram
         TEXT finished_at
         TEXT created_at
         TEXT updated_at
+    }
+    review_evaluation_feedback {
+        TEXT id PK
+        TEXT project_id FK
+        TEXT todo_id FK
+        TEXT batch_id FK
+        TEXT review_job_id FK
+        TEXT scope
+        TEXT issue_fingerprint
+        TEXT issue_snapshot_json
+        TEXT label
+        TEXT note
+        TEXT source
+        TEXT created_at
+        TEXT updated_at
+    }
+    review_human_actions {
+        TEXT id PK
+        TEXT todo_id FK
+        TEXT review_round_id FK
+        TEXT batch_id FK
+        TEXT action
+        TEXT previous_verdict
+        TEXT created_at
     }
 ```
 

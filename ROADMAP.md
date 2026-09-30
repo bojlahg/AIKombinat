@@ -222,22 +222,22 @@ The next experimental step is to collect agreement/disagreement, unique defects,
 
 ---
 
-### Experimental evaluation: Consensus strategies
+### Consensus Review Evaluation / Telemetry V1
 
-Once Consensus Review V1 exists, use it as an experiment rather than immediately declaring one strategy "smart."
+Implemented observational evaluation derives durable Consensus history, job votes, attempt usage/coverage, historical member/execution identities, policy variants, exact unique/shared findings, deterministic marginal contributions, judge behavior and review/rework chains. Explicit human feedback and human action audits are separate persisted observations. Project Analytics includes the dashboard, batch drill-down, feedback controls and bounded CSV export. See [definitions and boundaries](docs/Consensus_Review_Evaluation_V1.md) and [acceptance evidence](docs/Consensus_Review_Evaluation_V1_Smoke_Report.md). Final acceptance requires the delivered commit's green CI; no routing policy changes are enabled by evaluation.
 
 Track evidence such as:
 
 - agreement/disagreement rates by provider/model/account;
-- defects found by only one reviewer;
-- false-positive/noise rates;
+- findings observed by only one reviewer;
+- confirmed/rejected finding labels with feedback coverage;
 - rework rounds caused by each reviewer;
 - final human approval/rejection where available;
 - elapsed time;
 - token/cost usage where providers expose it;
-- whether a judge improves disagreement resolution enough to justify its cost.
+- how often a judge changes the reviewer majority, together with known cost and coverage.
 
-This data can later inform routing instead of hardcoding folklore into the scheduler.
+Agreement is not correctness. Accumulate ordinary real batches and practical human issue labels before the next separate experiment: Dynamic AI Routing V1.
 
 ---
 

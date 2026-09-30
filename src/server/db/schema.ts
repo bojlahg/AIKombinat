@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import os from 'node:os';
 import { migrateProviderAccounts } from './provider-accounts.js';
 import { migrateConsensusReview } from './consensus-review.js';
+import { migrateReviewEvaluation } from './review-evaluation.js';
 import { migrateAccountQuota } from './account-quota.js';
 
 export function migrateOrchestratorResourceChecks(db: Database.Database): void {
@@ -1079,6 +1080,7 @@ export function initDatabase(db: Database.Database): void {
   migrateAgentForumTurnHistory(db);
   enforceAgentForumUniqueIndexes(db);
   migrateConsensusReview(db);
+  migrateReviewEvaluation(db);
 
 }
 function migrateOpenCodeCatalog(db: Database.Database): void {

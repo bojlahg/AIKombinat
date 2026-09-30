@@ -21,6 +21,7 @@ import { isProcessAlive, parseProcessIdentity, verifyProcessIdentity } from '../
 import { redactString } from '../logging/redact.js';
 import { logger } from '../logging/logger.js';
 import { broadcaster } from '../websocket/broadcaster.js';
+import { recordReviewHumanAction } from './review-evaluation.js';
 
 export interface ConsensusBatch {
   id: string; todo_id: string; review_round_id: string; review_policy_id: string;
@@ -427,6 +428,7 @@ export class ConsensusReviewService {
       q.updateExecutionRound(batch.review_round_id,{ status: 'running',error_message: null,finished_at: null });
       q.updateTodoStatus(todo.id,'running');
       this.newAttempt(this.job(job.id)!);
+      recordReviewHumanAction(todo.id,batch.review_round_id,job.role === 'judge' ? 'retry_judge' : 'retry_reviewer');
     }).immediate();
     event('job-updated',batch,job.id); this.wake();
   }

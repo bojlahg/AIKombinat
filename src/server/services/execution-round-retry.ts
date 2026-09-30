@@ -1,4 +1,5 @@
 import { reviewPipeline } from './review-pipeline.js';
+import { recordReviewHumanAction } from './review-evaluation.js';
 import { setQuotaChain } from './account-failover.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/connection.js';
@@ -180,6 +181,7 @@ export class ExecutionRoundRetryService {
         execution_snapshot: null,
       });
       updateTodoStatus(todoId, 'pending');
+      if (freshRound.phase === 'review') recordReviewHumanAction(todoId,freshRound.id,'retry_review_phase');
 
       createTaskLog(
         todoId,

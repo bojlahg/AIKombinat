@@ -4,6 +4,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { StringDecoder } from 'string_decoder';
 import { getDatabase } from '../db/connection.js';
+import { recordReviewHumanAction } from './review-evaluation.js';
 import {
   type Todo,
   type Project,
@@ -1039,6 +1040,7 @@ When done, ensure all tests pass.`);
       updateTodo(todoId, { pipeline_phase: 'review' });
       updateTodoStatus(todoId, 'completed');
       createTaskLog(todoId, 'info', `Manual override: Approved review (${reviewResult.summary}).`, latestRound.round_index);
+      recordReviewHumanAction(todoId,latestRound.id,'manual_approve');
     })();
 
     if (activeRound && activeRound.status === 'pending') {
@@ -1121,6 +1123,7 @@ When done, ensure all tests pass.`);
       updateTodo(todoId, { pipeline_phase: 'rework' });
       updateTodoStatus(todoId, 'pending');
       createTaskLog(todoId, 'info', 'Manual override: Triggered manual rework.', nextRound.round_index);
+      recordReviewHumanAction(todoId,latestRound.id,'manual_rework');
     })();
 
     if (nextRound) broadcaster.broadcast({ type: 'todo:round-created', todoId, round: nextRound });

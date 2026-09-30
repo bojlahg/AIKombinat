@@ -297,6 +297,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     expect(mockClaudeStarts).toHaveLength(3);
 
     const retryReviewRound = queries.getActiveExecutionRound(todo.id)!;
+    expect(testDb.prepare('SELECT action,review_round_id FROM review_human_actions WHERE todo_id=?').all(todo.id)).toEqual([{ action: 'retry_review_phase',review_round_id: failedReviewRound.id }]);
     expect(retryReviewRound.phase).toBe('review');
     expect(retryReviewRound.attempt_index).toBe(2);
     expect(retryReviewRound.retry_of_round_id).toBe(failedReviewRound.id);
