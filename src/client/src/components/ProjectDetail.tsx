@@ -25,6 +25,7 @@ import SessionList from './SessionList';
 import SessionWindowsHost from './SessionWindowsHost';
 import PlannerWorkspace from './PlannerWorkspace';
 import WebPanel from './WebPanel';
+import OrchestratorPanel from './OrchestratorPanel';
 
 // Heavy tab panels are code-split so their deps (recharts, @xyflow/react,
 // codemirror) stay out of the initial bundle — they load on first tab open.
@@ -787,6 +788,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
           { key: 'planner', label: t('tabs.planner'), help: t('tabs.planner.help'), count: plannerItems.length },
           { key: 'sessions', label: t('tabs.sessions'), help: t('tabs.sessions.help'), count: sessions.length },
           { key: 'automation', label: t('tabs.automation'), help: t('tabs.automation.help'), count: todos.length + discussions.length + schedules.length },
+          { key: 'orchestrator', label: t('orchestrator.title'), help: t('orchestrator.help') },
           ...(project.is_git_repo ? [{ key: 'git', label: t('tabs.git'), help: t('tabs.git.help') }] : []),
           ...(project.svn_enabled ? [{ key: 'svn', label: t('tabs.svn'), help: t('tabs.svn.help') }] : []),
         ].map((tab) => (
@@ -886,6 +888,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
           showTokenUsage={!!project.show_token_usage}
         />
       )}
+      {activeTab === 'orchestrator' && id && <OrchestratorPanel projectId={id} onEvent={onEvent} connected={connected} />}
       {activeTab === 'sessions' && id && (
         <SessionList
           projectId={id}

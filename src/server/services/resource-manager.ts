@@ -8,7 +8,7 @@ import { externallyBusy, matchResources } from './resource-matcher.js';
 import type { FabricBinding } from './resource-fabric-types.js';
 import { logger } from '../logging/logger.js';
 
-export type ResourceOwnerType = 'todo' | 'session';
+export type ResourceOwnerType = 'todo' | 'session' | 'orchestrator';
 
 export interface ResourceAcquireRequest {
   ownerType: ResourceOwnerType;
@@ -17,6 +17,7 @@ export interface ResourceAcquireRequest {
   resources: ResourceRequirements;
   allowedTransports?: Array<'local' | 'ssh'>;
   workspacePath?: string;
+  requestId?: string;
 }
 
 export interface ResourceLease {
@@ -59,6 +60,10 @@ interface LeaseRow {
 export const RESOURCE_HEARTBEAT_INTERVAL_MS = 15_000;
 export const RESOURCE_LEASE_TTL_MS = 60_000;
 
+function allowedTransport(request: ResourceAcquireRequest, transport: 'local' | 'ssh'): boolean {
+  return !request.allowedTransports || request.allowedTransports.includes(transport);
+}
+
 export class ResourceManager {
   private localRunTokens = new Set<string>();
   private recoveredRunTokens = new Set<string>();
@@ -96,6 +101,25 @@ export class ResourceManager {
 
     const result = db.transaction(() => {
       this.reconcileExpiredInTransaction(nowIso, expiresIso, removedKeys, recoveredTokens);
+      if (request.ownerType === 'todo') {
+        const reserved = db.prepare(`SELECT r.id, r.run_token, b.binding_json FROM orchestrator_child_jobs j
+          JOIN orchestrator_resource_requests o ON o.id = j.resource_request_id JOIN resource_requests r ON r.id = o.id
+          JOIN resource_bindings b ON b.request_id = r.id WHERE j.todo_id = ? AND r.owner_type = 'orchestrator'
+          AND r.status = 'bound' AND o.claim_expires_at > ? AND o.claimed_todo_id IS NULL`).get(request.ownerId, nowIso) as { id: string; run_token: string; binding_json: string } | undefined;
+        if (reserved) {
+          const binding = JSON.parse(reserved.binding_json) as FabricBinding;
+          if (canonicalJson(toFabricRequirements(normalized)) !== (db.prepare('SELECT requirements_json FROM resource_requests WHERE id = ?').get(reserved.id) as { requirements_json: string }).requirements_json) throw new Error('resource_requirement_conflict');
+          if (!db.prepare('SELECT id FROM resource_leases WHERE run_token = ?').get(reserved.run_token)) throw new Error('reservation_lease_missing');
+          if (!allowedTransport(request, binding.transport)) throw new Error('reserved_transport_unsupported');
+          db.prepare("UPDATE resource_requests SET owner_type = 'todo', owner_id = ?, run_token = ?, status = 'claimed' WHERE id = ?").run(request.ownerId, request.runToken, reserved.id);
+          db.prepare("UPDATE resource_leases SET owner_type = 'todo', owner_id = ?, run_token = ?, heartbeat_at = ?, expires_at = ? WHERE run_token = ?").run(request.ownerId, request.runToken, nowIso, expiresIso, reserved.run_token);
+          db.prepare('UPDATE orchestrator_resource_requests SET claimed_todo_id = ? WHERE id = ?').run(request.ownerId, reserved.id);
+          this.forgetRun(reserved.run_token);
+          logger.info('orchestrator.resource.claimed', { requestId: reserved.id, todoId: request.ownerId, bindingId: binding.id });
+          const keys = db.prepare('SELECT resource_key FROM resource_binding_items WHERE binding_id = ? ORDER BY id').all(binding.id) as { resource_key: string }[];
+          return { status: 'acquired' as const, runToken: request.runToken, resources: keys.map(item => item.resource_key), binding };
+        }
+      }
       const existing = db.prepare('SELECT b.binding_json FROM resource_bindings b JOIN resource_requests r ON r.id = b.request_id WHERE r.run_token = ?').get(request.runToken) as { binding_json: string } | undefined;
       if (existing) {
         if (!db.prepare('SELECT id FROM resource_leases WHERE run_token = ?').get(request.runToken)) throw new Error('Execution attempt already released; use a new run token');
@@ -106,9 +130,9 @@ export class ResourceManager {
       const allowed = request.allowedTransports ?? (request.ownerType === 'session' ? ['local'] : ['local', 'ssh']);
       const instances = getResourceInstances(), leased = resourceLeaseTotals();
       const decision = matchResources(requirement, nodes.filter(node => allowed.includes(node.transport)).map(node => ({ node, instances: instances.filter(instance => instance.node_id === node.id), leased, workspacePath: request.workspacePath })));
-      const waiting = db.prepare("SELECT id FROM resource_requests WHERE owner_type = ? AND owner_id = ? AND status IN ('pending', 'waiting') ORDER BY created_at, id LIMIT 1").get(request.ownerType, request.ownerId) as { id: string } | undefined;
+      const waiting = request.requestId ? { id: request.requestId } : db.prepare("SELECT id FROM resource_requests WHERE owner_type = ? AND owner_id = ? AND status IN ('pending', 'waiting') ORDER BY created_at, id LIMIT 1").get(request.ownerType, request.ownerId) as { id: string } | undefined;
       const requestId = waiting?.id ?? uuidv4();
-      const owner = db.prepare(`SELECT ${request.ownerType === 'todo' ? 'priority' : '0 AS priority'} FROM ${request.ownerType === 'todo' ? 'todos' : 'sessions'} WHERE id = ?`).get(request.ownerId) as { priority: number } | undefined;
+      const owner = db.prepare(`SELECT ${request.ownerType === 'todo' ? 'priority' : '0 AS priority'} FROM ${request.ownerType === 'todo' ? 'todos' : request.ownerType === 'orchestrator' ? 'orchestrators' : 'sessions'} WHERE id = ?`).get(request.ownerId) as { priority: number } | undefined;
       if (!owner) throw new Error('Resource owner does not exist');
       db.prepare(`INSERT INTO resource_requests (id, owner_type, owner_id, run_token, requirements_json, status, priority, reasons_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET run_token = excluded.run_token, requirements_json = excluded.requirements_json, status = excluded.status, priority = excluded.priority, reasons_json = excluded.reasons_json`).run(requestId, request.ownerType, request.ownerId, request.runToken, canonicalJson(requirement), decision.binding ? 'bound' : 'waiting', owner.priority, canonicalJson(decision.rejected), nowIso);
@@ -146,7 +170,7 @@ export class ResourceManager {
     }
     if (removedKeys.size > 0) this.notifyCapacityChanged([...removedKeys], true);
     if (result.status === 'acquired') {
-      this.localRunTokens.add(request.runToken);
+      if (request.ownerType !== 'orchestrator') this.localRunTokens.add(request.runToken);
       this.recoveredRunTokens.delete(request.runToken);
       this.notifyCapacityChanged(result.resources, false);
       broadcaster.broadcast({ type: 'resource-binding:updated', runToken: request.runToken });
@@ -319,6 +343,18 @@ export class ResourceManager {
     for (const [runToken, leases] of byRun) {
       if (this.localRunTokens.has(runToken)) continue;
       const row = leases[0];
+      if (row.owner_type === 'orchestrator') {
+        const hold = db.prepare(`SELECT o.claim_expires_at, r.status FROM orchestrator_resource_requests o
+          JOIN resource_requests r ON r.id = o.id JOIN orchestrators p ON p.id = o.orchestrator_id
+          WHERE r.run_token = ? AND p.status NOT IN ('completed','failed','cancelled','paused','cancelling')`).get(runToken) as { claim_expires_at: string | null; status: string } | undefined;
+        if (hold?.status === 'bound' && hold.claim_expires_at && hold.claim_expires_at > nowIso) {
+          db.prepare('UPDATE resource_leases SET expires_at = ? WHERE run_token = ?').run(hold.claim_expires_at, runToken);
+        } else {
+          db.prepare('DELETE FROM resource_leases WHERE run_token = ?').run(runToken);
+          for (const lease of leases) removedKeys.add(lease.resource_key);
+        }
+        continue;
+      }
       const ownerTable = row.owner_type === 'todo' ? 'todos' : 'sessions';
       const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
         | { status: string; process_pid: number | null }

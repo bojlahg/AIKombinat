@@ -5,12 +5,29 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 51 tables, 561 columns, 59 foreign keys
+Stats: 58 tables, 635 columns, 76 foreign keys
 
 ## Diagram
 
 ```mermaid
 erDiagram
+    projects ||--o{ orchestrators : "project_id"
+    execution_profiles ||--o{ orchestrators : "primary_execution_profile_id"
+    orchestrators ||--o{ orchestrator_turns : "orchestrator_id"
+    orchestrators ||--o{ orchestrator_messages : "orchestrator_id"
+    orchestrator_turns ||--o{ orchestrator_messages : "turn_id"
+    orchestrators ||--o{ orchestrator_events : "orchestrator_id"
+    orchestrator_turns ||--o{ orchestrator_events : "assigned_turn_id"
+    orchestrators ||--o{ orchestrator_operations : "orchestrator_id"
+    orchestrator_turns ||--o{ orchestrator_operations : "turn_id"
+    resource_requests ||--o{ orchestrator_resource_requests : "id"
+    orchestrators ||--o{ orchestrator_resource_requests : "orchestrator_id"
+    orchestrator_turns ||--o{ orchestrator_resource_requests : "created_by_turn_id"
+    todos ||--o{ orchestrator_resource_requests : "claimed_todo_id"
+    orchestrators ||--o{ orchestrator_child_jobs : "orchestrator_id"
+    todos ||--o{ orchestrator_child_jobs : "todo_id"
+    orchestrator_turns ||--o{ orchestrator_child_jobs : "created_by_turn_id"
+    orchestrator_resource_requests ||--o{ orchestrator_child_jobs : "resource_request_id"
     execution_profiles ||--o{ projects : "default_review_profile_id"
     projects ||--o{ todos : "project_id"
     cli_models ||--o{ todos : "cli_model_id"
@@ -71,6 +88,94 @@ erDiagram
     agent_forums ||--o{ agent_forum_turns : "forum_id"
     agent_forum_members ||--o{ agent_forum_turns : "member_id"
 
+    orchestrators {
+        TEXT id PK
+        TEXT project_id FK
+        TEXT title
+        TEXT objective
+        TEXT status
+        TEXT primary_execution_profile_id FK
+        TEXT state_summary
+        TEXT current_plan
+        TEXT waiting_reason
+        TEXT wake_condition_json
+        INTEGER max_turns
+        INTEGER max_children
+        INTEGER max_concurrent_children
+        INTEGER max_active_resource_requests
+        INTEGER turn_count
+        INTEGER child_count
+        TEXT created_at
+        TEXT updated_at
+        TEXT started_at
+        TEXT finished_at
+    }
+    orchestrator_turns {
+        TEXT id PK
+        TEXT orchestrator_id FK
+        INTEGER turn_index
+        TEXT status
+        TEXT trigger_type
+        TEXT execution_snapshot
+        INTEGER process_pid
+        TEXT process_identity
+        TEXT input_context_hash
+        TEXT assistant_output
+        TEXT error_message
+        TEXT terminal_action
+        INTEGER retry_count
+        TEXT started_at
+        TEXT finished_at
+        TEXT created_at
+    }
+    orchestrator_messages {
+        TEXT id PK
+        TEXT orchestrator_id FK
+        TEXT turn_id FK
+        TEXT role
+        TEXT content
+        TEXT created_at
+    }
+    orchestrator_events {
+        TEXT id PK
+        TEXT orchestrator_id FK
+        TEXT type
+        TEXT source_type
+        TEXT source_id
+        TEXT dedupe_key
+        TEXT payload_json
+        TEXT created_at
+        TEXT assigned_turn_id FK
+        TEXT consumed_at
+    }
+    orchestrator_operations {
+        TEXT id PK
+        TEXT orchestrator_id FK
+        TEXT turn_id FK
+        TEXT idempotency_key
+        TEXT tool_name
+        TEXT input_hash
+        TEXT result_json
+        TEXT created_at
+    }
+    orchestrator_resource_requests {
+        TEXT id PK
+        TEXT orchestrator_id FK
+        TEXT created_by_turn_id FK
+        TEXT purpose
+        TEXT claim_expires_at
+        TEXT claimed_todo_id FK
+        TEXT created_at
+    }
+    orchestrator_child_jobs {
+        TEXT id PK
+        TEXT orchestrator_id FK
+        TEXT todo_id FK,UK
+        TEXT purpose
+        TEXT created_by_turn_id FK
+        TEXT resource_request_id FK
+        TEXT created_at
+    }
     projects {
         TEXT id PK
         TEXT name

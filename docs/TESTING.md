@@ -321,6 +321,23 @@ it('should render', () => {
 | `npm run test:watch` | 백엔드 Watch 모드 |
 | `npm run test:coverage` | 전체 커버리지 리포트 생성 |
 
+## Orchestrator Agent V1 validation
+
+Run `npm run typecheck`, `npm test`, `npm run build`, `npm run docs:erd:check` and `git diff --check`. Focused suites: `npx vitest run src/server/orchestration/orchestration.test.ts`; from `src/client`, `npx vitest run src/__tests__/components/OrchestratorPanel.test.tsx`. These use fake primary launches/MCP calls, never real provider executions. They cover durable inbox/retry/batching, terminal-action crash recovery, idempotency, parent/turn capability scope, UTF-8 limits, ANY/parallel children, budgets, Claude-only pool admission, ownership/cancel, V2 migration and same-binding reservation transfer/expiry. The existing core locale parity test covers all added EN/KO/RU keys.
+
+Real acceptance uses **new disposable directories**, a temporary DB, a fixture Git repository, discovered `claude-opus-4-7` (or explicit `ORCHESTRATOR_SMOKE_CLAUDE_MODEL`) and exact free Muse. There is no automatic paid substitute. Place compatible Claude/OpenCode CLIs on PATH first:
+
+```sh
+npx tsx scripts/orchestrator-smoke.ts <new-output-dir>
+npx tsx scripts/orchestrator-smoke.ts <another-new-output-dir> parallel
+npx tsx scripts/orchestrator-restart-smoke.ts <new-restart-dir> before
+npx tsx scripts/orchestrator-restart-smoke.ts <same-restart-dir> after
+```
+
+The first run verifies real implementation/review/automatic fresh wake, CPU contention, reservation-before-wake, same-binding handoff and human message wake. The parallel run verifies two siblings and a separate integration child. The restart run uses an explicitly synthetic primary and child admission; two independent controller processes use the same SQLite file, preserving one child, one reservation and idempotent operations. The `before` controller exits without normal cleanup at waiting PID zero. Each run retains local JSON audit evidence; reports are not committed wholesale because they contain local paths/provider messages.
+
+See [acceptance report](Orchestrator_Agent_V1_Smoke_Report.md). Do not mark acceptance READY solely from unit tests or simulated provider work.
+
 ## Resource Fabric V2 validation
 
 Run npm run typecheck, npm test, npm run build and npm run docs:erd:check. Focused server coverage is in resource-fabric.test.ts and startup-process-recovery.test.ts; ResourcesSettingsPanel.test.tsx covers settings, policies, reserves, ownership and requirement editing. Locale parity is included in client tests. Generated OpenCode shell-hook tests use no real AI CLI.

@@ -1513,6 +1513,16 @@ git worktree prune   # 깨진 worktree 정리
 | POST | /api/tunnel/stop | 터널 중지 |
 | WS | /ws | 실시간 이벤트 |
 
+## Orchestrator Agent V1 setup
+
+Use a compatible, authenticated Claude CLI on the server's PATH. The verified Windows primary uses the native `claude.exe`. Create an enabled Execution Profile with an enabled Claude model candidate, then open a project's Orchestrator tab, create a goal and Start. Other-provider candidates can remain in that profile; primary selection is constrained to Claude. Children use separate ordinary headless profiles; OpenCode 1.x can be a child with a discovered exact model.
+
+The managed primary uses fresh turns, Read/Glob/Grep and its per-turn MCP only. It receives no implementation worktree or shell/edit tools. Ensure the packaged `bin/aikombinat-orchestrator-mcp.js` is present. No permanent control listener or additional credentials are needed for the ephemeral local bridge.
+
+Resource reservations use Resource Fabric V2 with a five-minute server-controlled claim window. Configure CPU/RAM/node policies through existing Resources settings. Paused or terminal workflows release unclaimed holds; child-owned leases remain under ordinary Todo ownership. Remote OpenCode remains unsupported.
+
+See [workflow, API and recovery](Orchestrator_Agent_V1.md) and [real smoke evidence](Orchestrator_Agent_V1_Smoke_Report.md).
+
 ## Resource Fabric V2 setup
 
 Configure Settings → Resources, scan the local node and reserve desktop CPU/RAM/GPU capacity. For SSH, use a trusted system alias, agent or key path and a separate Linux workspace root. Remote execution requires Python 3 and Git and currently supports headless raw-shell/OpenCode Todos only. It transfers committed Git HEAD using a bounded bundle; it does not transfer uncommitted changes or install dependencies. See [configuration, API and security boundaries](Resource_Fabric_V2.md) and [real smoke](Resource_Fabric_V2_Smoke_Report.md).

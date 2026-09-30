@@ -5,6 +5,7 @@ export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
 export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
 
 export type WSEvent =
+  | { type: 'orchestrator:created' | 'orchestrator:status-changed' | 'orchestrator:message' | 'orchestrator:turn-started' | 'orchestrator:turn-finished' | 'orchestrator:event' | 'orchestrator:child-updated' | 'orchestrator:resource-updated'; orchestratorId: string; projectId: string }
   | { type: 'todo:status-changed'; todoId: string; status: string; mode?: string; worktree_path?: string | null; branch_name?: string | null }
   | { type: 'todo:created'; todo: Todo }
   | { type: 'todo:round-created'; todoId: string; round: TodoExecutionRound }

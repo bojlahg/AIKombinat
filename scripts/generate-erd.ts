@@ -117,7 +117,7 @@ function parseTable(name: string, body: string): Table {
 }
 
 function extractSchemaSql(source: string): string {
-  const execMatch = /db\.exec\(`([\s\S]*?)`\)/.exec(source);
+  const execMatch = /export function initDatabase\([\s\S]*?db\.exec\(`([\s\S]*?)`\)/.exec(source);
   if (!execMatch) throw new Error('Could not find db.exec(`...`) block in schema.ts');
   return execMatch[1];
 }

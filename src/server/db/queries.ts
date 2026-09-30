@@ -332,6 +332,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
 export function updateTodoStatus(id: string, status: string): Todo | undefined {
   const db = getDatabase();
   db.prepare('UPDATE todos SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
+  queueMicrotask(() => todoLifecycle.emit('status', id));
   return getTodoById(id);
 }
 
@@ -3197,3 +3198,4 @@ export function updateAgentForumTurn(
   return getAgentForumTurnById(id);
 }
 
+import { todoLifecycle } from '../utils/todo-lifecycle.js';

@@ -1,4 +1,5 @@
 import * as queries from '../db/queries.js';
+import { getDatabase } from '../db/connection.js';
 import { getAdapter, resolveExecutionModel, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
 import { resolveExecutionConfig, type ResolvedExecutionConfig } from './execution-config.js';
@@ -224,6 +225,10 @@ export class ExecutorPool {
     }
 
     count += getActiveDelegationUsage(tool);
+    if (tool === 'claude') {
+      const turns = getDatabase().prepare("SELECT id FROM orchestrator_turns WHERE process_pid > 0 OR status IN ('starting','running')").all() as { id: string }[];
+      count += turns.filter(turn => turn.id !== options.excludeReservationOwnerId && !this.reservations.has(turn.id)).length;
+    }
 
     return count;
   }

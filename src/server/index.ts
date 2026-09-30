@@ -55,6 +55,8 @@ import reviewRouter from './routes/review.js';
 import personalRouter from './routes/personal.js';
 import favoritesRouter from './routes/favorites.js';
 import resourcesRouter from './routes/resources.js';
+import orchestratorsRouter from './routes/orchestrators.js';
+import { orchestratorAgent } from './orchestration/service.js';
 import { scheduler } from './services/scheduler.js';
 import { debugLogger } from './services/debug-logger.js';
 import { logStreamer } from './services/log-streamer.js';
@@ -150,6 +152,7 @@ checkAllTools().then(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
 }).catch(() => { /* ignore */ });
 
+resourceManager.recoverStaleLeases(true);
 await recoverPersistedProcesses();
 await recoverDelegationRuns();
 
@@ -357,25 +360,31 @@ app.use('/api/review', reviewRouter);
 app.use('/api', personalRouter);
 app.use('/api', favoritesRouter);
 app.use('/api', resourcesRouter);
+app.use('/api', orchestratorsRouter);
 app.use('/api', mcpRouter);
 app.use('/api', delegationRouter);
 mountPluginRoutes(app);
 
 resourceManager.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
+  orchestratorAgent.wake();
 });
 resourceManager.initialize();
 resourceFabric.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
+  orchestratorAgent.wake();
 });
 resourceFabric.start();
 providerQuotaService.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingQuota().catch(() => { /* ignore */ }));
+  orchestratorAgent.wake();
 });
 providerQuotaService.initialize();
 executorPool.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ }));
+  orchestratorAgent.wake();
 });
+await orchestratorAgent.initialize();
 reviewPipeline.reconcileOnStartup();
 setImmediate(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
@@ -466,6 +475,7 @@ function cleanup(reason = 'signal') {
   resourceFabric.shutdown();
   scheduler.stopAll();
   Promise.all([
+    orchestratorAgent.shutdown(),
     claudeManager.killAll(),
     tunnelManager.stopTunnel(),
   ]).then(() => {

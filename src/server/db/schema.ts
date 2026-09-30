@@ -2,8 +2,128 @@ import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'node:os';
 
+export function migrateOrchestratorResourceChecks(db: Database.Database): void {
+  const tables = ['resource_requests', 'resource_leases'];
+  const definitions = tables.map(name => ({ name, row: db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { sql: string } | undefined }))
+    .filter(entry => entry.row && !entry.row.sql.includes("'orchestrator'"));
+  if (!definitions.length) return;
+  if (db.inTransaction) throw new Error('Resource CHECK migration requires an outer transaction boundary');
+  const foreignKeys = db.pragma('foreign_keys', { simple: true });
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      for (const { name, row } of definitions) {
+        const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(name) as { sql: string }[];
+        const sql = row!.sql.replace(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`]?\w+["`]?/i, `CREATE TABLE ${name}_orchestrator_migration`)
+          .replace("'todo', 'session'", "'todo', 'session', 'orchestrator'")
+          .replace("'pending', 'waiting', 'bound', 'cancelled', 'failed'", "'pending', 'waiting', 'bound', 'claimed', 'released', 'expired', 'cancelled', 'failed'");
+        db.exec(sql);
+        db.exec(`INSERT INTO ${name}_orchestrator_migration SELECT * FROM ${name}`);
+        db.exec(`DROP TABLE ${name}`);
+        db.exec(`ALTER TABLE ${name}_orchestrator_migration RENAME TO ${name}`);
+        for (const index of indexes) db.exec(index.sql);
+      }
+      if ((db.pragma('foreign_key_check') as unknown[]).length) throw new Error('Resource migration foreign key integrity failure');
+    }).immediate();
+  } finally { db.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`); }
+}
+
 export function initDatabase(db: Database.Database): void {
+  migrateOrchestratorResourceChecks(db);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS orchestrators (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      title TEXT NOT NULL,
+      objective TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','waiting_event','waiting_executor','waiting_quota','paused','cancelling','cancelled','completed','failed')),
+      primary_execution_profile_id TEXT NOT NULL REFERENCES execution_profiles(id),
+      state_summary TEXT NOT NULL DEFAULT '',
+      current_plan TEXT NOT NULL DEFAULT '',
+      waiting_reason TEXT,
+      wake_condition_json TEXT,
+      max_turns INTEGER NOT NULL DEFAULT 32 CHECK (max_turns BETWEEN 1 AND 128),
+      max_children INTEGER NOT NULL DEFAULT 24 CHECK (max_children BETWEEN 1 AND 100),
+      max_concurrent_children INTEGER NOT NULL DEFAULT 4 CHECK (max_concurrent_children BETWEEN 1 AND 16),
+      max_active_resource_requests INTEGER NOT NULL DEFAULT 2 CHECK (max_active_resource_requests BETWEEN 1 AND 8),
+      turn_count INTEGER NOT NULL DEFAULT 0,
+      child_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS orchestrator_turns (
+      id TEXT PRIMARY KEY,
+      orchestrator_id TEXT NOT NULL REFERENCES orchestrators(id),
+      turn_index INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending','waiting_executor','waiting_quota','starting','running','completed','failed','stopped','protocol_error')),
+      trigger_type TEXT NOT NULL,
+      execution_snapshot TEXT,
+      process_pid INTEGER NOT NULL DEFAULT 0,
+      process_identity TEXT,
+      input_context_hash TEXT,
+      assistant_output TEXT,
+      error_message TEXT,
+      terminal_action TEXT CHECK (terminal_action IN ('yield','finish')),
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT,
+      finished_at TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(orchestrator_id, turn_index)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_orchestrator_active_turn ON orchestrator_turns(orchestrator_id)
+      WHERE status IN ('pending','waiting_executor','waiting_quota','starting','running') OR process_pid > 0;
+    CREATE TABLE IF NOT EXISTS orchestrator_messages (
+      id TEXT PRIMARY KEY,
+      orchestrator_id TEXT NOT NULL REFERENCES orchestrators(id),
+      turn_id TEXT REFERENCES orchestrator_turns(id),
+      role TEXT NOT NULL CHECK (role IN ('user','assistant','system_event')),
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS orchestrator_events (
+      id TEXT PRIMARY KEY,
+      orchestrator_id TEXT NOT NULL REFERENCES orchestrators(id),
+      type TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      assigned_turn_id TEXT REFERENCES orchestrator_turns(id),
+      consumed_at TEXT,
+      UNIQUE(orchestrator_id, dedupe_key)
+    );
+    CREATE TABLE IF NOT EXISTS orchestrator_operations (
+      id TEXT PRIMARY KEY,
+      orchestrator_id TEXT NOT NULL REFERENCES orchestrators(id),
+      turn_id TEXT NOT NULL REFERENCES orchestrator_turns(id),
+      idempotency_key TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(orchestrator_id, idempotency_key)
+    );
+    CREATE TABLE IF NOT EXISTS orchestrator_resource_requests (
+      id TEXT PRIMARY KEY REFERENCES resource_requests(id),
+      orchestrator_id TEXT NOT NULL REFERENCES orchestrators(id),
+      created_by_turn_id TEXT NOT NULL REFERENCES orchestrator_turns(id),
+      purpose TEXT NOT NULL,
+      claim_expires_at TEXT,
+      claimed_todo_id TEXT REFERENCES todos(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS orchestrator_child_jobs (
+      id TEXT PRIMARY KEY,
+      orchestrator_id TEXT NOT NULL REFERENCES orchestrators(id),
+      todo_id TEXT NOT NULL UNIQUE REFERENCES todos(id),
+      purpose TEXT NOT NULL,
+      created_by_turn_id TEXT NOT NULL REFERENCES orchestrator_turns(id),
+      resource_request_id TEXT REFERENCES orchestrator_resource_requests(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -274,11 +394,11 @@ export function initDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_resource_instances_node ON resource_instances(node_id);
     CREATE TABLE IF NOT EXISTS resource_requests (
       id TEXT PRIMARY KEY,
-      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo', 'session')),
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo', 'session', 'orchestrator')),
       owner_id TEXT NOT NULL,
       run_token TEXT NOT NULL UNIQUE,
       requirements_json TEXT NOT NULL CHECK (length(requirements_json) <= 16384),
-      status TEXT NOT NULL CHECK (status IN ('pending', 'waiting', 'bound', 'cancelled', 'failed')),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'waiting', 'bound', 'claimed', 'released', 'expired', 'cancelled', 'failed')),
       priority INTEGER NOT NULL DEFAULT 0,
       reasons_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL
@@ -317,7 +437,7 @@ export function initDatabase(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       resource_key TEXT NOT NULL,
       amount INTEGER NOT NULL DEFAULT 1,
-      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo', 'session')),
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('todo', 'session', 'orchestrator')),
       owner_id TEXT NOT NULL,
       run_token TEXT NOT NULL,
       acquired_at DATETIME NOT NULL,
