@@ -35,11 +35,11 @@ Admission runs matching and request/binding/lease writes in one SQLite transacti
 
 GPU UUIDs identify hardware; CUDA_VISIBLE_DEVICES uses bound node-local indices. A GPU with compute PIDs or substantial used VRAM is conservatively external-busy and cannot be allocated by default. Desktop utilization alone does not imply compute ownership. Missing or >90-second-old GPU/RAM telemetry fails admission conservatively. Rescans preserve GPU UUID IDs and manual policies. The first detected local GPU materializes the legacy gpu.0 alias without creating a second allocatable GPU.
 
-Every successful request has an immutable binding copied into the execution snapshot. Waiting requests hold no process. Release, unreserve, better observations and inventory/health changes wake the existing coalesced admission loop. Requires cannot be changed for an active binding. Settings links capacity/GPU leases to Todo, executor/model, PID, timestamps and logs; Stop/ForceStop use process ownership checks.
+Every successful request has an immutable binding copied into the execution snapshot. A bound request remains immutable history after completion; requests/bindings API activity is derived from leases or unresolved remote executions, never historical status alone. Waiting requests hold no process. Release, unreserve, better observations and inventory/health changes wake the existing coalesced admission loop. Requires cannot be changed for an active binding. Settings links capacity/GPU leases to Todo, executor/model, PID, timestamps and logs; Stop/ForceStop use process ownership checks.
 
 ## Execution transport and recovery
 
-Local launch preserves existing execution/session behavior and supplies GPU environment hints. SSH supports headless raw-shell and OpenCode Todos only; remote interactive sessions, resume, review pipelines and image attachments are rejected. Provider credentials must be configured independently on the remote host. ExecutorPool remains provider/account concurrency admission and is not a hardware pool.
+Local launch preserves existing execution/session behavior and supplies GPU environment hints. SSH supports headless raw-shell Todos; remote OpenCode is experimental and requires fresh node-specific CLI capability and exact-model probes; remote interactive sessions, resume, review pipelines and image attachments are rejected. Provider credentials must be configured independently on the remote host. ExecutorPool remains provider/account concurrency admission and is not a hardware pool.
 
 Remote launch packages the **committed HEAD** as a Git bundle (16 MiB maximum), clones it to <workspace-root>/jobs/<binding-UUID>/repo and checks out that commit. Local uncommitted changes and external files are not transferred. Output is polled in bounded chunks; artifacts remain in that isolated remote workspace, with no automatic merge/download. Setup does not install dependencies. Avoid histories larger than the bundle limit.
 
@@ -65,4 +65,4 @@ Residual risk is explicit: git add/commit and vitest argument patterns remain br
 
 ## Validation
 
-See [smoke report](Resource_Fabric_V2_Smoke_Report.md) and [test guide](TESTING.md). Real discovery and isolated SSH CPU execution were verified. Own GPU compute/contended-GPU execution remains deferred because all candidate GPUs carried external workloads; do not interrupt them to finish acceptance. Orchestrator Agent V1 remains a subsequent task after acceptance.
+See [smoke report](Resource_Fabric_V2_Smoke_Report.md) and [test guide](TESTING.md). Real discovery and isolated SSH CPU execution were verified. The [acceptance closure](Resource_Fabric_V2_Acceptance_Closure_Report.md) verified real GPU binding/contention/wake and disposable controller restart/Force Stop. GPU reserve-after-current remains pending because an external workload appeared before that drill; do not interrupt workloads to finish acceptance. Orchestrator Agent V1 remains a subsequent task after acceptance.

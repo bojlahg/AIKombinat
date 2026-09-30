@@ -16,6 +16,8 @@ export const en = {
     'fabric.arch': 'Architecture',
     'fabric.gpuCount': 'GPU count',
     'fabric.gpuModel': 'GPU model',
+    'fabric.detectedVram': 'Detected VRAM: {memory} GiB',
+    'fabric.remoteExecutionContract': 'SSH supports headless raw-shell. Remote OpenCode is experimental and requires compatible CLI capabilities and the exact model on this node.',
     'fabric.minVram': 'Minimum VRAM (GiB)',
     'fabric.cpuThreads': 'CPU logical threads',
     'fabric.physicalCores': 'Minimum physical cores',

@@ -5,6 +5,8 @@ Status: **implemented; acceptance has GPU execution limitations**.
 Baseline commit: f048b5e56b40c9b7ddd0b5cb35ac5971e0826c1d plus the Resource Fabric changes in the commit containing this report.
 Node.js 22.16.0; Windows 10.0.26200. Tests do not invoke billable AI CLIs.
 
+The later [acceptance closure report](Resource_Fabric_V2_Acceptance_Closure_Report.md) supersedes the GPU contention/restart/Force Stop gaps below. Real GPU reserve-after-current is still pending.
+
 ## Hardware actually observed
 
 | Node | Platform | CPU | RAM | GPU inventory |

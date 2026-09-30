@@ -18,6 +18,8 @@ export const ru = {
     'fabric.arch': 'Архитектура',
     'fabric.gpuCount': 'Количество GPU',
     'fabric.gpuModel': 'Модель GPU',
+    'fabric.detectedVram': 'Обнаружено VRAM: {memory} GiB',
+    'fabric.remoteExecutionContract': 'SSH поддерживает headless raw-shell. Удалённый OpenCode экспериментальный: на этом узле нужны совместимый CLI и точная запрошенная модель.',
     'fabric.minVram': 'Минимум VRAM (GiB)',
     'fabric.cpuThreads': 'Логические потоки CPU',
     'fabric.physicalCores': 'Минимум физических ядер',

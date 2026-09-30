@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import express from 'express';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { initDatabase } from '../../db/schema.js';
@@ -8,6 +9,8 @@ import { canonicalJson, requirementsSchema } from '../resource-requirements.js';
 import { matchResources, capabilityMatches } from '../resource-matcher.js';
 import * as probes from '../resource-probes.js';
 import { assertManagedOpenCodeShell, OPEN_CODE_SHELL_GUARD, openCodePolicy } from '../opencode.js';
+import { discoverRemoteOpenCode, remoteOpenCodeArgs, type RemoteOpenCodeCapabilities } from '../remote-opencode.js';
+import { selectSmokeGpu, assertSmokeRemoteRoot } from '../resource-acceptance.js';
 
 let db: Database.Database;
 vi.mock('../../db/connection.js', () => ({ getDatabase: () => db }));
@@ -34,6 +37,15 @@ beforeEach(() => { db = new Database(':memory:'); initDatabase(db); vi.spyOn(bro
 afterEach(() => { vi.restoreAllMocks(); db.close(); });
 
 describe('Resource Fabric matcher', () => {
+  it('selects only a free scheduler-eligible GPU even when external avoidance is disabled', () => {
+    const a = candidate(); a.node.policy.avoid_external_gpu = false;
+    a.node.observation!.gpus[0].compute_pids = [123];
+    expect(selectSmokeGpu([a])?.instance.id).toBe(a.instances[1].id);
+    a.instances[1].desired_policy = 'reserved'; expect(selectSmokeGpu([a])).toBeNull();
+    a.instances[1].desired_policy = null; a.leased[a.instances[1].id] = 1; expect(selectSmokeGpu([a])).toBeNull();
+    a.leased = {}; a.node.observation!.timestamp = '2000-01-01'; expect(selectSmokeGpu([a])).toBeNull();
+  });
+  it.each(['/', '/home/user', '/tmp', '/home/user/repo', '/home/user/resource-acceptance-x/../repo'])('refuses unsafe smoke root %s', root => expect(() => assertSmokeRemoteRoot(root)).toThrow());
   it.each([
     ['OS', { platform: { os: 'windows' } }, 'os_mismatch'],
     ['distro', { platform: { distro: 'debian' } }, 'distro_mismatch'],
@@ -157,6 +169,43 @@ describe('Atomic bindings and persisted capacity', () => {
     manager.setAvailabilityCallback(() => { result = manager.acquireAtomic({ ownerType: 'todo', ownerId: second, runToken: 'two', resources }).status; });
     manager.releaseRun('one'); expect(result).toBe('busy');
     expect(getResourceInstances().find(instance => instance.id === a.instances[0].id)).toMatchObject({ policy: 'reserved', desired_policy: null });
+  });
+  it('returns immutable bound history as inactive after confirmed release and retains unresolved remote activity', async () => {
+    const { owner } = install(), manager = new ResourceManager();
+    const result = manager.acquireAtomic({ ownerType: 'todo', ownerId: owner(), runToken: 'history', resources: requires({ cpu: { threads: 1 } }) });
+    if (result.status !== 'acquired') throw new Error('fixture admission');
+    const app = express(); app.use((await import('../../routes/resources.js')).default);
+    const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
+    const base = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/resources`;
+    const activity = async () => {
+      const requests = await (await fetch(base + '/requests')).json();
+      const bindings = await (await fetch(base + '/bindings')).json();
+      return { request: requests.requests[0], binding: bindings.bindings[0] };
+    };
+    try {
+      expect(await activity()).toMatchObject({ request: { status: 'bound', active: 1 }, binding: { active: 1 } });
+      manager.releaseRun('history');
+      expect(await activity()).toMatchObject({ request: { status: 'bound', active: 0 }, binding: { active: 0 } });
+      db.prepare("INSERT INTO remote_executions (binding_id, workspace, status) VALUES (?, '/fixture', 'recovery_required')").run(result.binding!.id);
+      expect(await activity()).toMatchObject({ request: { active: 1 }, binding: { active: 1 } });
+      db.prepare("UPDATE remote_executions SET status = 'exited'").run();
+      expect(await activity()).toMatchObject({ request: { active: 0 }, binding: { active: 0 } });
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+  it('adopts a persisted preparing supervisor identity without freeing leases or starting a duplicate', async () => {
+    const { local, owner } = install(), manager = new ResourceManager(), todo = owner();
+    const result = manager.acquireAtomic({ ownerType: 'todo', ownerId: todo, runToken: 'adoption', resources: requires({ cpu: { threads: 1 } }) });
+    if (result.status !== 'acquired') throw new Error('fixture admission');
+    db.prepare('UPDATE compute_nodes SET identity = ? WHERE id = ?').run('fixture', local.id);
+    const pending = { pid: 1, startedAt: 'preparing', remote: { nodeId: local.id, bindingId: result.binding!.id, workspace: '/fixture', pid: 0, startedAt: '', bootId: '' } };
+    db.prepare('UPDATE todos SET process_pid = 1, process_identity = ? WHERE id = ?').run(canonicalJson(pending), todo);
+    db.prepare("INSERT INTO remote_executions (binding_id, workspace, status, identity_json) VALUES (?, '/fixture', 'preparing', ?)").run(result.binding!.id, canonicalJson(pending));
+    const call = vi.fn().mockResolvedValue({ code: 0, stdout: JSON.stringify({ verdict: 'match', state: { identity: { pid: 123, startedAt: '100', bootId: 'boot' }, status: 'running' } }) });
+    expect(await new SshTransport(call).reconcile(pending.remote)).toBe('unverifiable');
+    expect(db.prepare('SELECT process_pid FROM todos WHERE id = ?').get(todo)).toEqual({ process_pid: 123 });
+    expect(db.prepare('SELECT status, pid FROM remote_executions').get()).toEqual({ status: 'recovery_required', pid: 123 });
+    expect(db.prepare('SELECT COUNT(*) n FROM resource_leases').get()).toEqual({ n: 1 });
+    expect(call).toHaveBeenCalledOnce();
   });
   it('retains expired remote leases when SSH ownership is unresolved, even without a live local PID', () => {
     const { local, owner } = install(), manager = new ResourceManager(() => false), first = owner();
@@ -289,5 +338,39 @@ describe('Remote process identity and Stop', () => {
   it('retains ownership on connection loss', async () => {
     const { call, transport, identity } = await setup('match'); call.mockRejectedValue(new Error('connection lost'));
     expect(await transport.reconcile(identity.remote)).toBe('unverifiable'); expect(await transport.stop(identity)).toMatchObject({ status: 'unresolved' });
+  });
+  it('passes force only after identity verification and confirms exit', async () => {
+    const { call, transport, identity } = await setup('match');
+    call.mockResolvedValueOnce({ code: 0, stdout: '{"verdict":"match"}' }).mockResolvedValueOnce({ code: 0, stdout: '{"verdict":"signalled"}' }).mockResolvedValueOnce({ code: 0, stdout: '{"verdict":"exited"}' });
+    expect(await transport.stop(identity, true)).toMatchObject({ status: 'terminated', graceful: false });
+    expect(call.mock.calls[1][2]).toMatchObject({ mode: 'stop', force: true });
+  });
+});
+
+describe('Remote OpenCode capability and exact-model contract', () => {
+  const capabilities = (standalone = false): RemoteOpenCodeCapabilities => ({ observed_at: new Date().toISOString(), context: 'fixture', installed: true, compatible: true, version: '1.18.33', flags: ['--format', '--model', '--agent', ...(standalone ? ['--standalone'] : [])], models: ['opencode/fixture-free'], models_verified: true });
+  const options = { mode: 'headless' as const, prompt: 'fixture', model: 'opencode/fixture-free' };
+  it('does not inject --standalone when the remote CLI lacks it', () => expect(remoteOpenCodeArgs({ ...options, opencodeStandalone: true }, capabilities())).not.toContain('--standalone'));
+  it('includes --standalone when the remote CLI advertises it', () => expect(remoteOpenCodeArgs(options, capabilities(true))).toContain('--standalone'));
+  it('rejects an exact model absent on the remote node', () => expect(() => remoteOpenCodeArgs({ ...options, effectiveModel: 'opencode/missing' }, capabilities())).toThrow('model_unavailable_on_node'));
+  it('admits an exact model present on the remote node', () => expect(remoteOpenCodeArgs(options, capabilities())).toEqual(['run', '--format', 'json', '--model', options.model, '--agent', 'aikombinat-build']));
+  it('fails closed on unsupported CLI and failed model discovery', () => {
+    expect(() => remoteOpenCodeArgs(options, { ...capabilities(), compatible: false })).toThrow('unsupported');
+    expect(() => remoteOpenCodeArgs(options, { ...capabilities(), models_verified: false })).toThrow('models_unverified');
+  });
+  it('probes the selected remote node, persists freshness and invalidates on connection change', async () => {
+    const node = new ResourceFabric().createSshNode('Remote fixture', { host: 'fixture', auth_mode: 'config', workspace_root: '/jobs' });
+    db.prepare('UPDATE compute_nodes SET identity = ? WHERE id = ?').run('host', node.id);
+    db.prepare('INSERT INTO resource_observations VALUES (?, ?, ?)').run(node.id, canonicalJson(candidate().node.observation), new Date().toISOString());
+    const runner = vi.fn(async (_command: string, args: string[]) => ({ code: 0, timed_out: false, stderr: '', stdout: args.at(-1)!.includes('--version') ? '1.18.33\n' : args.at(-1)!.includes("'run'") ? '--format --model --agent' : args.at(-1)!.includes('--help') ? 'models help' : 'opencode/fixture-free\nopencode/other\n' }));
+    const first = await discoverRemoteOpenCode(node.id, runner);
+    expect(first).toMatchObject({ compatible: true, models: ['opencode/fixture-free', 'opencode/other'] });
+    expect(first.flags).not.toContain('--standalone');
+    expect(runner.mock.calls).toHaveLength(4); expect(runner.mock.calls.every(([command, args]) => command === 'ssh' && args.includes('fixture'))).toBe(true);
+    expect(await discoverRemoteOpenCode(node.id, runner)).toEqual(first); expect(runner).toHaveBeenCalledTimes(4);
+    db.prepare("UPDATE resource_observations SET observation_json = json_set(observation_json, '$.remote_opencode.observed_at', '2000-01-01') WHERE node_id = ?").run(node.id);
+    await discoverRemoteOpenCode(node.id, runner); expect(runner).toHaveBeenCalledTimes(8);
+    db.prepare('UPDATE compute_node_connections SET connection_json = ? WHERE node_id = ?').run(canonicalJson({ ...node.connection, host: 'other' }), node.id);
+    await discoverRemoteOpenCode(node.id, runner); expect(runner).toHaveBeenCalledTimes(12);
   });
 });

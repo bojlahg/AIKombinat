@@ -49,8 +49,12 @@ router.post('/resources/nodes/:id/test', action(req => resourceFabric.testConnec
 router.put('/resources/nodes/:id/policy', action(req => resourceFabric.updatePolicy(id(req), req.body)));
 router.get('/resources/nodes/:id/history', action(req => ({ snapshots: getDatabase().prepare('SELECT id, diff_json, created_at FROM inventory_snapshots WHERE node_id = ? ORDER BY created_at DESC LIMIT 5').all(id(req)) })));
 router.put('/resources/instances/:id/policy', action(req => { const input = z.object({ policy: z.enum(['enabled', 'reserved', 'disabled']), after_current: z.boolean().optional(), reason: z.string().optional() }).strict().parse(req.body); resourceFabric.setInstancePolicy(id(req), input.policy, input.after_current, input.reason); return { updated: true }; }));
-router.get('/resources/requests', action(() => ({ requests: getDatabase().prepare('SELECT * FROM resource_requests ORDER BY priority DESC, created_at, id LIMIT 200').all() })));
-router.get('/resources/bindings', action(() => ({ bindings: getDatabase().prepare('SELECT * FROM resource_bindings ORDER BY created_at DESC LIMIT 200').all() })));
+router.get('/resources/requests', action(() => ({ requests: getDatabase().prepare(`SELECT r.*, EXISTS(SELECT 1 FROM resource_leases l WHERE l.run_token = r.run_token)
+  OR EXISTS(SELECT 1 FROM remote_executions e JOIN resource_bindings b ON b.id = e.binding_id WHERE b.request_id = r.id AND e.status <> 'exited') AS active
+  FROM resource_requests r ORDER BY priority DESC, created_at, id LIMIT 200`).all() })));
+router.get('/resources/bindings', action(() => ({ bindings: getDatabase().prepare(`SELECT b.*, EXISTS(SELECT 1 FROM resource_leases l WHERE l.binding_id = b.id)
+  OR EXISTS(SELECT 1 FROM remote_executions e WHERE e.binding_id = b.id AND e.status <> 'exited') AS active
+  FROM resource_bindings b ORDER BY created_at DESC LIMIT 200`).all() })));
 router.get('/resources/leases', action(() => ({ leases: getDatabase().prepare(`SELECT l.*, b.node_id, b.binding_json,
   CASE WHEN l.owner_type = 'todo' THEN t.title ELSE s.title END AS owner_title,
   CASE WHEN l.owner_type = 'todo' THEN t.project_id ELSE s.project_id END AS project_id,

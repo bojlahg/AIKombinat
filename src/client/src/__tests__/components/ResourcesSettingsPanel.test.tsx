@@ -26,6 +26,14 @@ beforeEach(() => {
 function panel() { return render(<MemoryRouter><I18nProvider><ResourcesSettingsPanel /></I18nProvider></MemoryRouter>); }
 async function ready() { await screen.findByRole('heading', { name: 'Workstation' }); }
 describe('Resource Fabric settings', () => {
+  it('shows actual binary VRAM without rounding a 16 GB-class GPU up to 16 GiB', async () => {
+    data.instances[0].vram_bytes = 16311 * 1024 ** 2;
+    panel(); await ready(); expect(screen.getByText(/Detected VRAM: 15.93 GiB/)).toBeInTheDocument();
+  });
+  it('labels remote OpenCode as experimental with node-specific prerequisites', async () => {
+    data.nodes[0].transport = 'ssh';
+    panel(); await ready(); expect(screen.getByText(/Remote OpenCode is experimental/)).toBeInTheDocument();
+  });
   it('shows local topology, external usage and waiting reasons', async () => {
     panel(); await ready();
     expect(screen.getByText('16 physical cores / 32 logical threads')).toBeInTheDocument();

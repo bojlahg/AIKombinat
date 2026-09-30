@@ -18,6 +18,8 @@ export const ko = {
     'fabric.arch': '아키텍처',
     'fabric.gpuCount': 'GPU 개수',
     'fabric.gpuModel': 'GPU 모델',
+    'fabric.detectedVram': '감지된 VRAM: {memory} GiB',
+    'fabric.remoteExecutionContract': 'SSH는 헤드리스 raw-shell을 지원합니다. 원격 OpenCode는 실험적이며 이 노드에서 호환 CLI 기능과 정확한 모델이 필요합니다.',
     'fabric.minVram': '최소 VRAM (GiB)',
     'fabric.cpuThreads': 'CPU 논리 스레드',
     'fabric.physicalCores': '최소 물리 코어',

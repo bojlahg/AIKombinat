@@ -10,6 +10,7 @@ import { getComputeNode } from './resource-fabric.js';
 import { shellQuote, sshArgs, type ProbeResult } from './resource-probes.js';
 import { getAdapter, type CliTool, type CliBuildOptions } from './cli-adapters.js';
 import { createOpenCodeConfig, OPEN_CODE_SHELL_GUARD } from './opencode.js';
+import { discoverRemoteOpenCode, remoteOpenCodeArgs } from './remote-opencode.js';
 import { canonicalJson } from './resource-requirements.js';
 import type { FabricBinding } from './resource-fabric-types.js';
 import type { ProcessIdentity } from '../utils/process-tree.js';
@@ -108,6 +109,7 @@ export class SshTransport implements ExecutionTransport {
     if (options.mode !== 'headless' || options.continueSession || !['raw-shell', 'opencode'].includes(tool)) throw new Error('SSH V2 supports headless raw-shell/OpenCode without resume');
     const node = getComputeNode(binding.node_id);
     if (!node.identity || node.identity_changed || node.scheduler_state !== 'online') throw new Error('SSH node identity/health not verified');
+    const openCodeArgs = tool === 'opencode' ? remoteOpenCodeArgs(options, await discoverRemoteOpenCode(node.id)) : null;
     const commit = await git(['rev-parse', 'HEAD'], localWorkspace);
     if (!/^[a-f0-9]{40,64}$/.test(commit)) throw new Error('Remote execution requires a committed Git repository');
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-bundle-'));
@@ -119,7 +121,7 @@ export class SshTransport implements ExecutionTransport {
       bundle = fs.readFileSync(bundlePath).toString('base64');
     } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
     const workspace = remoteWorkspace(binding), adapter = getAdapter(tool);
-    const argv = tool === 'raw-shell' ? ['sh', '-c', options.prompt] : [adapter.command, ...adapter.buildArgs({ ...options, workDir: `${workspace}/repo`, opencodeStandalone: true })];
+    const argv = tool === 'raw-shell' ? ['sh', '-c', options.prompt] : [adapter.command, ...openCodeArgs!];
     const managed = tool === 'opencode' ? createOpenCodeConfig(options.promptPolicy) : undefined;
     const config = managed ? JSON.parse(managed.env.OPENCODE_CONFIG_CONTENT) : undefined; managed?.cleanup();
     const pending: ProcessIdentity = { pid: 1, startedAt: `preparing:${binding.id}`, remote: { nodeId: node.id, bindingId: binding.id, workspace, pid: 0, startedAt: '', bootId: '' } };
