@@ -10,6 +10,7 @@ import { logger } from '../logging/logger.js';
 import * as store from './store.js';
 import { reconcileResources, releaseResource, resourceSnapshot } from './resources.js';
 import { launchPrimary, type PrimaryExecution, type PrimaryLauncher } from './primary.js';
+import { eventSnapshot, serializeContext } from './context-budget.js';
 
 function processMayBeAlive(pid: number): boolean {
   if (isProcessAlive(pid)) return true;
@@ -20,11 +21,16 @@ function processMayBeAlive(pid: number): boolean {
 export function buildContext(id: string, turnId: string): string {
   const parent = store.getOrchestration(id);
   const messages = getDatabase().prepare('SELECT role, content FROM orchestrator_messages WHERE orchestrator_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 12').all(id);
-  return JSON.stringify({ objective: parent.objective, state_summary: parent.state_summary, current_plan: parent.current_plan,
+  const activeIds = new Set(store.activeChildren(id).map(child => child.id));
+  const children = store.children(id).map(job => { const child = store.childStatus(id, job.id); return { child_job_id: child.id, todo_id: child.todo_id, title: child.title, status: child.status, pipeline_phase: child.pipeline_phase, summary: child.summary }; });
+  const resources = store.holds(id).map(resourceSnapshot);
+  const activeResource = (resource: typeof resources[number]) => ['waiting', 'bound', 'claimed'].includes(resource.status);
+  return serializeContext({ objective: parent.objective, state_summary: parent.state_summary, current_plan: parent.current_plan,
     budgets: { max_turns: parent.max_turns, turn_count: parent.turn_count, max_children: parent.max_children, child_count: parent.child_count, max_concurrent_children: parent.max_concurrent_children, max_active_resource_requests: parent.max_active_resource_requests },
-    children: store.children(id).map(job => { const child = store.childStatus(id, job.id); return { child_job_id: child.id, todo_id: child.todo_id, title: child.title, status: child.status, pipeline_phase: child.pipeline_phase, summary: child.summary }; }),
-    resources: store.holds(id).map(resourceSnapshot), events: store.events(id).filter(event => event.assigned_turn_id === turnId).map(event => ({ id: event.id, type: event.type, payload: JSON.parse(event.payload_json) })),
-    recent_messages: messages.reverse(), corrective_retry: store.getTurn(turnId).retry_count > 0 ? 'Previous primary failed or exited without yield/finish. Inspect durable state, reuse idempotency keys, and end with exactly one terminal action.' : undefined });
+    children: children.filter(child => activeIds.has(child.child_job_id)),
+    resources: resources.filter(activeResource), events: store.events(id).filter(event => event.assigned_turn_id === turnId).map(eventSnapshot),
+    corrective_retry: store.getTurn(turnId).retry_count > 0 ? 'Previous primary failed or exited without yield/finish. Inspect durable state, reuse idempotency keys, and end with exactly one terminal action.' : undefined },
+  messages, children.filter(child => !activeIds.has(child.child_job_id)).reverse(), resources.filter(resource => !activeResource(resource)).reverse());
 }
 export class OrchestratorAgentService {
   private enabled = false;
@@ -136,8 +142,8 @@ export class OrchestratorAgentService {
         const timestamp = store.now();
         store.updateTurn(turnId, { status: 'completed', finished_at: timestamp });
         getDatabase().prepare('UPDATE orchestrator_events SET consumed_at = ? WHERE assigned_turn_id = ?').run(timestamp, turnId);
-        const newUserMessage = store.events(id).some(event => !event.assigned_turn_id && !event.consumed_at && event.type === 'user.message');
-        if (turn.terminal_action === 'finish' && !newUserMessage) store.updateOrchestration(id, { status: 'completed', finished_at: timestamp, waiting_reason: null });
+        const pendingWakeEvent = store.events(id).some(event => !event.assigned_turn_id && !event.consumed_at && store.matches(event, parent));
+        if (turn.terminal_action === 'finish' && !pendingWakeEvent) store.updateOrchestration(id, { status: 'completed', finished_at: timestamp, waiting_reason: null });
         else store.updateOrchestration(id, { status: 'waiting_event' });
         try {
           const response = JSON.parse(result.output);

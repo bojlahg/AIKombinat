@@ -20,17 +20,23 @@ Pause stops the primary safely, retains pending events, lets children continue a
 
 The partial unique turn index includes every retained PID, regardless of status. Five simultaneous matching events become one pending turn. Event delivery is at least once: a turn assigns a bounded batch in creation order, and events become consumed only after a successful process exit with `yield` or `finish`. Failure, Stop or interrupted startup unassigns unconsumed events. One corrective retry is allowed; another protocol/process failure fails the workflow. Turn budget exhaustion pauses it with a budget-warning event.
 
-The terminal action is staged while the primary still runs. `waiting_event` and `completed` are published after confirmed exit with PID cleared. Events arriving between turn assignment and yield remain pending and trigger a fresh turn after exit. A message arriving during a finish turn gets a subsequent fresh turn. No `claude --continue` is used.
+The terminal action is staged while the primary still runs. `waiting_event` and `completed` are published after confirmed exit with PID cleared. Events arriving between turn assignment and yield remain pending and trigger a fresh turn after exit. Any remaining matching event, including byte-budget overflow, gets a subsequent fresh turn even after a finish action. No `claude --continue` is used.
 
 ## Managed primary MCP
 
-Each turn receives `kombinat-orchestrator`, implemented by a stdio bridge and an ephemeral loopback transport. A random capability binds to one parent and turn; parent-project ownership is checked by server operations. The transport revokes on exit/Stop, and restart invalidates old sockets. Payloads are typed and reject unknown fields, other-parent IDs, arbitrary nodes/resource keys, empty ANY conditions and oversized UTF-8 input. Secrets stay in process environment, never in the database, CLI arguments or application logs.
+Each turn receives `kombinat-orchestrator`, implemented by a stdio bridge and an ephemeral loopback transport. A random capability binds to one parent and turn; parent-project ownership is checked by server operations. The transport revokes on exit/Stop, and restart invalidates old sockets. Payloads are typed and reject unknown fields, other-parent IDs, arbitrary nodes/resource keys, empty ANY conditions and oversized UTF-8 input. The turn endpoint/capability stays in the child environment, never in the database, execution snapshot, CLI arguments or application logs. Every turn gets a new capability. Its value is registered for scoped log redaction, and primary output/errors are scrubbed before capability revocation so later diagnostics cannot expose it. Server credentials never enter the primary environment.
 
 Tools: `checkpoint_state`, `list_execution_profiles`, `list_available_capabilities`, `delegate_task`, `get_task_status`, `cancel_task`, `request_resources`, `get_resource_request`, `release_resources`, `yield`, `finish`. Every mutating tool requires an idempotency key. Identical normalized input returns the previous result; changed input or tool name conflicts. Duplicate terminal actions can complete a fresh corrective turn without duplicating their stored effects.
 
 The primary uses only Claude candidates, regardless of the priority of other providers. Built-ins are restricted to Read, Glob and Grep, with Edit, Write, NotebookEdit, Bash, PowerShell and Agent denied. Local/project hooks and plugins are excluded from this managed launch; only the turn's explicit MCP is loaded. This is a harness tool contract, not a filesystem/OS security sandbox. The native Claude executable was verified on Windows; a shell-only npm Claude shim is not part of the real-smoked launcher contract. Administrative Claude settings can impose further restrictions.
 
 Children receive complete instructions, an ordinary execution profile and a separate worktree by default in Git projects. Review/Rework remains the existing pipeline. No automatic sibling branch merge occurs; an integration child performs requested integration. There is no nested Orchestrator tool or live `message_task` protocol.
+
+## Child environment
+
+`src/server/utils/child-environment.ts` is the canonical sanitizer for ClaudeManager (spawn and PTY, including delegation workers), orchestrator primary, AI extraction, quota/model probes and the local SSH launcher. It merges execution overrides, then removes undefined values and the explicit, case-insensitive server-only list: `SESSION_SECRET` (web session signing), `AUTH_PASSWORD` (legacy web bootstrap credential), `TUNNEL_TOKEN` (tunnel authentication). Overrides cannot restore forbidden keys.
+
+Inspection of server sources, `.env.example` and SETUP found no additional server-only environment credential consumer. Tunnel name/hostname/enabled, session identifiers and ordinary configuration are not credentials. MCP/application credentials configured in SQLite are not inherited through `process.env`. Provider variables such as `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` remain inherited; no wildcard token/key removal is used. PATH, HOME/USERPROFILE, TEMP/TMP, CLI login/config paths, execution capabilities and Electron's node override remain available. The real Claude smoke uses the existing stored login, with no added provider API key. The independent remote Python helper strips the same three keys on the remote host; it does not inherit the controller environment.
 
 ## Resource reservations
 
@@ -48,11 +54,17 @@ Defaults/hard caps: primary turns 32/128; total children 24/100; concurrent acti
 
 UTF-8 input limits: objective/child instructions/finish summary 32 KiB; message/checkpoint/plan/event 16 KiB; purpose/wait reason 2 KiB; title 256 characters. Oversized correctness inputs are rejected. Automatic context includes explicit checkpoints, bounded children/resources/events and recent chat, not full logs, diffs or hidden reasoning. Only the provider's public result text and reported model labels are extracted from output envelopes.
 
+The serialized primary context has a hard **256 KiB UTF-8** cap (`ORCHESTRATOR_CONTEXT_MAX_BYTES`). Objective, explicit state/plan, budgets, assigned events and all active child/resource snapshots are mandatory. Recent messages (newest first from the latest 12), terminal children and released/expired resource history are appended in that priority order only while they fit. Messages are presented chronologically after selection. `context_truncated`, `omitted_messages`, `omitted_terminal_children` and `omitted_historical_resources` report omissions. JSON is canonical, valid and deterministic for the same DB state; no serialized-string slicing or hidden reasoning storage is used.
+
+Events are assigned in `(created_at ASC, id ASC)` order, at most 64 and **128 KiB for the complete serialized event array**, including envelopes/commas. Overflow stays unassigned/unconsumed and is delivered by a fresh turn. A single event exceeding that share, or mandatory state exceeding the aggregate cap (including JSON escaping), is an explicit protocol/configuration failure; correctness-critical inputs are never silently truncated. Context construction fails before primary launch and normal retry/redelivery preserves the inbox.
+
 ## API and recovery
 
 `GET/POST /api/projects/:projectId/orchestrators`; `GET/PATCH /api/orchestrators/:id`; POST `start`, `pause`, `resume`, `cancel`; GET/POST `messages`; GET `children`, `resources`, `events`, `turns`; POST `resources/:requestId/release`. Routes use the existing authenticated `/api` boundary. WebSocket notifications include creation, status, messages, turns, events, child and resource updates.
 
 Startup reconciles Fabric leases, existing Todo processes, primary PID/identity, child terminal events, holds and pending wake events before enabling dispatch. Live matching or unverifiable primary ownership is retained for explicit recovery; mismatched PIDs are never signalled. Interrupted turns cannot consume events based solely on a recorded terminal action. Clean shutdown revokes and safely stops owned primaries; waiting workflows retain their state. No external/unrelated process is a Stop target.
+
+Status: **READY**. Security closure and real post-fix smoke are recorded in the acceptance report.
 
 ## V1 boundaries
 

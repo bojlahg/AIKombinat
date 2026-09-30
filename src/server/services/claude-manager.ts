@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { PassThrough, Readable, Writable } from 'stream';
 import { StringDecoder } from 'string_decoder';
+import { finished } from 'node:stream/promises';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -12,6 +13,7 @@ import { sshTransport } from './execution-transport.js';
 import { getToolStatus } from './cli-status.js';
 import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState } from './pty-output-filter.js';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
+import { createChildEnvironment } from '../utils/child-environment.js';
 import { logger } from '../logging/logger.js';
 import { redactArgs } from '../logging/redact.js';
 import {
@@ -23,19 +25,6 @@ import {
 } from '../utils/process-tree.js';
 
 export type ClaudeMode = CliMode;
-
-// Environment handed to spawned CLIs / PTYs. Inherits the process env but strips
-// server-only secrets so an agent or raw-shell can't read them — otherwise a
-// prompt-injected agent could exfiltrate SESSION_SECRET and forge session cookies.
-const CHILD_ENV_BLOCKLIST = new Set(['SESSION_SECRET', 'AUTH_PASSWORD', 'TUNNEL_TOKEN']);
-function childEnv(overrides?: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v === undefined || CHILD_ENV_BLOCKLIST.has(k)) continue;
-    out[k] = v;
-  }
-  return { ...out, ...(overrides ?? {}) };
-}
 
 // node-pty ships its macOS/Linux `spawn-helper` as a prebuilt binary. Some npm
 // extractions drop the executable bit, so `pty.fork` fails with
@@ -453,7 +442,7 @@ export class ClaudeManager {
           cols: ptyCols ?? 200,
           rows: ptyRows ?? 50,
           cwd,
-          env: childEnv(runtimeEnv),
+          env: createChildEnvironment(runtimeEnv),
         });
       } catch (err) {
         reject(new Error(
@@ -644,7 +633,7 @@ export class ClaudeManager {
           // Headless raw-shell uses native argv; AI prompts are delivered via stdin.
           shell: process.platform === 'win32' && !(adapter === getAdapter('raw-shell') && mode === 'headless'),
           windowsHide: true,
-          env: childEnv(runtimeEnv),
+          env: createChildEnvironment(runtimeEnv),
         });
       } catch (err) {
         reject(new Error(
@@ -667,8 +656,12 @@ export class ClaudeManager {
       this.processes.set(pid, managedProcess);
 
       const outputDecoder = mode === 'interactive' ? undefined : adapter.createOutputDecoder?.();
-      let stdout: NodeJS.ReadableStream = child.stdout!;
-      let stderr: NodeJS.ReadableStream = child.stderr!;
+      // Buffer output immediately: PID identity probes can outlive a fast child,
+      // whose native streams Node otherwise auto-drains before callers subscribe.
+      const bufferedStdout = new PassThrough();
+      const bufferedStderr = new PassThrough();
+      let stdout: NodeJS.ReadableStream = bufferedStdout;
+      let stderr: NodeJS.ReadableStream = bufferedStderr;
       const utf8Decoder = outputDecoder ? new Utf8StreamDecoder() : undefined;
       let transportFailure: string | null = null;
       let lifecycleSettled = false;
@@ -692,6 +685,11 @@ export class ClaudeManager {
         }
       };
 
+      // Consumers must read (or resume) both streams. Completion includes their
+      // final data/end events, including output buffered during the identity probe.
+      const streamsDrained = Promise.all([bufferedStdout, bufferedStderr].map(stream =>
+        finished(stream, { writable: false }).catch(err => recordTransportFailure('output', err))));
+
       const finishOnce = (code: number | null): void => {
         if (lifecycleSettled) return;
         lifecycleSettled = true;
@@ -711,10 +709,13 @@ export class ClaudeManager {
           if (transportFailure) decodedStderr.write(`\n${transportFailure}\n`);
           decodedStdout.end();
           decodedStderr.end();
+        } else {
+          bufferedStdout.end();
+          bufferedStderr.end();
         }
         this.markExited(pid);
         this.stdinStreams.delete(pid);
-        resolveExit(transportFailure ? 1 : effectiveCode);
+        void streamsDrained.then(() => resolveExit(transportFailure ? 1 : effectiveCode));
       };
 
       child.once('error', (err) => {
@@ -723,7 +724,6 @@ export class ClaudeManager {
           startSettled = true;
           reject(new Error(`Failed to start ${adapter.displayName}. Is it installed and on PATH? ${err.message}`));
         }
-        finishOnce(1);
       });
       child.once('close', finishOnce);
 
@@ -732,8 +732,8 @@ export class ClaudeManager {
       child.stderr?.on('error', (err) => recordTransportFailure('stderr', err));
 
       if (outputDecoder) {
-        decodedStdout = new PassThrough();
-        decodedStderr = new PassThrough();
+        decodedStdout = bufferedStdout;
+        decodedStderr = bufferedStderr;
         stdout = decodedStdout;
         stderr = decodedStderr;
 
@@ -747,6 +747,9 @@ export class ClaudeManager {
         child.stderr!.on('data', (chunk: Buffer | string) => {
           decodedStderr!.write(chunk);
         });
+      } else {
+        child.stdout!.pipe(bufferedStdout, { end: false });
+        child.stderr!.pipe(bufferedStderr, { end: false });
       }
 
       // Register every process/stream listener before prompt delivery. Writable

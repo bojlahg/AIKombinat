@@ -1,6 +1,6 @@
 # Orchestrator Agent V1 acceptance report
 
-Conclusion: **READY_WITH_LIMITATIONS**.
+Conclusion: **READY**.
 
 ## Environment
 
@@ -79,8 +79,22 @@ Fixed during validation: ERD extraction initially picked the new migration helpe
 
 The first fixture setup stopped before any provider invocation because it expected an Opus alias absent from the catalog; the successful runs use the discovered exact model. Sandbox build permissions initially caused EPERM on preexisting dist files; the same normal build succeeded with approved host access. No destructive cleanup was used.
 
-## Limitations
+## Security closure
+
+2026-09-30 closure against baseline `96c944d3f0663c2856e3d046b27480fb1b18914e`:
+
+- Canonical child environment: `src/server/utils/child-environment.ts`; ClaudeManager/PTY/delegation, primary and auxiliary AI launches use it. Explicit case-insensitive blocked keys are `SESSION_SECRET`, `AUTH_PASSWORD`, `TUNNEL_TOKEN`; execution overrides cannot restore them. Inspection found no other server-only env credential consumer. Runtime/provider variables survive. Real Claude uses the existing stored login; no auth key was introduced.
+- Synthetic primary and independent spawned-process fixtures report key presence only. All three server secrets are absent; turn endpoint/capability/depth and ordinary safe env survive. Linux CI additionally reads `/proc/self/environ`; that test is deliberately skipped on Windows. No production auth environment was modified.
+- Capability rotation/revocation, absence from durable records/snapshots, and requested/started/failure diagnostics are covered. A discovered synchronous-spawn error could retain the ephemeral capability after revoke; primary now sanitizes errors/output before revocation and registers live capability values with scoped log redaction. No raw reasoning or full provider output is persisted.
+- Primary context is capped at 262144 UTF-8 bytes with canonical valid JSON. Mandatory objective/state/plan/budgets/current events/active work precede optional recent messages, terminal children and historical resources. Omission counters expose truncation. The 100-child/64-event/12-message Unicode fixture passes, preserves active resources/children and produces a deterministic hash. Complete event arrays are limited to 131072 bytes and 64 events; overflow stays pending and runs in fresh turns, including after finish. Oversized mandatory/protocol input fails explicitly instead of being cut.
+- Raw-shell root cause: asynchronous PID identity inspection could outlive a fast process, letting Node auto-drain native stdout before caller subscription. Output is now buffered immediately; native close owns decoder finalization, and `exitPromise` waits for both exposed streams to end after consumption. No arbitrary sleep/retry was added. **100/100 Windows stress iterations passed** in 33.12 seconds with identity lookup deliberately waiting for process close before listeners attach. Normal Linux CI executes 25 iterations. Existing OpenCode/UTF-8/transport/command-secrecy regressions pass.
+
+Real post-fix smoke: Claude Code **2.1.246**, exact **claude-opus-4-7**, Windows/Node v22.16.0, temporary DB/directory. Orchestrator `6a8f5a96-bec4-45ff-9ef6-4baf0c45a628`, turn `4595536d-8ba9-4c41-883b-43863edd7f54`: one successful turn, PID **38332**, started **13:05:43.319 UTC**, finished **13:05:56.797 UTC**. MCP `checkpoint_state` and terminal `finish` succeeded; status completed, final PID **0**, identity cleared, no child or hardware reservation. `list_execution_profiles` was requested by the objective; MCP checkpoint/finish provide the acceptance evidence (read-only calls are not stored as operations). Provider labels include the configured Opus plus ancillary Haiku, without changing primary selection. Local artifact: `orchestrator-security-1/report.json` in the visualization workspace. A separate synthetic child using the same canonical builder confirmed the harmless session canary was absent; Claude was never asked to read or print secrets.
+
+Required local validation passed: full server/client tests, typecheck, production build, unchanged ERD and `git diff --check`. Final test totals and the pushed commit's first-attempt GitHub CI result are reported in the delivery message. Schema is unchanged.
+
+## V1 product boundaries
 
 V1 boundaries remain: Claude-only primary; depth one; ANY only; no live child input injection; no provider --continue dependency; no remote OpenCode; integration through an explicit child; no general DAG, arbitrary training checkpoints or hard cross-provider dollar budget. Provider restriction is a CLI tool contract rather than an OS filesystem sandbox. Windows real smoke verifies native Claude; a shell-only npm primary shim is not verified. Exact discovered free-model availability can change; no future billing guarantee is inferred from this smoke.
 
-**READY_WITH_LIMITATIONS**.
+**READY**.

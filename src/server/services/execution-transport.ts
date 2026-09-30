@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../utils/child-environment.js';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,7 +46,7 @@ export class SshTransport implements ExecutionTransport {
     const args = sshArgs(node.connection!, `python3 -c ${shellQuote(source)}`);
     return new Promise(resolve => {
       import('node:child_process').then(({ spawn }) => {
-        const child = spawn('ssh', args, { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+        const child = spawn('ssh', args, { env: createChildEnvironment(), windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
         let stdout = '', stderr = '', bytes = 0, done = false;
         const finish = (code: number | null, timed_out: boolean) => { if (done) return; done = true; clearTimeout(timer); resolve({ stdout, stderr: stderr.slice(-512), code, timed_out }); };
         const timer = setTimeout(() => { child.kill(); finish(null, true); }, 20_000);

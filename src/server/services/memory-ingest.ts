@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../utils/child-environment.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -262,7 +263,7 @@ export function runHeadless(
 
     const proc = spawn(spawnCmd, spawnArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: createChildEnvironment(),
       cwd: process.env.HOME || process.env.USERPROFILE || '.',
     });
 

@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../utils/child-environment.js';
 import { execFile } from 'child_process';
 import { maybeTriggerSync } from './model-sync.js';
 import type { CliTool } from './cli-adapters.js';
@@ -40,7 +41,7 @@ const VCS_TOOLS = [
 
 function execProbe(command: string, args: string[]): Promise<{ error: Error | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const opts: { timeout: number; shell?: boolean } = { timeout: CHECK_TIMEOUT };
+    const opts: { timeout: number; shell?: boolean; env: NodeJS.ProcessEnv } = { timeout: CHECK_TIMEOUT, env: createChildEnvironment() };
     if (process.platform === 'win32') opts.shell = true;
     execFile(command, args, opts, (error, stdout, stderr) => {
       resolve({ error, stdout: stdout || '', stderr: stderr || '' });

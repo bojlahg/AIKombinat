@@ -169,6 +169,9 @@ HEADLESS=false               # true면 정적 파일 서빙 비활성화 (API �
 DISABLE_AUTH=false           # true면 인증 비활성화 (로컬 플러그인 전용)
 ```
 
+AI child processes use the canonical `src/server/utils/child-environment.ts` sanitizer. Server-only `SESSION_SECRET`, `AUTH_PASSWORD` and `TUNNEL_TOKEN` are never inherited, including through execution overrides. Provider credentials and runtime/login environment remain inherited; there is no wildcard token/key filter.
+
+
 #### 3단계: 실행
 
 ##### 원클릭 실행 (Windows 전용)

@@ -55,6 +55,13 @@ const MIN_ENV_VALUE_LENGTH = 8;
 const ENV_CACHE_TTL_MS = 2_000;
 let envSecretCache: string[] = [];
 let envSecretCacheAt = 0;
+const scopedSecrets = new Map<symbol, string>();
+
+export function registerScopedLogSecret(value: string): () => void {
+  const key = Symbol();
+  scopedSecrets.set(key, value);
+  return () => { scopedSecrets.delete(key); };
+}
 
 /** Test hook — forces the next redaction to re-scan `process.env`. */
 export function resetRedactionCache(): void {
@@ -113,7 +120,7 @@ const INLINE_SECRET_PATTERNS: Array<[RegExp, string]> = [
 export function redactString(value: string): string {
   if (!value) return value;
   let out = value;
-  for (const secret of collectEnvSecrets()) {
+  for (const secret of [...collectEnvSecrets(), ...scopedSecrets.values()].sort((a, b) => b.length - a.length)) {
     if (out.includes(secret)) {
       out = out.split(secret).join(REDACTED);
     }

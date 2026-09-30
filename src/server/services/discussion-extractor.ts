@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../utils/child-environment.js';
 import { spawn } from 'child_process';
 import * as queries from '../db/queries.js';
 import { getAdapter, type CliTool } from './cli-adapters.js';
@@ -111,7 +112,7 @@ function runHeadless(cliTool: CliTool, prompt: string, timeoutMs = 120_000): Pro
 
     const proc = spawn(spawnCmd, spawnArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: createChildEnvironment(),
       cwd: process.env.HOME || process.env.USERPROFILE || '.',
     });
 

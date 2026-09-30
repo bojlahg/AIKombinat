@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../utils/child-environment.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -159,6 +160,7 @@ export async function execCommand(
       try {
         child = spawn('cmd.exe', ['/d', '/s', '/c', `"${fullCommandLine}"`], {
           stdio: ['ignore', stdoutFd, stderrFd],
+          env: createChildEnvironment(),
           windowsHide: true,
           windowsVerbatimArguments: true,
         });
@@ -194,6 +196,7 @@ export async function execCommand(
   return new Promise((resolve) => {
     execFile(command, args, {
       timeout: timeoutMs,
+      env: createChildEnvironment(),
       maxBuffer: 4 * 1024 * 1024,
     }, (error, stdout, stderr) => {
       const timedOut = Boolean(error && (error.killed || error.signal === 'SIGTERM' || (error as { code?: unknown })?.code === 'ETIMEDOUT'));
@@ -381,6 +384,7 @@ async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
   return new Promise((resolve) => {
     const child = spawn('codex', ['app-server'], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: createChildEnvironment(),
       ...(process.platform === 'win32' ? { shell: true } : {}),
     });
     let buffer = '';

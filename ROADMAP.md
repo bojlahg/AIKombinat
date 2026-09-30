@@ -407,9 +407,9 @@ The current roadmap does not require turning AIKombinat into a hosted multi-tena
 
 The near-term goal is smaller and more useful: make local AI-assisted development substantially more reliable, inspectable, quota-aware, account-aware, experimentally measurable, and capable of finishing longer chains of work without constant manual babysitting.
 
-## Orchestrator Agent V1 implementation
+## Orchestrator Agent V1 implementation — READY
 
-Implemented and locally accepted with real Claude Opus 4.7 and exact free Muse child execution: durable orchestration/turns/chat/inbox/idempotency, automatic fresh-process wake, ordinary Todo review/rework and worktrees, bounded Resource Fabric holds with reserve-before-wake and same-binding claim, budgets, safe controls/recovery and EN/KO/RU UI. Real delegation/review, parallel siblings/integration, CPU contention/handoff and human-message wake passed; a two-controller synthetic restart preserved state and prevented duplicate mutations. See [design](docs/Orchestrator_Agent_V1.md) and [acceptance evidence](docs/Orchestrator_Agent_V1_Smoke_Report.md). Remote CI status is part of final delivery; V1 provider/depth/ANY boundaries remain. Subsequent extensions stay separate tasks.
+Implemented and locally accepted with real Claude Opus 4.7 and exact free Muse child execution: durable orchestration/turns/chat/inbox/idempotency, automatic fresh-process wake, ordinary Todo review/rework and worktrees, bounded Resource Fabric holds with reserve-before-wake and same-binding claim, budgets, safe controls/recovery and EN/KO/RU UI. Real delegation/review, parallel siblings/integration, CPU contention/handoff and human-message wake passed; a two-controller synthetic restart preserved state and prevented duplicate mutations. See [design](docs/Orchestrator_Agent_V1.md) and [acceptance evidence](docs/Orchestrator_Agent_V1_Smoke_Report.md). Security closure adds canonical server-secret stripping, a 256 KiB UTF-8 primary context cap, byte-bounded event delivery and drained headless streams; 100 local raw-shell repetitions and a real post-fix Claude checkpoint/finish smoke passed. Remote CI status is part of final delivery; V1 provider/depth/ANY boundaries remain product scope constraints. Subsequent extensions stay separate tasks.
 
 ## Resource Fabric V2 implementation
 

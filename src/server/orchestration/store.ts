@@ -6,6 +6,7 @@ import * as queries from '../db/queries.js';
 import { canonicalJson, requirementsSchema } from '../services/resource-requirements.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 import { logger } from '../logging/logger.js';
+import { selectEventBatch } from './context-budget.js';
 
 export const orchestrationSignals = new EventEmitter();
 export const now = () => new Date().toISOString();
@@ -158,9 +159,10 @@ export function requestTurn(id: string, trigger = 'event', retry = 0): Turn | nu
     }
     const pending = events(id).filter(event => !event.consumed_at && !event.assigned_turn_id && matches(event, orchestration));
     if (trigger === 'event' && !pending.length) return null;
+    const batch = selectEventBatch(pending);
     const turnId = randomUUID();
     getDatabase().prepare(`INSERT INTO orchestrator_turns (id, orchestrator_id, turn_index, status, trigger_type, retry_count, created_at) VALUES (?,?,?,'pending',?,?,?)`).run(turnId, id, orchestration.turn_count + 1, trigger, retry, now());
-    for (const event of pending.slice(0, 64)) getDatabase().prepare('UPDATE orchestrator_events SET assigned_turn_id = ? WHERE id = ?').run(turnId, event.id);
+    for (const event of batch) getDatabase().prepare('UPDATE orchestrator_events SET assigned_turn_id = ? WHERE id = ?').run(turnId, event.id);
     updateOrchestration(id, { turn_count: orchestration.turn_count + 1, status: 'pending' });
     logger.info('orchestrator.turn.requested', { orchestratorId: id, turnId, trigger });
     return getTurn(turnId);

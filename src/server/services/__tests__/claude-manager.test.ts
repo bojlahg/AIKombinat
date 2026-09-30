@@ -3,6 +3,7 @@ vi.mock('tree-kill', () => ({ default: vi.fn() }));
 const processTreeMocks = vi.hoisted(() => ({
   verifyProcessIdentity: vi.fn(),
   terminateProcessTree: vi.fn(),
+  readProcessIdentity: vi.fn(async () => null),
 }));
 vi.mock('../../utils/process-tree.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/process-tree.js')>();
@@ -32,11 +33,46 @@ describe('ClaudeManager', () => {
     const debug = vi.spyOn(logger, 'debug');
     const result = await manager.startClaude(process.cwd(), prompt, undefined, undefined, 'headless', 'raw-shell', undefined, undefined, 'permissive', false, undefined, undefined, undefined, undefined, { CUDA_VISIBLE_DEVICES: '1' });
     let output = ''; result.stdout.on('data', chunk => { output += chunk.toString(); });
+    result.stderr.resume();
     expect(await result.exitPromise).toBe(0);
     expect(output.trim()).toBe('1'); expect(pty).not.toHaveBeenCalled();
     expect(JSON.stringify(debug.mock.calls)).not.toContain(prompt);
     vi.restoreAllMocks();
   });
+  it('keeps raw commands and server secrets out of requested/failed spawn diagnostics', async () => {
+    const records: unknown[] = [];
+    logger.configure({ level: 'debug', sinks: [{ write: record => { records.push(record); } }] });
+    const secrets = ['TOP_SECRET_SESSION', 'TOP_SECRET_AUTH', 'TOP_SECRET_TUNNEL'];
+    ['SESSION_SECRET', 'AUTH_PASSWORD', 'TUNNEL_TOKEN'].forEach((key, index) => vi.stubEnv(key, secrets[index]));
+    const command = 'PRIVATE_RAW_COMMAND_CANARY';
+    try {
+      const manager = new ClaudeManager();
+      await expect(manager.startClaude(`${process.cwd()}/missing-spawn-fixture`, command, undefined, undefined, 'headless', 'raw-shell')).rejects.toThrow();
+      expect(records.some(record => (record as { event: string }).event === 'cli.spawn.requested')).toBe(true);
+      expect(records.some(record => (record as { event: string }).event === 'cli.spawn.failed')).toBe(true);
+      for (const value of [...secrets, command]) expect(JSON.stringify(records).includes(value)).toBe(false);
+    } finally { vi.unstubAllEnvs(); logger.configure({ level: 'info', dir: null }); }
+  });
+  it('preserves headless raw-shell stdout/stderr when PID inspection returns after native close', async () => {
+    const count = Number(process.env.AIKOMBINAT_RAW_SHELL_STRESS_ITERATIONS ?? (process.platform === 'linux' ? 25 : 3));
+    const manager = new ClaudeManager();
+    processTreeMocks.readProcessIdentity.mockImplementation(async (pid: number) => { await manager.whenExited(pid); return null; });
+    const prompt = process.platform === 'win32'
+      ? 'Write-Output $env:CUDA_VISIBLE_DEVICES; [Console]::Error.Write("diagnostic"); exit 0'
+      : 'printf "%s\\n" "$CUDA_VISIBLE_DEVICES"; printf diagnostic >&2; exit 0';
+    try {
+      for (let i = 0; i < count; i++) {
+        const result = await manager.startClaude(process.cwd(), prompt, undefined, undefined, 'headless', 'raw-shell', undefined, undefined, 'permissive', false, undefined, undefined, undefined, undefined, { CUDA_VISIBLE_DEVICES: '1' });
+        let output = '', diagnostic = '';
+        result.stdout.on('data', chunk => { output += chunk.toString(); });
+        result.stderr.on('data', chunk => { diagnostic += chunk.toString(); });
+        expect(await result.exitPromise).toBe(0);
+        expect(output.trim()).toBe('1'); expect(diagnostic).toBe('diagnostic');
+        expect((result.stdout as import('node:stream').Readable).readableEnded).toBe(true);
+        expect((result.stderr as import('node:stream').Readable).readableEnded).toBe(true);
+      }
+    } finally { processTreeMocks.readProcessIdentity.mockImplementation(async () => null); }
+  }, 120_000);
   describe('isRunning', () => {
     it('keeps local exit lifecycle separate from a remote process with the same numeric PID', async () => {
       const manager = new ClaudeManager(), pid = 424243;
@@ -177,6 +213,7 @@ describe('ClaudeManager', () => {
         'headless',
         'implementation',
       );
+      result.stdout.resume(); result.stderr.resume();
       await expect(result.exitPromise).resolves.toBe(1);
       expect(manager.isRunning(result.pid)).toBe(false);
     });

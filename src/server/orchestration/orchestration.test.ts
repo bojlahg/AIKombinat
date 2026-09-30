@@ -11,7 +11,9 @@ const queries = await import('../db/queries.js');
 const store = await import('./store.js');
 const { callTool } = await import('./tools.js');
 const { createTurnTransport } = await import('./primary.js');
-const { OrchestratorAgentService } = await import('./service.js');
+const { OrchestratorAgentService, buildContext } = await import('./service.js');
+const { ORCHESTRATOR_CONTEXT_MAX_BYTES, ORCHESTRATOR_EVENT_BATCH_MAX_BYTES, eventSnapshot } = await import('./context-budget.js');
+const { canonicalJson } = await import('../services/resource-requirements.js');
 const { requestResource, reconcileResources, releaseResource, CLAIM_WINDOW_MS } = await import('./resources.js');
 const { executorPool } = await import('../services/executor-pool.js');
 const cliStatus = await import('../services/cli-status.js');
@@ -159,6 +161,29 @@ describe('durable orchestration and event delivery', () => {
 });
 
 describe('MCP mutations and security', () => {
+  it('rotates capabilities across turns without persisting or exposing them in diagnostics', async () => {
+    const { logger } = await import('../logging/logger.js');
+    const { resetRedactionCache } = await import('../logging/redact.js');
+    const records: unknown[] = [];
+    logger.configure({ level: 'debug', sinks: [{ write: record => { records.push(record); } }] });
+    for (const key of ['SESSION_SECRET', 'AUTH_PASSWORD', 'TUNNEL_TOKEN']) vi.stubEnv(key, `TOP_SECRET_${key}`);
+    resetRedactionCache();
+    const p = parent(), first = running(p.id), a = await createTurnTransport(p.id, first.id);
+    try {
+      logger.error('orchestrator.turn.failed', { err: new Error(`spawn failed ${a.capability} ${process.env.SESSION_SECRET} ${process.env.AUTH_PASSWORD} ${process.env.TUNNEL_TOKEN}`) });
+      logger.info('orchestrator.turn.started', { orchestratorId: p.id, turnId: first.id, pid: 0 });
+      store.updateTurn(first.id, { status: 'completed' }); await a.revoke();
+      const second = running(p.id), b = await createTurnTransport(p.id, second.id);
+      try {
+        expect(a.capability === b.capability).toBe(false);
+        expect((await fetch(b.endpoint, { method: 'POST', headers: { Authorization: `Bearer ${a.capability}` }, body: '{}' })).status).toBe(403);
+        const databaseState = JSON.stringify({ parent: store.getOrchestration(p.id), turns: store.turns(p.id), messages: db.prepare('SELECT * FROM orchestrator_messages').all(), operations: db.prepare('SELECT * FROM orchestrator_operations').all(), events: store.events(p.id) });
+        for (const secret of [a.capability, b.capability, ...['SESSION_SECRET', 'AUTH_PASSWORD', 'TUNNEL_TOKEN'].map(key => process.env[key]!)]) {
+          expect(databaseState.includes(secret)).toBe(false); expect(JSON.stringify(records).includes(secret)).toBe(false);
+        }
+      } finally { await b.revoke(); }
+    } finally { await a.revoke(); vi.unstubAllEnvs(); resetRedactionCache(); logger.configure({ level: 'info', dir: null }); }
+  });
   it('duplicate delegation returns identical IDs, changed arguments conflict, depth remains ordinary Todo', async () => {
     const p = parent(), turn = running(p.id), args = delegate();
     const result = await callTool(p.id, turn.id, 'delegate_task', args);
@@ -205,6 +230,71 @@ describe('MCP mutations and security', () => {
     await expect(callTool(p.id, turn.id, 'yield', { idempotency_key: 'unknown', reason: '', state_summary: '', current_plan: '', wake_on: { any: [{ type: 'child_terminal', child_job_id: randomUUID() }] } })).rejects.toThrow('unknown_child');
     await callTool(p.id, turn.id, 'delegate_task', delegate());
     await expect(callTool(p.id, turn.id, 'finish', { idempotency_key: 'done', summary: 'Done', state_summary: '' })).rejects.toThrow('active_children');
+  });
+});
+
+describe('aggregate primary context budget', () => {
+  const unicode = (bytes: number) => 'я😀界'.repeat(Math.floor(bytes / Buffer.byteLength('я😀界')));
+  it('preserves mandatory Unicode state/events/active work and omits optional history deterministically', () => {
+    installCpu();
+    const p = parent({ objective: unicode(32768), max_children: 100, max_active_resource_requests: 8 });
+    store.updateOrchestration(p.id, { state_summary: unicode(16384), current_plan: unicode(16384) });
+    for (let i = 0; i < 64; i++) store.addEvent(p.id, 'user.message', 'message', `m${i}`, `m${i}`, { content: unicode(15000) });
+    for (let i = 0; i < 12; i++) store.addMessage(p.id, unicode(32768), 'assistant');
+    const turn = running(p.id);
+    for (let i = 0; i < 100; i++) {
+      const todo = queries.createTodo(project.id, `Child ${i}`);
+      queries.updateTodo(todo.id, { summary: i < 16 ? 'Active checkpoint' : '😀'.repeat(2048) });
+      if (i >= 16) queries.updateTodoStatus(todo.id, 'completed');
+      db.prepare('INSERT INTO orchestrator_child_jobs (id, orchestrator_id, todo_id, purpose, created_by_turn_id, created_at) VALUES (?,?,?,?,?,?)').run(randomUUID(), p.id, todo.id, 'Fixture', turn.id, store.now());
+    }
+    for (let i = 0; i < 40; i++) {
+      const hold = requestResource(p.id, turn.id, `History ${i}`, cpu); releaseResource(p.id, hold.id);
+    }
+    const active = requestResource(p.id, turn.id, 'Current CPU', cpu);
+    const serialized = buildContext(p.id, turn.id), context = JSON.parse(serialized);
+    expect(Buffer.byteLength(serialized, 'utf8')).toBeLessThanOrEqual(ORCHESTRATOR_CONTEXT_MAX_BYTES);
+    expect(context.objective).toBe(p.objective);
+    expect(context.state_summary).toBe(unicode(16384)); expect(context.current_plan).toBe(unicode(16384));
+    const assigned = store.events(p.id).filter(event => event.assigned_turn_id === turn.id);
+    expect(assigned.length).toBeLessThan(64);
+    expect(Buffer.byteLength(canonicalJson(assigned.map(eventSnapshot)))).toBeLessThanOrEqual(ORCHESTRATOR_EVENT_BATCH_MAX_BYTES);
+    expect(context.events).toEqual(assigned.map(eventSnapshot));
+    for (const child of store.activeChildren(p.id)) expect(context.children.some((row: { child_job_id: string }) => row.child_job_id === child.id)).toBe(true);
+    expect(context.resources.some((row: { request_id: string }) => row.request_id === active.id)).toBe(true);
+    expect(context.context_truncated).toBe(true);
+    expect(context.omitted_messages).toBe(12 - context.recent_messages.length);
+    expect(context.omitted_terminal_children).toBe(100 - context.children.length);
+    expect(context.omitted_historical_resources).toBe(41 - context.resources.length);
+    expect(store.events(p.id).filter(event => !event.assigned_turn_id && !event.consumed_at).length).toBeGreaterThan(0);
+    expect(buildContext(p.id, turn.id)).toBe(serialized); expect(store.hash(buildContext(p.id, turn.id))).toBe(store.hash(serialized));
+  });
+  it('leaves overflow pending, then delivers it in fresh turns even after finish', async () => {
+    const p = parent();
+    for (let i = 0; i < 24; i++) store.addEvent(p.id, 'child.completed', 'child', `${i}`, `${i}`, { summary: unicode(15000) });
+    const delivered: string[] = [];
+    const { service, launch } = fakeService(async (id, turnId, context) => {
+      const events = JSON.parse(context).events;
+      delivered.push(...events.map((event: { id: string }) => event.id));
+      expect(Buffer.byteLength(context, 'utf8')).toBeLessThanOrEqual(ORCHESTRATOR_CONTEXT_MAX_BYTES);
+      await callTool(id, turnId, 'finish', { idempotency_key: `finish:${turnId}`, summary: 'Batch acknowledged', state_summary: '' });
+    });
+    await service.initialize(); await service.start(p.id);
+    await vi.waitFor(() => expect(store.getOrchestration(p.id).status).toBe('completed'));
+    expect(launch.mock.calls.length).toBeGreaterThan(1);
+    expect(delivered).toEqual(store.events(p.id).map(event => event.id));
+    expect(store.events(p.id).every(event => event.consumed_at)).toBe(true);
+  });
+  it('rejects corrupted oversized mandatory state or event rather than silently cutting JSON', () => {
+    const p = parent(), turn = running(p.id);
+    store.updateOrchestration(p.id, { current_plan: '😀'.repeat(ORCHESTRATOR_CONTEXT_MAX_BYTES) });
+    expect(() => buildContext(p.id, turn.id)).toThrow('orchestrator_mandatory_context_budget_exceeded');
+    store.updateTurn(turn.id, { status: 'completed' });
+    store.addEvent(p.id, 'user.message', 'message', 'oversize', 'oversize', {});
+    db.prepare('UPDATE orchestrator_events SET payload_json = ? WHERE orchestrator_id = ?').run(JSON.stringify({ content: '😀'.repeat(ORCHESTRATOR_EVENT_BATCH_MAX_BYTES) }), p.id);
+    expect(() => store.requestTurn(p.id)).toThrow('orchestrator_event_budget_exceeded');
+    expect(store.turns(p.id)).toHaveLength(1);
+    expect(store.events(p.id).every(event => !event.assigned_turn_id && !event.consumed_at)).toBe(true);
   });
 });
 

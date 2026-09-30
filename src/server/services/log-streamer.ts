@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../utils/child-environment.js';
 import { spawn } from 'child_process';
 import * as queries from '../db/queries.js';
 import { broadcaster } from '../websocket/broadcaster.js';
@@ -476,7 +477,7 @@ export class LogStreamer {
         process.platform === 'win32'
           ? ['/c', 'claude', '--print', '--verbose', '--output-format', 'stream-json', '-p', 'respond with ok']
           : ['--print', '--verbose', '--output-format', 'stream-json', '-p', 'respond with ok'],
-        { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env }, cwd: process.env.HOME || process.env.USERPROFILE || '.' },
+        { stdio: ['pipe', 'pipe', 'pipe'], env: createChildEnvironment(), cwd: process.env.HOME || process.env.USERPROFILE || '.' },
       );
       let buffer = '';
       const onData = (chunk: Buffer) => {

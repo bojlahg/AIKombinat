@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
+import { createChildEnvironment } from '../utils/child-environment.js';
+import { redactString, registerScopedLogSecret } from '../logging/redact.js';
 import type { ResolvedExecutionConfig } from '../services/execution-config.js';
 import { callTool, toolDefinitions } from './tools.js';
 import { getTurn } from './store.js';
@@ -46,7 +48,8 @@ export async function createTurnTransport(id: string, turnId: string) {
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('transport_address_missing');
-  return { capability, endpoint: `http://127.0.0.1:${address.port}/`, async revoke() { active = false; server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); } };
+  const unregister = registerScopedLogSecret(capability);
+  return { capability, endpoint: `http://127.0.0.1:${address.port}/`, async revoke() { active = false; server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); unregister(); } };
 }
 export const PRIMARY_RULES = `You are the durable Orchestrator Agent for this objective.
 Do not directly modify repository files. Use child tasks for implementation and tests.
@@ -74,8 +77,8 @@ export const launchPrimary: PrimaryLauncher = async input => {
   const model = input.config.effectiveModel ?? input.config.model;
   if (model) args.push('--model', model);
   if (input.config.effort.nativeEffort) args.push('--effort', input.config.effort.nativeEffort);
-  const environment: NodeJS.ProcessEnv = { ...process.env, AIKOMBINAT_ORCHESTRATOR_ENDPOINT: transport.endpoint, AIKOMBINAT_ORCHESTRATOR_CAPABILITY: transport.capability,
-    AIKOMBINAT_ORCHESTRATION_DEPTH: '0', ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) };
+  const environment = createChildEnvironment({ AIKOMBINAT_ORCHESTRATOR_ENDPOINT: transport.endpoint, AIKOMBINAT_ORCHESTRATOR_CAPABILITY: transport.capability,
+    AIKOMBINAT_ORCHESTRATION_DEPTH: '0', ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) });
   delete environment.CLAUDECODE;
   try {
     const child = spawn('claude', args, { cwd: input.projectPath, env: environment, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -84,10 +87,13 @@ export const launchPrimary: PrimaryLauncher = async input => {
     child.stderr.setEncoding('utf8').on('data', (part: string) => { error = (error + part).slice(-4096); });
     const exit = new Promise<{ code: number; output: string; error: string }>(resolve => {
       child.once('error', () => resolve({ code: -1, output: '', error: 'primary_spawn_failed' }));
-      child.once('close', code => resolve({ code: code ?? -1, output, error }));
+      child.once('close', code => resolve({ code: code ?? -1, output: redactString(output), error: redactString(error) }));
     });
     child.stdin.on('error', () => undefined);
     child.stdin.end(input.context);
     return { pid: child.pid ?? 0, exit, async revoke() { await transport.revoke(); fs.rmSync(directory, { recursive: true, force: true }); } };
-  } catch (error) { await transport.revoke(); fs.rmSync(directory, { recursive: true, force: true }); throw error; }
+  } catch (error) {
+    const failure = new Error(redactString(error instanceof Error ? error.message : 'primary_spawn_failed'));
+    await transport.revoke(); fs.rmSync(directory, { recursive: true, force: true }); throw failure;
+  }
 };
