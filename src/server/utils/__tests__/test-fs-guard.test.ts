@@ -79,31 +79,33 @@ describe('test-fs-guard', () => {
 
     it('detects and rejects symlink / junction escapes pointing outside tmpdir', () => {
       const workspace = createTestWorkspace('symlink-check');
-      const externalTarget = path.resolve(process.cwd(), 'src');
+      const externalTarget = fs.mkdtempSync(path.join(process.cwd(), '.test-fs-guard-'));
       const linkPath = path.join(workspace.path, 'evil-link');
 
       let linkCreated = false;
       try {
-        // Try creating directory junction / symlink
-        fs.symlinkSync(externalTarget, linkPath, 'junction');
-        linkCreated = true;
-      } catch {
         try {
-          fs.symlinkSync(externalTarget, linkPath, 'dir');
+          // Try creating directory junction / symlink
+          fs.symlinkSync(externalTarget, linkPath, 'junction');
           linkCreated = true;
         } catch {
-          // If OS unprivileged symlink creation is restricted, skip symlink creation
+          try {
+            fs.symlinkSync(externalTarget, linkPath, 'dir');
+            linkCreated = true;
+          } catch {
+            // If OS unprivileged symlink creation is restricted, skip symlink creation
+          }
         }
+        if (linkCreated) {
+          const escapedFile = path.join(linkPath, 'file.txt');
+          expect(isTestRuntimePathAllowed(escapedFile)).toBe(false);
+          expect(() => assertTestRuntimePathAllowed(escapedFile)).toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
+        }
+      } finally {
+        if (linkCreated) fs.unlinkSync(linkPath);
+        workspace.cleanup();
+        fs.rmdirSync(externalTarget);
       }
-
-      if (linkCreated) {
-        const escapedFile = path.join(linkPath, 'server', 'index.ts');
-        expect(isTestRuntimePathAllowed(escapedFile)).toBe(false);
-        expect(() => assertTestRuntimePathAllowed(escapedFile)).toThrow(UNEXPECTED_FS_WRITE_MESSAGE);
-      }
-
-      workspace.cleanup();
     });
   });
 });
-

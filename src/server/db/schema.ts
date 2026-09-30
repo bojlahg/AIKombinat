@@ -1086,6 +1086,8 @@ export function initDatabase(db: Database.Database): void {
 function migrateOpenCodeCatalog(db: Database.Database): void {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cli_models'").get() as { sql: string };
   if (row.sql.includes("'opencode'")) return;
+  // Older catalogs have no CLI CHECK, so they already accept OpenCode.
+  if (!/CHECK\s*\([^)]*\bcli_tool\b/i.test(row.sql)) return;
   const sql = row.sql.replace(/CHECK\s*\(\s*cli_tool\s+IN\s*\([^)]*\)\s*\)/i,
     "CHECK (cli_tool IN ('claude', 'codex', 'antigravity', 'opencode'))");
   if (sql === row.sql) throw new Error('Cannot safely migrate cli_models CLI constraint');
