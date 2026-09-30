@@ -27,6 +27,7 @@ import type { FabricBinding } from './resource-fabric-types.js';
 import { localTransport, remoteWorkspace, sshTransport, RemoteLaunchUnresolved } from './execution-transport.js';
 import { resourceManager } from './resource-manager.js';
 import { assertRemoteOpenCodeEnabled } from './remote-opencode.js';
+import { consensusReview } from './consensus-review.js';
 import { reviewPipeline } from './review-pipeline.js';
 import { logger } from '../logging/logger.js';
 import { runWithLogContext, tag } from '../logging/context.js';
@@ -285,12 +286,16 @@ export class Orchestrator {
       this.startGenerations.set(t.id, (this.startGenerations.get(t.id) ?? 0) + 1);
       executorPool.releaseReservation(t.id);
     });
+    for (const todo of todos.filter(t => !running.some(r => r.id === t.id))) {
+      if (!await consensusReview.stop(todo.id)) running.push(todo);
+    }
     running.forEach((t) => this.stoppingTodoIds.add(t.id));
     waiting.forEach((t) => this.stoppingTodoIds.add(t.id));
     const unresolvedStops = new Set<string>();
 
     try {
       for (const todo of running) {
+        if (!await consensusReview.stop(todo.id)) { unresolvedStops.add(todo.id); continue; }
         await bulkReadService.cancelForOwner(todo.id);
         if (todo.process_pid) {
           const stopResult = todo.process_identity
@@ -463,6 +468,20 @@ export class Orchestrator {
   /**
    * Stop a single todo by ID.
    */
+  async completeConsensus(todoId: string, result: import('./review-pipeline.js').AdvanceRoundResult): Promise<void> {
+    const todo = queries.getTodoById(todoId);
+    if (!todo) return;
+    if (result.action === 'start_rework') { await this.startTodo(todoId);return; }
+    if (result.action === 'completed') {
+      await captureReviewMetadata(todoId);
+      const delegated = maybeCreateReviewTodo(todo.project_id,todoId);
+      if (delegated) broadcaster.broadcast({ type: 'todo:created',todo: delegated });
+      await this.startDependentChildren(todo.project_id,todoId);
+    }
+    this.broadcastProjectStatus(todo.project_id);
+    await this.wakeWaitingExecutors();
+  }
+
   async stopTodo(todoId: string): Promise<void> {
     const todo = queries.getTodoById(todoId);
     if (!todo) {
@@ -475,6 +494,7 @@ export class Orchestrator {
     executorPool.releaseReservation(todoId);
     let unresolved = false;
     try {
+      if (!await consensusReview.stop(todoId)) { unresolved = true; throw new Error('Consensus process termination remains unresolved; ownership retained'); }
       await bulkReadService.cancelForOwner(todoId);
       if (todo.process_pid) {
         const stopResult = todo.process_identity
@@ -525,6 +545,7 @@ export class Orchestrator {
     if (this.retainedRecoveryRunning) return 0;
     this.retainedRecoveryRunning = true;
     try {
+      await consensusReview.recover();
       const report = await reconcileRetainedProcesses(probe);
       if (report.released > 0) {
         await this.wakeWaitingExecutors();
@@ -745,6 +766,12 @@ export class Orchestrator {
           inputPayload: continueOptions?.followUpPrompt ?? todo.description ?? todo.title,
         });
       }
+    }
+    if (todo.review_enabled && todo.review_mode === 'consensus' && currentRound?.phase === 'review') {
+      if (this.stoppingTodoIds.has(todoId) || this.isStoppingProjects.has(projectId)) return;
+      try { consensusReview.start(todoId,currentRound.id); }
+      catch (error) { reviewPipeline.handleRoundFailure(todoId,currentRound.id,error instanceof Error ? error.message : 'Consensus start failed'); }
+      return;
     }
     const chainId = quotaChain('todo', todoId);
     const quotaSourceRound = chainId && currentRound?.retry_of_round_id ? queries.getExecutionRoundById(currentRound.retry_of_round_id) : undefined;

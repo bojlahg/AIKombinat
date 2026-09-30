@@ -144,7 +144,7 @@ interface TodoItemProps {
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
   onCleanup: (id: string, deleteBranch: boolean) => Promise<void>;
   onRetry: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -522,6 +522,8 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         initialResourceRequirements={todo.resource_requirements ?? null}
         initialReviewEnabled={todo.review_enabled}
         initialReviewProfileId={todo.review_profile_id}
+          initialReviewMode={todo.review_mode}
+          initialReviewPolicyId={todo.review_policy_id}
         initialReworkProfileId={todo.rework_profile_id}
         initialMaxReviewRounds={todo.max_review_rounds}
         projectId={todo.project_id}
@@ -533,8 +535,8 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         onDeleteImage={async (imageId) => {
           await todosApi.deleteTodoImage(todo.id, imageId);
         }}
-        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId) => {
-          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId);
+        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId) => {
+          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId);
           if (newImages && newImages.length > 0) {
             await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
           }
@@ -1019,6 +1021,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
             {(Boolean(todo.review_enabled) || rounds.length > 0) && (
               <section className="rounded-lg border border-theme-border bg-theme-card/50 p-3">
                 <ReviewTimeline
+                  onEvent={onEvent}
                   todo={todo}
                   rounds={rounds}
                   onApprove={todo.review_enabled ? handleApproveReview : undefined}

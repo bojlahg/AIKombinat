@@ -5,6 +5,8 @@ export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
 export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
 
 export type WSEvent =
+  | { type: 'consensus-review:batch-created' | 'consensus-review:batch-updated' | 'consensus-review:job-created' | 'consensus-review:job-updated' | 'consensus-review:attempt-updated' | 'consensus-review:completed'; todoId: string; batchId: string; jobId?: string; attemptId?: string }
+
   | { type: 'provider-account:created' | 'provider-account:updated' | 'provider-account:health' | 'provider-account:deleted'; accountId: string }
   | { type: 'provider-account:quota'; accountId: string; quota: import('../services/provider-quota.js').AccountQuotaStateRecord }
   | { type: 'orchestrator:created' | 'orchestrator:status-changed' | 'orchestrator:message' | 'orchestrator:turn-started' | 'orchestrator:turn-finished' | 'orchestrator:event' | 'orchestrator:child-updated' | 'orchestrator:resource-updated'; orchestratorId: string; projectId: string }

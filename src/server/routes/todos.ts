@@ -1,3 +1,5 @@
+import { validateReviewConfig } from '../services/review-policy.js';
+import { hasActiveConsensusReview } from '../services/consensus-review.js';
 import { Router, Request, Response } from 'express';
 import { createTodo, getTodosByProjectId, getTodoById, updateTodo, deleteTodo } from '../db/queries.js';
 import { getProjectById } from '../db/queries.js';
@@ -36,7 +38,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       return;
     }
 
-    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds } = req.body;
+    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, review_mode, review_policy_id } = req.body;
     if (!title) {
       res.status(400).json({ error: 'title is required' });
       return;
@@ -67,6 +69,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
     const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
     const execution = normalizeExecutionSelection({ providerAccountId: req.body.provider_account_id, accountPolicy: req.body.account_policy, cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
+    try { validateReviewConfig(review_mode,review_policy_id); } catch(error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid review configuration' });return; }
     const parsedMaxReviewRounds = max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3;
     const todo = createTodo(
       projectId,
@@ -92,7 +95,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       rework_profile_id ?? null,
       parsedMaxReviewRounds,
     );
-    updateTodo(todo.id, { provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy });
+    updateTodo(todo.id, { review_mode: review_mode ?? getProjectById(req.params.id)?.default_review_mode ?? 'single', review_policy_id: review_policy_id ?? null, provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy });
     res.status(201).json(getTodoById(todo.id));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -127,7 +130,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, pipeline_phase } = req.body;
+    const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, pipeline_phase, review_mode, review_policy_id } = req.body;
     const hasExecutionField = req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined;
     const execution = hasExecutionField
       ? normalizeExecutionSelection({
@@ -156,6 +159,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
         ? (memory_node_ids.length > 0 ? JSON.stringify(memory_node_ids.map(String)) : null)
         : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
+    try { validateReviewConfig(review_mode,review_policy_id); } catch(error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid review configuration' });return; }
     const normalizedResources = resource_requirements === undefined
       ? undefined
       : serializeResourceRequirements(normalizeResourceRequirements(resource_requirements));
@@ -169,6 +173,8 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       ...(normalizedRawFilePaths !== undefined ? { memory_raw_file_paths: normalizedRawFilePaths } : {}),
       ...(normalizedResources !== undefined ? { resource_requirements: normalizedResources } : {}),
       ...(review_enabled !== undefined ? { review_enabled: review_enabled ? 1 : 0 } : {}),
+      ...(review_mode !== undefined ? { review_mode } : {}),
+      ...(review_policy_id !== undefined ? { review_policy_id } : {}),
       ...(review_profile_id !== undefined ? { review_profile_id } : {}),
       ...(rework_profile_id !== undefined ? { rework_profile_id } : {}),
       ...(max_review_rounds !== undefined ? { max_review_rounds: max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3 } : {}),
@@ -189,7 +195,7 @@ router.delete('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       res.status(404).json({ error: 'Todo not found' });
       return;
     }
-    if (todo.status === 'running') {
+    if (todo.status === 'running' || hasActiveConsensusReview({ todoId: todo.id })) {
       res.status(400).json({ error: 'Cannot delete a running todo. Stop it first.' });
       return;
     }

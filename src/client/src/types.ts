@@ -19,6 +19,8 @@ export interface Project {
   npm_auto_install: number;
   memory_auto_ingest: number;
   auto_delegate: string | null;
+  default_review_mode?: 'single' | 'consensus';
+  default_review_policy_id?: string | null;
   default_review_profile_id?: string | null;
   default_max_review_rounds?: number | null;
   color: string | null;
@@ -110,6 +112,8 @@ export interface Todo {
   delegated_from?: string | null;
   resource_requirements?: string | null;
   review_enabled?: number;
+  review_mode?: 'single' | 'consensus';
+  review_policy_id?: string | null;
   review_profile_id?: string | null;
   rework_profile_id?: string | null;
   max_review_rounds?: number;
@@ -170,6 +174,8 @@ export interface Schedule {
   memory_raw_file_paths: string | null;
   resource_requirements: string | null;
   review_enabled?: number;
+  review_mode?: 'single' | 'consensus';
+  review_policy_id?: string | null;
   review_profile_id?: string | null;
   rework_profile_id?: string | null;
   max_review_rounds?: number | null;

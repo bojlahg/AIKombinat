@@ -188,12 +188,12 @@ export function isAccountAuthenticationFailure(id: string, output: string): bool
 
 export function accountUsage(id: string, activeOnly = false, excluded: string[] = []): number {
   let count = 0;
-  for (const table of ['todos', 'sessions', 'discussions', 'todo_execution_rounds', 'orchestrator_turns', 'delegation_runs', 'agent_forum_turns']) {
+  for (const table of ['todos', 'sessions', 'discussions', 'todo_execution_rounds', 'orchestrator_turns', 'delegation_runs', 'agent_forum_turns', 'consensus_review_attempts']) {
     const columns = getDatabase().pragma(`table_info(${table})`) as { name: string }[];
     if (!columns.some(column => column.name === 'execution_snapshot')) continue;
     const hasPid = columns.some(column => column.name === 'process_pid');
     if (activeOnly && !hasPid) continue;
-    const activeClause = table === 'agent_forum_turns' ? ' WHERE process_pid > 0' : " WHERE process_pid > 0 OR status IN ('running','starting')";
+    const activeClause = table === 'agent_forum_turns' || table === 'consensus_review_attempts' ? ' WHERE process_pid > 0' : " WHERE process_pid > 0 OR status IN ('running','starting')";
     const rows = getDatabase().prepare(`SELECT id, execution_snapshot FROM ${table}${activeOnly ? activeClause : ''}`)
       .all() as { id: string; execution_snapshot: string | null }[];
     for (const row of rows) {

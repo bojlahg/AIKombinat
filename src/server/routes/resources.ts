@@ -56,15 +56,19 @@ router.get('/resources/bindings', action(() => ({ bindings: getDatabase().prepar
   OR EXISTS(SELECT 1 FROM remote_executions e WHERE e.binding_id = b.id AND e.status <> 'exited') AS active
   FROM resource_bindings b ORDER BY created_at DESC LIMIT 200`).all() })));
 router.get('/resources/leases', action(() => ({ leases: getDatabase().prepare(`SELECT l.*, b.node_id, b.binding_json,
-  CASE WHEN l.owner_type = 'todo' THEN t.title ELSE s.title END AS owner_title,
-  CASE WHEN l.owner_type = 'todo' THEN t.project_id ELSE s.project_id END AS project_id,
-  CASE WHEN l.owner_type = 'todo' THEN t.process_pid ELSE s.process_pid END AS process_pid,
-  CASE WHEN l.owner_type = 'todo' THEN t.process_identity ELSE s.process_identity END AS process_identity,
-  CASE WHEN l.owner_type = 'todo' THEN t.execution_profile_id ELSE s.execution_profile_id END AS execution_profile_id,
-  CASE WHEN l.owner_type = 'todo' THEN t.execution_snapshot ELSE s.execution_snapshot END AS execution_snapshot
+  CASE WHEN l.owner_type = 'todo' THEN t.title WHEN l.owner_type = 'reviewer' THEN j.label ELSE s.title END AS owner_title,
+  CASE WHEN l.owner_type = 'todo' THEN t.project_id WHEN l.owner_type = 'reviewer' THEN ct.project_id ELSE s.project_id END AS project_id,
+  CASE WHEN l.owner_type = 'todo' THEN t.process_pid WHEN l.owner_type = 'reviewer' THEN a.process_pid ELSE s.process_pid END AS process_pid,
+  CASE WHEN l.owner_type = 'todo' THEN t.process_identity WHEN l.owner_type = 'reviewer' THEN a.process_identity ELSE s.process_identity END AS process_identity,
+  CASE WHEN l.owner_type = 'todo' THEN t.execution_profile_id WHEN l.owner_type = 'reviewer' THEN j.execution_profile_id ELSE s.execution_profile_id END AS execution_profile_id,
+  CASE WHEN l.owner_type = 'todo' THEN t.execution_snapshot WHEN l.owner_type = 'reviewer' THEN a.execution_snapshot ELSE s.execution_snapshot END AS execution_snapshot
   FROM resource_leases l LEFT JOIN resource_bindings b ON b.id = l.binding_id
   LEFT JOIN todos t ON l.owner_type = 'todo' AND t.id = l.owner_id
-  LEFT JOIN sessions s ON l.owner_type = 'session' AND s.id = l.owner_id ORDER BY l.acquired_at LIMIT 500`).all() })));
+  LEFT JOIN sessions s ON l.owner_type = 'session' AND s.id = l.owner_id
+  LEFT JOIN consensus_review_attempts a ON l.owner_type = 'reviewer' AND a.id = l.owner_id
+  LEFT JOIN consensus_review_jobs j ON j.id = a.review_job_id
+  LEFT JOIN consensus_review_batches cb ON cb.id = j.batch_id
+  LEFT JOIN todos ct ON ct.id = cb.todo_id ORDER BY l.acquired_at LIMIT 500`).all() })));
 router.post('/resources/match', action(req => {
   const requirements = toFabricRequirements(normalizeResourceRequirements(req.body));
   const nodes = getComputeNodes(), instances = getResourceInstances(), leased = resourceLeaseTotals();

@@ -1,3 +1,5 @@
+import ConsensusReviewDetails from './ConsensusReviewDetails';
+import type { WsEvent } from '../hooks/useWebSocket';
 import ExecutionAccountIdentity from './ExecutionAccountIdentity';
 import React, { useState } from 'react';
 import type { Todo, TodoExecutionRound, ReviewResult, ReviewIssueSeverity, RoundPhase } from '../types';
@@ -17,6 +19,7 @@ import {
 } from 'lucide-react';
 
 interface ReviewTimelineProps {
+  onEvent?: (cb: (event: WsEvent) => void) => () => void;
   todo: Todo;
   rounds: TodoExecutionRound[];
   onApprove?: () => void;
@@ -119,6 +122,7 @@ export default function ReviewTimeline({
   onStopLoop,
   onRetryRound,
   loadingAction,
+  onEvent,
 }: ReviewTimelineProps) {
   const { t } = useI18n();
   const [expandedIssues, setExpandedIssues] = useState<Record<string, boolean>>({});
@@ -234,6 +238,7 @@ export default function ReviewTimeline({
                     : 'bg-slate-900/20 border-slate-800/60'
                 }`}
               >
+                {round.phase === 'review' && todo.review_mode === 'consensus' && <ConsensusReviewDetails todoId={todo.id} roundId={round.id} onEvent={onEvent} />}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {round.status === 'running' ? (
@@ -306,7 +311,8 @@ export default function ReviewTimeline({
                 {/* Structured Review Verdict & Summary */}
                 {result && (
                   <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
-                    <div className="flex items-center justify-between">
+                    {round.phase === 'review' && todo.review_mode === 'consensus' && <ConsensusReviewDetails todoId={todo.id} roundId={round.id} onEvent={onEvent} />}
+                <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         {result.verdict === 'approved' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-600/50 font-semibold text-xs">

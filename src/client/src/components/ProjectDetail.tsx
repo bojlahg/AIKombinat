@@ -237,7 +237,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     });
   }, [onEvent, sendNotification, t]);
 
-  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => {
+  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => {
     if (!id) return;
     const newTodo = await todosApi.createTodo(id, {
       title, description, cli_tool: cliTool, cli_model: cliModel, provider_account_id: providerAccountId, account_policy: providerAccountId ? 'fixed' : 'inherited_default', cli_effort: cliEffort, execution_profile_id: executionProfileId,
@@ -246,6 +246,8 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
       ...(memoryNodeIds ? { memory_node_ids: memoryNodeIds } : {}),
       ...(memoryRawFilePaths ? { memory_raw_file_paths: memoryRawFilePaths } : {}),
       resource_requirements: resourceRequirements ?? [],
+      review_enabled: reviewEnabled, review_profile_id: reviewProfileId, rework_profile_id: reworkProfileId,
+      max_review_rounds: maxReviewRounds, review_mode: reviewMode, review_policy_id: reviewPolicyId,
     });
     if (images && images.length > 0) {
       const result = await todosApi.uploadTodoImages(newTodo.id, images.map(img => ({ name: img.name, data: img.data })));
@@ -297,7 +299,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setTodos((prev) => prev.filter((t) => t.id !== todoId));
   }, []);
 
-  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => {
+  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => {
     const updated = await todosApi.updateTodo(todoId, {
       title, description, cli_tool: cliTool, cli_model: cliModel, provider_account_id: providerAccountId, account_policy: providerAccountId ? 'fixed' : 'inherited_default', cli_effort: cliEffort, execution_profile_id: executionProfileId,
       depends_on: dependsOn ?? null, max_turns: maxTurns ?? null,
@@ -306,6 +308,8 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
       ...(memoryNodeIds ? { memory_node_ids: memoryNodeIds } : {}),
       ...(memoryRawFilePaths ? { memory_raw_file_paths: memoryRawFilePaths } : {}),
       resource_requirements: resourceRequirements ?? [],
+      review_enabled: reviewEnabled, review_profile_id: reviewProfileId, rework_profile_id: reworkProfileId,
+      max_review_rounds: maxReviewRounds, review_mode: reviewMode, review_policy_id: reviewPolicyId,
     });
     setTodos((prev) => prev.map((t) => (t.id === todoId ? updated : t)));
   }, []);
@@ -857,6 +861,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
 
       {activeTab === 'automation' && automationSub === 'tasks' && (
         <TodoList
+          projectDefaultReviewMode={project.default_review_mode}
           todos={todos}
           projectId={id}
           projectCliTool={project.cli_tool}

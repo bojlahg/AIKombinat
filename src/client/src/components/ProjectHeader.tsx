@@ -1,3 +1,4 @@
+import { getPolicies, type ReviewPolicy } from '../api/consensusReview';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import type { Project, Todo, Session } from '../types';
@@ -42,6 +43,10 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
   // presence (a folder can be both), or when SVN is already enabled so the
   // user can always reach the off switch.
   const [svnDetected, setSvnDetected] = useState(false);
+  const [defaultReviewMode,setDefaultReviewMode] = useState(project.default_review_mode ?? 'single');
+  const [defaultReviewPolicyId,setDefaultReviewPolicyId] = useState(project.default_review_policy_id ?? '');
+  const [reviewPolicies,setReviewPolicies] = useState<ReviewPolicy[]>([]);
+  useEffect(() => { void getPolicies().then(setReviewPolicies).catch(() => {}); },[]);
   const [defaultReviewProfileId, setDefaultReviewProfileId] = useState<string>(project.default_review_profile_id ?? '');
   const [defaultMaxReviewRounds, setDefaultMaxReviewRounds] = useState<number>(project.default_max_review_rounds ?? 3);
   const [availableProfiles, setAvailableProfiles] = useState<ExecutionProfile[]>([]);
@@ -147,6 +152,8 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
         svn_enabled: svnEnabled ? 1 : 0,
         show_token_usage: showTokenUsage ? 1 : 0,
         claude_options: claudeOptions || null,
+        default_review_mode: defaultReviewMode,
+        default_review_policy_id: defaultReviewPolicyId || null,
         default_review_profile_id: defaultReviewProfileId || null,
         default_max_review_rounds: defaultMaxReviewRounds,
         cli_fallback_chain: fallbackChain.length > 0 ? JSON.stringify(fallbackChain) : null,
@@ -421,6 +428,8 @@ export default function ProjectHeader({ project, todos, sessions, onProjectUpdat
             <h3 className="text-xs font-semibold text-warm-700 uppercase tracking-wider">
               {t('review.pipeline.title')}
             </h3>
+            <label className="block text-xs">{t('consensus.mode')}<select className="input-field" value={defaultReviewMode} onChange={e => setDefaultReviewMode(e.target.value as 'single' | 'consensus')}><option value="single">{t('consensus.single')}</option><option value="consensus">{t('consensus.consensus')}</option></select></label>
+            {defaultReviewMode === 'consensus' && <label className="block text-xs">{t('consensus.policy')}<select className="input-field" value={defaultReviewPolicyId} onChange={e => setDefaultReviewPolicyId(e.target.value)}><option value="">{t('consensus.noPolicy')}</option>{reviewPolicies.filter(p => p.is_enabled).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
             <div>
               <label className="block text-xs font-medium text-warm-500 mb-1">
                 {t('review.pipeline.projectDefaultProfile')}

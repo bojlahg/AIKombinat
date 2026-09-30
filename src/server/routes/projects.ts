@@ -1,3 +1,5 @@
+import { validateReviewConfig } from '../services/review-policy.js';
+import { hasActiveConsensusReview } from '../services/consensus-review.js';
 import { Router, Request, Response } from 'express';
 import nodePath from 'path';
 import fs from 'fs';
@@ -367,7 +369,8 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
       return;
     }
 
-    const { name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, svn_enabled, color, default_review_profile_id, default_max_review_rounds } = req.body;
+    try { validateReviewConfig(req.body.default_review_mode,req.body.default_review_policy_id); } catch(error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid review configuration' });return; }
+    const { name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, svn_enabled, color, default_review_profile_id, default_max_review_rounds, default_review_mode, default_review_policy_id } = req.body;
 
     if (auto_delegate !== undefined && auto_delegate !== null && parseAutoDelegate(auto_delegate) === null) {
       res.status(400).json({ error: 'auto_delegate must be JSON like {"from":"claude","to":"codex"} with valid CLI tools' });
@@ -393,6 +396,8 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
 
     const project = updateProject(req.params.id, {
       name, path, default_branch, max_concurrent, claude_model, claude_options, cli_tool, cli_fallback_chain, default_max_turns, sandbox_mode, debug_logging, use_worktree, show_token_usage, npm_auto_install, auto_delegate, color,
+      ...(default_review_mode !== undefined ? { default_review_mode } : {}),
+      ...(default_review_policy_id !== undefined ? { default_review_policy_id } : {}),
       ...(default_review_profile_id !== undefined ? { default_review_profile_id } : {}),
       ...(default_max_review_rounds !== undefined ? { default_max_review_rounds: default_max_review_rounds != null ? parseInt(default_max_review_rounds, 10) : null } : {}),
       ...(svn_enabled !== undefined ? { svn_enabled: Number(svn_enabled) } : {}),
@@ -424,6 +429,10 @@ router.put('/:id', async (req: Request<{ id: string }>, res: Response) => {
 // DELETE /api/projects/:id - delete project
 router.delete('/:id', (req: Request<{ id: string }>, res: Response) => {
   try {
+    if (hasActiveConsensusReview({ projectId: req.params.id })) {
+      res.status(409).json({ error: 'Consensus review ownership is active. Stop it before deleting the project.' });
+      return;
+    }
     // Clean up image files before CASCADE deletes DB rows
     cleanupProjectImages(req.params.id);
     const deleted = deleteProject(req.params.id);

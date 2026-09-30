@@ -69,6 +69,8 @@ import { resourceManager } from './services/resource-manager.js';
 import { resourceFabric } from './services/resource-fabric.js';
 import { providerQuotaService } from './services/provider-quota.js';
 import { executorPool } from './services/executor-pool.js';
+import consensusReviewRouter from './routes/consensus-review.js';
+import { consensusReview } from './services/consensus-review.js';
 import { reviewPipeline } from './services/review-pipeline.js';
 import { assertTestRuntimePathAllowed } from './utils/test-fs-guard.js';
 import { logger } from './logging/logger.js';
@@ -359,6 +361,7 @@ app.use('/api', plannerRouter);
 app.use('/api', memoryRouter);
 app.use('/api', vaultRouter);
 app.use('/api/review', reviewRouter);
+app.use('/api', consensusReviewRouter);
 app.use('/api', personalRouter);
 app.use('/api', favoritesRouter);
 app.use('/api', resourcesRouter);
@@ -370,23 +373,29 @@ mountPluginRoutes(app);
 resourceManager.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
   orchestratorAgent.wake();
+  consensusReview.wake();
 });
 resourceManager.initialize();
 resourceFabric.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingResources().catch(() => { /* ignore */ }));
   orchestratorAgent.wake();
+  consensusReview.wake();
 });
 resourceFabric.start();
 providerQuotaService.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingQuota().catch(() => { /* ignore */ }));
   orchestratorAgent.wake();
+  consensusReview.wake();
 });
 providerQuotaService.initialize();
 executorPool.setAvailabilityCallback(() => {
   setImmediate(() => orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ }));
   orchestratorAgent.wake();
+  consensusReview.wake();
 });
 await orchestratorAgent.initialize();
+consensusReview.setContinuation((todoId,result) => orchestrator.completeConsensus(todoId,result));
+await consensusReview.recover();
 reviewPipeline.reconcileOnStartup();
 setImmediate(() => {
   orchestrator.wakeWaitingExecutors().catch(() => { /* ignore */ });
@@ -477,6 +486,7 @@ function cleanup(reason = 'signal') {
   resourceFabric.shutdown();
   scheduler.stopAll();
   Promise.all([
+    consensusReview.shutdown(),
     orchestratorAgent.shutdown(),
     claudeManager.killAll(),
     tunnelManager.stopTunnel(),

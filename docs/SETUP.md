@@ -1538,3 +1538,9 @@ Open Settings → Agents → Accounts. Existing Claude, Codex and Antigravity CL
 ## Account-aware quota and automatic failover
 
 See [Quota V2](Account_Aware_Quota_V2.md). Select automatic account policy on an Execution Profile candidate to permit quota-only account failover. Fixed/inherited policies wait for their selected account. PROVIDER_QUOTA_COOLDOWN_MS defaults to 300000; MAX_ACCOUNT_FAILOVERS_PER_PHASE defaults to 3 (hard maximum 8). Settings → Provider Accounts shows Health and Quota separately; Clear exhaustion resets quota to unknown and wakes admission. Session resume remains pinned.
+
+## Consensus Review V1 setup
+
+Configure authenticated local Claude, Codex or OpenCode Execution Profiles, then open Settings → Review policies. Add 2–7 reviewers (default three), choose majority/unanimous/weighted/judge/judge-on-disagreement, require_all or quorum, diversity and parallelism. Judge strategies need a separate judge profile selection. Enable Review on a Todo, choose Consensus and its policy; configure the common Rework Profile for needs-changes. Project settings can supply default review mode/policy. Existing Single Review remains available.
+
+Every attempt obeys provider/account concurrency, quota and the Todo's Resource Fabric requirements. A consensus Todo uses one project concurrency slot. Fixed accounts remain pinned; automatic accounts can retry quota failures within one reviewer job. Native CLI authentication must be available to the server process. See [configuration, lifecycle and API](Consensus_Review_V1.md) and [real/synthetic evidence](Consensus_Review_V1_Smoke_Report.md).

@@ -1,3 +1,4 @@
+import ReviewPoliciesPanel from './ReviewPoliciesPanel';
 import { useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { Bot, Cloud, KeyRound, MonitorCog, Plug, Settings, TerminalSquare, Workflow } from 'lucide-react';
@@ -24,6 +25,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
   const tabs = [
     { id: 'general', label: t('settings.tabs.general'), icon: MonitorCog },
     { id: 'provider-accounts', label: t('accounts.title'), icon: KeyRound },
+    { id: 'review-policies', label: t('consensus.policies'), icon: Workflow },
     { id: 'agents', label: t('settings.tabs.agents'), icon: Bot },
     { id: 'delegation', label: t('settings.tabs.delegation'), icon: Workflow },
     { id: 'resources', label: t('fabric.title'), icon: MonitorCog },
@@ -73,6 +75,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPanel />} />
               <Route path="provider-accounts" element={<div className="p-5"><ProviderAccountsPanel onEvent={onEvent} /></div>} />
+              <Route path="review-policies" element={<ReviewPoliciesPanel />} />
               <Route path="agents" element={<AgentsSettingsPanel onEvent={onEvent} />} />
               <Route path="delegation" element={<DelegationSettingsPanel />} />
               <Route path="resources" element={<ResourcesSettingsPanel onEvent={onEvent} />} />

@@ -18,7 +18,7 @@ interface TaskNodeDetailProps {
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
   onClose: () => void;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => Promise<void>;
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
@@ -180,6 +180,8 @@ export default function TaskNodeDetail({
         initialResourceRequirements={todo.resource_requirements ?? null}
           initialReviewEnabled={todo.review_enabled}
           initialReviewProfileId={todo.review_profile_id}
+          initialReviewMode={todo.review_mode}
+          initialReviewPolicyId={todo.review_policy_id}
           initialReworkProfileId={todo.rework_profile_id}
           initialMaxReviewRounds={todo.max_review_rounds}
           initialDependsOn={todo.depends_on ?? undefined}
@@ -191,8 +193,8 @@ export default function TaskNodeDetail({
           todoId={todo.id}
           availableTodos={allTodos.filter(t => t.id !== todo.id)}
           onDeleteImage={async (imageId) => { await todosApi.deleteTodoImage(todo.id, imageId); }}
-          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId) => {
-            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId);
+          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId) => {
+            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId);
             if (newImages && newImages.length > 0) {
               await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
             }

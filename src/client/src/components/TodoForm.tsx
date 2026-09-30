@@ -1,3 +1,4 @@
+import { getPolicies, type ReviewPolicy } from '../api/consensusReview';
 import { parseResourceRequirements } from '../utils/resource-requirements';
 import type { ResourceRequirements } from '../types';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -30,7 +31,7 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
@@ -46,6 +47,9 @@ interface TodoFormProps {
   initialMemoryRawFilePaths?: string | null;
   initialResourceRequirements?: string | null;
   initialReviewEnabled?: number;
+  projectDefaultReviewMode?: 'single' | 'consensus';
+  initialReviewMode?: 'single' | 'consensus';
+  initialReviewPolicyId?: string | null;
   initialReviewProfileId?: string | null;
   initialReworkProfileId?: string | null;
   initialMaxReviewRounds?: number;
@@ -78,6 +82,9 @@ export default function TodoForm({
   initialMemoryRawFilePaths = null,
   initialResourceRequirements = null,
   initialReviewEnabled = 0,
+  projectDefaultReviewMode,
+  initialReviewMode = projectDefaultReviewMode ?? 'single',
+  initialReviewPolicyId = null,
   initialReviewProfileId = null,
   initialReworkProfileId = null,
   initialMaxReviewRounds = 3,
@@ -106,6 +113,10 @@ export default function TodoForm({
   const [vaultPaths, setVaultPaths] = useState<string[]>(parseRawFilePaths(initialMemoryRawFilePaths));
   const [resourceRequirements, setResourceRequirements] = useState<ResourceRequirements>(parseResourceRequirements(initialResourceRequirements));
   const [reviewEnabled, setReviewEnabled] = useState<boolean>(initialReviewEnabled === 1);
+  const [reviewMode,setReviewMode] = useState(initialReviewMode);
+  const [reviewPolicyId,setReviewPolicyId] = useState(initialReviewPolicyId ?? '');
+  const [reviewPolicies,setReviewPolicies] = useState<ReviewPolicy[]>([]);
+  useEffect(() => { void getPolicies().then(setReviewPolicies).catch(() => {}); },[]);
   const [reviewProfileId, setReviewProfileId] = useState<string>(initialReviewProfileId ?? '');
   const [reworkProfileId, setReworkProfileId] = useState<string>(initialReworkProfileId ?? '');
   const [maxReviewRounds, setMaxReviewRounds] = useState<number>(initialMaxReviewRounds ?? 3);
@@ -190,7 +201,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds, executionProfileId ? null : providerAccountId);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds, executionProfileId ? null : providerAccountId, reviewMode, reviewPolicyId || null);
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -447,6 +458,10 @@ export default function TodoForm({
 
         {reviewEnabled && (
           <div className="mt-3 pl-6 space-y-3 pt-2 border-t border-theme-border/60">
+            <label className="block text-xs">{t('consensus.mode')}<select className="input-field" value={reviewMode} onChange={e => setReviewMode(e.target.value as 'single' | 'consensus')}><option value="single">{t('consensus.single')}</option><option value="consensus">{t('consensus.consensus')}</option></select></label>
+            {reviewMode === 'consensus' && <label className="block text-xs">{t('consensus.policy')}<select className="input-field" value={reviewPolicyId} onChange={e => setReviewPolicyId(e.target.value)}><option value="">{t('todoForm.worktreeInherit')}</option>{reviewPolicies.filter(p => p.is_enabled).map(p => <option key={p.id} value={p.id}>{p.name} · {t(`consensus.${p.strategy}`)}</option>)}</select></label>}
+            {reviewMode === 'single' && <>
+
             <div>
               <label className="block text-xs font-medium text-warm-500 mb-1">
                 {t('review.pipeline.reviewProfile')}
@@ -468,6 +483,7 @@ export default function TodoForm({
               </p>
             </div>
 
+            </>}
             <div>
               <label className="block text-xs font-medium text-warm-500 mb-1">
                 {t('review.pipeline.reworkProfile')}

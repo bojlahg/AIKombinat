@@ -28,7 +28,9 @@ export function createTodo(
     memory_raw_file_paths?: string[];
     resource_requirements?: ResourceRequirements;
     review_enabled?: number;
-    review_profile_id?: string | null;
+    review_mode?: 'single' | 'consensus';
+  review_policy_id?: string | null;
+  review_profile_id?: string | null;
     rework_profile_id?: string | null;
     max_review_rounds?: number;
   }
@@ -60,7 +62,9 @@ export function updateTodo(
     memory_raw_file_paths?: string[];
     resource_requirements?: ResourceRequirements;
     review_enabled?: number;
-    review_profile_id?: string | null;
+    review_mode?: 'single' | 'consensus';
+  review_policy_id?: string | null;
+  review_profile_id?: string | null;
     rework_profile_id?: string | null;
     max_review_rounds?: number;
     pipeline_phase?: 'implementation' | 'review' | 'rework' | null;

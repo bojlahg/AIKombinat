@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'node:os';
 import { migrateProviderAccounts } from './provider-accounts.js';
+import { migrateConsensusReview } from './consensus-review.js';
 import { migrateAccountQuota } from './account-quota.js';
 
 export function migrateOrchestratorResourceChecks(db: Database.Database): void {
@@ -800,6 +801,10 @@ export function initDatabase(db: Database.Database): void {
 
   // Backwards-compatible migration: add new columns to existing DBs
   const migrations = [
+    { table: 'todos', column: 'review_mode', definition: "TEXT NOT NULL DEFAULT 'single' CHECK(review_mode IN ('single','consensus'))" },
+    { table: 'todos', column: 'review_policy_id', definition: 'TEXT REFERENCES review_policies(id)' },
+    { table: 'projects', column: 'default_review_mode', definition: "TEXT NOT NULL DEFAULT 'single' CHECK(default_review_mode IN ('single','consensus'))" },
+    { table: 'projects', column: 'default_review_policy_id', definition: 'TEXT REFERENCES review_policies(id)' },
     { table: 'todos', column: 'quota_chain_id', definition: 'TEXT' },
     { table: 'orchestrator_turns', column: 'quota_chain_id', definition: 'TEXT' },
     { table: 'todos', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
@@ -1073,6 +1078,7 @@ export function initDatabase(db: Database.Database): void {
   // and enforce the core "one reply per agent per target" rule in the DB.
   migrateAgentForumTurnHistory(db);
   enforceAgentForumUniqueIndexes(db);
+  migrateConsensusReview(db);
 
 }
 function migrateOpenCodeCatalog(db: Database.Database): void {

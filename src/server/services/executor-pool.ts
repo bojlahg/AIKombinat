@@ -194,11 +194,13 @@ export class ExecutorPool {
     const runningTodos = queries.getTodosByStatus('running');
     for (const todo of runningTodos) {
       if (options.excludeTodoId && todo.id === options.excludeTodoId) continue;
+      if (todo.review_mode === 'consensus' && todo.pipeline_phase === 'review' && !todo.process_pid) continue;
       if (getTodoActiveCliTool(todo) === tool) count++;
     }
     for (const todo of queries.getTodosWithPersistedProcess()) {
       if (!hasUnresolvedProcess(todo)) continue;
       if (options.excludeTodoId && todo.id === options.excludeTodoId) continue;
+      if (todo.review_mode === 'consensus' && todo.pipeline_phase === 'review' && !todo.process_pid) continue;
       if (getTodoActiveCliTool(todo) === tool) count++;
     }
 
@@ -245,6 +247,13 @@ export class ExecutorPool {
       count += turns.filter(turn => turn.id !== options.excludeReservationOwnerId && !this.reservations.has(turn.id)).length;
     }
 
+    const reviewerAttempts = getDatabase().prepare('SELECT id,execution_snapshot FROM consensus_review_attempts WHERE process_pid > 0').all() as { id: string; execution_snapshot: string | null }[];
+    for (const attempt of reviewerAttempts) {
+      const owner = `consensus-review:${attempt.id}`;
+      if (owner === options.excludeReservationOwnerId || this.reservations.has(owner)) continue;
+      try { if (JSON.parse(attempt.execution_snapshot ?? '{}').agent === tool) count++; } catch { /* legacy snapshot */ }
+    }
+
     return count;
   }
 
@@ -284,6 +293,8 @@ export class ExecutorPool {
       interactive?: boolean;
       allowedCliTools?: readonly CliTool[];
       requireDelegationWorkerIsolation?: boolean;
+    avoidCliTools?: readonly string[];
+    avoidProviderAccountIds?: readonly string[];
     excludedProviderAccountIds?: readonly string[];
     preferredCandidateId?: string;
     onlyCandidateId?: string;
@@ -413,7 +424,7 @@ export class ExecutorPool {
       catch { return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority, status: 'invalid', reason: 'Invalid account policy or provider account' }; }
       accounts.sort((a, b) => {
         const rank = (account: ProviderAccount) => (providerQuotaService.getAccountQuotaState(account.id).state === 'available' ? 0 : 2) + (account.health_state === 'available' ? 0 : 1);
-        return rank(a) - rank(b) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+        return rank(a) - rank(b) || Number(options.avoidProviderAccountIds?.includes(a.id) ?? false) - Number(options.avoidProviderAccountIds?.includes(b.id) ?? false) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
       });
       const diagnostics = accounts.map(account => {
         const quota = providerQuotaService.getAccountQuotaState(account.id);
@@ -462,7 +473,7 @@ export class ExecutorPool {
   getActiveAccountUsage(id: string, options: { excludeTodoId?: string; excludeSessionId?: string; excludeDiscussionId?: string; excludeReservationOwnerId?: string } = {}): number {
     const excluded = [options.excludeTodoId, options.excludeSessionId, options.excludeDiscussionId, options.excludeReservationOwnerId].filter((id): id is string => !!id);
     const reservations = [...this.reservations.values()].filter(res => !excluded.includes(res.ownerId));
-    return accountUsage(id, true, [...excluded, ...reservations.map(res => res.ownerId)]) + reservations.filter(res => res.providerAccountId === id).length;
+    return accountUsage(id, true, [...excluded, ...reservations.flatMap(res => [res.ownerId, res.ownerId.replace(/^consensus-review:/, '')])]) + reservations.filter(res => res.providerAccountId === id).length;
   }
 
   bindManualAccount(config: ResolvedExecutionConfig | null, options: { excludeTodoId?: string; excludeSessionId?: string; excludeDiscussionId?: string; excludedProviderAccountIds?: readonly string[] } = {}): ResolvedExecutionConfig | null {
@@ -487,6 +498,8 @@ export class ExecutorPool {
     reserveOwnerId?: string;
     allowedCliTools?: readonly CliTool[];
     requireDelegationWorkerIsolation?: boolean;
+    avoidCliTools?: readonly string[];
+    avoidProviderAccountIds?: readonly string[];
     excludedProviderAccountIds?: readonly string[];
     preferredCandidateId?: string;
     onlyCandidateId?: string;
@@ -531,6 +544,8 @@ export class ExecutorPool {
     reserveOwnerId?: string;
     allowedCliTools?: readonly CliTool[];
     requireDelegationWorkerIsolation?: boolean;
+    avoidCliTools?: readonly string[];
+    avoidProviderAccountIds?: readonly string[];
     excludedProviderAccountIds?: readonly string[];
     preferredCandidateId?: string;
     onlyCandidateId?: string;
@@ -548,7 +563,7 @@ export class ExecutorPool {
     }
 
     // Keep deterministic priority ordering
-    const sortedExecutors = [...profile.executors].filter(candidate => !input.onlyCandidateId || candidate.id === input.onlyCandidateId).sort((a, b) => Number(b.id === input.preferredCandidateId) - Number(a.id === input.preferredCandidateId) || a.priority - b.priority || a.created_at.localeCompare(b.created_at));
+    const sortedExecutors = [...profile.executors].filter(candidate => !input.onlyCandidateId || candidate.id === input.onlyCandidateId).sort((a, b) => Number(b.id === input.preferredCandidateId) - Number(a.id === input.preferredCandidateId) || a.priority - b.priority || Number(input.avoidCliTools?.includes(a.cli_tool) ?? false) - Number(input.avoidCliTools?.includes(b.cli_tool) ?? false) || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 
     const evaluations: CandidateEvaluation[] = [];
     let selectedCandidate: queries.ExecutionProfileExecutor | undefined;
@@ -556,6 +571,7 @@ export class ExecutorPool {
 
     for (const candidate of sortedExecutors) {
       const evaluation = await this.evaluateCandidate(candidate, {
+        avoidProviderAccountIds: input.avoidProviderAccountIds,
         excludedProviderAccountIds: input.excludedProviderAccountIds,
         interactive: input.interactive,
         allowedCliTools: input.allowedCliTools,

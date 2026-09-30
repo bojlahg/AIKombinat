@@ -8,7 +8,7 @@ import { externallyBusy, matchResources } from './resource-matcher.js';
 import type { FabricBinding } from './resource-fabric-types.js';
 import { logger } from '../logging/logger.js';
 
-export type ResourceOwnerType = 'todo' | 'session' | 'orchestrator';
+export type ResourceOwnerType = 'todo' | 'session' | 'orchestrator' | 'reviewer';
 
 export interface ResourceAcquireRequest {
   ownerType: ResourceOwnerType;
@@ -132,7 +132,7 @@ export class ResourceManager {
       const decision = matchResources(requirement, nodes.filter(node => allowed.includes(node.transport)).map(node => ({ node, instances: instances.filter(instance => instance.node_id === node.id), leased, workspacePath: request.workspacePath })));
       const waiting = request.requestId ? { id: request.requestId } : db.prepare("SELECT id FROM resource_requests WHERE owner_type = ? AND owner_id = ? AND status IN ('pending', 'waiting') ORDER BY created_at, id LIMIT 1").get(request.ownerType, request.ownerId) as { id: string } | undefined;
       const requestId = waiting?.id ?? uuidv4();
-      const owner = db.prepare(`SELECT ${request.ownerType === 'todo' ? 'priority' : '0 AS priority'} FROM ${request.ownerType === 'todo' ? 'todos' : request.ownerType === 'orchestrator' ? 'orchestrators' : 'sessions'} WHERE id = ?`).get(request.ownerId) as { priority: number } | undefined;
+      const owner = db.prepare(`SELECT ${request.ownerType === 'todo' ? 'priority' : '0 AS priority'} FROM ${request.ownerType === 'todo' ? 'todos' : request.ownerType === 'orchestrator' ? 'orchestrators' : request.ownerType === 'reviewer' ? 'consensus_review_attempts' : 'sessions'} WHERE id = ?`).get(request.ownerId) as { priority: number } | undefined;
       if (!owner) throw new Error('Resource owner does not exist');
       db.prepare(`INSERT INTO resource_requests (id, owner_type, owner_id, run_token, requirements_json, status, priority, reasons_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET run_token = excluded.run_token, requirements_json = excluded.requirements_json, status = excluded.status, priority = excluded.priority, reasons_json = excluded.reasons_json`).run(requestId, request.ownerType, request.ownerId, request.runToken, canonicalJson(requirement), decision.binding ? 'bound' : 'waiting', owner.priority, canonicalJson(decision.rejected), nowIso);
@@ -355,7 +355,7 @@ export class ResourceManager {
         }
         continue;
       }
-      const ownerTable = row.owner_type === 'todo' ? 'todos' : 'sessions';
+      const ownerTable = row.owner_type === 'todo' ? 'todos' : row.owner_type === 'reviewer' ? 'consensus_review_attempts' : 'sessions';
       const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
         | { status: string; process_pid: number | null }
         | undefined;
@@ -393,7 +393,7 @@ export class ResourceManager {
           continue;
         }
         const row = leases[0];
-        const ownerTable = row.owner_type === 'todo' ? 'todos' : 'sessions';
+        const ownerTable = row.owner_type === 'todo' ? 'todos' : row.owner_type === 'reviewer' ? 'consensus_review_attempts' : 'sessions';
         const owner = db.prepare(`SELECT status, process_pid FROM ${ownerTable} WHERE id = ?`).get(row.owner_id) as
           | { status: string; process_pid: number | null }
           | undefined;

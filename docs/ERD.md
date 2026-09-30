@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 61 tables, 690 columns, 84 foreign keys
+Stats: 66 tables, 776 columns, 98 foreign keys
 
 ## Diagram
 
@@ -28,8 +28,10 @@ erDiagram
     todos ||--o{ orchestrator_child_jobs : "todo_id"
     orchestrator_turns ||--o{ orchestrator_child_jobs : "created_by_turn_id"
     orchestrator_resource_requests ||--o{ orchestrator_child_jobs : "resource_request_id"
+    review_policies ||--o{ projects : "default_review_policy_id"
     execution_profiles ||--o{ projects : "default_review_profile_id"
     projects ||--o{ todos : "project_id"
+    review_policies ||--o{ todos : "review_policy_id"
     provider_accounts ||--o{ todos : "provider_account_id"
     cli_models ||--o{ todos : "cli_model_id"
     execution_profiles ||--o{ todos : "execution_profile_id"
@@ -95,6 +97,18 @@ erDiagram
     provider_accounts ||--o{ provider_account_quota_state : "provider_account_id"
     provider_accounts ||--o{ account_failover_events : "from_account_id"
     provider_accounts ||--o{ account_failover_events : "to_account_id"
+    execution_profiles ||--o{ review_policies : "judge_execution_profile_id"
+    review_policies ||--o{ review_policy_members : "review_policy_id"
+    execution_profiles ||--o{ review_policy_members : "execution_profile_id"
+    todos ||--o{ consensus_review_batches : "todo_id"
+    todo_execution_rounds ||--o{ consensus_review_batches : "review_round_id"
+    review_policies ||--o{ consensus_review_batches : "review_policy_id"
+    execution_profiles ||--o{ consensus_review_batches : "judge_execution_profile_id"
+    consensus_review_batches ||--o{ consensus_review_jobs : "batch_id"
+    review_policy_members ||--o{ consensus_review_jobs : "policy_member_id"
+    execution_profiles ||--o{ consensus_review_jobs : "execution_profile_id"
+    consensus_review_jobs ||--o{ consensus_review_attempts : "review_job_id"
+    consensus_review_attempts ||--o{ consensus_review_attempts : "retry_of_attempt_id"
 
     orchestrators {
         TEXT id PK
@@ -196,6 +210,8 @@ erDiagram
         TEXT claude_options
         DATETIME created_at
         DATETIME updated_at
+        TEXT default_review_mode
+        TEXT default_review_policy_id FK
         TEXT cli_tool
         INTEGER default_max_turns
         TEXT cli_fallback_chain
@@ -229,6 +245,8 @@ erDiagram
         TEXT review_baseline
         DATETIME created_at
         DATETIME updated_at
+        TEXT review_mode
+        TEXT review_policy_id FK
         TEXT quota_chain_id
         TEXT provider_account_id FK
         TEXT account_policy
@@ -907,6 +925,98 @@ erDiagram
         INTEGER attempt_index_from
         INTEGER attempt_index_to
         TEXT created_at
+    }
+    review_policies {
+        TEXT id PK
+        TEXT name
+        TEXT description
+        TEXT strategy
+        TEXT failure_policy
+        INTEGER min_successful_reviewers
+        TEXT judge_execution_profile_id FK
+        TEXT diversity_policy
+        INTEGER max_parallel_reviewers
+        INTEGER is_enabled
+        INTEGER sort_order
+        TEXT created_at
+        TEXT updated_at
+    }
+    review_policy_members {
+        TEXT id PK
+        TEXT review_policy_id FK
+        TEXT execution_profile_id FK
+        TEXT label
+        INTEGER weight
+        INTEGER priority
+        INTEGER is_enabled
+        INTEGER retired
+        TEXT created_at
+        TEXT updated_at
+    }
+    consensus_review_batches {
+        TEXT id PK
+        TEXT todo_id FK
+        TEXT review_round_id FK,UK
+        TEXT review_policy_id FK
+        TEXT strategy
+        TEXT failure_policy
+        INTEGER min_successful_reviewers
+        TEXT diversity_policy
+        INTEGER max_parallel_reviewers
+        TEXT judge_execution_profile_id FK
+        TEXT status
+        INTEGER stop_requested
+        TEXT artifact_identity_json
+        TEXT evidence_hash
+        TEXT aggregate_result_json
+        TEXT failure_reason
+        TEXT judge_job_id
+        TEXT created_at
+        TEXT started_at
+        TEXT finished_at
+        TEXT updated_at
+    }
+    consensus_review_jobs {
+        TEXT id PK
+        TEXT batch_id FK
+        TEXT role
+        TEXT policy_member_id FK
+        TEXT execution_profile_id FK
+        TEXT label
+        INTEGER weight
+        INTEGER priority
+        TEXT status
+        TEXT final_result_payload
+        TEXT final_error_message
+        TEXT quota_chain_id
+        TEXT created_at
+        TEXT started_at
+        TEXT finished_at
+        TEXT updated_at
+    }
+    consensus_review_attempts {
+        TEXT id PK
+        TEXT review_job_id FK
+        INTEGER attempt_index
+        TEXT status
+        TEXT run_token UK
+        TEXT execution_snapshot
+        TEXT input_payload
+        TEXT result_payload
+        TEXT error_message
+        INTEGER process_pid
+        TEXT process_identity
+        TEXT quota_chain_id
+        TEXT retry_of_attempt_id FK
+        TEXT diversity_diagnostics_json
+        INTEGER duration_ms
+        INTEGER input_tokens
+        INTEGER output_tokens
+        REAL cost_usd
+        TEXT started_at
+        TEXT finished_at
+        TEXT created_at
+        TEXT updated_at
     }
 ```
 

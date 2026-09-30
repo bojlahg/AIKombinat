@@ -24,6 +24,8 @@ export interface Project {
   npm_auto_install: number;
   memory_auto_ingest: number;
   auto_delegate: string | null;
+  default_review_mode: 'single' | 'consensus';
+  default_review_policy_id: string | null;
   default_review_profile_id: string | null;
   default_max_review_rounds: number | null;
   color: string | null;
@@ -69,7 +71,7 @@ export function getProjectById(id: string): Project | undefined {
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | undefined;
 }
 
-export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'default_review_profile_id' | 'default_max_review_rounds' | 'color'>>): Project | undefined {
+export function updateProject(id: string, updates: Partial<Pick<Project, 'name' | 'path' | 'default_branch' | 'is_git_repo' | 'vcs_type' | 'svn_enabled' | 'max_concurrent' | 'claude_model' | 'claude_options' | 'cli_tool' | 'cli_fallback_chain' | 'default_max_turns' | 'sandbox_mode' | 'debug_logging' | 'use_worktree' | 'show_token_usage' | 'npm_auto_install' | 'memory_auto_ingest' | 'auto_delegate' | 'default_review_mode' | 'default_review_policy_id' | 'default_review_profile_id' | 'default_max_review_rounds' | 'color'>>): Project | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -93,6 +95,8 @@ export function updateProject(id: string, updates: Partial<Pick<Project, 'name' 
   if (updates.npm_auto_install !== undefined) { fields.push('npm_auto_install = ?'); values.push(updates.npm_auto_install); }
   if (updates.memory_auto_ingest !== undefined) { fields.push('memory_auto_ingest = ?'); values.push(updates.memory_auto_ingest); }
   if (updates.auto_delegate !== undefined) { fields.push('auto_delegate = ?'); values.push(updates.auto_delegate); }
+  if (updates.default_review_mode !== undefined) { fields.push('default_review_mode = ?'); values.push(updates.default_review_mode); }
+  if (updates.default_review_policy_id !== undefined) { fields.push('default_review_policy_id = ?'); values.push(updates.default_review_policy_id); }
   if (updates.default_review_profile_id !== undefined) { fields.push('default_review_profile_id = ?'); values.push(updates.default_review_profile_id); }
   if (updates.default_max_review_rounds !== undefined) { fields.push('default_max_review_rounds = ?'); values.push(updates.default_max_review_rounds); }
   if (updates.color !== undefined) { fields.push('color = ?'); values.push(updates.color); }
@@ -190,6 +194,8 @@ export interface Todo {
   delegated_from: string | null;
   resource_requirements: string | null;
   review_enabled: number;
+  review_mode: 'single' | 'consensus';
+  review_policy_id: string | null;
   review_profile_id: string | null;
   rework_profile_id: string | null;
   max_review_rounds: number;
@@ -259,6 +265,7 @@ export function createTodo(
     now,
     now,
   );
+  db.prepare('UPDATE todos SET review_mode = (SELECT default_review_mode FROM projects WHERE id = ?) WHERE id = ?').run(projectId,id);
   return getTodoById(id)!;
 }
 
@@ -272,7 +279,7 @@ export function getTodoById(id: string): Todo | undefined {
   return db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'process_identity' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase' | 'review_baseline'>>): Todo | undefined {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'process_identity' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_mode' | 'review_policy_id' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase' | 'review_baseline'>>): Todo | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -317,6 +324,8 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.memory_raw_file_paths !== undefined) { fields.push('memory_raw_file_paths = ?'); values.push(updates.memory_raw_file_paths); }
   if (updates.resource_requirements !== undefined) { fields.push('resource_requirements = ?'); values.push(updates.resource_requirements); }
   if (updates.review_enabled !== undefined) { fields.push('review_enabled = ?'); values.push(updates.review_enabled ? 1 : 0); }
+  if (updates.review_mode !== undefined) { fields.push('review_mode = ?'); values.push(updates.review_mode); }
+  if (updates.review_policy_id !== undefined) { fields.push('review_policy_id = ?'); values.push(updates.review_policy_id); }
   if (updates.review_profile_id !== undefined) { fields.push('review_profile_id = ?'); values.push(updates.review_profile_id); }
   if (updates.rework_profile_id !== undefined) { fields.push('rework_profile_id = ?'); values.push(updates.rework_profile_id); }
   if (updates.max_review_rounds !== undefined) { fields.push('max_review_rounds = ?'); values.push(updates.max_review_rounds); }

@@ -401,7 +401,7 @@ describe('V2 migration', () => {
     db.pragma('foreign_keys = OFF');
     for (const name of ['resource_requests','resource_leases']) {
       const definition = (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { sql: string }).sql
-        .replace(`CREATE TABLE ${name}`, `CREATE TABLE ${name}_v2`).replace(", 'orchestrator'", '').replace(", 'claimed', 'released', 'expired'", '');
+        .replace(/CREATE TABLE\s+["`]?\w+["`]?/i, `CREATE TABLE ${name}_v2`).replace(", 'orchestrator'", '').replace(", 'reviewer'", '').replace(", 'claimed', 'released', 'expired'", '');
       db.exec(definition); db.exec(`INSERT INTO ${name}_v2 SELECT * FROM ${name}`); db.exec(`DROP TABLE ${name}`); db.exec(`ALTER TABLE ${name}_v2 RENAME TO ${name}`);
     }
     db.pragma('foreign_keys = ON'); migrateOrchestratorResourceChecks(db); initDatabase(db); initDatabase(db);

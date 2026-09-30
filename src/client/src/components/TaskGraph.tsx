@@ -89,7 +89,8 @@ interface TaskGraphProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements) => Promise<void>;
+  projectDefaultReviewMode?: 'single' | 'consensus';
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => Promise<void>;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStopTodo: (id: string) => Promise<void>;
   onDeleteTodo: (id: string) => Promise<void>;
@@ -114,6 +115,7 @@ export default function TaskGraph({
   projectCliTool,
   projectIsGitRepo,
   projectUseWorktree,
+  projectDefaultReviewMode,
   onAddTodo,
   onStartTodo,
   onStopTodo,
@@ -347,13 +349,14 @@ export default function TaskGraph({
       {showForm && (
         <Modal open onClose={() => setShowForm(false)} size="lg">
           <TodoForm
+              projectDefaultReviewMode={projectDefaultReviewMode}
             projectId={projectId}
             projectCliTool={projectCliTool}
             projectIsGitRepo={projectIsGitRepo}
             projectUseWorktree={projectUseWorktree}
             availableTodos={todos}
-            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements) => {
-              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements);
+            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId) => {
+              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId);
               setShowForm(false);
             }}
             onCancel={() => setShowForm(false)}

@@ -1,3 +1,4 @@
+import { reviewPipeline } from './review-pipeline.js';
 import { setQuotaChain } from './account-failover.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../db/connection.js';
@@ -5,6 +6,7 @@ import {
   type Todo,
   type TodoExecutionRound,
   getTodoById,
+  getProjectById,
   getExecutionRoundById,
   getLatestExecutionRound,
   getActiveExecutionRound,
@@ -103,6 +105,20 @@ export class ExecutionRoundRetryService {
     }
 
     const db = getDatabase();
+    if (db.prepare(`SELECT a.id FROM consensus_review_attempts a JOIN consensus_review_jobs j ON j.id=a.review_job_id
+      JOIN consensus_review_batches b ON b.id=j.batch_id WHERE b.todo_id=? AND (a.process_pid > 0 OR a.status IN ('starting','running','recovery_required')) LIMIT 1`).get(todoId)) {
+      throw new RetryConflictError('Consensus reviewer process ownership is unresolved.');
+    }
+    let freshEvidence: { prompt: string; identity: string } | undefined;
+    if (todo.review_mode === 'consensus' && sourceRound.phase === 'review') {
+      const project = getProjectById(todo.project_id);
+      if (!project) throw new RetryConflictError('Project not found');
+      const artifact = await reviewPipeline.collectReviewArtifact(todo,project);
+      if (!artifact.identity) throw new RetryConflictError('Review artifact unavailable');
+      freshEvidence = { identity: JSON.stringify(artifact.identity),prompt: reviewPipeline.buildReviewPrompt({
+        todo,project,roundIndex: sourceRound.round_index+1,attemptNumber: 1,maxAttempts: todo.max_review_rounds,diffSummary: artifact.summary,
+      }) };
+    }
     let newRound: TodoExecutionRound | undefined;
 
     db.transaction(() => {
@@ -151,10 +167,10 @@ export class ExecutionRoundRetryService {
         newRunToken,
         {
           status: 'pending',
-          inputPayload: freshRound.input_payload,
+          inputPayload: freshEvidence?.prompt ?? freshRound.input_payload,
           retryOfRoundId: freshRound.id,
           attemptIndex,
-          artifactIdentity: freshRound.artifact_identity,
+          artifactIdentity: freshEvidence?.identity ?? freshRound.artifact_identity,
         }
       );
 

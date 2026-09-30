@@ -210,44 +210,15 @@ This account-aware layer should become part of Executor Pool admission rather th
 
 ---
 
-### Next experiment: Consensus Review V1
+### Consensus Review V1 implementation — acceptance pending
 
-Use multiple independent reviewers instead of treating one model's verdict as authoritative.
+Local validation and a real two-process Claude majority smoke passed. Final pushed-commit CI remains the acceptance gate. See [implementation and supported boundaries](docs/Consensus_Review_V1.md) and [real/synthetic evidence](docs/Consensus_Review_V1_Smoke_Report.md).
 
-Initial shape:
+One logical Review round now fans out to 2–7 independent reviewer jobs with durable attempts. Majority, unanimous, weighted, judge and judge-on-disagreement retain individual dissent and a deterministic aggregate. Quorum/require-all, account quota failover, provider/account capacity, Resource Fabric waiting, read-only artifact checks, Stop/recovery and ordinary bounded Rework share the existing execution pipeline.
 
-```text
-Implementation
-  -> Reviewer A
-  -> Reviewer B
-  -> Reviewer C
-  -> Consensus
-      -> approved
-      -> needs_changes
-      -> judge/escalation when configured
-```
+Real AI consensus is verified; heterogeneous diversity has synthetic evidence only because the installed Codex CLI failed with the configured model. Existing login/model state was preserved. Local Claude/Codex/OpenCode review is supported; remote, Antigravity and raw-shell reviewers are excluded pending isolation contracts.
 
-V1 should prefer independent structured reviews over free-form multi-agent debate. Each reviewer produces its own persisted result using the review contract, then a deterministic consensus strategy aggregates the results.
-
-Initial strategies worth supporting or experimentally comparing:
-
-- majority vote;
-- unanimous approval;
-- weighted vote;
-- judge model;
-- judge only when reviewers disagree.
-
-Design goals:
-
-- reviewers may use different providers, accounts, models, and effort levels;
-- prefer provider diversity where policy requests it;
-- avoid using the implementation account as every reviewer when alternatives exist;
-- persist every individual verdict plus the aggregate decision;
-- retain bounded review/rework rounds;
-- account quota, provider quota, concurrency, and shared resources still apply to every reviewer;
-- one failed reviewer must have explicit policy semantics rather than silently disappearing from the vote.
-
-Consensus should be observable enough to answer whether it actually improves defect detection or merely multiplies token usage with democratic ceremony.
+The next experimental step is to collect agreement/disagreement, unique defects, rework causes, judge invocation/cost, provider/account/model observations and human outcomes. Dynamic AI Routing follows measured evidence.
 
 ---
 
