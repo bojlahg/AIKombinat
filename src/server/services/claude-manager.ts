@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
-import { PassThrough, Readable, Writable } from 'stream';
+import { PassThrough, Readable, Writable, Transform } from 'stream';
 import { StringDecoder } from 'string_decoder';
 import { finished } from 'node:stream/promises';
 import fs from 'fs';
@@ -15,7 +15,9 @@ import { createPtyFilterState, filterInteractivePtyOutput, type PtyFilterState }
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 import { createChildEnvironment } from '../utils/child-environment.js';
 import { logger } from '../logging/logger.js';
-import { redactArgs } from '../logging/redact.js';
+import { buildAccountRuntime, getProviderAccount, isAccountAuthenticationFailure, setAccountHealth } from './provider-account-service.js';
+import { AccountOutputRedactor } from './account-output-redactor.js';
+import { redactString, registerScopedLogSecret, redactArgs } from '../logging/redact.js';
 import {
   isProcessAlive,
   readProcessIdentity,
@@ -198,7 +200,42 @@ export class ClaudeManager {
    * `resolveExecutionConfig()`. In the latter case the slug reaches the CLI
    * verbatim — no second trip through the logical Model Catalog.
    */
-  async startClaude(
+  async startClaude(...args: Parameters<ClaudeManager['startAccountProcess']>) {
+    const selection = args[2];
+    const id = typeof selection === 'object' ? selection.providerAccountId : null;
+    if (id && getProviderAccount(id)?.provider !== (args[5] ?? 'claude')) throw new Error('Provider account does not match launch provider');
+    const runtime = buildAccountRuntime(id);
+    const unregister = runtime.secrets.map(registerScopedLogSecret);
+    try {
+      args[14] = { ...runtime.env, ...args[14] };
+      const result = await this.startAccountProcess(...args);
+      let authError = false;
+      let observationTail = '';
+      const observe = (chunk: Buffer | string) => {
+        observationTail = (observationTail + chunk.toString()).slice(-2048);
+        if (id && isAccountAuthenticationFailure(id, observationTail)) authError = true;
+      };
+      if (id) {
+        const tap = () => new Transform({ transform(chunk, _encoding, callback) { observe(chunk); callback(null, chunk); } });
+        result.stdout = result.stdout.pipe(tap()); result.stderr = result.stderr.pipe(tap());
+      }
+      void result.exitPromise.then(code => {
+        try {
+          if (id && code !== 0 && authError) setAccountHealth(id, 'auth_error', 'Provider rejected account authentication');
+          if (id && code === 0) setAccountHealth(id, 'available');
+        } catch { logger.warn('provider-account.health-write-failed', { accountId: id }); }
+        finally { unregister.forEach(dispose => dispose()); }
+      }, () => unregister.forEach(dispose => dispose()));
+      return result;
+    } catch (error) {
+      const message = redactString(error instanceof Error ? error.message : 'Account process launch failed');
+      unregister.forEach(dispose => dispose());
+      if (error instanceof Error) { error.message = message; throw error; }
+      throw new Error(message);
+    }
+  }
+
+  private async startAccountProcess(
     worktreePath: string,
     prompt: string,
     model?: string | LaunchModelSelection,
@@ -213,7 +250,7 @@ export class ClaudeManager {
     ptyRows?: number,
     effort?: string,
     promptPolicy?: PromptPolicy,
-    runtimeEnv?: Record<string, string>,
+    runtimeEnv?: Record<string, string | undefined>,
     delegationMcp?: { configPath?: string; command: string; args: string[] },
     delegationWorkerIsolation?: {
       provider: 'claude';
@@ -413,7 +450,7 @@ export class ClaudeManager {
   /**
    * Spawn using node-pty for CLIs that require a TTY.
    */
-  private startWithPty(adapter: CliAdapter, args: string[], cwd: string, stdinPrompt?: string, interactive?: boolean, ptyCols?: number, ptyRows?: number, runtimeEnv?: Record<string, string>): Promise<{
+  private startWithPty(adapter: CliAdapter, args: string[], cwd: string, stdinPrompt?: string, interactive?: boolean, ptyCols?: number, ptyRows?: number, runtimeEnv?: Record<string, string | undefined>): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
     stderr: NodeJS.ReadableStream;
@@ -479,7 +516,9 @@ export class ClaudeManager {
       let trustPending = false;
       const filterState: PtyFilterState | null = interactive ? createPtyFilterState() : null;
 
+      const redactOutput = new AccountOutputRedactor(Object.entries(createChildEnvironment(runtimeEnv)).filter(([key, value]) => /API_KEY|AUTH_TOKEN|OAUTH_TOKEN/.test(key) && !!value).map(([, value]) => value!));
       ptyProcess.onData((data) => {
+        data = redactOutput.write(data);
         // Raw byte fan-out: feeds xterm.js terminal subscribers and history ring.
         // Decoupled from stripped/filtered path used by LogViewer/auto-respond.
         const subs = this.rawSubscribers.get(pid);
@@ -562,6 +601,8 @@ export class ClaudeManager {
       const exitPromise = new Promise<number>((resolveExit) => {
         ptyProcess.onExit(({ exitCode }) => {
           exited = true;
+          const tail = redactOutput.write('', true);
+          if (tail) { this.appendRing(pid, tail); for (const cb of this.rawSubscribers.get(pid) ?? []) { try { cb(tail); } catch {} } stdoutStream.push(stripAnsi(tail)); }
           // Flush remaining filter buffer before closing stream
           if (filterState?.lineBuffer) {
             const final = filterInteractivePtyOutput('\n', filterState);
@@ -612,7 +653,7 @@ export class ClaudeManager {
   /**
    * Spawn using child_process for standard CLIs.
    */
-  private startWithSpawn(adapter: ReturnType<typeof getAdapter>, args: string[], cwd: string, prompt: string, mode: CliMode, promptPolicy?: PromptPolicy, runtimeEnv?: Record<string, string>): Promise<{
+  private startWithSpawn(adapter: ReturnType<typeof getAdapter>, args: string[], cwd: string, prompt: string, mode: CliMode, promptPolicy?: PromptPolicy, runtimeEnv?: Record<string, string | undefined>): Promise<{
     pid: number;
     stdout: NodeJS.ReadableStream;
     stderr: NodeJS.ReadableStream;
@@ -694,6 +735,10 @@ export class ClaudeManager {
         if (lifecycleSettled) return;
         lifecycleSettled = true;
         let effectiveCode = code ?? 1;
+        const stdoutTail = stdoutRedactor.write('', true), stderrTail = stderrRedactor.write('', true);
+        if (outputDecoder) { if (stdoutTail) outputDecoder.push(stdoutTail); }
+        else if (stdoutTail) bufferedStdout.write(stdoutTail);
+        if (stderrTail) bufferedStderr.write(stderrTail);
         if (outputDecoder && decodedStdout && decodedStderr) {
           try {
             const finalText = utf8Decoder!.end();
@@ -731,6 +776,8 @@ export class ClaudeManager {
       child.stdout?.on('error', (err) => recordTransportFailure('stdout', err));
       child.stderr?.on('error', (err) => recordTransportFailure('stderr', err));
 
+      const credentials = Object.entries(createChildEnvironment(runtimeEnv)).filter(([key, value]) => /API_KEY|AUTH_TOKEN|OAUTH_TOKEN/.test(key) && !!value).map(([, value]) => value!);
+      const stdoutRedactor = new AccountOutputRedactor(credentials), stderrRedactor = new AccountOutputRedactor(credentials);
       if (outputDecoder) {
         decodedStdout = bufferedStdout;
         decodedStderr = bufferedStderr;
@@ -739,17 +786,17 @@ export class ClaudeManager {
 
         child.stdout!.on('data', (chunk: Buffer | string) => {
           try {
-            outputDecoder.push(typeof chunk === 'string' ? chunk : utf8Decoder!.write(chunk));
+            outputDecoder.push(stdoutRedactor.write(typeof chunk === 'string' ? chunk : utf8Decoder!.write(chunk)));
           } catch (err) {
             recordTransportFailure('decoder', err);
           }
         });
         child.stderr!.on('data', (chunk: Buffer | string) => {
-          decodedStderr!.write(chunk);
+          decodedStderr!.write(stderrRedactor.write(chunk));
         });
       } else {
-        child.stdout!.pipe(bufferedStdout, { end: false });
-        child.stderr!.pipe(bufferedStderr, { end: false });
+        child.stdout!.on('data', chunk => bufferedStdout.write(stdoutRedactor.write(chunk)));
+        child.stderr!.on('data', chunk => bufferedStderr.write(stderrRedactor.write(chunk)));
       }
 
       // Register every process/stream listener before prompt delivery. Writable

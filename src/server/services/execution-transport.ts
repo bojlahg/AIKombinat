@@ -1,3 +1,4 @@
+import { getProviderAccount } from './provider-account-service.js';
 import { createChildEnvironment } from '../utils/child-environment.js';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -106,6 +107,7 @@ export class SshTransport implements ExecutionTransport {
     return { status: 'unresolved', pid: identity.pid, reason: 'remote_termination_not_confirmed' };
   }
   async launch(binding: FabricBinding, localWorkspace: string, tool: CliTool, options: CliBuildOptions): Promise<TransportResult> {
+    if (options.providerAccountId && getProviderAccount(options.providerAccountId)?.auth_strategy !== 'inherited') throw new Error('Provider account strategy is not supported on SSH nodes');
     if (tool === 'opencode') assertRemoteOpenCodeEnabled();
     assertExternalAiCliAllowed(tool);
     if (options.mode !== 'headless' || options.continueSession || !['raw-shell', 'opencode'].includes(tool)) throw new Error('SSH V2 supports headless raw-shell/OpenCode without resume');

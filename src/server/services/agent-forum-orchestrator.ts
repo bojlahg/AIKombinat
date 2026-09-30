@@ -709,7 +709,7 @@ export class AgentForumOrchestrator {
           }
         }
 
-        reservationHeld = executorPool.reserveSlot(reservationOwner, resolvedCliTool);
+        reservationHeld = executorPool.reserveSlot(reservationOwner, resolvedCliTool, { providerAccountId: executionConfig?.providerAccountId });
         if (reservationHeld) cycle.reservationOwners.add(reservationOwner);
         if (!reservationHeld) {
           const adapter = getAdapter(resolvedCliTool);

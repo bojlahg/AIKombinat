@@ -11,6 +11,8 @@ export interface ExecutionProfileExecutor {
   modelStatus: 'available' | 'missing';
   supportedEfforts: string[] | null;
   providerVariants?: Record<string, string> | null;
+  accountPolicy?: 'inherited_default' | 'fixed' | 'automatic' | null;
+  providerAccountId?: string | null;
   effortValue: string | null;
   priority: number;
   isEnabled: boolean;
@@ -27,7 +29,7 @@ export interface ExecutionProfile {
 }
 
 export type ExecutionProfileInput = Omit<ExecutionProfile, 'id' | 'executors'> & {
-  executors: Array<{ id?: string; cliModelId: string; effortValue: string | null; priority: number; isEnabled: boolean }>;
+  executors: Array<{ id?: string; cliModelId: string; effortValue: string | null; priority: number; isEnabled: boolean; accountPolicy?: 'inherited_default' | 'fixed' | 'automatic' | null; providerAccountId?: string | null }>;
 };
 
 export type ExecutionProfileCreateInput = Omit<ExecutionProfileInput, 'slug'> & { slug?: string };

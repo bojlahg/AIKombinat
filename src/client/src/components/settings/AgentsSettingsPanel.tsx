@@ -6,6 +6,9 @@ import { type ProviderQuotaState, type CliToolStatus } from '../../api/cli-statu
 
 import type { WsEvent } from '../../hooks/useWebSocket';
 
+import ProviderAccountsPanel from './ProviderAccountsPanel';
+import ProviderAccountPicker from '../ProviderAccountPicker';
+
 type Tool = profilesApi.AgentCliTool;
 type Model = {
   id: string; value: string; label: string; status: 'available' | 'missing'; source: 'cli' | 'manual';
@@ -44,7 +47,7 @@ export interface AgentsSettingsPanelProps {
 
 export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProps = {}) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<'profiles' | 'models'>('profiles');
+  const [tab, setTab] = useState<'profiles' | 'models' | 'accounts'>('profiles');
   const [models, setModels] = useState<Record<string, Model[]>>({});
   const [savedModels, setSavedModels] = useState<Record<string, Model[]>>({});
   const [quotas, setQuotas] = useState<Record<string, ProviderQuotaState>>({});
@@ -219,7 +222,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
     try {
       const saved = await profilesApi.updateProfile(profile.id, {
         name: profile.name, description: profile.description, isEnabled: profile.isEnabled, sortOrder: profile.sortOrder,
-        executors: (profile.executors ?? []).map((executor, index) => ({ id: executor.id, cliModelId: executor.cliModelId, effortValue: executor.effortValue, priority: index, isEnabled: executor.isEnabled })),
+        executors: (profile.executors ?? []).map((executor, index) => ({ id: executor.id, cliModelId: executor.cliModelId, effortValue: executor.effortValue, accountPolicy: executor.accountPolicy ?? 'inherited_default', providerAccountId: executor.providerAccountId ?? null, priority: index, isEnabled: executor.isEnabled })),
       });
       replaceProfile(saved);
     } catch (e) { setError(String(e)); }
@@ -257,10 +260,11 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
   return <div className="space-y-5 p-5 sm:p-6">
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
     <div className="flex border-b" role="tablist" style={{ borderColor: 'var(--color-border)' }}>
-      {(['profiles', 'models'] as const).map((value) => <button key={value} role="tab" aria-selected={tab === value} className={`px-4 py-2.5 text-sm font-semibold ${tab === value ? 'border-b-2 text-primary-500' : 'text-warm-500'}`} onClick={() => setTab(value)}>{t(`profiles.tab.${value}`)}</button>)}
+      {(['profiles', 'models', 'accounts'] as const).map((value) => <button key={value} role="tab" aria-selected={tab === value} className={`px-4 py-2.5 text-sm font-semibold ${tab === value ? 'border-b-2 text-primary-500' : 'text-warm-500'}`} onClick={() => setTab(value)}>{value === 'accounts' ? t('accounts.title') : t(`profiles.tab.${value}`)}</button>)}
     </div>
 
-    {tab === 'models' && <section className="space-y-4">
+      {tab === 'accounts' && <ProviderAccountsPanel />}
+      {tab === 'models' && <section className="space-y-4">
       <div><h2 className="text-lg font-semibold">{t('catalog.title')}</h2><p className="text-sm text-warm-500">{t('catalog.description')}</p></div>
       {AGENTS.map((agent) => {
         const agentModels = models[agent.value] ?? [];
@@ -304,11 +308,12 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
             </button>
             <div className="flex gap-2"><button className="btn-secondary flex items-center gap-1 text-xs" disabled={!!refreshing} onClick={() => refresh(agent.value)}><RefreshCw size={13} className={refreshing === agent.value ? 'animate-spin' : ''} />{t('catalog.refresh')}</button><button className="btn-secondary flex items-center gap-1 text-xs" onClick={() => addModel(agent.value)}><Plus size={13} />{t('catalog.addManual')}</button><button className="btn-secondary flex items-center gap-1 text-xs" disabled={!dirtyIds[agent.value].size || saving === agent.value} onClick={() => saveAgentModels(agent.value)}><Save size={13} />{t('common.save')}</button></div>
           </div>
-          {result && <p className={`mt-2 text-xs ${result === 'failed' || !result.authoritative ? 'text-status-warning' : 'text-status-success'}`}>{result === 'failed' ? t('catalog.refreshFailed') : `${t('catalog.updated')}: ${result.updated} · ${t('catalog.added')}: ${result.added} · ${t('catalog.missingCount')}: ${result.markedMissing} · ${t('catalog.source')}: ${result.source} · ${result.authoritative ? t('catalog.authoritative') : t('catalog.partial')}`}</p>}
+          {result && <p className={`mt-2 text-xs ${result === 'failed' || !result.authoritative ? 'text-status-warning' : 'text-status-success'}`}>{result === 'failed' ? t('catalog.refreshFailed') : `${t('catalog.updated')}: ${result.updated} В· ${t('catalog.added')}: ${result.added} В· ${t('catalog.missingCount')}: ${result.markedMissing} В· ${t('catalog.source')}: ${result.source} В· ${result.authoritative ? t('catalog.authoritative') : t('catalog.partial')}`}</p>}
           {!collapsed && <div className="mt-3 space-y-2">{agentModels.map((model) => <div key={model.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[1.2fr_1.5fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
-            <div><input aria-label={`${agent.label} ${model.value} ${t('catalog.label')}`} className="input-field text-sm" value={model.label} onChange={(e) => updateModelDraft(agent.value, model.id, { label: e.target.value })} /><p className="mt-1 text-2xs text-warm-500">{model.value} · {model.source === 'manual' ? t('catalog.manual') : t('catalog.cli')}</p><p className="text-2xs text-warm-500">{t('catalog.lastSeen')}: {model.lastSeenAt ? new Date(model.lastSeenAt).toLocaleString() : t('catalog.never')}</p>{model.status === 'missing' && <p className="text-2xs text-status-warning">{t('catalog.missing')}</p>}</div>
+            <div><input aria-label={`${agent.label} ${model.value} ${t('catalog.label')}`} className="input-field text-sm" value={model.label} onChange={(e) => updateModelDraft(agent.value, model.id, { label: e.target.value })} /><p className="mt-1 text-2xs text-warm-500">{model.value} В· {model.source === 'manual' ? t('catalog.manual') : t('catalog.cli')}</p><p className="text-2xs text-warm-500">{t('catalog.lastSeen')}: {model.lastSeenAt ? new Date(model.lastSeenAt).toLocaleString() : t('catalog.never')}</p>{model.status === 'missing' && <p className="text-2xs text-status-warning">{t('catalog.missing')}</p>}</div>
             <input aria-label={`${agent.label} ${model.value} ${t('catalog.effortsPrompt')}`} className="input-field text-sm" value={model.supportedEfforts?.join(', ') ?? ''} placeholder={t('catalog.unknownEfforts')} onChange={(e) => updateModelDraft(agent.value, model.id, { supportedEfforts: e.target.value ? e.target.value.split(',').map((item) => item.trim()).filter(Boolean) : null })} />
-            <div className="flex items-center gap-1"><button title={t('catalog.moveUp')} disabled={agentModels.indexOf(model) === 0} onClick={() => moveModel(agent.value, agentModels.indexOf(model), -1)}><ArrowUp size={14} /></button><button title={t('catalog.moveDown')} disabled={agentModels.indexOf(model) === agentModels.length - 1} onClick={() => moveModel(agent.value, agentModels.indexOf(model), 1)}><ArrowDown size={14} /></button><button title={`${t('common.delete')} ${model.label}`} onClick={() => deleteModel(agent.value, model)}><Trash2 size={15} /></button></div>
+
+                  <div className="flex items-center gap-1"><button title={t('catalog.moveUp')} disabled={agentModels.indexOf(model) === 0} onClick={() => moveModel(agent.value, agentModels.indexOf(model), -1)}><ArrowUp size={14} /></button><button title={t('catalog.moveDown')} disabled={agentModels.indexOf(model) === agentModels.length - 1} onClick={() => moveModel(agent.value, agentModels.indexOf(model), 1)}><ArrowDown size={14} /></button><button title={`${t('common.delete')} ${model.label}`} onClick={() => deleteModel(agent.value, model)}><Trash2 size={15} /></button></div>
           </div>)}</div>}
         </div>;
       })}
@@ -319,7 +324,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
       {profiles.map((profile) => {
         const expanded = expandedProfileId === profile.id;
         return <div key={profile.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
-          <button className="flex w-full items-center gap-2 text-left" aria-expanded={expanded} onClick={() => setExpandedProfileId(expanded ? null : profile.id)}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<span className="font-semibold">{profile.name}</span><span className="text-xs text-warm-500">· {(profile.executors ?? []).length} {t('profiles.executors')}</span></button>
+          <button className="flex w-full items-center gap-2 text-left" aria-expanded={expanded} onClick={() => setExpandedProfileId(expanded ? null : profile.id)}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<span className="font-semibold">{profile.name}</span><span className="text-xs text-warm-500">В· {(profile.executors ?? []).length} {t('profiles.executors')}</span></button>
           {expanded && <div className="mt-3 space-y-3">
             <input className="input-field text-sm" aria-label={t('profiles.name')} value={profile.name} onChange={(e) => replaceProfile({ ...profile, name: e.target.value })} />
             <textarea className="input-field min-h-20 text-sm" aria-label={t('profiles.profileDescription')} value={profile.description} onChange={(e) => replaceProfile({ ...profile, description: e.target.value })} />
@@ -341,7 +346,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
                   if (model) {
                     const isGrouped = tool === 'antigravity' && !!model.providerVariants && Object.keys(model.providerVariants).length > 0;
                     const initialEffort = isGrouped ? (model.supportedEfforts?.[0] || 'medium') : null;
-                    changeExecutor(profile, index, { cliTool: tool, cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, providerVariants: model.providerVariants, effortValue: initialEffort });
+                    changeExecutor(profile, index, { cliTool: tool, accountPolicy: 'inherited_default', providerAccountId: null, cliModelId: model.id, modelValue: model.value, modelLabel: model.label, modelStatus: model.status, supportedEfforts: model.supportedEfforts, providerVariants: model.providerVariants, effortValue: initialEffort });
                   }
                 }}>{AGENTS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label}</option>)}</select>
                 <select aria-label={`${t('catalog.title')} ${index + 1}`} className="input-field text-sm" value={executor.cliModelId} onChange={(e) => {
@@ -360,6 +365,12 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
                   {unsupported && <p className="text-2xs text-status-warning">{t('effort.unsupportedWarning')}</p>}
                   {uncertain && <p className="text-2xs text-status-warning">{t('effort.unknownWarning')}</p>}
                 </div>
+                {executor.cliTool !== 'opencode' && <div className="space-y-2">
+                    <select className="input-field text-sm" aria-label={t('accounts.account')} value={executor.accountPolicy ?? 'inherited_default'} onChange={event => changeExecutor(profile, index, { accountPolicy: event.target.value as 'fixed' | 'automatic' | 'inherited_default', providerAccountId: null })}>
+                      {(['inherited_default', 'fixed', 'automatic'] as const).map(policy => <option key={policy} value={policy}>{t(`accounts.${policy}`)}</option>)}
+                    </select>
+                    {executor.accountPolicy === 'fixed' && <ProviderAccountPicker provider={executor.cliTool} value={executor.providerAccountId} onChange={id => changeExecutor(profile, index, { providerAccountId: id })} />}
+                  </div>}
                 <div className="flex items-center gap-1"><button onClick={() => moveExecutor(profile, index, -1)}><ArrowUp size={14} /></button><button onClick={() => moveExecutor(profile, index, 1)}><ArrowDown size={14} /></button><button title={t('profiles.removeExecutor')} onClick={() => removeExecutor(profile, index)}><Trash2 size={14} /></button></div>
               </div>;
             })}</div>

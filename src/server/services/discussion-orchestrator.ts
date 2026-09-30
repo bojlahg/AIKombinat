@@ -369,6 +369,8 @@ export class DiscussionOrchestrator {
           cliTool,
           model: cliModel,
           cliModelId: agent?.cli_model_id,
+          providerAccountId: agent?.provider_account_id,
+          accountPolicy: agent?.account_policy,
           cliEffort: agent?.cli_effort,
         });
         resolvedCliTool = executionConfig.cliTool;
@@ -401,7 +403,8 @@ export class DiscussionOrchestrator {
         }
       }
 
-      const reserved = executorPool.reserveSlot(discussionId, resolvedCliTool, { excludeDiscussionId: discussionId });
+      executionConfig = executorPool.bindManualAccount(executionConfig, { excludeDiscussionId: discussionId });
+        const reserved = executorPool.reserveSlot(discussionId, resolvedCliTool, { excludeDiscussionId: discussionId, providerAccountId: executionConfig?.providerAccountId });
       if (!reserved) {
         const adapter = getAdapter(resolvedCliTool);
         logger.warn('discussion.admission.waiting-executor', {

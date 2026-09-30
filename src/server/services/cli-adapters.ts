@@ -24,6 +24,7 @@ export type SandboxMode = 'strict' | 'permissive';
  * see `resolveLaunchModel()` for why re-resolving it is wrong.
  */
 export interface LaunchModelSelection {
+  providerAccountId?: string | null;
   model?: string;
   effectiveModel?: string;
 }

@@ -85,6 +85,8 @@ export interface Todo {
   cli_model: string | null;
   cli_model_id: string | null;
   execution_profile_id: string | null;
+  provider_account_id?: string | null;
+  account_policy?: string;
   cli_effort: string | null;
   execution_snapshot: string | null;
   images: string | null;
@@ -158,6 +160,8 @@ export interface Schedule {
   cli_model: string | null;
   cli_model_id: string | null;
   execution_profile_id: string | null;
+  provider_account_id?: string | null;
+  account_policy?: string;
   cli_effort: string | null;
   max_turns: number | null;
   use_worktree: number | null;
@@ -236,7 +240,7 @@ export interface TaskLog {
   created_at: string;
 }
 
-// ── Discussions ──
+// в”Ђв”Ђ Discussions в”Ђв”Ђ
 
 export interface DiscussionAgent {
   id: string;
@@ -248,6 +252,8 @@ export interface DiscussionAgent {
   cli_model: string | null;
   cli_model_id: string | null;
   execution_profile_id: string | null;
+  provider_account_id?: string | null;
+  account_policy?: string;
   cli_effort: string | null;
   avatar_color: string | null;
   sort_order: number;
@@ -307,7 +313,7 @@ export interface DiscussionWithMessages extends Discussion {
   agents: DiscussionAgent[];
 }
 
-// ── Sessions ──
+// в”Ђв”Ђ Sessions в”Ђв”Ђ
 
 export interface Session {
   id: string;
@@ -319,6 +325,8 @@ export interface Session {
   cli_model: string | null;
   cli_model_id: string | null;
   execution_profile_id: string | null;
+  provider_account_id?: string | null;
+  account_policy?: string;
   cli_effort: string | null;
   execution_snapshot: string | null;
   process_pid: number | null;
@@ -385,7 +393,7 @@ export interface SessionLog {
   created_at: string;
 }
 
-// ── Planner ──
+// в”Ђв”Ђ Planner в”Ђв”Ђ
 
 export interface PlannerItem {
   id: string;
@@ -424,7 +432,7 @@ export interface PlannerPage {
   updated_at: string;
 }
 
-// ── Favorites ──
+// в”Ђв”Ђ Favorites в”Ђв”Ђ
 
 export type FavoriteType = 'executable' | 'command' | 'url';
 
@@ -441,7 +449,7 @@ export interface Favorite {
   updated_at: string;
 }
 
-// ── Long-term Memory (LLM-Wiki) ──
+// в”Ђв”Ђ Long-term Memory (LLM-Wiki) в”Ђв”Ђ
 
 export type MemoryInjectMode = 'none' | 'all' | 'selected' | 'auto';
 
@@ -564,7 +572,7 @@ export interface AgendaJiraConfig {
   extra_jql: string;
 }
 
-// ── Agent Forums ──
+// в”Ђв”Ђ Agent Forums в”Ђв”Ђ
 
 export const DEFAULT_AGENT_FORUM_RULES = `You are an equal participant in a multi-agent discussion.
 
@@ -610,6 +618,8 @@ export interface AgentForumMember {
   cli_model: string | null;
   cli_model_id: string | null;
   execution_profile_id: string | null;
+  provider_account_id?: string | null;
+  account_policy?: string;
   cli_effort: string | null;
   avatar_color: string | null;
   sort_order: number;

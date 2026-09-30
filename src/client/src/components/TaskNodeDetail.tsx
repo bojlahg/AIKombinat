@@ -1,3 +1,4 @@
+import ExecutionAccountIdentity from './ExecutionAccountIdentity';
 import type { ResourceRequirements } from '../types';
 import { useState, useEffect } from 'react';
 import { Pencil, X } from 'lucide-react';
@@ -17,7 +18,7 @@ interface TaskNodeDetailProps {
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
   onClose: () => void;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => Promise<void>;
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
@@ -174,6 +175,7 @@ export default function TaskNodeDetail({
         initialCliTool={todo.cli_tool ?? undefined}
         initialCliModel={todo.cli_model ?? undefined}
         initialCliEffort={todo.cli_effort}
+        initialProviderAccountId={todo.provider_account_id}
         initialExecutionProfileId={todo.execution_profile_id}
         initialResourceRequirements={todo.resource_requirements ?? null}
           initialReviewEnabled={todo.review_enabled}
@@ -189,8 +191,8 @@ export default function TaskNodeDetail({
           todoId={todo.id}
           availableTodos={allTodos.filter(t => t.id !== todo.id)}
           onDeleteImage={async (imageId) => { await todosApi.deleteTodoImage(todo.id, imageId); }}
-          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds) => {
-            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds);
+          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId) => {
+            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId);
             if (newImages && newImages.length > 0) {
               await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
             }
@@ -204,6 +206,7 @@ export default function TaskNodeDetail({
 
   return (
     <div className="w-[380px] border-l border-warm-200 bg-theme-card overflow-y-auto">
+      <ExecutionAccountIdentity snapshot={todo.execution_snapshot} />
       {/* Header */}
       <div className="sticky top-0 bg-theme-card border-b border-warm-200 px-4 py-3 flex items-center gap-2 z-10">
         <StatusBadge status={todo.status} />

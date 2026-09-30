@@ -162,6 +162,8 @@ export interface Todo {
   cli_tool: string | null;
   cli_model: string | null;
   cli_model_id: string | null;
+  provider_account_id: string | null;
+  account_policy: 'inherited_default' | 'fixed' | 'automatic';
   execution_profile_id: string | null;
   cli_effort: string | null;
   execution_snapshot: string | null;
@@ -270,7 +272,7 @@ export function getTodoById(id: string): Todo | undefined {
   return db.prepare('SELECT * FROM todos WHERE id = ?').get(id) as Todo | undefined;
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'process_identity' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase' | 'review_baseline'>>): Todo | undefined {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'description' | 'priority' | 'branch_name' | 'worktree_path' | 'process_pid' | 'process_identity' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'images' | 'depends_on' | 'max_turns' | 'token_usage' | 'position_x' | 'position_y' | 'merged_from_branch' | 'context_switch_count' | 'execution_mode' | 'round_count' | 'total_cost_usd' | 'total_tokens' | 'use_worktree' | 'summary' | 'diff_lines' | 'diff_files' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'pipeline_phase' | 'review_baseline'>>): Todo | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -284,6 +286,8 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
   if (updates.process_identity !== undefined) { fields.push('process_identity = ?'); values.push(updates.process_identity); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.provider_account_id !== undefined) { fields.push('provider_account_id = ?'); values.push(updates.provider_account_id); }
+  if (updates.account_policy !== undefined) { fields.push('account_policy = ?'); values.push(updates.account_policy); }
   if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
   if (updates.execution_profile_id !== undefined) { fields.push('execution_profile_id = ?'); values.push(updates.execution_profile_id); }
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
@@ -589,6 +593,8 @@ export interface Schedule {
   cli_tool: string | null;
   cli_model: string | null;
   cli_model_id: string | null;
+  provider_account_id: string | null;
+  account_policy: 'inherited_default' | 'fixed' | 'automatic';
   execution_profile_id: string | null;
   cli_effort: string | null;
   max_turns: number | null;
@@ -649,7 +655,7 @@ export function getActiveOnceSchedules(): Schedule[] {
   return db.prepare("SELECT * FROM schedules WHERE is_active = 1 AND schedule_type = 'once'").all() as Schedule[];
 }
 
-export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
+export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'title' | 'description' | 'cron_expression' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'max_turns' | 'use_worktree' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'resource_requirements' | 'review_enabled' | 'review_profile_id' | 'rework_profile_id' | 'max_review_rounds' | 'skip_if_running' | 'schedule_type' | 'run_at'>>): Schedule | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -659,6 +665,8 @@ export function updateSchedule(id: string, updates: Partial<Pick<Schedule, 'titl
   if (updates.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(updates.cron_expression); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.provider_account_id !== undefined) { fields.push('provider_account_id = ?'); values.push(updates.provider_account_id); }
+  if (updates.account_policy !== undefined) { fields.push('account_policy = ?'); values.push(updates.account_policy); }
   if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
   if (updates.execution_profile_id !== undefined) { fields.push('execution_profile_id = ?'); values.push(updates.execution_profile_id); }
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
@@ -945,6 +953,8 @@ export interface ExecutionProfileExecutor {
   profile_id: string;
   cli_model_id: string;
   effort_value: string | null;
+  account_policy?: 'inherited_default' | 'fixed' | 'automatic';
+  provider_account_id?: string | null;
   priority: number;
   is_enabled: number;
   created_at: string;
@@ -997,17 +1007,17 @@ export function getExecutionProfileBySlug(slug: string): ExecutionProfile | unde
 export type ExecutionProfileInput = Pick<ExecutionProfile, 'slug' | 'name' | 'description'> & {
   is_enabled?: number;
   sort_order?: number;
-  executors?: Array<{ id?: string; cli_model_id: string; effort_value: string | null; priority: number; is_enabled?: number }>;
+  executors?: Array<{ id?: string; cli_model_id: string; effort_value: string | null; priority: number; is_enabled?: number; account_policy?: 'inherited_default' | 'fixed' | 'automatic'; provider_account_id?: string | null }>;
 };
 
 function replaceProfileExecutors(profileId: string, executors: NonNullable<ExecutionProfileInput['executors']>, now: string): void {
   const db = getDatabase();
   db.prepare('DELETE FROM execution_profile_executors WHERE profile_id = ?').run(profileId);
   const insert = db.prepare(`INSERT INTO execution_profile_executors
-    (id, profile_id, cli_model_id, effort_value, priority, is_enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    (id, profile_id, cli_model_id, effort_value, priority, is_enabled, created_at, updated_at, account_policy, provider_account_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const executor of executors) {
-    insert.run(executor.id ?? uuidv4(), profileId, executor.cli_model_id, executor.effort_value ?? null, executor.priority, executor.is_enabled === 0 ? 0 : 1, now, now);
+    insert.run(executor.id ?? uuidv4(), profileId, executor.cli_model_id, executor.effort_value ?? null, executor.priority, executor.is_enabled === 0 ? 0 : 1, now, now, executor.account_policy ?? 'inherited_default', executor.provider_account_id ?? null);
   }
 }
 
@@ -1161,6 +1171,8 @@ export interface DiscussionAgent {
   cli_tool: string | null;
   cli_model: string | null;
   cli_model_id: string | null;
+  provider_account_id: string | null;
+  account_policy: 'inherited_default' | 'fixed' | 'automatic';
   execution_profile_id: string | null;
   cli_effort: string | null;
   avatar_color: string | null;
@@ -1196,7 +1208,7 @@ export function getDiscussionAgentById(id: string): DiscussionAgent | undefined 
   return db.prepare('SELECT * FROM discussion_agents WHERE id = ?').get(id) as DiscussionAgent | undefined;
 }
 
-export function updateDiscussionAgent(id: string, updates: Partial<Pick<DiscussionAgent, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order' | 'can_implement'>>): DiscussionAgent | undefined {
+export function updateDiscussionAgent(id: string, updates: Partial<Pick<DiscussionAgent, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order' | 'can_implement'>>): DiscussionAgent | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1206,6 +1218,8 @@ export function updateDiscussionAgent(id: string, updates: Partial<Pick<Discussi
   if (updates.system_prompt !== undefined) { fields.push('system_prompt = ?'); values.push(updates.system_prompt); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.provider_account_id !== undefined) { fields.push('provider_account_id = ?'); values.push(updates.provider_account_id); }
+  if (updates.account_policy !== undefined) { fields.push('account_policy = ?'); values.push(updates.account_policy); }
   if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
   if (updates.execution_profile_id !== undefined) { fields.push('execution_profile_id = ?'); values.push(updates.execution_profile_id); }
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
@@ -1441,6 +1455,8 @@ export interface Session {
   cli_tool: string | null;
   cli_model: string | null;
   cli_model_id: string | null;
+  provider_account_id: string | null;
+  account_policy: 'inherited_default' | 'fixed' | 'automatic';
   execution_profile_id: string | null;
   cli_effort: string | null;
   execution_snapshot: string | null;
@@ -1518,7 +1534,7 @@ export function getSessionById(id: string): Session | undefined {
   return db.prepare('SELECT s.*, p.is_git_repo FROM sessions s JOIN projects p ON p.id = s.project_id WHERE s.id = ?').get(id) as Session | undefined;
 }
 
-export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'process_identity' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements'>>): Session | undefined {
+export function updateSession(id: string, updates: Partial<Pick<Session, 'title' | 'description' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'execution_snapshot' | 'process_pid' | 'process_identity' | 'branch_name' | 'worktree_path' | 'base_commit' | 'snapshots' | 'use_worktree' | 'token_usage' | 'total_cost_usd' | 'total_tokens' | 'memory_inject_mode' | 'memory_node_ids' | 'memory_raw_file_paths' | 'tag_id' | 'resource_requirements'>>): Session | undefined {
   const db = getDatabase();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -1527,6 +1543,8 @@ export function updateSession(id: string, updates: Partial<Pick<Session, 'title'
   if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.provider_account_id !== undefined) { fields.push('provider_account_id = ?'); values.push(updates.provider_account_id); }
+  if (updates.account_policy !== undefined) { fields.push('account_policy = ?'); values.push(updates.account_policy); }
   if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
   if (updates.execution_profile_id !== undefined) { fields.push('execution_profile_id = ?'); values.push(updates.execution_profile_id); }
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }
@@ -2723,6 +2741,8 @@ export interface AgentForumMember {
   cli_tool: string | null;
   cli_model: string | null;
   cli_model_id: string | null;
+  provider_account_id: string | null;
+  account_policy: 'inherited_default' | 'fixed' | 'automatic';
   execution_profile_id: string | null;
   cli_effort: string | null;
   avatar_color: string | null;
@@ -2991,7 +3011,7 @@ export function setAgentForumMemberActive(memberId: string, isActive: boolean): 
 
 export function updateAgentForumMember(
   id: string,
-  updates: Partial<Pick<AgentForumMember, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order' | 'is_active'>>,
+  updates: Partial<Pick<AgentForumMember, 'name' | 'role' | 'system_prompt' | 'cli_tool' | 'cli_model' | 'cli_model_id' | 'provider_account_id' | 'account_policy' | 'execution_profile_id' | 'cli_effort' | 'avatar_color' | 'sort_order' | 'is_active'>>,
 ): AgentForumMember | undefined {
   const db = getDatabase();
   const fields: string[] = [];
@@ -3002,6 +3022,8 @@ export function updateAgentForumMember(
   if (updates.system_prompt !== undefined) { fields.push('system_prompt = ?'); values.push(updates.system_prompt); }
   if (updates.cli_tool !== undefined) { fields.push('cli_tool = ?'); values.push(updates.cli_tool); }
   if (updates.cli_model !== undefined) { fields.push('cli_model = ?'); values.push(updates.cli_model); }
+  if (updates.provider_account_id !== undefined) { fields.push('provider_account_id = ?'); values.push(updates.provider_account_id); }
+  if (updates.account_policy !== undefined) { fields.push('account_policy = ?'); values.push(updates.account_policy); }
   if (updates.cli_model_id !== undefined) { fields.push('cli_model_id = ?'); values.push(updates.cli_model_id); }
   if (updates.execution_profile_id !== undefined) { fields.push('execution_profile_id = ?'); values.push(updates.execution_profile_id); }
   if (updates.cli_effort !== undefined) { fields.push('cli_effort = ?'); values.push(updates.cli_effort); }

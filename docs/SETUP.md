@@ -1529,3 +1529,8 @@ See [workflow, API and recovery](Orchestrator_Agent_V1.md) and [real smoke evide
 ## Resource Fabric V2 setup
 
 Configure Settings → Resources, scan the local node and reserve desktop CPU/RAM/GPU capacity. For SSH, use a trusted system alias, agent or key path and a separate Linux workspace root. Remote execution requires Python 3 and Git and currently supports headless raw-shell/OpenCode Todos only. It transfers committed Git HEAD using a bounded bundle; it does not transfer uncommitted changes or install dependencies. See [configuration, API and security boundaries](Resource_Fabric_V2.md) and [real smoke](Resource_Fabric_V2_Smoke_Report.md).
+
+
+## Provider Accounts V1 setup
+
+Open Settings → Agents → Accounts. Existing Claude, Codex and Antigravity CLI logins appear as inherited accounts. For an additional Claude account, configure a server environment variable containing the API key, then save only its variable name as an environment-reference account. Never paste credentials into labels or descriptions. Set account concurrency and enable state, then select a fixed account or automatic policy in an execution profile. Manual Todo, Session and Schedule forms support fixed account selection. Health tests are non-mutating; unknown health can still be eligible. See [supported strategies and security boundaries](Provider_Accounts_V1.md).

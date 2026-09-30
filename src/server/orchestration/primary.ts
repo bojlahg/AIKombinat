@@ -7,7 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertExternalAiCliAllowed } from '../utils/cli-guard.js';
 import { createChildEnvironment } from '../utils/child-environment.js';
+import { logger } from '../logging/logger.js';
 import { redactString, registerScopedLogSecret } from '../logging/redact.js';
+import { buildAccountRuntime, isAccountAuthenticationFailure, setAccountHealth } from '../services/provider-account-service.js';
 import type { ResolvedExecutionConfig } from '../services/execution-config.js';
 import { callTool, toolDefinitions } from './tools.js';
 import { getTurn } from './store.js';
@@ -66,34 +68,45 @@ All orchestration tools belong to kombinat-orchestrator. Only capability-based r
 export const launchPrimary: PrimaryLauncher = async input => {
   assertExternalAiCliAllowed('claude');
   if (input.config.cliTool !== 'claude') throw new Error('claude_primary_required');
+  const runtime = buildAccountRuntime(input.config.providerAccountId);
   const transport = await createTurnTransport(input.orchestratorId, input.turnId);
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-orchestrator-'));
-  const configPath = path.join(directory, 'mcp.json');
-  const bridge = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../bin/aikombinat-orchestrator-mcp.js');
-  fs.writeFileSync(configPath, JSON.stringify({ mcpServers: { 'kombinat-orchestrator': { command: process.execPath, args: [bridge] } } }), { mode: 0o600 });
-  const args = ['-p', '--output-format', 'json', '--tools', 'Read,Glob,Grep', '--allowedTools', 'Read,Glob,Grep,mcp__kombinat-orchestrator__*',
-    '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit,Agent', '--permission-mode', 'dontAsk', '--setting-sources', '', '--disable-slash-commands',
-    '--strict-mcp-config', '--mcp-config', configPath, '--system-prompt', PRIMARY_RULES, '--max-turns', '64'];
-  const model = input.config.effectiveModel ?? input.config.model;
-  if (model) args.push('--model', model);
-  if (input.config.effort.nativeEffort) args.push('--effort', input.config.effort.nativeEffort);
-  const environment = createChildEnvironment({ AIKOMBINAT_ORCHESTRATOR_ENDPOINT: transport.endpoint, AIKOMBINAT_ORCHESTRATOR_CAPABILITY: transport.capability,
-    AIKOMBINAT_ORCHESTRATION_DEPTH: '0', ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) });
-  delete environment.CLAUDECODE;
+  let directory = '';
+  const unregister: (() => void)[] = [];
   try {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-orchestrator-'));
+    unregister.push(...runtime.secrets.map(registerScopedLogSecret));
+    const configPath = path.join(directory, 'mcp.json');
+    const bridge = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../bin/aikombinat-orchestrator-mcp.js');
+    fs.writeFileSync(configPath, JSON.stringify({ mcpServers: { 'kombinat-orchestrator': { command: process.execPath, args: [bridge] } } }), { mode: 0o600 });
+    const args = ['-p', '--output-format', 'json', '--tools', 'Read,Glob,Grep', '--allowedTools', 'Read,Glob,Grep,mcp__kombinat-orchestrator__*',
+      '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit,Agent', '--permission-mode', 'dontAsk', '--setting-sources', '', '--disable-slash-commands',
+      '--strict-mcp-config', '--mcp-config', configPath, '--system-prompt', PRIMARY_RULES, '--max-turns', '64'];
+    const model = input.config.effectiveModel ?? input.config.model;
+    if (model) args.push('--model', model);
+    if (input.config.effort.nativeEffort) args.push('--effort', input.config.effort.nativeEffort);
+    const environment = createChildEnvironment({ ...runtime.env, AIKOMBINAT_ORCHESTRATOR_ENDPOINT: transport.endpoint, AIKOMBINAT_ORCHESTRATOR_CAPABILITY: transport.capability,
+      AIKOMBINAT_ORCHESTRATION_DEPTH: '0', ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) });
+    delete environment.CLAUDECODE;
     const child = spawn('claude', args, { cwd: input.projectPath, env: environment, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', error = '';
     child.stdout.setEncoding('utf8').on('data', (part: string) => { output = (output + part).slice(-131072); });
     child.stderr.setEncoding('utf8').on('data', (part: string) => { error = (error + part).slice(-4096); });
     const exit = new Promise<{ code: number; output: string; error: string }>(resolve => {
       child.once('error', () => resolve({ code: -1, output: '', error: 'primary_spawn_failed' }));
-      child.once('close', code => resolve({ code: code ?? -1, output: redactString(output), error: redactString(error) }));
+      child.once('close', code => {
+        const result = { code: code ?? -1, output: redactString(output), error: redactString(error) };
+        try {
+          if (input.config.providerAccountId && code === 0) setAccountHealth(input.config.providerAccountId, 'available');
+          else if (input.config.providerAccountId && isAccountAuthenticationFailure(input.config.providerAccountId, output + error)) setAccountHealth(input.config.providerAccountId, 'auth_error', 'authentication_failed');
+        } catch { logger.warn('provider-account.health-update-failed', { scope: 'orchestrator' }); } finally { unregister.forEach(dispose => dispose()); resolve(result); }
+      });
     });
     child.stdin.on('error', () => undefined);
     child.stdin.end(input.context);
     return { pid: child.pid ?? 0, exit, async revoke() { await transport.revoke(); fs.rmSync(directory, { recursive: true, force: true }); } };
   } catch (error) {
     const failure = new Error(redactString(error instanceof Error ? error.message : 'primary_spawn_failed'));
-    await transport.revoke(); fs.rmSync(directory, { recursive: true, force: true }); throw failure;
+    unregister.forEach(dispose => dispose());
+    await transport.revoke(); if (directory) fs.rmSync(directory, { recursive: true, force: true }); throw failure;
   }
 };

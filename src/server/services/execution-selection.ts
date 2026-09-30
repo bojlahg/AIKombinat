@@ -1,4 +1,5 @@
 import * as queries from '../db/queries.js';
+import { validateAccountPolicy } from './provider-account-service.js';
 
 export class ExecutionSelectionError extends Error {}
 
@@ -63,6 +64,8 @@ export function normalizeExecutionSelection(input: {
   cliEffort?: unknown;
   executionProfileId?: unknown;
   executionProfile?: unknown;
+  providerAccountId?: unknown;
+  accountPolicy?: unknown;
 }) {
   let profileId = typeof input.executionProfileId === 'string' && input.executionProfileId.trim() ? input.executionProfileId.trim() : null;
   if (!profileId && typeof input.executionProfile === 'string' && input.executionProfile.trim()) {
@@ -85,7 +88,13 @@ export function normalizeExecutionSelection(input: {
     ? validateAntigravityExecutionEffort(model, input.cliEffort)
     : (typeof input.cliEffort === 'string' && input.cliEffort.trim() && input.cliEffort.trim() !== 'provider-default' ? input.cliEffort.trim() : null);
 
+  const providerAccountId = typeof input.providerAccountId === 'string' && input.providerAccountId ? input.providerAccountId : null;
+  let accountPolicy;
+  try { accountPolicy = validateAccountPolicy(model?.cli_tool ?? requestedTool ?? 'claude', input.accountPolicy ?? (providerAccountId ? 'fixed' : 'inherited_default'), providerAccountId); }
+  catch (error) { throw new ExecutionSelectionError(error instanceof Error ? error.message : 'Invalid account selection'); }
   return {
+    providerAccountId: profile ? null : providerAccountId,
+    accountPolicy: profile ? 'inherited_default' as const : accountPolicy,
     cliTool: profile ? null : model?.cli_tool ?? (typeof input.cliTool === 'string' ? input.cliTool : null),
     cliModel: profile ? null : model?.model_value ?? (typeof input.cliModel === 'string' && input.cliModel.trim() ? input.cliModel.trim() : null),
     cliModelId: profile ? null : modelId,

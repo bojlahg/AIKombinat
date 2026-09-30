@@ -28,13 +28,13 @@ interface TodoListProps {
   projectCliTool?: string;
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
-  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => Promise<void>;
+  onAddTodo: (title: string, description: string, cliTool?: string, images?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => Promise<void>;
   onStartAll: () => void;
   onStopAll: () => void;
   onStartTodo: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStopTodo: (id: string) => Promise<void>;
   onDeleteTodo: (id: string) => Promise<void>;
-  onEditTodo: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => Promise<void>;
+  onEditTodo: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => Promise<void>;
   onMergeTodo: (id: string) => Promise<void>;
   onMergeChain?: (rootTodoId: string) => Promise<void>;
   onCleanupTodo: (id: string) => Promise<void>;
@@ -503,8 +503,8 @@ export default function TodoList({
             projectIsGitRepo={projectIsGitRepo}
             projectUseWorktree={projectUseWorktree}
             availableTodos={todos}
-            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements) => {
-              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements);
+            onSave={async (title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId) => {
+              await onAddTodo(title, description, cliTool, images, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId);
               setShowForm(false);
             }}
             onCancel={() => setShowForm(false)}

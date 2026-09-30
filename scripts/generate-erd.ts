@@ -123,7 +123,8 @@ function extractSchemaSql(source: string): string {
 }
 
 function parseTables(source: string): Table[] {
-  const sql = extractSchemaSql(source);
+  const accountSql = /export function migrateProviderAccounts[\s\S]*?db\.exec\(`([\s\S]*?)`\)/.exec(source)?.[1] ?? '';
+  const sql = extractSchemaSql(source) + '\n' + accountSql;
   const tables: Table[] = [];
   const re = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\(([\s\S]*?)\);/gi;
   let m: RegExpExecArray | null;
@@ -235,7 +236,7 @@ ${mermaid}
 }
 
 function generate(): string {
-  const source = readFileSync(SCHEMA_PATH, 'utf8');
+  const source = readFileSync(SCHEMA_PATH, 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/provider-accounts.ts'), 'utf8');
   const tables = parseTables(source);
   const migrations = parseMigrations(source);
   mergeMigrations(tables, migrations);

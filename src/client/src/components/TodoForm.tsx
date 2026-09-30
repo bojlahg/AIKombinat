@@ -30,13 +30,14 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
   initialCliTool?: string;
   initialCliModel?: string;
   initialCliEffort?: string | null;
+  initialProviderAccountId?: string | null;
   initialExecutionProfileId?: string | null;
   initialDependsOn?: string;
   initialMaxTurns?: number;
@@ -68,6 +69,7 @@ export default function TodoForm({
   initialCliTool,
   initialCliModel,
   initialCliEffort,
+  initialProviderAccountId,
   initialExecutionProfileId,
   initialDependsOn,
   initialMaxTurns,
@@ -92,6 +94,7 @@ export default function TodoForm({
   const [description, setDescription] = useState(initialDescription);
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
   const [cliModel, setCliModel] = useState(initialCliModel ?? '');
+  const [providerAccountId, setProviderAccountId] = useState(initialProviderAccountId ?? null);
   const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
   const [executionProfileId, setExecutionProfileId] = useState(initialExecutionProfileId ?? '');
   const [dependsOn, setDependsOn] = useState(initialDependsOn ?? '');
@@ -187,7 +190,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds, executionProfileId ? null : providerAccountId);
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -298,14 +301,17 @@ export default function TodoForm({
 
       {/* Execution Configuration */}
       <ExecutionConfigurationPicker
+        allowAccountSelection
         executionProfileId={executionProfileId || null}
         cliTool={cliTool}
         cliModel={cliModel}
         cliEffort={cliEffort}
+        providerAccountId={providerAccountId}
         onChange={(val) => {
           setCliTool(val.cliTool as CliTool);
           setCliModel(val.cliModel);
           setCliEffort(val.cliEffort ?? '');
+          setProviderAccountId(val.providerAccountId ?? null);
           setExecutionProfileId(val.executionProfileId ?? '');
         }}
         className="mb-4"

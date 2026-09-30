@@ -186,6 +186,8 @@ export class Scheduler {
       schedule.max_review_rounds ?? 3,
     );
 
+    queries.updateTodo(todo.id, { provider_account_id: schedule.provider_account_id, account_policy: schedule.account_policy });
+
     // Create run record
     const run = queries.createScheduleRun(scheduleId, todo.id, 'triggered');
 

@@ -66,7 +66,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       : (typeof memory_node_ids === 'string' && memory_node_ids ? memory_node_ids : null);
     const normalizedRawFilePaths = normalizeRawFilePaths(memory_raw_file_paths);
     const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
-    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
+    const execution = normalizeExecutionSelection({ providerAccountId: req.body.provider_account_id, accountPolicy: req.body.account_policy, cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
     const parsedMaxReviewRounds = max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3;
     const todo = createTodo(
       projectId,
@@ -92,7 +92,8 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       rework_profile_id ?? null,
       parsedMaxReviewRounds,
     );
-    res.status(201).json(todo);
+    updateTodo(todo.id, { provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy });
+    res.status(201).json(getTodoById(todo.id));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
@@ -127,14 +128,16 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     }
 
     const { title, description, priority, cli_tool, cli_model, cli_model_id, cli_effort, execution_profile_id, execution_profile, depends_on, max_turns, position_x, position_y, use_worktree, memory_inject_mode, memory_node_ids, memory_raw_file_paths, resource_requirements, review_enabled, review_profile_id, rework_profile_id, max_review_rounds, pipeline_phase } = req.body;
-    const hasExecutionField = cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined;
+    const hasExecutionField = req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined || execution_profile !== undefined;
     const execution = hasExecutionField
       ? normalizeExecutionSelection({
+          providerAccountId: req.body.provider_account_id !== undefined ? req.body.provider_account_id : existing.provider_account_id,
+          accountPolicy: req.body.account_policy !== undefined ? req.body.account_policy : req.body.provider_account_id !== undefined ? undefined : existing.account_policy,
           cliTool: cli_tool !== undefined ? cli_tool : existing.cli_tool,
           cliModel: cli_model !== undefined ? cli_model : (cli_model_id !== undefined || execution_profile_id !== undefined || execution_profile !== undefined ? undefined : existing.cli_model),
           cliModelId: cli_model_id !== undefined ? cli_model_id : (cli_model !== undefined || execution_profile_id !== undefined || execution_profile !== undefined ? undefined : existing.cli_model_id),
           cliEffort: cli_effort !== undefined ? cli_effort : existing.cli_effort,
-          executionProfileId: execution_profile_id !== undefined ? execution_profile_id : (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined ? undefined : existing.execution_profile_id),
+          executionProfileId: execution_profile_id !== undefined ? execution_profile_id : (req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined ? undefined : existing.execution_profile_id),
           executionProfile: execution_profile,
         })
       : null;
@@ -158,7 +161,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       : serializeResourceRequirements(normalizeResourceRequirements(resource_requirements));
     const todo = updateTodo(req.params.id, {
       title, description, priority, cli_tool: execution?.cliTool ?? cli_tool, cli_model: execution ? execution.cliModel : cli_model, depends_on, position_x, position_y,
-      ...(execution ? { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, execution_profile_id: execution.executionProfileId, cli_effort: execution.cliEffort } : {}),
+      ...(execution ? { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, execution_profile_id: execution.executionProfileId, provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy, cli_effort: execution.cliEffort } : {}),
       ...(parsedMaxTurns !== undefined ? { max_turns: parsedMaxTurns } : {}),
       ...(normalizedUseWorktree !== undefined ? { use_worktree: normalizedUseWorktree } : {}),
       ...(normalizedMemMode !== undefined ? { memory_inject_mode: normalizedMemMode } : {}),

@@ -950,6 +950,8 @@ export class Orchestrator {
               cliTool,
               model: claudeModel,
               cliModelId: todo.cli_model_id,
+              providerAccountId: todo.provider_account_id,
+              accountPolicy: todo.account_policy,
               cliEffort: todo.cli_effort,
               interactive: mode === 'interactive',
             })
@@ -984,7 +986,8 @@ export class Orchestrator {
           }
         }
 
-        const reserved = executorPool.reserveSlot(todoId, resolvedCliTool, { excludeTodoId: todoId });
+        executionConfig = executorPool.bindManualAccount(executionConfig, { excludeTodoId: todoId });
+        const reserved = executorPool.reserveSlot(todoId, resolvedCliTool, { excludeTodoId: todoId, providerAccountId: executionConfig?.providerAccountId });
         if (!reserved) {
           queries.updateTodoStatus(todoId, 'waiting_executor');
           queries.updateTodo(todoId, { execution_mode: null, process_pid: 0 });
@@ -994,7 +997,7 @@ export class Orchestrator {
             if (updated) broadcaster.broadcast({ type: 'todo:round-updated', todoId, round: updated });
           }
           const adapter = getAdapter(resolvedCliTool);
-          const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeTodoId: todoId });
+          const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeTodoId: todoId, providerAccountId: executionConfig?.providerAccountId });
           const limit = executorPool.getLimit(resolvedCliTool);
           logger.warn('todo.admission.waiting-executor', {
             msg: `waiting_executor: provider concurrency limit reached (${usage}/${limit} active)`,

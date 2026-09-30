@@ -559,7 +559,7 @@ describe('Executor Pool V1', () => {
     expect(startSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      { model: 'gemini-3.7-flash', effectiveModel: 'gemini-3.7-flash-high', effort: 'high' },
+      expect.objectContaining({ model: 'gemini-3.7-flash', effectiveModel: 'gemini-3.7-flash-high', effort: 'high', providerAccountId: expect.any(String) }),
       undefined,
       'headless',
       'antigravity',
@@ -1611,7 +1611,7 @@ describe('Executor Pool V1', () => {
     // Attempting to continue/resume with non-Claude profile fails validation
     await expect(
       sessionManager.startSession(session1.id, { continueSession: true })
-    ).rejects.toThrow(/Resume is only supported for Claude sessions/);
+    ).rejects.toThrow(/Original session account is unknown/);
 
     // Verify reservation was NOT leaked
     expect(executorPool.getReservations().length).toBe(0);
@@ -2174,6 +2174,32 @@ describe('Executor Pool V1', () => {
     delete process.env.EXECUTOR_LIMIT_ANTIGRAVITY;
 
     expect(pool.getLimit('claude')).toBe(2);
+  });
+
+  it('resumes with the original account even after the saved profile changes, and rejects a disabled original', async () => {
+    const accounts = await import('../provider-account-service.js');
+    const { worktreeManager } = await import('../worktree-manager.js');
+    const fixture = workspace.createSubdir('account-resume');
+    const project = queries.createProject('Resume accounts', fixture);
+    const a = accounts.saveProviderAccount({ provider: 'claude', slug: 'a', label: 'A', auth_strategy: 'environment_reference', auth_config: { variable: 'ACCOUNT_A' } });
+    const b = accounts.saveProviderAccount({ provider: 'claude', slug: 'b', label: 'B', auth_strategy: 'environment_reference', auth_config: { variable: 'ACCOUNT_B' } });
+    const model = queries.addModel('claude', 'sonnet', 'Sonnet');
+    const profile = queries.createExecutionProfile({ slug: 'resume-accounts', name: 'Resume accounts', description: '', executors: [{ cli_model_id: model.id, effort_value: null, priority: 0, account_policy: 'fixed', provider_account_id: b.id }] });
+    const session = queries.createSession(project.id, 'Resume identity', undefined, 'claude', undefined, true, undefined, undefined, undefined, undefined, profile.id);
+    const original = JSON.stringify({ agent: 'claude', model: 'sonnet', effort: null, providerAccountId: a.id, providerAccountLabel: 'A' });
+    queries.updateSession(session.id, { execution_snapshot: original, worktree_path: fixture, branch_name: 'resume-branch', base_commit: 'base' });
+    vi.spyOn(worktreeManager, 'isValidWorktree').mockResolvedValue(true);
+    vi.spyOn(cliStatusModule, 'getToolStatus').mockImplementation(async tool => ({ tool, installed: true, version: 'test' }));
+    const result = createMockCliResult(99123);
+    const start = vi.spyOn(claudeManager, 'startClaude').mockResolvedValue(result);
+    accounts.saveProviderAccount({ is_enabled: false }, a.id);
+    await expect(sessionManager.startSession(session.id, { continueSession: true })).rejects.toThrow('No eligible provider account');
+    expect(start).not.toHaveBeenCalled(); expect(queries.getSessionById(session.id)?.execution_snapshot).toBe(original);
+    accounts.saveProviderAccount({ is_enabled: true }, a.id);
+    await sessionManager.startSession(session.id, { continueSession: true });
+    expect(start.mock.calls[0][2]).toMatchObject({ providerAccountId: a.id });
+    expect(JSON.parse(queries.getSessionById(session.id)!.execution_snapshot!).providerAccountId).toBe(a.id);
+    result.resolveExit(0); await new Promise(resolve => setTimeout(resolve, 20));
   });
 });
 

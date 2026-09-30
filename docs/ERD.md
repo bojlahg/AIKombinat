@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 58 tables, 635 columns, 76 foreign keys
+Stats: 59 tables, 660 columns, 81 foreign keys
 
 ## Diagram
 
@@ -30,12 +30,14 @@ erDiagram
     orchestrator_resource_requests ||--o{ orchestrator_child_jobs : "resource_request_id"
     execution_profiles ||--o{ projects : "default_review_profile_id"
     projects ||--o{ todos : "project_id"
+    provider_accounts ||--o{ todos : "provider_account_id"
     cli_models ||--o{ todos : "cli_model_id"
     execution_profiles ||--o{ todos : "execution_profile_id"
     execution_profiles ||--o{ todos : "review_profile_id"
     execution_profiles ||--o{ todos : "rework_profile_id"
     todos ||--o{ task_logs : "todo_id"
     projects ||--o{ schedules : "project_id"
+    provider_accounts ||--o{ schedules : "provider_account_id"
     execution_profiles ||--o{ schedules : "review_profile_id"
     execution_profiles ||--o{ schedules : "rework_profile_id"
     schedules ||--o{ schedule_runs : "schedule_id"
@@ -43,13 +45,16 @@ erDiagram
     cli_models ||--o{ cli_models : "superseded_by_model_id"
     execution_profiles ||--o{ execution_profile_executors : "profile_id"
     cli_models ||--o{ execution_profile_executors : "cli_model_id"
+    provider_accounts ||--o{ execution_profile_executors : "provider_account_id"
     projects ||--o{ discussion_agents : "project_id"
+    provider_accounts ||--o{ discussion_agents : "provider_account_id"
     cli_models ||--o{ discussion_agents : "cli_model_id"
     execution_profiles ||--o{ discussion_agents : "execution_profile_id"
     projects ||--o{ discussions : "project_id"
     discussions ||--o{ discussion_messages : "discussion_id"
     discussions ||--o{ discussion_logs : "discussion_id"
     projects ||--o{ sessions : "project_id"
+    provider_accounts ||--o{ sessions : "provider_account_id"
     cli_models ||--o{ sessions : "cli_model_id"
     execution_profiles ||--o{ sessions : "execution_profile_id"
     sessions ||--o{ session_logs : "session_id"
@@ -220,6 +225,8 @@ erDiagram
         TEXT review_baseline
         DATETIME created_at
         DATETIME updated_at
+        TEXT provider_account_id FK
+        TEXT account_policy
         TEXT cli_tool
         TEXT cli_model
         TEXT cli_model_id FK
@@ -284,6 +291,8 @@ erDiagram
         DATETIME next_run_at
         DATETIME created_at
         DATETIME updated_at
+        TEXT provider_account_id FK
+        TEXT account_policy
         TEXT schedule_type
         DATETIME run_at
         TEXT resource_requirements
@@ -336,6 +345,8 @@ erDiagram
         INTEGER is_enabled
         DATETIME created_at
         DATETIME updated_at
+        TEXT provider_account_id FK
+        TEXT account_policy
     }
     cli_versions {
         TEXT cli_tool PK
@@ -363,6 +374,8 @@ erDiagram
         INTEGER sort_order
         DATETIME created_at
         DATETIME updated_at
+        TEXT provider_account_id FK
+        TEXT account_policy
         INTEGER can_implement
         TEXT cli_model_id FK
         TEXT execution_profile_id FK
@@ -431,6 +444,8 @@ erDiagram
         INTEGER total_tokens
         DATETIME created_at
         DATETIME updated_at
+        TEXT provider_account_id FK
+        TEXT account_policy
         INTEGER use_worktree
         TEXT memory_inject_mode
         TEXT memory_node_ids
@@ -838,6 +853,23 @@ erDiagram
         DATETIME started_at
         DATETIME completed_at
         DATETIME created_at
+    }
+    provider_accounts {
+        TEXT id PK
+        TEXT provider
+        TEXT slug
+        TEXT label
+        TEXT description
+        TEXT auth_strategy
+        TEXT auth_config_json
+        INTEGER is_enabled
+        TEXT health_state
+        TEXT health_reason
+        TEXT last_health_at
+        INTEGER max_concurrency
+        INTEGER sort_order
+        TEXT created_at
+        TEXT updated_at
     }
 ```
 

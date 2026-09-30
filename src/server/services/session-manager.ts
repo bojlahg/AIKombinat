@@ -315,7 +315,22 @@ export class SessionManager {
     let useWorktree = false;
 
     try {
-      if (session.execution_profile_id) {
+      if (opts?.continueSession && !session.execution_snapshot) throw new Error('Original session account is unknown; start a new session');
+      if (opts?.continueSession && session.execution_snapshot) {
+        const original = JSON.parse(session.execution_snapshot);
+        if (original.providerAccountId) {
+          executionConfig = resolveExecutionConfig({ cliTool: original.agent, model: original.model, cliEffort: original.effort,
+            providerAccountId: original.providerAccountId, accountPolicy: 'fixed', interactive: true });
+          resolvedCliTool = executionConfig.cliTool;
+          if (!executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId, providerAccountId: executionConfig.providerAccountId })) throw new Error('Original session account is busy');
+          hasReservation = true;
+        } else if (original.agent !== 'raw-shell' && original.agent !== 'opencode') {
+          throw new Error('Legacy session account is unknown; start a new session');
+        }
+      }
+      if (hasReservation) {
+        // Resume already reserved its original account.
+      } else if (session.execution_profile_id) {
         const selection = await executorPool.selectExecutor({
           executionProfileId: session.execution_profile_id,
           interactive: true,
@@ -327,7 +342,7 @@ export class SessionManager {
             `Provider concurrency limit reached for profile "${selection.profileName}":\n\n${selection.rejectionSummary}`
           );
         }
-        if (selection.status === 'no_candidates') {
+        if (selection.status === 'no_candidates' || selection.status === 'waiting_quota') {
           throw new Error(
             `Execution profile "${selection.profileName}" has no eligible interactive executors:\n\n${selection.rejectionSummary}`
           );
@@ -341,6 +356,8 @@ export class SessionManager {
             cliTool: resolvedCliTool,
             model: cliModel,
             cliModelId: session.cli_model_id,
+              providerAccountId: session.provider_account_id,
+              accountPolicy: session.account_policy,
             cliEffort: session.cli_effort,
             interactive: true,
           });
@@ -358,10 +375,11 @@ export class SessionManager {
           }
         }
 
-        const reserved = executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId });
+        executionConfig = executorPool.bindManualAccount(executionConfig, { excludeSessionId: sessionId });
+        const reserved = executorPool.reserveSlot(sessionId, resolvedCliTool, { excludeSessionId: sessionId, providerAccountId: executionConfig?.providerAccountId });
         if (!reserved) {
           adapter = getAdapter(resolvedCliTool);
-          const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeSessionId: sessionId });
+          const usage = executorPool.getActiveToolUsage(resolvedCliTool, { excludeSessionId: sessionId, providerAccountId: executionConfig?.providerAccountId });
           const limit = executorPool.getLimit(resolvedCliTool);
           throw new Error(
             `Provider concurrency limit reached for ${adapter.displayName} (${usage}/${limit} active). Please try again later.`
@@ -696,7 +714,7 @@ export class SessionManager {
         this.runStartupBuffers.delete(runToken);
         if (isRunningPersisted) {
           queries.updateSessionStatus(sessionId, 'failed');
-          queries.updateSession(sessionId, { process_pid: 0, execution_snapshot: null });
+          queries.updateSession(sessionId, { process_pid: 0, execution_snapshot: opts?.continueSession ? session.execution_snapshot : null });
           logger.error('session.start-failed', {
             scope: tag('session', session.title),
             msg: `failed to start ${adapter?.displayName || 'session'}`,

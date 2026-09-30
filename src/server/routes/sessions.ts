@@ -67,7 +67,7 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
     const normalizedRaw = normalizeRawFilePaths(memory_raw_file_paths);
     const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
 
-    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
+    const execution = normalizeExecutionSelection({ providerAccountId: req.body.provider_account_id, accountPolicy: req.body.account_policy, cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
     const session = queries.createSession(
       req.params.id,
       finalTitle,
@@ -84,7 +84,8 @@ router.post('/projects/:id/sessions', (req: Request<{ id: string }>, res: Respon
       execution.cliModelId,
       normalizedResources,
     );
-    res.status(201).json(session);
+    queries.updateSession(session.id, { provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy });
+    res.status(201).json(queries.getSessionById(session.id));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
@@ -278,15 +279,17 @@ router.put('/sessions/:id', (req: Request<{ id: string }>, res: Response) => {
         updates[key] = req.body[key];
       }
     }
-    if (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined) {
+    if (req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined || req.body.cli_effort !== undefined || req.body.execution_profile_id !== undefined) {
       const execution = normalizeExecutionSelection({
-        cliTool: req.body.cli_tool !== undefined ? req.body.cli_tool : session.cli_tool,
+          providerAccountId: req.body.provider_account_id !== undefined ? req.body.provider_account_id : session.provider_account_id,
+          accountPolicy: req.body.account_policy !== undefined ? req.body.account_policy : req.body.provider_account_id !== undefined ? undefined : session.account_policy,
+        cliTool: req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || req.body.cli_tool !== undefined ? req.body.cli_tool : session.cli_tool,
         cliModel: req.body.cli_model !== undefined ? req.body.cli_model : (req.body.cli_model_id !== undefined || req.body.execution_profile_id !== undefined ? undefined : session.cli_model),
         cliModelId: req.body.cli_model_id !== undefined ? req.body.cli_model_id : (req.body.cli_model !== undefined || req.body.execution_profile_id !== undefined ? undefined : session.cli_model_id),
         cliEffort: req.body.cli_effort !== undefined ? req.body.cli_effort : session.cli_effort,
-        executionProfileId: req.body.execution_profile_id !== undefined ? req.body.execution_profile_id : (req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined ? undefined : session.execution_profile_id),
+        executionProfileId: req.body.execution_profile_id !== undefined ? req.body.execution_profile_id : (req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || req.body.cli_tool !== undefined || req.body.cli_model !== undefined || req.body.cli_model_id !== undefined ? undefined : session.execution_profile_id),
       });
-      Object.assign(updates, { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, cli_effort: execution.cliEffort, execution_profile_id: execution.executionProfileId });
+      Object.assign(updates, { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy, cli_effort: execution.cliEffort, execution_profile_id: execution.executionProfileId });
     }
 
     if (req.body.memory_inject_mode !== undefined) {

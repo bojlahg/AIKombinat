@@ -15,7 +15,9 @@ export function createTodo(
     cli_tool?: string;
     cli_model?: string;
     cli_model_id?: string | null;
-    cli_effort?: string | null;
+    provider_account_id?: string | null;
+  account_policy?: string;
+  cli_effort?: string | null;
     execution_profile_id?: string | null;
     execution_profile?: string;
     depends_on?: string;
@@ -43,7 +45,9 @@ export function updateTodo(
     cli_tool?: string;
     cli_model?: string;
     cli_model_id?: string | null;
-    cli_effort?: string | null;
+    provider_account_id?: string | null;
+  account_policy?: string;
+  cli_effort?: string | null;
     execution_profile_id?: string | null;
     execution_profile?: string;
     depends_on?: string | null;

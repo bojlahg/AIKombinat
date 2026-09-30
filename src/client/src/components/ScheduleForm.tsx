@@ -19,6 +19,7 @@ interface ScheduleFormProps {
     cliTool?: string;
     cliModel?: string;
     cliEffort?: string | null;
+    providerAccountId?: string | null;
     executionProfileId?: string | null;
     skipIfRunning?: boolean;
     scheduleType: ScheduleType;
@@ -32,6 +33,7 @@ interface ScheduleFormProps {
   initialCliTool?: string;
   initialCliModel?: string | null;
   initialCliEffort?: string | null;
+  initialProviderAccountId?: string | null;
   initialExecutionProfileId?: string | null;
   initialSkipIfRunning?: boolean;
   initialScheduleType?: ScheduleType;
@@ -72,6 +74,7 @@ export default function ScheduleForm({
   initialCliTool,
   initialCliModel,
   initialCliEffort,
+  initialProviderAccountId,
   initialExecutionProfileId,
   initialSkipIfRunning = true,
   initialScheduleType = 'recurring',
@@ -84,6 +87,7 @@ export default function ScheduleForm({
   const [cronExpression, setCronExpression] = useState(initialCronExpression);
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
   const [cliModel, setCliModel] = useState(initialCliModel ?? '');
+  const [providerAccountId, setProviderAccountId] = useState(initialProviderAccountId ?? null);
   const [cliEffort, setCliEffort] = useState(initialCliEffort ?? '');
   const [executionProfileId, setExecutionProfileId] = useState(initialExecutionProfileId ?? '');
   const [skipIfRunning, setSkipIfRunning] = useState(initialSkipIfRunning);
@@ -104,6 +108,7 @@ export default function ScheduleForm({
       cronExpression: isOnce ? '' : cronExpression.trim(),
       cliTool,
       cliModel: executionProfileId ? undefined : cliModel || undefined,
+      providerAccountId: executionProfileId ? null : providerAccountId,
       cliEffort: executionProfileId ? null : cliEffort || null,
       executionProfileId: executionProfileId || null,
       skipIfRunning,
@@ -191,14 +196,17 @@ export default function ScheduleForm({
 
       {/* Execution Configuration */}
       <ExecutionConfigurationPicker
+        allowAccountSelection
         executionProfileId={executionProfileId || null}
         cliTool={cliTool}
         cliModel={cliModel}
         cliEffort={cliEffort}
+        providerAccountId={providerAccountId}
         onChange={(val) => {
           setCliTool(val.cliTool as CliTool);
           setCliModel(val.cliModel);
           setCliEffort(val.cliEffort ?? '');
+          setProviderAccountId(val.providerAccountId ?? null);
           setExecutionProfileId(val.executionProfileId ?? '');
         }}
         className="mb-3"

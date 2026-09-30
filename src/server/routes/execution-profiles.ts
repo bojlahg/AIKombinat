@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import * as queries from '../db/queries.js';
+import { validateAccountPolicy } from '../services/provider-account-service.js';
 import { validateAntigravityExecutionEffort } from '../services/execution-selection.js';
 
 const router = Router();
@@ -31,6 +32,8 @@ export function executorInput(value: unknown): queries.ExecutionProfileInput['ex
     }
     return {
       ...(typeof item.id === 'string' ? { id: item.id } : {}),
+      account_policy: validateAccountPolicy(model.cli_tool, item.accountPolicy ?? 'inherited_default', item.providerAccountId),
+      provider_account_id: typeof item.providerAccountId === 'string' ? item.providerAccountId : null,
       cli_model_id: model.id,
       effort_value: effort,
       priority: Number.isInteger(item.priority) ? Number(item.priority) : index,
@@ -70,6 +73,8 @@ function toApi(profile: queries.ExecutionProfile, compact = false) {
   return { ...base, executors: profile.executors.map((executor) => ({
     id: executor.id,
     cliModelId: executor.cli_model_id,
+    accountPolicy: executor.cli_tool === 'opencode' ? null : executor.account_policy,
+    providerAccountId: executor.provider_account_id ?? null,
     cliTool: executor.cli_tool,
     modelValue: executor.model_value,
     modelLabel: executor.model_label,

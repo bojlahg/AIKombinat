@@ -10,6 +10,7 @@ import type { WsEvent } from '../../hooks/useWebSocket';
 import GeneralSettingsPanel from './GeneralSettingsPanel';
 import AgentsSettingsPanel from './AgentsSettingsPanel';
 import DelegationSettingsPanel from './DelegationSettingsPanel';
+import ProviderAccountsPanel from './ProviderAccountsPanel';
 import ResourcesSettingsPanel from './ResourcesSettingsPanel';
 
 export interface SettingsPageProps {
@@ -22,6 +23,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
   const [tunnelDirty, setTunnelDirty] = useState(false);
   const tabs = [
     { id: 'general', label: t('settings.tabs.general'), icon: MonitorCog },
+    { id: 'provider-accounts', label: t('accounts.title'), icon: KeyRound },
     { id: 'agents', label: t('settings.tabs.agents'), icon: Bot },
     { id: 'delegation', label: t('settings.tabs.delegation'), icon: Workflow },
     { id: 'resources', label: t('fabric.title'), icon: MonitorCog },
@@ -70,6 +72,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
             <Routes>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPanel />} />
+              <Route path="provider-accounts" element={<div className="p-5"><ProviderAccountsPanel /></div>} />
               <Route path="agents" element={<AgentsSettingsPanel onEvent={onEvent} />} />
               <Route path="delegation" element={<DelegationSettingsPanel />} />
               <Route path="resources" element={<ResourcesSettingsPanel onEvent={onEvent} />} />

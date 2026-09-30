@@ -1,7 +1,13 @@
 import * as queries from '../db/queries.js';
+import { accountCandidates, accountIdentity, accountIneligibleReason, isAccountProvider, type AccountPolicy } from './provider-account-service.js';
 import { resolveExecutionModel, supportsInteractiveMode, type CliTool, type LaunchModelSelection } from './cli-adapters.js';
 
 export interface ResolvedExecutionConfig {
+  providerAccountId?: string | null;
+  providerAccountSlug?: string | null;
+  providerAccountLabel?: string | null;
+  providerAccountStrategy?: string | null;
+  accountPolicy?: AccountPolicy | null;
   cliTool: CliTool;
   source: 'profile' | 'manual';
   profileId?: string;
@@ -46,6 +52,8 @@ export function resolveExecutionConfig(input: {
   cliEffort?: string | null;
   executionProfileId?: string | null;
   interactive?: boolean;
+  providerAccountId?: string | null;
+  accountPolicy?: AccountPolicy;
 }): ResolvedExecutionConfig {
   const resolvedAt = new Date().toISOString();
   if (input.executionProfileId) {
@@ -61,6 +69,7 @@ export function resolveExecutionConfig(input: {
         const effortConf = effortConfig(model, executor.effort_value);
         const resolved = resolveExecutionModel(model.model_value, executor.cli_tool as CliTool, true, effortConf.nativeEffort);
         return {
+          ...resolveAccountIdentity(executor.cli_tool, executor.account_policy, executor.provider_account_id),
           cliTool: executor.cli_tool, source: 'profile', profileId: profile.id, profileSlug: profile.slug, profileName: profile.name,
           executorCandidateId: executor.id, cliModelId: model.id, requestedModel: model.model_value, model: model.model_value,
           effectiveModel: resolved.effectiveModel ?? model.model_value,
@@ -83,6 +92,7 @@ export function resolveExecutionConfig(input: {
   const effortConf = effortConfig(catalog, input.cliEffort);
   const resolved = resolveExecutionModel(requested, cliTool, true, effortConf.nativeEffort);
   return {
+    ...resolveAccountIdentity(cliTool, input.accountPolicy ?? (input.providerAccountId ? 'fixed' : 'inherited_default'), input.providerAccountId),
     cliTool, source: 'manual', cliModelId: catalogModel?.id, requestedModel: resolved.requestedModel, model: requested,
     effectiveModel: resolved.effectiveModel ?? requested ?? null,
     modelAvailability: resolved.availability,
@@ -103,6 +113,7 @@ export function resolveExecutionConfig(input: {
  */
 export interface LaunchSelection extends LaunchModelSelection {
   effort?: string;
+  providerAccountId?: string | null;
 }
 
 export function launchSelection(config: ResolvedExecutionConfig | null | undefined): LaunchSelection {
@@ -110,11 +121,17 @@ export function launchSelection(config: ResolvedExecutionConfig | null | undefin
     model: config?.model ?? undefined,
     effectiveModel: config?.effectiveModel ?? undefined,
     effort: config?.effort.nativeEffort,
+    providerAccountId: config?.providerAccountId,
   };
 }
 
 export const executionSnapshot = (config: ResolvedExecutionConfig) => ({
   configuration: config.source,
+  providerAccountId: config.providerAccountId ?? null,
+  providerAccountSlug: config.providerAccountSlug ?? null,
+  providerAccountLabel: config.providerAccountLabel ?? null,
+  providerAccountStrategy: config.providerAccountStrategy ?? null,
+  accountPolicy: config.accountPolicy ?? null,
   profileId: config.profileId ?? null,
   profileSlug: config.profileSlug ?? null,
   profileName: config.profileName ?? null,
@@ -127,3 +144,10 @@ export const executionSnapshot = (config: ResolvedExecutionConfig) => ({
   resolvedAt: config.resolvedAt,
   warnings: config.warnings,
 });
+
+function resolveAccountIdentity(provider: string, policy: AccountPolicy = 'inherited_default', id?: string | null) {
+  if (!isAccountProvider(provider)) return accountIdentity();
+  const account = accountCandidates(provider, policy, id).find(account => !accountIneligibleReason(account));
+  if (!account) throw new Error('No eligible provider account');
+  return accountIdentity(account, policy);
+}

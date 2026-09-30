@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   cronCallback: undefined as (() => void) | undefined,
   getScheduleById: vi.fn(),
   getTodosByScheduleId: vi.fn(() => []),
+  updateTodo: vi.fn(),
   createTodo: vi.fn(() => ({ id: 'todo-1' })),
   createScheduleRun: vi.fn(() => ({
     id: 'run-1', schedule_id: 'schedule-1', todo_id: 'todo-1', status: 'triggered',
@@ -33,6 +34,7 @@ vi.mock('../../db/queries.js', () => ({
   getScheduleById: mocks.getScheduleById,
   getTodosByScheduleId: mocks.getTodosByScheduleId,
   createTodo: mocks.createTodo,
+  updateTodo: mocks.updateTodo,
   createScheduleRun: mocks.createScheduleRun,
   getScheduleRunsByScheduleId: mocks.getScheduleRunsByScheduleId,
   updateScheduleLastRun: mocks.updateScheduleLastRun,

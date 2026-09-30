@@ -1,3 +1,4 @@
+import ExecutionAccountIdentity from './ExecutionAccountIdentity';
 import { parseResourceRequirements } from '../utils/resource-requirements';
 import type { ResourceRequirements } from '../types';
 import { useState, useCallback, useMemo, useEffect } from 'react';
@@ -118,6 +119,7 @@ export default function SessionList({
       cliModel: editingSession.cli_model ?? '',
       cliEffort: editingSession.cli_effort,
       executionProfileId: editingSession.execution_profile_id,
+      providerAccountId: editingSession.provider_account_id,
       useWorktree: editingSession.use_worktree === 1,
       memoryInjectMode: (editingSession.memory_inject_mode as MemoryInjectMode | null) ?? 'none',
       memoryNodeIds: parseMemoryNodeIds(editingSession.memory_node_ids ?? null),
@@ -158,6 +160,7 @@ export default function SessionList({
     cliEffort?: string | null,
     executionProfileId?: string | null,
     resourceRequirements?: ResourceRequirements,
+    providerAccountId?: string | null,
   ) => {
     setCreating(true);
     try {
@@ -166,7 +169,7 @@ export default function SessionList({
         description: description || undefined,
         cli_tool: cliTool,
         cli_model: cliModel,
-        cli_effort: cliEffort, execution_profile_id: executionProfileId,
+        provider_account_id: providerAccountId, account_policy: providerAccountId ? 'fixed' : 'inherited_default', cli_effort: cliEffort, execution_profile_id: executionProfileId,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -194,6 +197,7 @@ export default function SessionList({
     cliEffort?: string | null,
     executionProfileId?: string | null,
     resourceRequirements?: ResourceRequirements,
+    providerAccountId?: string | null,
   ) => {
     if (!editingId) return;
     setSaving(true);
@@ -204,7 +208,7 @@ export default function SessionList({
         description: description || undefined,
         cli_tool: cliTool,
         cli_model: cliModel,
-        cli_effort: cliEffort, execution_profile_id: executionProfileId,
+        provider_account_id: providerAccountId, account_policy: providerAccountId ? 'fixed' : 'inherited_default', cli_effort: cliEffort, execution_profile_id: executionProfileId,
         use_worktree: useWorktree,
         memory_inject_mode: memoryInjectMode,
         memory_node_ids: memoryNodeIds,
@@ -312,7 +316,7 @@ export default function SessionList({
                   onClick={() => isPopped ? recallPopout(session.id) : openOrFocus(session.id, 'open')}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0"><ExecutionAccountIdentity snapshot={session.execution_snapshot} />
                       <div className="flex items-center gap-2">
                         {session.tag_id && tagsById.get(session.tag_id) && (
                           <span

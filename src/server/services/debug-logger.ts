@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { PassThrough } from 'stream';
+import { redactString } from '../logging/redact.js';
 import { assertTestRuntimePathAllowed } from '../utils/test-fs-guard.js';
 
 /**
@@ -93,7 +94,7 @@ class DebugLogger {
       `Sandbox:    ${opts.sandboxMode || 'N/A'}`,
       '',
     ].join('\n');
-    fs.writeFileSync(filePath, header, 'utf-8');
+    fs.writeFileSync(filePath, redactString(header), 'utf-8');
 
     let stdoutHeaderWritten = false;
     let stderrHeaderWritten = false;
@@ -102,7 +103,7 @@ class DebugLogger {
       filePath,
 
       writeStdin(content: string) {
-        fs.appendFileSync(filePath, `\n======== STDIN/PROMPT ========\n${content}\n`, 'utf-8');
+        fs.appendFileSync(filePath, `\n======== STDIN/PROMPT ========\n${redactString(content)}\n`, 'utf-8');
       },
 
       teeStdout(original: NodeJS.ReadableStream): NodeJS.ReadableStream {
@@ -112,7 +113,7 @@ class DebugLogger {
             fs.appendFileSync(filePath, '\n======== STDOUT ========\n', 'utf-8');
             stdoutHeaderWritten = true;
           }
-          try { fs.appendFileSync(filePath, chunk); } catch { /* ignore write errors */ }
+          try { fs.appendFileSync(filePath, redactString(chunk.toString())); } catch { /* ignore write errors */ }
           passthrough.push(chunk);
         });
         original.on('end', () => passthrough.push(null));
@@ -127,7 +128,7 @@ class DebugLogger {
             fs.appendFileSync(filePath, '\n======== STDERR ========\n', 'utf-8');
             stderrHeaderWritten = true;
           }
-          try { fs.appendFileSync(filePath, chunk); } catch { /* ignore write errors */ }
+          try { fs.appendFileSync(filePath, redactString(chunk.toString())); } catch { /* ignore write errors */ }
           passthrough.push(chunk);
         });
         original.on('end', () => passthrough.push(null));

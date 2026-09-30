@@ -1,3 +1,4 @@
+import ExecutionAccountIdentity from './ExecutionAccountIdentity';
 import type { ResourceRequirements } from '../types';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -143,7 +144,7 @@ interface TodoItemProps {
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
   onCleanup: (id: string, deleteBranch: boolean) => Promise<void>;
   onRetry: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
@@ -511,6 +512,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         initialCliTool={todo.cli_tool ?? undefined}
         initialCliModel={todo.cli_model ?? undefined}
         initialCliEffort={todo.cli_effort}
+        initialProviderAccountId={todo.provider_account_id}
         initialExecutionProfileId={todo.execution_profile_id}
         initialDependsOn={todo.depends_on ?? undefined}
         initialMaxTurns={todo.max_turns ?? undefined}
@@ -531,8 +533,8 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
         onDeleteImage={async (imageId) => {
           await todosApi.deleteTodoImage(todo.id, imageId);
         }}
-        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds) => {
-          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds);
+        onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId) => {
+          await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId);
           if (newImages && newImages.length > 0) {
             await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
           }
@@ -590,6 +592,7 @@ export default function TodoItem({ todo, allTodos = [], projectCliTool, projectI
       }}
     >
       <div className={`card overflow-hidden transition-all duration-200 ${dropZoneActive ? 'ring-2 ring-accent/50 ring-offset-1' : ''} ${dropZoneInvalid ? 'ring-2 ring-status-error/50 ring-offset-1' : ''}`}>
+      <ExecutionAccountIdentity snapshot={todo.execution_snapshot} />
       {/* Header row */}
       <div
         className="flex flex-wrap items-center gap-x-2 gap-y-1 md:flex-nowrap md:gap-3 px-3 md:px-4 py-3 md:py-3.5 cursor-pointer hover:bg-warm-50 transition-colors"

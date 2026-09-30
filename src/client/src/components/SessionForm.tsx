@@ -20,6 +20,7 @@ export interface SessionFormInitial {
   cliTool: string;
   cliModel: string;
   cliEffort?: string | null;
+  providerAccountId?: string | null;
   executionProfileId?: string | null;
   useWorktree: boolean;
   memoryInjectMode: MemoryInjectMode;
@@ -46,6 +47,7 @@ interface SessionFormProps {
     cliEffort?: string | null,
     executionProfileId?: string | null,
     resourceRequirements?: ResourceRequirements,
+    providerAccountId?: string | null,
   ) => void;
   onCancel: () => void;
   projectCliTool?: string;
@@ -61,6 +63,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
   const [description, setDescription] = useState(initial?.description ?? '');
   const [cliTool, setCliTool] = useState(initial?.cliTool ?? (projectCliTool || ''));
   const [cliModel, setCliModel] = useState(initial?.cliModel ?? '');
+  const [providerAccountId, setProviderAccountId] = useState(initial?.providerAccountId ?? null);
   const [cliEffort, setCliEffort] = useState(initial?.cliEffort ?? '');
   const [executionProfileId, setExecutionProfileId] = useState(initial?.executionProfileId ?? '');
   const [useWorktree, setUseWorktree] = useState(initial?.useWorktree ?? !!projectUseWorktree);
@@ -157,8 +160,9 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
       executionProfileId ? undefined : cliModel || undefined,
       executionProfileId ? null : cliEffort || null,
       executionProfileId || null,
-      resourceRequirements,
-    );
+        resourceRequirements,
+        executionProfileId ? null : providerAccountId,
+      );
   };
 
   const selectedTag = tags.find((tt) => tt.id === tagId) ?? null;
@@ -187,10 +191,12 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
         />
       )}
       <ExecutionConfigurationPicker
+        allowAccountSelection
         executionProfileId={executionProfileId || null}
         cliTool={cliTool}
         cliModel={cliModel}
         cliEffort={cliEffort}
+        providerAccountId={providerAccountId}
         allowRawShell={true}
         interactiveOnly={true}
         allowEmptyTool={true}
@@ -200,6 +206,7 @@ export default function SessionForm({ projectId, initial, onSave, onCancel, proj
           setCliTool(val.cliTool);
           setCliModel(val.cliModel);
           setCliEffort(val.cliEffort ?? '');
+          setProviderAccountId(val.providerAccountId ?? null);
           setExecutionProfileId(val.executionProfileId ?? '');
         }}
       />

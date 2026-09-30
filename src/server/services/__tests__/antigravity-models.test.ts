@@ -703,7 +703,7 @@ gpt-oss-120b-medium       GPT-OSS 120B (Medium)`;
     // handed to the adapter as a resolved launch selection rather than as a
     // logical model to look up again.
     const launch = launchSelection(config);
-    expect(launch).toEqual({ model: 'gemini-3.7-flash', effectiveModel: 'gemini-3.7-flash-high', effort: 'high' });
+    expect(launch).toEqual({ model: 'gemini-3.7-flash', effectiveModel: 'gemini-3.7-flash-high', effort: 'high', providerAccountId: config.providerAccountId });
 
     const adapter = getAdapter('antigravity');
     const args = adapter.buildArgs({

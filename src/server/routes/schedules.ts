@@ -42,7 +42,7 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       }
     }
 
-    const execution = normalizeExecutionSelection({ cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
+    const execution = normalizeExecutionSelection({ providerAccountId: req.body.provider_account_id, accountPolicy: req.body.account_policy, cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id });
     const normalizedResources = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements ?? []));
     const schedule = queries.createSchedule(
       req.params.id, title, description,
@@ -63,7 +63,8 @@ router.post('/projects/:id/schedules', (req: Request<{ id: string }>, res: Respo
       scheduler.registerJob(schedule);
     }
 
-    res.status(201).json(schedule);
+    queries.updateSchedule(schedule.id, { provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy });
+    res.status(201).json(queries.getScheduleById(schedule.id));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
@@ -130,15 +131,17 @@ router.put('/schedules/:id', (req: Request<{ id: string }>, res: Response) => {
     } else if (cron_expression !== undefined) {
       updates.cron_expression = cron_expression;
     }
-    if (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined) {
+    if (req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined || cli_effort !== undefined || execution_profile_id !== undefined) {
       const execution = normalizeExecutionSelection({
+          providerAccountId: req.body.provider_account_id !== undefined ? req.body.provider_account_id : existing.provider_account_id,
+          accountPolicy: req.body.account_policy !== undefined ? req.body.account_policy : req.body.provider_account_id !== undefined ? undefined : existing.account_policy,
         cliTool: cli_tool !== undefined ? cli_tool : existing.cli_tool,
         cliModel: cli_model !== undefined ? cli_model : (cli_model_id !== undefined || execution_profile_id !== undefined ? undefined : existing.cli_model),
         cliModelId: cli_model_id !== undefined ? cli_model_id : (cli_model !== undefined || execution_profile_id !== undefined ? undefined : existing.cli_model_id),
         cliEffort: cli_effort !== undefined ? cli_effort : existing.cli_effort,
-        executionProfileId: execution_profile_id !== undefined ? execution_profile_id : (cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined ? undefined : existing.execution_profile_id),
+        executionProfileId: execution_profile_id !== undefined ? execution_profile_id : (req.body.provider_account_id !== undefined || req.body.account_policy !== undefined || cli_tool !== undefined || cli_model !== undefined || cli_model_id !== undefined ? undefined : existing.execution_profile_id),
       });
-      updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_model_id = execution.cliModelId; updates.cli_effort = execution.cliEffort; updates.execution_profile_id = execution.executionProfileId;
+      updates.provider_account_id = execution.providerAccountId; updates.account_policy = execution.accountPolicy; updates.cli_tool = execution.cliTool; updates.cli_model = execution.cliModel; updates.cli_model_id = execution.cliModelId; updates.cli_effort = execution.cliEffort; updates.execution_profile_id = execution.executionProfileId;
     }
     if (skip_if_running !== undefined) updates.skip_if_running = skip_if_running ? 1 : 0;
     if (resource_requirements !== undefined) updates.resource_requirements = serializeResourceRequirements(normalizeResourceRequirements(resource_requirements));

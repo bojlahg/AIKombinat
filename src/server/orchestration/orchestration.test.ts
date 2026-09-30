@@ -412,4 +412,24 @@ describe('V2 migration', () => {
     expect(queries.getSessionById(session.id)?.title).toBe('Existing session');
     const p = parent(), turn = running(p.id); expect(requestResource(p.id, turn.id, 'CPU', cpu).status).toBe('waiting');
   });
+
+  it('automatic primary accounts may change between turns while each snapshot retains its account', async () => {
+    const accounts = await import('../services/provider-account-service.js');
+    for (const account of accounts.listProviderAccounts().filter(account => account.provider === 'claude')) accounts.saveProviderAccount({ is_enabled: false }, account.id);
+    const a = accounts.saveProviderAccount({ provider: 'claude', slug: 'a', label: 'A', auth_strategy: 'environment_reference', auth_config: { variable: 'ACCOUNT_A' } });
+    const b = accounts.saveProviderAccount({ provider: 'claude', slug: 'b', label: 'B', auth_strategy: 'environment_reference', auth_config: { variable: 'ACCOUNT_B' } });
+    accounts.setAccountHealth(a.id, 'available');
+    queries.updateExecutionProfile(profile.id, { executors: [{ cli_model_id: profile.executors[0].cli_model_id, effort_value: null, priority: 0, account_policy: 'automatic' }] });
+    const p = parent();
+    let calls = 0;
+    const { service } = fakeService(async (id, turnId) => {
+      if (++calls === 1) await callTool(id, turnId, 'yield', { idempotency_key: 'wait-account', reason: 'User', state_summary: '', current_plan: '', wake_on: { any: [{ type: 'user_message' }] } });
+      else await callTool(id, turnId, 'finish', { idempotency_key: 'done-account', summary: 'Done', state_summary: 'Done' });
+    });
+    await service.initialize(); await service.start(p.id);
+    await vi.waitFor(() => expect(store.getOrchestration(p.id).status).toBe('waiting_event'));
+    accounts.saveProviderAccount({ is_enabled: false }, a.id); store.addMessage(p.id, 'Continue');
+    await vi.waitFor(() => expect(store.getOrchestration(p.id).status).toBe('completed'));
+    expect(store.turns(p.id).map(turn => JSON.parse(turn.execution_snapshot!).providerAccountId)).toEqual([a.id, b.id]);
+  });
 });

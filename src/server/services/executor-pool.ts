@@ -1,4 +1,5 @@
 import * as queries from '../db/queries.js';
+import { accountCandidates, accountIdentity, accountIneligibleReason, accountUsage, getProviderAccount, isAccountProvider, type ProviderAccount } from './provider-account-service.js';
 import { getDatabase } from '../db/connection.js';
 import { getAdapter, resolveExecutionModel, supportsInteractiveMode, type CliTool } from './cli-adapters.js';
 import { getToolStatus } from './cli-status.js';
@@ -12,6 +13,8 @@ import { getDelegationWorkerIsolationCapability } from '../delegation/worker-iso
 export class ExecutionSelectionError extends Error {}
 
 export interface CandidateEvaluation {
+  providerAccountId?: string | null;
+  providerAccountLabel?: string | null;
   candidateId: string;
   cliTool: CliTool;
   toolName: string;
@@ -87,13 +90,14 @@ function getDiscussionActiveCliTool(discussion: queries.Discussion): CliTool | n
 
 export function formatCandidateDiagnostics(evaluations: CandidateEvaluation[]): string {
   return evaluations.map((e) => {
-    const label = `${e.toolName} / ${e.modelLabel || e.model}${e.effort ? ` / ${e.effort}` : ''}:`;
+    const label = `${e.toolName} / ${e.modelLabel || e.model}${e.providerAccountLabel ? ` / ${e.providerAccountLabel}` : ''}${e.effort ? ` / ${e.effort}` : ''}:`;
     return `${label}\n  ${e.status} - ${e.reason}`;
   }).join('\n\n');
 }
 
 export interface SlotReservation {
   ownerId: string;
+  providerAccountId?: string | null;
   tool: CliTool;
   createdAt: number;
 }
@@ -146,6 +150,7 @@ export class ExecutorPool {
     ownerId: string,
     tool: CliTool,
     options: {
+      providerAccountId?: string | null;
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -154,7 +159,11 @@ export class ExecutorPool {
     if (!this.hasAvailableSlot(tool, { ...options, excludeReservationOwnerId: ownerId })) {
       return false;
     }
-    this.reservations.set(ownerId, { ownerId, tool, createdAt: Date.now() });
+    if (options.providerAccountId) {
+      const account = getProviderAccount(options.providerAccountId);
+      if (!account || account.provider !== tool || accountIneligibleReason(account) || this.getActiveAccountUsage(account.id, { ...options, excludeReservationOwnerId: ownerId }) >= account.max_concurrency) return false;
+    }
+    this.reservations.set(ownerId, { ownerId, tool, providerAccountId: options.providerAccountId ?? null, createdAt: Date.now() });
     return true;
   }
 
@@ -173,6 +182,7 @@ export class ExecutorPool {
   getActiveToolUsage(
     tool: CliTool,
     options: {
+      providerAccountId?: string | null;
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -224,6 +234,11 @@ export class ExecutorPool {
       if (res.tool === tool) count++;
     }
 
+    const forumTurns = getDatabase().prepare("SELECT id, execution_snapshot FROM agent_forum_turns WHERE process_pid > 0").all() as { id: string; execution_snapshot: string | null }[];
+    for (const turn of forumTurns) {
+      if (turn.id === options.excludeReservationOwnerId || this.reservations.has(turn.id)) continue;
+      try { if (JSON.parse(turn.execution_snapshot ?? '{}').agent === tool) count++; } catch { /* legacy snapshot */ }
+    }
     count += getActiveDelegationUsage(tool);
     if (tool === 'claude') {
       const turns = getDatabase().prepare("SELECT id FROM orchestrator_turns WHERE process_pid > 0 OR status IN ('starting','running')").all() as { id: string }[];
@@ -236,6 +251,7 @@ export class ExecutorPool {
   hasAvailableSlot(
     tool: CliTool,
     options: {
+      providerAccountId?: string | null;
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -250,6 +266,7 @@ export class ExecutorPool {
   getSlotStatus(
     tool: CliTool,
     options: {
+      providerAccountId?: string | null;
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -267,6 +284,7 @@ export class ExecutorPool {
       interactive?: boolean;
       allowedCliTools?: readonly CliTool[];
       requireDelegationWorkerIsolation?: boolean;
+      providerAccountId?: string | null;
       excludeTodoId?: string;
       excludeSessionId?: string;
       excludeDiscussionId?: string;
@@ -411,10 +429,36 @@ export class ExecutorPool {
       };
     }
 
-    return {
-      candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-      status: 'available', reason: 'available',
-    };
+    if (isAccountProvider(cliTool)) {
+      let accounts: ProviderAccount[];
+      try { accounts = accountCandidates(cliTool, candidate.account_policy, candidate.provider_account_id); }
+      catch { return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority, status: 'invalid', reason: 'Invalid account policy or provider account' }; }
+      const diagnostics = accounts.map(account => {
+        const reason = accountIneligibleReason(account);
+        const busy = !reason && this.getActiveAccountUsage(account.id, options) >= account.max_concurrency;
+        return { account, reason: reason ?? (busy ? 'account concurrency limit reached' : null), busy };
+      });
+      const eligible = diagnostics.find(item => !item.reason);
+      if (!eligible) return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+        status: diagnostics.some(item => item.busy) ? 'busy' : 'unavailable',
+        reason: diagnostics.map(item => `${item.account.label}: ${item.reason}`).join('; ') || 'No compatibility account configured' };
+      return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
+        providerAccountId: eligible.account.id, providerAccountLabel: eligible.account.label, status: 'available', reason: 'available' };
+    }
+    return { candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority, status: 'available', reason: 'available' };
+  }
+
+  getActiveAccountUsage(id: string, options: { excludeTodoId?: string; excludeSessionId?: string; excludeDiscussionId?: string; excludeReservationOwnerId?: string } = {}): number {
+    const excluded = [options.excludeTodoId, options.excludeSessionId, options.excludeDiscussionId, options.excludeReservationOwnerId].filter((id): id is string => !!id);
+    const reservations = [...this.reservations.values()].filter(res => !excluded.includes(res.ownerId));
+    return accountUsage(id, true, [...excluded, ...reservations.map(res => res.ownerId)]) + reservations.filter(res => res.providerAccountId === id).length;
+  }
+
+  bindManualAccount(config: ResolvedExecutionConfig | null, options: { excludeTodoId?: string; excludeSessionId?: string; excludeDiscussionId?: string } = {}): ResolvedExecutionConfig | null {
+    if (!config || config.accountPolicy !== 'automatic') return config;
+    const candidates = accountCandidates(config.cliTool, 'automatic');
+    const account = candidates.find(account => !accountIneligibleReason(account) && this.getActiveAccountUsage(account.id, options) < account.max_concurrency);
+    return account ? { ...config, ...accountIdentity(account, 'automatic') } : config;
   }
 
   private selectMutex: Promise<void> = Promise.resolve();
@@ -450,6 +494,10 @@ export class ExecutorPool {
           : { reason: result.rejectionSummary }),
         candidates: result.evaluations.map(e => `${e.cliTool}:${e.status}`).join(','),
       });
+      if (result.selectedConfig?.providerAccountId) logger.info('provider-account.selected', {
+        provider: result.selectedConfig.cliTool, accountId: result.selectedConfig.providerAccountId,
+        accountLabel: result.selectedConfig.providerAccountLabel, model: result.selectedConfig.effectiveModel, profile: result.profileName,
+      });
       return result;
     } finally {
       release!();
@@ -483,6 +531,7 @@ export class ExecutorPool {
 
     const evaluations: CandidateEvaluation[] = [];
     let selectedCandidate: queries.ExecutionProfileExecutor | undefined;
+    let selectedAccount: ProviderAccount | undefined;
 
     for (const candidate of sortedExecutors) {
       const evaluation = await this.evaluateCandidate(candidate, {
@@ -499,18 +548,21 @@ export class ExecutorPool {
       if (!selectedCandidate && evaluation.status === 'available') {
         if (input.reserveOwnerId) {
           const reserved = this.reserveSlot(input.reserveOwnerId, candidate.cli_tool as CliTool, {
+            providerAccountId: evaluation.providerAccountId,
             excludeTodoId: input.excludeTodoId,
             excludeSessionId: input.excludeSessionId,
             excludeDiscussionId: input.excludeDiscussionId,
           });
           if (reserved) {
             selectedCandidate = candidate;
+            selectedAccount = evaluation.providerAccountId ? getProviderAccount(evaluation.providerAccountId) : undefined;
           } else {
             evaluation.status = 'busy';
             evaluation.reason = 'provider concurrency limit reached';
           }
         } else {
           selectedCandidate = candidate;
+          selectedAccount = evaluation.providerAccountId ? getProviderAccount(evaluation.providerAccountId) : undefined;
         }
       }
     }
@@ -530,6 +582,7 @@ export class ExecutorPool {
 
       const resolved = resolveExecutionModel(model.model_value, selectedCandidate.cli_tool as CliTool, true, nativeEffort);
       const selectedConfig: ResolvedExecutionConfig = {
+        ...accountIdentity(selectedAccount, selectedCandidate.account_policy),
         cliTool: selectedCandidate.cli_tool as CliTool,
         source: 'profile',
         profileId: profile.id,

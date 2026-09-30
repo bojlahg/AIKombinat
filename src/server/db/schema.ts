@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'node:os';
+import { migrateProviderAccounts } from './provider-accounts.js';
 
 export function migrateOrchestratorResourceChecks(db: Database.Database): void {
   const tables = ['resource_requests', 'resource_leases'];
@@ -232,8 +233,7 @@ export function initDatabase(db: Database.Database): void {
       priority INTEGER NOT NULL DEFAULT 0,
       is_enabled INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(profile_id, cli_model_id, effort_value)
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS cli_versions (
@@ -799,6 +799,17 @@ export function initDatabase(db: Database.Database): void {
 
   // Backwards-compatible migration: add new columns to existing DBs
   const migrations = [
+    { table: 'todos', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
+    { table: 'todos', column: 'account_policy', definition: "TEXT NOT NULL DEFAULT 'inherited_default'" },
+    { table: 'sessions', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
+    { table: 'sessions', column: 'account_policy', definition: "TEXT NOT NULL DEFAULT 'inherited_default'" },
+    { table: 'schedules', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
+    { table: 'schedules', column: 'account_policy', definition: "TEXT NOT NULL DEFAULT 'inherited_default'" },
+    { table: 'discussion_agents', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
+    { table: 'discussion_agents', column: 'account_policy', definition: "TEXT NOT NULL DEFAULT 'inherited_default'" },
+    { table: 'execution_profile_executors', column: 'provider_account_id', definition: 'TEXT REFERENCES provider_accounts(id)' },
+    { table: 'execution_profile_executors', column: 'account_policy', definition: "TEXT NOT NULL DEFAULT 'inherited_default'" },
+
     { table: 'projects', column: 'max_concurrent', definition: 'INTEGER DEFAULT 3' },
     { table: 'projects', column: 'claude_model', definition: 'TEXT' },
     { table: 'projects', column: 'claude_options', definition: 'TEXT' },
@@ -1022,10 +1033,11 @@ export function initDatabase(db: Database.Database): void {
     ['cli_models', 'is_default'], ['cli_models', 'deprecated'],
     ['cli_models', 'last_verified_at'], ['cli_models', 'availability_status'],
   ] as const) dropColumnIfPresent(db, table, column);
+  migrateProviderAccounts(db);
   db.exec(`DELETE FROM execution_profile_executors
     WHERE rowid NOT IN (
       SELECT MIN(rowid) FROM execution_profile_executors
-      GROUP BY profile_id, cli_model_id, COALESCE(effort_value, '')
+      GROUP BY profile_id, cli_model_id, COALESCE(effort_value, ''), account_policy, COALESCE(provider_account_id, '')
     )`);
   db.exec(`
     DROP TABLE IF EXISTS agent_profiles;
@@ -1033,7 +1045,7 @@ export function initDatabase(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_execution_profile_executors_profile
       ON execution_profile_executors(profile_id, priority);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_profile_executor_unique
-      ON execution_profile_executors(profile_id, cli_model_id, COALESCE(effort_value, ''));
+      ON execution_profile_executors(profile_id, cli_model_id, COALESCE(effort_value, ''), account_policy, COALESCE(provider_account_id, ''));
     CREATE INDEX IF NOT EXISTS idx_cli_models_tool_status
       ON cli_models(cli_tool, status);
   `);
@@ -1057,6 +1069,7 @@ export function initDatabase(db: Database.Database): void {
   // and enforce the core "one reply per agent per target" rule in the DB.
   migrateAgentForumTurnHistory(db);
   enforceAgentForumUniqueIndexes(db);
+
 }
 function migrateOpenCodeCatalog(db: Database.Database): void {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cli_models'").get() as { sql: string };
@@ -1260,13 +1273,13 @@ export function normalizeAntigravityCatalogAndExecutors(db: Database.Database): 
       for (const { row: siblingRow, effort } of variants) {
         const executors = db.prepare(
           `SELECT * FROM execution_profile_executors WHERE cli_model_id = ?`
-        ).all(siblingRow.id) as Array<{ id: string; profile_id: string; effort_value: string | null; priority: number; is_enabled: number }>;
+        ).all(siblingRow.id) as Array<{ id: string; profile_id: string; effort_value: string | null; priority: number; is_enabled: number; account_policy: string; provider_account_id: string | null }>;
 
         for (const executor of executors) {
           const duplicate = db.prepare(
             `SELECT id FROM execution_profile_executors
-              WHERE profile_id = ? AND cli_model_id = ? AND COALESCE(effort_value, '') = ? AND id != ?`
-          ).get(executor.profile_id, canonicalId, effort, executor.id) as { id: string } | undefined;
+              WHERE profile_id = ? AND cli_model_id = ? AND COALESCE(effort_value, '') = ? AND account_policy = ? AND COALESCE(provider_account_id, '') = ? AND id != ?`
+          ).get(executor.profile_id, canonicalId, effort, executor.account_policy, executor.provider_account_id ?? '', executor.id) as { id: string } | undefined;
 
           if (duplicate) {
             db.prepare(`DELETE FROM execution_profile_executors WHERE id = ?`).run(executor.id);

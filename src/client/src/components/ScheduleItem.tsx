@@ -10,7 +10,7 @@ interface ScheduleItemProps {
   schedule: Schedule;
   onToggle: (id: string, activate: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: ResourceRequirements }) => Promise<void>;
+  onEdit: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; provider_account_id?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: ResourceRequirements }) => Promise<void>;
   onTrigger: (id: string) => Promise<void>;
   onMergeRun?: (todoId: string) => Promise<void>;
   onCleanupRun?: (todoId: string) => Promise<void>;
@@ -94,6 +94,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
         initialCliTool={schedule.cli_tool ?? undefined}
         initialCliModel={schedule.cli_model}
         initialCliEffort={schedule.cli_effort}
+        initialProviderAccountId={schedule.provider_account_id}
         initialExecutionProfileId={schedule.execution_profile_id}
         initialSkipIfRunning={!!schedule.skip_if_running}
         initialScheduleType={schedule.schedule_type}
@@ -106,7 +107,7 @@ export default function ScheduleItem({ schedule, onToggle, onDelete, onEdit, onT
             cron_expression: data.cronExpression || undefined,
             cli_tool: data.cliTool,
             cli_model: data.cliModel,
-            cli_effort: data.cliEffort,
+            provider_account_id: data.providerAccountId, cli_effort: data.cliEffort,
             execution_profile_id: data.executionProfileId,
             skip_if_running: data.skipIfRunning,
             schedule_type: data.scheduleType,

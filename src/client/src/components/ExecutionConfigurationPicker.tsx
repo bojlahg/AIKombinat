@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import ProviderAccountPicker from './ProviderAccountPicker';
 import { AlertTriangle } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { CLI_TOOLS, type CliTool, type CliToolConfig } from '../cli-tools';
@@ -20,14 +21,17 @@ export interface ExecutionConfigurationValue {
   cliTool: string;
   cliModel: string;
   cliEffort: string | null;
+  providerAccountId?: string | null;
 }
 
 export interface ExecutionConfigurationPickerProps {
+  allowAccountSelection?: boolean;
   mode?: ExecutionMode;
   executionProfileId?: string | null;
   cliTool?: string;
   cliModel?: string;
   cliEffort?: string | null;
+  providerAccountId?: string | null;
   onChange: (value: ExecutionConfigurationValue) => void;
   disabled?: boolean;
   allowRawShell?: boolean;
@@ -42,11 +46,13 @@ export interface ExecutionConfigurationPickerProps {
 }
 
 export default function ExecutionConfigurationPicker({
+  allowAccountSelection = false,
   mode: controlledMode,
   executionProfileId = null,
   cliTool = 'claude',
   cliModel = '',
   cliEffort = null,
+  providerAccountId = null,
   onChange,
   disabled = false,
   allowRawShell = false,
@@ -335,6 +341,7 @@ export default function ExecutionConfigurationPicker({
       mode: 'manual',
       executionProfileId: null,
       cliTool,
+      providerAccountId,
       cliModel: modelValue,
       cliEffort: nextEffort,
     });
@@ -349,6 +356,7 @@ export default function ExecutionConfigurationPicker({
       cliTool,
       cliModel,
       cliEffort: nextEffort,
+      providerAccountId,
     });
   };
 
@@ -518,6 +526,7 @@ export default function ExecutionConfigurationPicker({
             </select>
           </div>
 
+          {allowAccountSelection && <ProviderAccountPicker provider={cliTool} value={providerAccountId} disabled={disabled} onChange={id => onChange({ mode: 'manual', executionProfileId: null, cliTool, cliModel, cliEffort, providerAccountId: id })} />}
           {/* Model Selection (hidden for raw shell and empty tool) */}
           {!isRawShell && !isEmptyTool && (
             <div>

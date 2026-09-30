@@ -17,7 +17,7 @@ interface ScheduleListProps {
     cronExpression: string;
     cliTool?: string;
     cliModel?: string;
-    cliEffort?: string | null;
+    cliEffort?: string | null; providerAccountId?: string | null;
     executionProfileId?: string | null;
     skipIfRunning?: boolean;
     scheduleType: 'recurring' | 'once';
@@ -26,7 +26,7 @@ interface ScheduleListProps {
   }) => Promise<void>;
   onToggleSchedule: (id: string, activate: boolean) => Promise<void>;
   onDeleteSchedule: (id: string) => Promise<void>;
-  onEditSchedule: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: ResourceRequirements }) => Promise<void>;
+  onEditSchedule: (id: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; provider_account_id?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; schedule_type?: string; run_at?: string; resource_requirements?: ResourceRequirements }) => Promise<void>;
   onTriggerSchedule: (id: string) => Promise<void>;
   onMergeRun?: (todoId: string) => Promise<void>;
   onCleanupRun?: (todoId: string) => Promise<void>;

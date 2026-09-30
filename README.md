@@ -75,6 +75,8 @@ AIKombinat keeps that foundation but experiments more aggressively with the laye
 - explicit handling of missing models and uncertain provider capabilities;
 - user-controlled ordering of commonly used models;
 - stronger execution snapshots and preflight validation;
+- [Provider Accounts V1](docs/Provider_Accounts_V1.md): stable account identity, fixed/automatic selection, account concurrency and credential redaction;
+- [Provider Accounts V1](docs/Provider_Accounts_V1.md): stable account identity, fixed/automatic selection, account concurrency and credential redaction;
 - experiments toward executor availability, quota-aware routing, shared resources, review/rework, and autonomous pipelines.
 
 Some of these features are already implemented; others are roadmap items. The distinction matters because software has suffered enough from READMEs describing alternate universes.

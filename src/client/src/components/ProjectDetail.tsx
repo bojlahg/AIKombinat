@@ -237,10 +237,10 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     });
   }, [onEvent, sendNotification, t]);
 
-  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements) => {
+  const handleAddTodo = useCallback(async (title: string, description: string, cliTool?: string, images?: Array<{ name: string; data: string }>, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => {
     if (!id) return;
     const newTodo = await todosApi.createTodo(id, {
-      title, description, cli_tool: cliTool, cli_model: cliModel, cli_effort: cliEffort, execution_profile_id: executionProfileId,
+      title, description, cli_tool: cliTool, cli_model: cliModel, provider_account_id: providerAccountId, account_policy: providerAccountId ? 'fixed' : 'inherited_default', cli_effort: cliEffort, execution_profile_id: executionProfileId,
       depends_on: dependsOn, max_turns: maxTurns ?? null, use_worktree: useWorktree ?? null,
       ...(memoryInjectMode ? { memory_inject_mode: memoryInjectMode } : {}),
       ...(memoryNodeIds ? { memory_node_ids: memoryNodeIds } : {}),
@@ -297,9 +297,9 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setTodos((prev) => prev.filter((t) => t.id !== todoId));
   }, []);
 
-  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements) => {
+  const handleEditTodo = useCallback(async (todoId: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null) => {
     const updated = await todosApi.updateTodo(todoId, {
-      title, description, cli_tool: cliTool, cli_model: cliModel, cli_effort: cliEffort, execution_profile_id: executionProfileId,
+      title, description, cli_tool: cliTool, cli_model: cliModel, provider_account_id: providerAccountId, account_policy: providerAccountId ? 'fixed' : 'inherited_default', cli_effort: cliEffort, execution_profile_id: executionProfileId,
       depends_on: dependsOn ?? null, max_turns: maxTurns ?? null,
       use_worktree: useWorktree === undefined ? null : useWorktree,
       ...(memoryInjectMode ? { memory_inject_mode: memoryInjectMode } : {}),
@@ -446,7 +446,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     cronExpression: string;
     cliTool?: string;
     cliModel?: string;
-    cliEffort?: string | null;
+    cliEffort?: string | null; providerAccountId?: string | null;
     executionProfileId?: string | null;
     skipIfRunning?: boolean;
     scheduleType: 'recurring' | 'once';
@@ -460,7 +460,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
       cron_expression: data.cronExpression || undefined,
       cli_tool: data.cliTool,
       cli_model: data.cliModel,
-      cli_effort: data.cliEffort,
+      provider_account_id: data.providerAccountId, cli_effort: data.cliEffort,
       execution_profile_id: data.executionProfileId,
       skip_if_running: data.skipIfRunning,
       schedule_type: data.scheduleType,
@@ -482,7 +482,7 @@ export default function ProjectDetail({ onEvent, connected, sendMessage, subscri
     setSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
   }, []);
 
-  const handleEditSchedule = useCallback(async (scheduleId: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; resource_requirements?: ResourceRequirements }) => {
+  const handleEditSchedule = useCallback(async (scheduleId: string, updates: { title?: string; description?: string; cron_expression?: string; cli_tool?: string; cli_model?: string; cli_effort?: string | null; provider_account_id?: string | null; execution_profile_id?: string | null; skip_if_running?: boolean; resource_requirements?: ResourceRequirements }) => {
     const updated = await schedulesApi.updateSchedule(scheduleId, updates);
     setSchedules((prev) => prev.map((s) => (s.id === scheduleId ? updated : s)));
   }, []);
