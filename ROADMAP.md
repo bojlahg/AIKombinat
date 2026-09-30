@@ -210,9 +210,9 @@ This account-aware layer should become part of Executor Pool admission rather th
 
 ---
 
-### Consensus Review V1 implementation — acceptance pending
+### Consensus Review V1 implementation — READY_WITH_LIMITATIONS
 
-Local validation and a real two-process Claude majority smoke passed. Final pushed-commit CI remains the acceptance gate. See [implementation and supported boundaries](docs/Consensus_Review_V1.md) and [real/synthetic evidence](docs/Consensus_Review_V1_Smoke_Report.md).
+Local validation, a real two-process Claude majority smoke and [implementation commit CI](https://github.com/bojlahg/AIKombinat/actions/runs/36775239802) passed for `ef3b764`. Acceptance: **READY_WITH_LIMITATIONS**. See [implementation and supported boundaries](docs/Consensus_Review_V1.md) and [real/synthetic evidence](docs/Consensus_Review_V1_Smoke_Report.md).
 
 One logical Review round now fans out to 2–7 independent reviewer jobs with durable attempts. Majority, unanimous, weighted, judge and judge-on-disagreement retain individual dissent and a deterministic aggregate. Quorum/require-all, account quota failover, provider/account capacity, Resource Fabric waiting, read-only artifact checks, Stop/recovery and ordinary bounded Rework share the existing execution pipeline.
 
