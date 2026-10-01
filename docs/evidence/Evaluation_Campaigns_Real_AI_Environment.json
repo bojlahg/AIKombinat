@@ -1,0 +1,128 @@
+{
+  "status": "SKIPPED_ENVIRONMENT",
+  "startedAt": "2026-10-01T13:47:34.604Z",
+  "finishedAt": "2026-10-01T13:47:37.119Z",
+  "commit": "b91ddbdf1336dd202a6f94b54dbe2d7367120864",
+  "scriptSha256": "519007c8041ef650fde900b7632b023189b3450e62f042a9a947a2bc4d5163ad",
+  "os": "win32 10.0.26200 x64",
+  "node": "v22.16.0",
+  "root": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-k6IYIo",
+  "cliVersions": [
+    {
+      "tool": "opencode",
+      "installed": false,
+      "version": null
+    },
+    {
+      "tool": "claude",
+      "installed": true,
+      "version": "2.1.246 (Claude Code)"
+    },
+    {
+      "tool": "codex",
+      "installed": true,
+      "version": "codex-cli 0.159.2"
+    }
+  ],
+  "baselineSha": "239528ffbba48339b603faaf089c07ac3f9cf33d",
+  "campaign": null,
+  "profiles": null,
+  "candidates": [],
+  "selected": {},
+  "analytics": null,
+  "humanFeedback": {
+    "autoCreated": false,
+    "coverage": 0
+  },
+  "cleanup": {
+    "todoPids": [],
+    "reviewerAttempts": [],
+    "leases": [],
+    "reservations": [],
+    "errors": [],
+    "observedProcesses": [],
+    "safe": true,
+    "retained": true
+  },
+  "limitations": [
+    "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.",
+    "No existing execution profile has verified current catalog and safe authorized inherited/free-local candidates."
+  ],
+  "preTest": {
+    "status": "FAIL",
+    "exitCode": 1,
+    "error": null
+  },
+  "selectionDiagnostics": [
+    {
+      "provider": "claude",
+      "catalog": {
+        "authoritative": false,
+        "source": "claude-documented",
+        "succeeded": true
+      }
+    },
+    {
+      "provider": "codex",
+      "catalog": {
+        "authoritative": true,
+        "source": "codex-app-server",
+        "succeeded": true
+      }
+    },
+    {
+      "profileId": "5f9e57a5-7470-459e-84fc-1efdca85d50f",
+      "candidateId": "344e790b-90f1-43e7-92c8-4f18e99ddc18",
+      "status": "unverified_catalog"
+    },
+    {
+      "profileId": "973d7c9e-e3b4-4ac5-934c-a96e71aabd99",
+      "candidateId": "12a1c306-7442-46c3-88ea-728dbb21cc14",
+      "status": "unverified_catalog"
+    },
+    {
+      "profileId": "973d7c9e-e3b4-4ac5-934c-a96e71aabd99",
+      "candidateId": "ff78ff12-1d95-4a4f-86c2-139d412a7de5",
+      "status": "unverified_catalog"
+    },
+    {
+      "profileId": "973d7c9e-e3b4-4ac5-934c-a96e71aabd99",
+      "candidateId": "b08f265b-dde5-48f1-8718-baf5f9759fbf",
+      "status": "unverified_catalog"
+    },
+    {
+      "profileId": "78ffbd72-b49a-45df-a9a0-c37d8dd2f9d9",
+      "candidateId": "4c6019f9-8d27-417a-b219-5c1be1c69beb",
+      "status": "unverified_catalog"
+    },
+    {
+      "profileId": "78ffbd72-b49a-45df-a9a0-c37d8dd2f9d9",
+      "candidateId": "db9507a4-411c-472f-9f4a-32315631b859",
+      "status": "unverified_catalog"
+    }
+  ],
+  "accounts": [
+    {
+      "id": "cf9d8cc6-92aa-44be-a5fb-faf29e954266",
+      "provider": "claude",
+      "strategy": "inherited",
+      "enabled": true,
+      "health": "available"
+    },
+    {
+      "id": "2f1d6c51-f58e-4550-a14b-6d7b5a10fa7c",
+      "provider": "codex",
+      "strategy": "inherited",
+      "enabled": true,
+      "health": "auth_error"
+    },
+    {
+      "id": "ae013ff9-3e1c-4f2f-b6ae-428dd05a1281",
+      "provider": "antigravity",
+      "strategy": "inherited",
+      "enabled": true,
+      "health": "unknown"
+    }
+  ],
+  "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+}

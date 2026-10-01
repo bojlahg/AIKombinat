@@ -65,3 +65,32 @@ No real AI review was launched: this session did not establish a safe/free provi
 Post-start auto-enroll/cap changes require cloning, consistent with the immutable-definition rule. Assignment history cannot be deleted individually. CSV file capture in the in-app browser remains unverified even though the button, request/content and export logic are covered. Final delivered-commit GitHub CI must be observed green before acceptance is claimed in the delivery response.
 
 Next: run real campaigns and accumulate evidence before Dynamic AI Routing V1. Inspect rework, attrition, wall time, whole-Todo known usage and human helpfulness with their denominators; do not choose a winner from a handful of observations.
+
+## Real AI treatment acceptance
+
+The new command is `npx tsx scripts/evaluation-campaign-real-ai-smoke.ts`. The final script was exercised on 2026-10-01 with `--keep --timeout=120` and again with ordinary cleanup (`--timeout=120`). Both returned **SKIPPED_ENVIRONMENT**, not PASS. Evaluation Campaigns V1 remains **READY_WITH_LIMITATIONS**. Machine-readable retained-run evidence is committed in [Evaluation_Campaigns_Real_AI_Environment.json](evidence/Evaluation_Campaigns_Real_AI_Environment.json); its script SHA-256 identifies the tested source independently of the pre-delivery baseline commit.
+
+| Field | Observation |
+| --- | --- |
+| Source checkout | `b91ddbdf1336dd202a6f94b54dbe2d7367120864` plus the closure working-tree changes |
+| OS / Node | Windows `10.0.26200` x64 / `v22.16.0` |
+| CLI versions | Claude Code `2.1.246`; Codex `0.159.2`; OpenCode unavailable |
+| Retained root | `C:\Users\bojla\AppData\Local\Temp\aikombinat-campaign-real-ai-k6IYIo` |
+| Baseline Git SHA | `239528ffbba48339b603faaf089c07ac3f9cf33d` |
+| Seed pre-test | FAIL, exit 1, no transport error; Node built-in tests cover below/inside/above range |
+| Current catalog | Claude documented discovery succeeded; Codex live model/list succeeded |
+| Inherited account probes | Claude available; Codex auth_error; Antigravity unsupported for this smoke |
+| Eligible existing profiles | None: enabled candidates use obsolete or fixture model names absent from current discovery |
+| Campaign / assignments | Not created; candidate count 0; no selected Control or Experiment |
+| Implementation / reviews | Not launched; no implementation/review PIDs, rounds, batches or attempts |
+| ITT / PP / usage / identities | Not reached; no real treatment analytics or usage is claimed |
+| Human feedback | Auto-created NO; coverage 0 |
+| Cleanup | No owned Todo PID, running reviewer attempt, lease or ExecutorPool reservation |
+
+The source store was opened read-only for configuration metadata; all migrations, model refreshes and account health/quota writes used a fresh disposable `smoke.db`. No existing Todo/session/repository was used as an execution target. No provider login/logout, account switch, credential provisioning or provider configuration write was performed. A confirmed Claude login alone does not authorize replacing the source profiles with invented model selections; every enabled candidate must pass current-catalog and ExecutorPool checks.
+
+The default-cleanup root, `aikombinat-campaign-real-ai-SdLafb`, retains `report.json` and bounded diagnostic logs. Its DB and seed repo were confirmed removed after the report was written, with `cleanup.safe=true` and `retained=false`. The `--keep` root intentionally retains disposable DB/repo evidence. All runtime event logs omit message bodies, prompts and provider output and cap total event bytes at 128 KiB.
+
+Local validation: 13 provider-free smoke logic tests; full server suite 2,590 passed / 2 skipped across 85 files; client suite 229 passed across 40 files. Server/client typecheck, explicit script typecheck, full build, ERD freshness and diff checks passed. The local SQLite module was rebuilt for Node 22 after an ABI mismatch; generated build artifacts required ordinary sandbox escalation. No tracked dependency or production runtime code changed. Final delivered-commit GitHub CI must be observed separately in the delivery response.
+
+**THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.** This environment run verifies safe refusal, reporting, the failing seed and cleanup. It does **not** close real implementation → Single/Consensus review → analytics acceptance. A future real PASS with one Todo per arm would establish that pipeline only; it would not rank treatments, prove cost/quality differences, or justify Dynamic AI Routing.

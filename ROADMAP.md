@@ -232,6 +232,8 @@ Project campaigns now assign new manual Todos deterministically to locked weight
 
 Real enrollment, controller restart and browser lifecycle/override/withdrawal/feedback passed on disposable state. Review outcomes in this smoke are explicitly synthetic because no safe/free live-provider path was established. Final acceptance requires the delivered commit's green GitHub CI. Next: run real campaigns and accumulate evidence before Dynamic AI Routing V1.
 
+Real AI treatment acceptance now has a reproducible manual command, `npx tsx scripts/evaluation-campaign-real-ai-smoke.ts`, with disposable DB/Git state, existing-profile eligibility, real 1:1 assignment search, bounded Single/Consensus execution, process/artifact/integrity/analytics evidence and guarded cleanup. The 2026-10-01 run reported **SKIPPED_ENVIRONMENT**: existing profiles reference models absent from current discovery; no AI implementation/review was launched. **READY_WITH_LIMITATIONS** is retained. Promote to READY only after real PASS plus delivered-commit green CI. One Todo per arm is acceptance evidence, not comparative quality evidence; no routing, winner selection or promotion is introduced.
+
 Track evidence such as:
 
 - agreement/disagreement rates by provider/model/account;
