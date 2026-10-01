@@ -52,6 +52,28 @@ describe('Agents settings model catalog and profiles UX', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it('shows derived health and model usage with affected-profile links', async () => {
+    fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+      if (input === '/api/execution-profiles/reconciliation') return response({ generatedAt: '', providers: [], profiles: [{
+        id: 'p1', name: 'Complex', updatedAt: 'version', health: 'degraded', usable: true,
+        candidates: profiles[0].executors.map(executor => ({ candidateId: executor.id, catalogState: executor.id === 'e1' ? 'stale' : 'current',
+          catalogReasonCode: executor.id === 'e1' ? 'authoritative_omission' : 'latest_refresh_seen', runtimeReasonCode: 'runtime_available',
+          currentModel: { id: executor.cliModelId, label: executor.modelLabel }, suggestions: [] })), references: { reviewPolicies: [], runningCampaigns: [] },
+      }] });
+      if (input === '/api/models') return response(catalog);
+      if (input.startsWith('/api/execution-profiles')) return response(profiles);
+      return response([]);
+    });
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    expect(await screen.findByText('Degraded')).toBeInTheDocument();
+    expect(screen.getByText('This profile can run, but some fallback candidates need attention.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Models' }));
+    expect(screen.getByText('Stale or unconfirmed profile references')).toBeInTheDocument();
+    expect(screen.getAllByText('Used by 1 profile candidates')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: /Complex · Gemini Missing · Stale/ }));
+    expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute('aria-selected','true');
+  });
+
   it('shows OpenCode catalog/profile candidates and CLI status without fabricating a quota badge', async () => {
     fetchMock.mockImplementation(async (input: string) => {
       if (input === '/api/models') return response(catalog);

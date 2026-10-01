@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 72 tables, 851 columns, 114 foreign keys
+Stats: 73 tables, 872 columns, 116 foreign keys
 
 ## Diagram
 
@@ -48,6 +48,8 @@ erDiagram
     execution_profiles ||--o{ execution_profile_executors : "profile_id"
     cli_models ||--o{ execution_profile_executors : "cli_model_id"
     provider_accounts ||--o{ execution_profile_executors : "provider_account_id"
+    execution_profiles |o--o{ execution_profile_rebind_audit : "profile_id"
+    execution_profile_executors |o--o{ execution_profile_rebind_audit : "executor_candidate_id"
     projects ||--o{ discussion_agents : "project_id"
     provider_accounts ||--o{ discussion_agents : "provider_account_id"
     cli_models ||--o{ discussion_agents : "cli_model_id"
@@ -364,6 +366,7 @@ erDiagram
         DATETIME last_checked_at
         DATETIME created_at
         DATETIME updated_at
+        TEXT last_seen_refresh_id
     }
     execution_profiles {
         TEXT id PK
@@ -391,6 +394,28 @@ erDiagram
         TEXT cli_tool PK
         TEXT last_version
         DATETIME last_synced_at
+        TEXT last_refresh_id
+        TEXT last_source
+        INTEGER last_authoritative
+        INTEGER last_primary_succeeded
+        TEXT last_refreshed_at
+        INTEGER models_seen
+    }
+    execution_profile_rebind_audit {
+        TEXT id PK
+        TEXT profile_id FK
+        TEXT executor_candidate_id FK
+        TEXT provider
+        TEXT old_model_id
+        TEXT old_model_value
+        TEXT old_model_label
+        TEXT new_model_id
+        TEXT new_model_value
+        TEXT new_model_label
+        TEXT old_effort
+        TEXT new_effort
+        TEXT source
+        TEXT created_at
     }
     plugin_configs {
         TEXT id PK

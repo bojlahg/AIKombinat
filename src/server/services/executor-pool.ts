@@ -290,6 +290,7 @@ export class ExecutorPool {
   async evaluateCandidate(
     candidate: queries.ExecutionProfileExecutor,
     options: {
+      cachedOnly?: boolean;
       interactive?: boolean;
       allowedCliTools?: readonly CliTool[];
       requireDelegationWorkerIsolation?: boolean;
@@ -339,11 +340,11 @@ export class ExecutorPool {
     }
 
     // 1. CLI/tool is installed and usable
-    const toolStatus = await getToolStatus(cliTool);
+    const toolStatus = await getToolStatus(cliTool, options.cachedOnly);
     if (!toolStatus || !toolStatus.installed || toolStatus.usable === false) {
       return {
         candidateId: candidate.id, cliTool, toolName, model, modelLabel, effort, priority,
-        status: 'unavailable', reason: toolStatus?.usable === false ? 'CLI incompatible with the verified OpenCode V1 contract' : 'CLI not installed',
+        status: 'unavailable', reason: !toolStatus && options.cachedOnly ? 'runtime_unconfirmed' : toolStatus?.usable === false ? 'CLI incompatible with the verified OpenCode V1 contract' : 'CLI not installed',
       };
     }
 

@@ -2,6 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import * as queries from '../db/queries.js';
 import { validateAccountPolicy } from '../services/provider-account-service.js';
 import { validateAntigravityExecutionEffort } from '../services/execution-selection.js';
+import { reconcileExecutionProfiles, rebindExecutionCandidate, RebindError } from '../services/execution-profile-reconciliation.js';
+import { logger } from '../logging/logger.js';
 
 const router = Router();
 const SLUG = /^[a-z0-9_-]+$/;
@@ -91,6 +93,27 @@ router.get('/execution-profiles', (req: Request, res: Response) => {
   const includeDisabled = req.query.includeDisabled === 'true';
   const full = req.query.detail === 'full';
   res.json(queries.getExecutionProfiles({ includeDisabled }).map((profile) => toApi(profile, !full)));
+});
+
+router.get('/execution-profiles/reconciliation', async (_req, res) => {
+  try { res.json(await reconcileExecutionProfiles()); }
+  catch { res.status(500).json({ error: 'reconciliation_failed' }); }
+});
+router.get('/execution-profiles/:id/reconciliation', async (req, res) => {
+  try {
+    const result = await reconcileExecutionProfiles();
+    const profile = result.profiles.find(item => item.id === req.params.id);
+    if (!profile) { res.status(404).json({ error: 'profile_not_found' }); return; }
+    res.json({ generatedAt: result.generatedAt, providers: result.providers, profile });
+  } catch { res.status(500).json({ error: 'reconciliation_failed' }); }
+});
+router.post('/execution-profiles/:profileId/executors/:candidateId/rebind', (req, res) => {
+  try { res.json(rebindExecutionCandidate(req.params.profileId, req.params.candidateId, req.body ?? {})); }
+  catch (error) {
+    if (error instanceof RebindError) { res.status(error.status).json({ error: error.code }); return; }
+    logger.error('execution-profile.rebind-failed', { scope: 'execution-profile-reconciliation', msg: 'Rebind transaction rolled back' });
+    res.status(400).json({ error: 'rebind_failed' });
+  }
 });
 
 router.post('/execution-profiles', (req: Request, res: Response) => {

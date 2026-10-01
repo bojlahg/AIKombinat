@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const acceptanceNotice = 'THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.';
+export function smokeProfileEligible(candidates: Array<{ enabled: boolean; current: boolean; runtimeState: string; authorized: boolean }>) {
+  const selected = candidates.find(candidate => candidate.enabled && candidate.runtimeState === 'available');
+  return !!selected?.current && selected.authorized;
+}
 export interface Candidate {
   todoId: string;
   assignmentId: string;

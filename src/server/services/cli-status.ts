@@ -118,13 +118,14 @@ function svnRequested(): boolean {
  * first turns that into an actionable error. Returns null for tools without
  * an installation probe (e.g. raw-shell).
  */
-export async function getToolStatus(tool: string): Promise<CliToolStatus | null> {
+export async function getToolStatus(tool: string, cachedOnly = false): Promise<CliToolStatus | null> {
   if (tool === 'raw-shell') {
     return { tool: 'raw-shell', installed: true, version: getRawShellInfo().name };
   }
   const entry = TOOLS.find((t) => t.tool === tool);
   if (!entry) return null;
   const cached = cache.get(tool);
+  if (cachedOnly) return cached && Date.now() - cached.timestamp < CACHE_TTL ? cached.status : null;
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.status;
   const status = await checkTool(
     entry.tool,

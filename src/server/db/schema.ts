@@ -246,6 +246,23 @@ export function initDatabase(db: Database.Database): void {
       last_synced_at DATETIME
     );
 
+    CREATE TABLE IF NOT EXISTS execution_profile_rebind_audit (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT REFERENCES execution_profiles(id) ON DELETE SET NULL,
+      executor_candidate_id TEXT REFERENCES execution_profile_executors(id) ON DELETE SET NULL,
+      provider TEXT NOT NULL,
+      old_model_id TEXT NOT NULL,
+      old_model_value TEXT,
+      old_model_label TEXT,
+      new_model_id TEXT NOT NULL,
+      new_model_value TEXT NOT NULL,
+      new_model_label TEXT NOT NULL,
+      old_effort TEXT,
+      new_effort TEXT,
+      source TEXT NOT NULL CHECK(source IN ('manual_ui', 'manual_api')),
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS plugin_configs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -923,6 +940,13 @@ export function initDatabase(db: Database.Database): void {
     { table: 'cli_models', column: 'source', definition: "TEXT NOT NULL DEFAULT 'cli'" },
     { table: 'cli_models', column: 'superseded_by_model_id', definition: 'TEXT REFERENCES cli_models(id)' },
     { table: 'cli_models', column: 'last_seen_at', definition: 'DATETIME' },
+    { table: 'cli_models', column: 'last_seen_refresh_id', definition: 'TEXT' },
+    { table: 'cli_versions', column: 'last_refresh_id', definition: 'TEXT' },
+    { table: 'cli_versions', column: 'last_source', definition: 'TEXT' },
+    { table: 'cli_versions', column: 'last_authoritative', definition: 'INTEGER' },
+    { table: 'cli_versions', column: 'last_primary_succeeded', definition: 'INTEGER' },
+    { table: 'cli_versions', column: 'last_refreshed_at', definition: 'TEXT' },
+    { table: 'cli_versions', column: 'models_seen', definition: 'INTEGER' },
     { table: 'cli_models', column: 'last_checked_at', definition: 'DATETIME' },
     { table: 'cli_models', column: 'updated_at', definition: 'DATETIME' },
     // Auto-delegation rule: JSON {"from":"claude","to":"codex"}, NULL = disabled.

@@ -149,6 +149,7 @@ function toApiModel(model: queries.CliModel) {
     status: model.status,
     source: model.source,
     lastSeenAt: model.last_seen_at,
+    lastSeenRefreshId: model.last_seen_refresh_id ?? null,
     lastCheckedAt: model.last_checked_at,
   };
 }

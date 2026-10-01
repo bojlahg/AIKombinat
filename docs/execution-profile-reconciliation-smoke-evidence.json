@@ -1,0 +1,694 @@
+{
+  "status": "PASS",
+  "startedAt": "2026-10-01T16:37:55.160Z",
+  "sourceReadOnly": true,
+  "inferenceLaunched": false,
+  "reconciliation": {
+    "generatedAt": "2026-10-01T16:38:22.483Z",
+    "providers": [
+      {
+        "provider": "claude",
+        "refreshId": "e36920e8-3128-4f21-8150-8d1f9889e916",
+        "source": "claude-documented",
+        "authoritative": false,
+        "primarySucceeded": true,
+        "lastRefreshedAt": "2026-10-01T16:37:55.692Z",
+        "modelsSeen": 10
+      },
+      {
+        "provider": "codex",
+        "refreshId": "53342e66-d9c1-462d-a167-d8f4abb758b3",
+        "source": "codex-app-server",
+        "authoritative": true,
+        "primarySucceeded": true,
+        "lastRefreshedAt": "2026-10-01T16:37:58.939Z",
+        "modelsSeen": 7
+      },
+      {
+        "provider": "antigravity",
+        "refreshId": "55c05e49-1452-41f9-b336-f75d00a35c60",
+        "source": "antigravity-models",
+        "authoritative": true,
+        "primarySucceeded": true,
+        "lastRefreshedAt": "2026-10-01T16:38:17.224Z",
+        "modelsSeen": 7
+      },
+      {
+        "provider": "opencode",
+        "refreshId": "03746bab-2528-44c0-8d9d-3a1d682ffe87",
+        "source": "opencode-models",
+        "authoritative": false,
+        "primarySucceeded": false,
+        "lastRefreshedAt": "2026-10-01T16:38:01.451Z",
+        "modelsSeen": 0
+      }
+    ],
+    "summary": {
+      "profiles": 3,
+      "ready": 1,
+      "degraded": 0,
+      "unknown": 2,
+      "blocked": 0,
+      "disabled": 0
+    },
+    "profiles": [
+      {
+        "id": "5f9e57a5-7470-459e-84fc-1efdca85d50f",
+        "name": "Antigravity Flash",
+        "updatedAt": "2026-08-25T12:09:29.905Z",
+        "health": "ready",
+        "usable": true,
+        "candidates": [
+          {
+            "candidateId": "344e790b-90f1-43e7-92c8-4f18e99ddc18",
+            "priority": 1,
+            "enabled": true,
+            "provider": "antigravity",
+            "currentModel": {
+              "id": "e4e5a3f5-0e42-47f9-b5e4-09c3df106c28",
+              "value": "gemini-3.7-flash",
+              "label": "Gemini 3.7 Flash",
+              "status": "available",
+              "source": "manual",
+              "lastSeenAt": "2026-10-01T16:38:17.224Z"
+            },
+            "catalogState": "current",
+            "catalogReasonCode": "latest_refresh_seen",
+            "effort": {
+              "configured": "high",
+              "supported": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "state": "effort_supported",
+              "valid": true
+            },
+            "account": {
+              "policy": "inherited_default",
+              "accountId": null,
+              "state": "runtime_managed"
+            },
+            "runtimeState": "available",
+            "runtimeReasonCode": "runtime_available",
+            "suggestions": [
+              {
+                "modelId": "e4e5a3f5-0e42-47f9-b5e4-09c3df106c28",
+                "modelValue": "gemini-3.7-flash",
+                "label": "Gemini 3.7 Flash",
+                "reasonCode": "exact_identity",
+                "confidence": "exact",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "23d38519-f935-475e-a203-e78c59181421",
+                "modelValue": "claude-opus-4-6-thinking",
+                "label": "Claude Opus 4.6 (Thinking)",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "7cc3f2f4-a967-4521-bee7-060457983b81",
+                "modelValue": "claude-sonnet-4-6",
+                "label": "Claude Sonnet 4.6 (Thinking)",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "8129f74f-cf6f-4acf-9966-13cb35063e3c",
+                "modelValue": "gemini-3.1-pro",
+                "label": "Gemini 3.1 Pro",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "71ab2a25-6406-42d5-be3f-749551871610",
+                "modelValue": "gemini-3.6-flash",
+                "label": "Gemini 3.6 Flash",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "5c000061-3bd9-442b-b264-19afa4e8d4a9",
+                "modelValue": "gemini-3.8-flash",
+                "label": "Gemini 3.8 Flash",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "41942318-0402-45f1-a921-55b1313e83b8",
+                "modelValue": "gpt-oss-120b-medium",
+                "label": "GPT-OSS 120B (Medium)",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              }
+            ]
+          }
+        ],
+        "references": {
+          "reviewPolicies": [],
+          "runningCampaigns": []
+        },
+        "runningCampaignReferences": [],
+        "reviewPolicyReferences": []
+      },
+      {
+        "id": "973d7c9e-e3b4-4ac5-934c-a96e71aabd99",
+        "name": "Deterministic Order",
+        "updatedAt": "2026-08-25T12:09:29.839Z",
+        "health": "unknown",
+        "usable": true,
+        "candidates": [
+          {
+            "candidateId": "12a1c306-7442-46c3-88ea-728dbb21cc14",
+            "priority": 10,
+            "enabled": true,
+            "provider": "claude",
+            "currentModel": {
+              "id": "f3c73b82-30da-4993-a2ce-4d32ea09a38e",
+              "value": "m-1",
+              "label": "Model 1",
+              "status": "available",
+              "source": "manual",
+              "lastSeenAt": null
+            },
+            "catalogState": "unconfirmed",
+            "catalogReasonCode": "weak_omission",
+            "effort": {
+              "configured": null,
+              "supported": null,
+              "state": "provider_default",
+              "valid": true
+            },
+            "account": {
+              "policy": "inherited_default",
+              "accountId": null,
+              "state": "runtime_managed"
+            },
+            "runtimeState": "available",
+            "runtimeReasonCode": "runtime_available",
+            "suggestions": [
+              {
+                "modelId": "e1707bae-bb6e-4d0d-b9ed-fac97e4d9f6f",
+                "modelValue": "claude-fable-5",
+                "label": "Claude Fable 5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "modelValue": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "99c59bc3-85a4-420c-b959-d41d44311c14",
+                "modelValue": "claude-opus-4-5-20251101",
+                "label": "Claude Opus 4.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "ec49b8d6-ba9c-47c2-847e-2fc7e39a0393",
+                "modelValue": "claude-opus-4-6",
+                "label": "Claude Opus 4.6",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "434b6ce4-e61d-4685-9121-a49a84b38b6e",
+                "modelValue": "claude-opus-4-7",
+                "label": "Claude Opus 4.7",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "daafe4c4-4449-4999-a17b-1837c49003f7",
+                "modelValue": "claude-opus-4-8",
+                "label": "Claude Opus 4.8",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "e8353173-f3ed-4329-b7e3-824917037d83",
+                "modelValue": "claude-opus-5",
+                "label": "Claude Opus 5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "ca10a2ee-e991-4046-b004-327079ed9611",
+                "modelValue": "claude-sonnet-4-5-20250929",
+                "label": "Claude Sonnet 4.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "88781c55-64e3-41c0-99d3-991a17165cfd",
+                "modelValue": "claude-sonnet-4-6",
+                "label": "Claude Sonnet 4.6",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "1b2c6807-4944-425d-8756-ddc902102975",
+                "modelValue": "claude-sonnet-5",
+                "label": "Claude Sonnet 5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              }
+            ]
+          },
+          {
+            "candidateId": "ff78ff12-1d95-4a4f-86c2-139d412a7de5",
+            "priority": 20,
+            "enabled": true,
+            "provider": "codex",
+            "currentModel": {
+              "id": "53dd13de-2d69-40c8-9a53-210affa9c6f2",
+              "value": "m-2",
+              "label": "Model 2",
+              "status": "available",
+              "source": "manual",
+              "lastSeenAt": null
+            },
+            "catalogState": "stale",
+            "catalogReasonCode": "authoritative_omission",
+            "effort": {
+              "configured": null,
+              "supported": null,
+              "state": "provider_default",
+              "valid": true
+            },
+            "account": {
+              "policy": "inherited_default",
+              "accountId": null,
+              "state": "runtime_managed"
+            },
+            "runtimeState": "available",
+            "runtimeReasonCode": "runtime_available",
+            "suggestions": [
+              {
+                "modelId": "400029a5-b16c-443b-95e4-9334d317a4de",
+                "modelValue": "gpt-5.5",
+                "label": "GPT-5.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "b94cb711-adc0-4c8d-abef-c5daf63338f4",
+                "modelValue": "gpt-5.6-luna",
+                "label": "GPT-5.6-Luna",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "99d5c062-5810-43ad-a07e-076199521523",
+                "modelValue": "gpt-5.6-sol",
+                "label": "GPT-5.6-Sol",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "53804cc9-8c1c-43bb-a563-f4bfc69b4178",
+                "modelValue": "gpt-5.6-terra",
+                "label": "GPT-5.6-Terra",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "ff61d8c1-b0a9-49b7-b9f9-eb2256b514d5",
+                "modelValue": "gpt-6-astra",
+                "label": "GPT-6-Astra",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "1ffe0a30-d94e-4437-9cb8-f070da93a4b2",
+                "modelValue": "gpt-6-luna",
+                "label": "GPT-6-Luna",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "7222d4af-6098-446d-a298-b6c0f7e488e7",
+                "modelValue": "gpt-6-sol",
+                "label": "GPT-6-Sol",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              }
+            ]
+          },
+          {
+            "candidateId": "b08f265b-dde5-48f1-8718-baf5f9759fbf",
+            "priority": 30,
+            "enabled": true,
+            "provider": "antigravity",
+            "currentModel": {
+              "id": "99ea5cbd-4f57-4778-8e92-15bd0e11bd4d",
+              "value": "m-3",
+              "label": "Model 3",
+              "status": "available",
+              "source": "manual",
+              "lastSeenAt": null
+            },
+            "catalogState": "stale",
+            "catalogReasonCode": "authoritative_omission",
+            "effort": {
+              "configured": null,
+              "supported": null,
+              "state": "provider_default",
+              "valid": true
+            },
+            "account": {
+              "policy": "inherited_default",
+              "accountId": null,
+              "state": "runtime_managed"
+            },
+            "runtimeState": "available",
+            "runtimeReasonCode": "runtime_available",
+            "suggestions": [
+              {
+                "modelId": "23d38519-f935-475e-a203-e78c59181421",
+                "modelValue": "claude-opus-4-6-thinking",
+                "label": "Claude Opus 4.6 (Thinking)",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "7cc3f2f4-a967-4521-bee7-060457983b81",
+                "modelValue": "claude-sonnet-4-6",
+                "label": "Claude Sonnet 4.6 (Thinking)",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "8129f74f-cf6f-4acf-9966-13cb35063e3c",
+                "modelValue": "gemini-3.1-pro",
+                "label": "Gemini 3.1 Pro",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": true
+              },
+              {
+                "modelId": "71ab2a25-6406-42d5-be3f-749551871610",
+                "modelValue": "gemini-3.6-flash",
+                "label": "Gemini 3.6 Flash",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": true
+              },
+              {
+                "modelId": "e4e5a3f5-0e42-47f9-b5e4-09c3df106c28",
+                "modelValue": "gemini-3.7-flash",
+                "label": "Gemini 3.7 Flash",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": true
+              },
+              {
+                "modelId": "5c000061-3bd9-442b-b264-19afa4e8d4a9",
+                "modelValue": "gemini-3.8-flash",
+                "label": "Gemini 3.8 Flash",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": true
+              },
+              {
+                "modelId": "41942318-0402-45f1-a921-55b1313e83b8",
+                "modelValue": "gpt-oss-120b-medium",
+                "label": "GPT-OSS 120B (Medium)",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              }
+            ]
+          }
+        ],
+        "references": {
+          "reviewPolicies": [],
+          "runningCampaigns": []
+        },
+        "runningCampaignReferences": [],
+        "reviewPolicyReferences": []
+      },
+      {
+        "id": "78ffbd72-b49a-45df-a9a0-c37d8dd2f9d9",
+        "name": "Priority Test",
+        "updatedAt": "2026-08-25T12:09:29.706Z",
+        "health": "unknown",
+        "usable": true,
+        "candidates": [
+          {
+            "candidateId": "4c6019f9-8d27-417a-b219-5c1be1c69beb",
+            "priority": 1,
+            "enabled": true,
+            "provider": "claude",
+            "currentModel": {
+              "id": "f188e571-8853-4b8f-91b7-50e423f6be38",
+              "value": "claude-3.7-sonnet",
+              "label": "Claude 3.7 Sonnet",
+              "status": "available",
+              "source": "manual",
+              "lastSeenAt": null
+            },
+            "catalogState": "unconfirmed",
+            "catalogReasonCode": "weak_omission",
+            "effort": {
+              "configured": "high",
+              "supported": [
+                "high"
+              ],
+              "state": "effort_supported",
+              "valid": true
+            },
+            "account": {
+              "policy": "inherited_default",
+              "accountId": null,
+              "state": "runtime_managed"
+            },
+            "runtimeState": "available",
+            "runtimeReasonCode": "runtime_available",
+            "suggestions": [
+              {
+                "modelId": "ca10a2ee-e991-4046-b004-327079ed9611",
+                "modelValue": "claude-sonnet-4-5-20250929",
+                "label": "Claude Sonnet 4.5",
+                "reasonCode": "same_family",
+                "confidence": "related",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "88781c55-64e3-41c0-99d3-991a17165cfd",
+                "modelValue": "claude-sonnet-4-6",
+                "label": "Claude Sonnet 4.6",
+                "reasonCode": "same_family",
+                "confidence": "related",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "1b2c6807-4944-425d-8756-ddc902102975",
+                "modelValue": "claude-sonnet-5",
+                "label": "Claude Sonnet 5",
+                "reasonCode": "same_family",
+                "confidence": "related",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "e1707bae-bb6e-4d0d-b9ed-fac97e4d9f6f",
+                "modelValue": "claude-fable-5",
+                "label": "Claude Fable 5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "modelValue": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "99c59bc3-85a4-420c-b959-d41d44311c14",
+                "modelValue": "claude-opus-4-5-20251101",
+                "label": "Claude Opus 4.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "ec49b8d6-ba9c-47c2-847e-2fc7e39a0393",
+                "modelValue": "claude-opus-4-6",
+                "label": "Claude Opus 4.6",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "434b6ce4-e61d-4685-9121-a49a84b38b6e",
+                "modelValue": "claude-opus-4-7",
+                "label": "Claude Opus 4.7",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "daafe4c4-4449-4999-a17b-1837c49003f7",
+                "modelValue": "claude-opus-4-8",
+                "label": "Claude Opus 4.8",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "e8353173-f3ed-4329-b7e3-824917037d83",
+                "modelValue": "claude-opus-5",
+                "label": "Claude Opus 5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              }
+            ]
+          },
+          {
+            "candidateId": "db9507a4-411c-472f-9f4a-32315631b859",
+            "priority": 2,
+            "enabled": true,
+            "provider": "codex",
+            "currentModel": {
+              "id": "378900e4-ad43-4e37-8daa-87fee02d32fd",
+              "value": "gpt-5",
+              "label": "GPT-5",
+              "status": "available",
+              "source": "manual",
+              "lastSeenAt": null
+            },
+            "catalogState": "stale",
+            "catalogReasonCode": "authoritative_omission",
+            "effort": {
+              "configured": "medium",
+              "supported": [
+                "medium"
+              ],
+              "state": "effort_supported",
+              "valid": true
+            },
+            "account": {
+              "policy": "inherited_default",
+              "accountId": null,
+              "state": "runtime_managed"
+            },
+            "runtimeState": "available",
+            "runtimeReasonCode": "runtime_available",
+            "suggestions": [
+              {
+                "modelId": "400029a5-b16c-443b-95e4-9334d317a4de",
+                "modelValue": "gpt-5.5",
+                "label": "GPT-5.5",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "b94cb711-adc0-4c8d-abef-c5daf63338f4",
+                "modelValue": "gpt-5.6-luna",
+                "label": "GPT-5.6-Luna",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "99d5c062-5810-43ad-a07e-076199521523",
+                "modelValue": "gpt-5.6-sol",
+                "label": "GPT-5.6-Sol",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "53804cc9-8c1c-43bb-a563-f4bfc69b4178",
+                "modelValue": "gpt-5.6-terra",
+                "label": "GPT-5.6-Terra",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "ff61d8c1-b0a9-49b7-b9f9-eb2256b514d5",
+                "modelValue": "gpt-6-astra",
+                "label": "GPT-6-Astra",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "1ffe0a30-d94e-4437-9cb8-f070da93a4b2",
+                "modelValue": "gpt-6-luna",
+                "label": "GPT-6-Luna",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "7222d4af-6098-446d-a298-b6c0f7e488e7",
+                "modelValue": "gpt-6-sol",
+                "label": "GPT-6-Sol",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              }
+            ]
+          }
+        ],
+        "references": {
+          "reviewPolicies": [],
+          "runningCampaigns": []
+        },
+        "runningCampaignReferences": [],
+        "reviewPolicyReferences": []
+      }
+    ]
+  },
+  "refreshMutatedProfiles": false,
+  "disposableRebind": {
+    "synthetic": true,
+    "oldModel": "reconciliation-synthetic-old",
+    "newModel": "reconciliation-synthetic-current",
+    "oldEffort": "high",
+    "newEffort": "high",
+    "beforeHealth": "blocked",
+    "afterHealth": "ready"
+  },
+  "auditRows": 1,
+  "foreignKeys": "PASS",
+  "sourceDatabaseUnchanged": true,
+  "finishedAt": "2026-10-01T16:38:22.510Z"
+}

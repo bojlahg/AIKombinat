@@ -2,6 +2,9 @@ import { createChildEnvironment } from '../utils/child-environment.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
+import { getDatabase } from '../db/connection.js';
+import { broadcaster } from '../websocket/broadcaster.js';
 import { execFile, spawn, spawnSync } from 'child_process';
 import {
   getCliVersion,
@@ -393,7 +396,9 @@ async function discoverCodexAppServer(): Promise<ModelDiscoveryResult | null> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      child.kill();
+      if (process.platform === 'win32' && child.pid) {
+        spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });
+      } else child.kill();
       resolve(result);
     };
     const timer = setTimeout(() => finish(null), DISCOVERY_TIMEOUT_MS);
@@ -473,20 +478,37 @@ export async function refreshModelCatalog(
   options: { version?: string; explicitRefresh?: boolean; discover?: (tool: CliTool, version: string) => Promise<ModelDiscoveryResult> } = {},
 ): Promise<ModelDiscoveryResult> {
   const now = new Date().toISOString();
-  const discovered = options.discover
+  let discovered: ModelDiscoveryResult;
+  try { discovered = options.discover
     ? await options.discover(tool, options.version ?? '')
-    : await discoverModelCatalog(tool, options.version ?? '', options.explicitRefresh ?? false);
+    : await discoverModelCatalog(tool, options.version ?? '', options.explicitRefresh ?? false); }
+  catch (error) {
+    getDatabase().prepare(`INSERT INTO cli_versions(cli_tool,last_primary_succeeded,last_refreshed_at) VALUES (?,0,?)
+      ON CONFLICT(cli_tool) DO UPDATE SET last_primary_succeeded=0,last_refreshed_at=excluded.last_refreshed_at`).run(tool, now);
+    broadcaster.broadcast({ type: 'model-catalog:updated', tool });
+    throw error;
+  }
   const result = discovered.models.length > 0 ? discovered : { ...discovered, authoritative: false, primarySucceeded: false };
-  if (result.models.length === 0) return { ...result, added: 0, updated: 0, restored: 0, markedMissing: 0 };
-
   const counts = { added: 0, updated: 0, restored: 0, markedMissing: 0 };
+  const db = getDatabase();
+  const refreshId = randomUUID();
+  db.transaction(() => {
   for (const model of result.models) {
     counts[upsertDiscoveredModel(tool, model.value, model.label, result.source, now, model.supportedEfforts ?? null, model.providerVariants ?? null)] += 1;
+    if (result.primarySucceeded) db.prepare('UPDATE cli_models SET last_seen_refresh_id = ? WHERE cli_tool = ? AND model_value = ?').run(refreshId, tool, model.value);
   }
   if (result.authoritative && result.primarySucceeded) {
     counts.markedMissing = markUnavailableExcept(tool, result.models.map((model) => model.value), now);
   }
   if (result.primarySucceeded) setModelCatalogRefreshedAt(tool, now);
+  db.prepare(`INSERT INTO cli_versions(cli_tool,last_refresh_id,last_source,last_authoritative,last_primary_succeeded,last_refreshed_at,models_seen)
+    VALUES (?,?,?,?,?,?,?) ON CONFLICT(cli_tool) DO UPDATE SET
+    last_refresh_id=CASE WHEN excluded.last_primary_succeeded=1 THEN excluded.last_refresh_id ELSE cli_versions.last_refresh_id END,
+    last_source=excluded.last_source,last_authoritative=excluded.last_authoritative,last_primary_succeeded=excluded.last_primary_succeeded,
+    last_refreshed_at=excluded.last_refreshed_at,models_seen=excluded.models_seen`)
+    .run(tool, result.primarySucceeded ? refreshId : null, result.source, Number(result.authoritative), Number(result.primarySucceeded), now, result.models.length);
+  })();
+  broadcaster.broadcast({ type: 'model-catalog:updated', tool });
   return { ...result, ...counts };
 }
 

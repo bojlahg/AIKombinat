@@ -228,6 +228,8 @@ Implemented observational evaluation derives durable Consensus history, job vote
 
 ### Evaluation Campaigns V1 — READY_WITH_LIMITATIONS
 
+Execution Profile Reconciliation V1 is **READY** after acceptance validation: derived catalog/runtime health, explicit transactional same-provider repair, audit, campaign-impact confirmation, Settings workflow and disposable smoke evidence. See [contract](docs/Execution_Profile_Reconciliation_V1.md) and [acceptance evidence](docs/Execution_Profile_Reconciliation_V1_Smoke_Report.md). The 2026-10-01 reconciliation smoke passed with source DB unchanged; the Real-AI Campaign rerun still returned **SKIPPED_ENVIRONMENT**, so Campaigns retains READY_WITH_LIMITATIONS.
+
 Project campaigns now assign new manual Todos deterministically to locked weighted review arms, preserve atomic assignment/configuration through restart, and expose integrity, attrition, ITT/PP, whole-Todo usage coverage, symmetric helpfulness feedback and raw control comparisons. Ordinary implementation selection, admission, failover and orchestration stay on their existing paths. See [definition and API contract](docs/Evaluation_Campaigns_V1.md) and [controller, migration and browser smoke evidence](docs/Evaluation_Campaigns_V1_Smoke_Report.md).
 
 Real enrollment, controller restart and browser lifecycle/override/withdrawal/feedback passed on disposable state. Review outcomes in this smoke are explicitly synthetic because no safe/free live-provider path was established. Final acceptance requires the delivered commit's green GitHub CI. Next: run real campaigns and accumulate evidence before Dynamic AI Routing V1.

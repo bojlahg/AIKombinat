@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
 import express from 'express';
 import Database from 'better-sqlite3';
-import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, type Candidate } from './evaluation-campaign-real-ai-support.js';
+import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, smokeProfileEligible, type Candidate } from './evaluation-campaign-real-ai-support.js';
 
 const options = parseOptions(process.argv.slice(2));
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -186,22 +186,22 @@ async function selectProfiles() {
     const profile = services.getExecutionProfileById(original.id);
     const enabled = profile.executors.filter((executor: any) => executor.is_enabled);
     if (!enabled.length) continue;
-    let safe = true, rank = 99;
+    let rank = 99;
+    const assessed: Array<{ enabled: boolean; current: boolean; runtimeState: string; authorized: boolean }> = [];
     for (const executor of enabled) {
       checkDeadline();
       const model = services.getModelById(executor.cli_model_id);
-      if (!['opencode', 'claude', 'codex'].includes(executor.cli_tool) || model?.status !== 'available' || !discoveries.get(executor.cli_tool)?.has(model.model_value)) {
-        diagnostics.push({ profileId: profile.id, candidateId: executor.id, status: 'unverified_catalog' }); safe = false; continue;
-      }
+      const current = ['opencode', 'claude', 'codex'].includes(executor.cli_tool) && model?.status === 'available' && !!discoveries.get(executor.cli_tool)?.has(model.model_value);
+      if (!current) diagnostics.push({ profileId: profile.id, candidateId: executor.id, status: 'unverified_catalog' });
       const evaluation = await services.executorPool.evaluateCandidate(executor, { allowedCliTools: ['opencode', 'claude', 'codex'] });
       const account = evaluation.providerAccountId ? services.getProviderAccount(evaluation.providerAccountId) : null;
-      const freeLocal = executor.cli_tool === 'opencode' && /(?:-free(?:#|$)|^(?:ollama|lmstudio)\/)/i.test(model.model_value);
+      const freeLocal = executor.cli_tool === 'opencode' && /(?:-free(?:#|$)|^(?:ollama|lmstudio)\/)/i.test(model?.model_value ?? '');
       const authorized = account?.auth_strategy === 'inherited' && account.health_state === 'available';
-      diagnostics.push({ profileId: profile.id, candidateId: executor.id, status: evaluation.status, catalogSource: model.source, authorized: !!authorized, freeLocal });
-      if (evaluation.status !== 'available' || !(freeLocal || authorized)) safe = false;
-      rank = Math.min(rank, freeLocal ? 0 : /(?:cheap|low.cost|haiku|mini)/i.test(`${profile.name} ${model.model_label}`) ? 1 : 2);
+      diagnostics.push({ profileId: profile.id, candidateId: executor.id, status: evaluation.status, catalogSource: model?.source, authorized: !!authorized, freeLocal });
+      assessed.push({ enabled: true, current, runtimeState: evaluation.status, authorized: !!(freeLocal || authorized) });
+      if (current && evaluation.status === 'available' && (freeLocal || authorized)) rank = Math.min(rank, freeLocal ? 0 : /(?:cheap|low.cost|haiku|mini)/i.test(`${profile.name} ${model?.model_label}`) ? 1 : 2);
     }
-    if (safe) eligible.push({ profile, rank });
+    if (smokeProfileEligible(assessed)) eligible.push({ profile, rank });
   }
   eligible.sort((a, b) => a.rank - b.rank || a.profile.sort_order - b.profile.sort_order || a.profile.id.localeCompare(b.profile.id));
   const choose = (id: string) => id ? eligible.find(item => item.profile.id === id)?.profile : eligible[0]?.profile;

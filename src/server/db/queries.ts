@@ -793,6 +793,7 @@ export interface CliModel {
   source: 'cli' | 'manual';
   superseded_by_model_id: string | null;
   last_seen_at: string | null;
+  last_seen_refresh_id?: string | null;
   last_checked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1046,8 +1047,9 @@ export function createExecutionProfile(input: ExecutionProfileInput): ExecutionP
 
 export function updateExecutionProfile(id: string, input: Partial<ExecutionProfileInput>): ExecutionProfile | undefined {
   const db = getDatabase();
-  if (!getExecutionProfileById(id)) return undefined;
-  const now = new Date().toISOString();
+  const previous = getExecutionProfileById(id);
+  if (!previous) return undefined;
+  const now = new Date(Math.max(Date.now(), Date.parse(previous.updated_at) + 1)).toISOString();
   db.transaction(() => {
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -1058,7 +1060,10 @@ export function updateExecutionProfile(id: string, input: Partial<ExecutionProfi
       fields.push('updated_at = ?'); values.push(now, id);
       db.prepare(`UPDATE execution_profiles SET ${fields.join(', ')} WHERE id = ?`).run(...values);
     }
-    if (input.executors) replaceProfileExecutors(id, input.executors, now);
+    if (input.executors) {
+      replaceProfileExecutors(id, input.executors, now);
+      db.prepare('UPDATE execution_profiles SET updated_at = ? WHERE id = ?').run(now, id);
+    }
   })();
   return getExecutionProfileById(id);
 }

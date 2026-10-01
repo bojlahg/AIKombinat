@@ -8,11 +8,14 @@ import type { WsEvent } from '../../hooks/useWebSocket';
 
 import ProviderAccountsPanel from './ProviderAccountsPanel';
 import ProviderAccountPicker from '../ProviderAccountPicker';
+import { getReconciliation, type Reconciliation, type ReconciledCandidate, type ReconciledProfile } from '../../api/reconciliation';
+import ProfileRepairModal from './ProfileRepairModal';
 
 type Tool = profilesApi.AgentCliTool;
 type Model = {
   id: string; value: string; label: string; status: 'available' | 'missing'; source: 'cli' | 'manual';
   supportedEfforts: string[] | null; providerVariants?: Record<string, string> | null; sortOrder: number; lastSeenAt: string | null; lastCheckedAt: string | null;
+  lastSeenRefreshId?: string | null;
 };
 type RefreshResult = { source: string; authoritative: boolean; added: number; updated: number; restored: number; markedMissing: number };
 
@@ -60,10 +63,27 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
   const [saving, setSaving] = useState<Tool | null>(null);
   const [refreshResults, setRefreshResults] = useState<Partial<Record<Tool, RefreshResult | 'failed'>>>({});
   const [error, setError] = useState('');
+  const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
+  const [repair, setRepair] = useState<{ profile: ReconciledProfile; candidate: ReconciledCandidate } | null>(null);
+  const [attention, setAttention] = useState(0);
+  const loadHealth = async (afterRefresh = false) => {
+    const next = await getReconciliation();
+    if (!Array.isArray(next.profiles)) return;
+    if (afterRefresh) setAttention(next.profiles.filter(profile => ['degraded', 'blocked', 'unknown'].includes(profile.health)).length);
+    setReconciliation(next);
+  };
+  const reloadAfterRepair = async () => {
+    setProfiles(await profilesApi.getProfiles(true));
+    await loadHealth();
+  };
 
   useEffect(() => {
     if (!onEvent) return;
     return onEvent((event) => {
+      if (event.type === 'model-catalog:updated' || event.type === 'execution-profile:updated') {
+        void loadHealth(event.type === 'model-catalog:updated').catch(() => setError(t('reconciliation.error.reconciliation_failed')));
+        void json<Record<string, Model[]>>('/api/models').then(setSavedModels).catch(() => {});
+      }
       if (event.type === 'quota:updated') {
         const tool = event.tool;
         const state = event.state;
@@ -125,6 +145,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
         }
         setQuotas(quotaMap);
         setExpandedProfileId(executionProfiles[0]?.id ?? null);
+        void loadHealth().catch(() => setError(t('reconciliation.error.reconciliation_failed')));
       })
       .catch((e) => setError(String(e))).finally(() => setBusy(false));
   }, []);
@@ -145,9 +166,10 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
       setModels((current) => ({ ...current, [tool]: catalog[tool] ?? [] }));
       setSavedModels((current) => ({ ...current, [tool]: catalog[tool] ?? [] }));
       setRefreshResults((current) => ({ ...current, [tool]: result }));
+      await loadHealth(true);
     } catch (e) {
       setError(String(e)); setRefreshResults((current) => ({ ...current, [tool]: 'failed' }));
-    } finally { setRefreshing(null); }
+    } finally { await loadHealth(true).catch(() => {}); setRefreshing(null); }
   };
 
   const addModel = async (tool: Tool) => {
@@ -225,6 +247,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
         executors: (profile.executors ?? []).map((executor, index) => ({ id: executor.id, cliModelId: executor.cliModelId, effortValue: executor.effortValue, accountPolicy: executor.accountPolicy ?? 'inherited_default', providerAccountId: executor.providerAccountId ?? null, priority: index, isEnabled: executor.isEnabled })),
       });
       replaceProfile(saved);
+      await loadHealth();
     } catch (e) { setError(String(e)); }
   };
   const deleteProfile = async (profile: profilesApi.ExecutionProfile) => {
@@ -258,6 +281,11 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
 
   if (busy) return <div className="flex justify-center p-12"><Loader2 className="animate-spin" /></div>;
   return <div className="space-y-5 p-5 sm:p-6">
+    {attention > 0 && <p role="status" className="rounded-xl bg-status-warning/10 p-3 text-sm text-status-warning">{t('reconciliation.attention').replace('{count}', String(attention))}</p>}
+    {repair && <ProfileRepairModal key={repair.candidate.candidateId} profile={repair.profile} candidate={repair.candidate}
+      models={(savedModels[repair.candidate.provider] ?? []).filter(model => model.status === 'available' && !!model.lastSeenRefreshId
+        && reconciliation?.providers.some(provider => provider.provider === repair.candidate.provider && provider.primarySucceeded && provider.refreshId === model.lastSeenRefreshId))}
+      onClose={() => setRepair(null)} onApplied={reloadAfterRepair} />}
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
     <div className="flex border-b" role="tablist" style={{ borderColor: 'var(--color-border)' }}>
       {(['profiles', 'models', 'accounts'] as const).map((value) => <button key={value} role="tab" aria-selected={tab === value} className={`px-4 py-2.5 text-sm font-semibold ${tab === value ? 'border-b-2 text-primary-500' : 'text-warm-500'}`} onClick={() => setTab(value)}>{value === 'accounts' ? t('accounts.title') : t(`profiles.tab.${value}`)}</button>)}
@@ -266,6 +294,12 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
       {tab === 'accounts' && <ProviderAccountsPanel onEvent={onEvent} />}
       {tab === 'models' && <section className="space-y-4">
       <div><h2 className="text-lg font-semibold">{t('catalog.title')}</h2><p className="text-sm text-warm-500">{t('catalog.description')}</p></div>
+      {reconciliation && <div className="rounded-xl bg-theme-surface-2 p-3 space-y-2"><h3 className="text-sm font-semibold">{t('reconciliation.staleRefs')}</h3>
+        {reconciliation.profiles.flatMap(profile => profile.candidates.filter(candidate => ['stale', 'unconfirmed', 'orphaned'].includes(candidate.catalogState)).map(candidate =>
+          <button key={candidate.candidateId} className="block text-left text-sm text-primary-500" onClick={() => { setTab('profiles'); setExpandedProfileId(profile.id); }}>
+            {profile.name} · {candidate.currentModel?.label ?? t('reconciliation.orphaned')} · {t('reconciliation.' + candidate.catalogState)} · {t('reconciliation.viewProfiles')}
+          </button>))}
+      </div>}
       {AGENTS.map((agent) => {
         const agentModels = models[agent.value] ?? [];
         const collapsed = collapsedAgents[agent.value];
@@ -310,6 +344,9 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
           </div>
           {result && <p className={`mt-2 text-xs ${result === 'failed' || !result.authoritative ? 'text-status-warning' : 'text-status-success'}`}>{result === 'failed' ? t('catalog.refreshFailed') : `${t('catalog.updated')}: ${result.updated} В· ${t('catalog.added')}: ${result.added} В· ${t('catalog.missingCount')}: ${result.markedMissing} В· ${t('catalog.source')}: ${result.source} В· ${result.authoritative ? t('catalog.authoritative') : t('catalog.partial')}`}</p>}
           {!collapsed && <div className="mt-3 space-y-2">{agentModels.map((model) => <div key={model.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[1.2fr_1.5fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
+            <div className="sm:col-span-3 text-xs text-theme-muted">{t('reconciliation.usedBy').replace('{count}', String(reconciliation?.profiles.reduce((count, profile) => count + profile.candidates.filter(candidate => candidate.currentModel?.id === model.id).length, 0) ?? 0))}
+              {reconciliation?.profiles.filter(profile => profile.candidates.some(candidate => candidate.currentModel?.id === model.id)).map(profile => <button key={profile.id} className="ml-2 text-primary-500" onClick={() => { setTab('profiles'); setExpandedProfileId(profile.id); }}>{profile.name} · {t('reconciliation.viewProfiles')}</button>)}
+            </div>
             <div><input aria-label={`${agent.label} ${model.value} ${t('catalog.label')}`} className="input-field text-sm" value={model.label} onChange={(e) => updateModelDraft(agent.value, model.id, { label: e.target.value })} /><p className="mt-1 text-2xs text-warm-500">{model.value} В· {model.source === 'manual' ? t('catalog.manual') : t('catalog.cli')}</p><p className="text-2xs text-warm-500">{t('catalog.lastSeen')}: {model.lastSeenAt ? new Date(model.lastSeenAt).toLocaleString() : t('catalog.never')}</p>{model.status === 'missing' && <p className="text-2xs text-status-warning">{t('catalog.missing')}</p>}</div>
             <input aria-label={`${agent.label} ${model.value} ${t('catalog.effortsPrompt')}`} className="input-field text-sm" value={model.supportedEfforts?.join(', ') ?? ''} placeholder={t('catalog.unknownEfforts')} onChange={(e) => updateModelDraft(agent.value, model.id, { supportedEfforts: e.target.value ? e.target.value.split(',').map((item) => item.trim()).filter(Boolean) : null })} />
 
@@ -323,9 +360,14 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
       <div className="flex items-start justify-between"><div><h2 className="text-lg font-semibold">{t('profiles.executionTitle')}</h2><p className="text-sm text-warm-500">{t('profiles.executionDescription')}</p></div><button className="btn-secondary flex items-center gap-1 text-xs" onClick={createProfile}><Plus size={14} />{t('profiles.new')}</button></div>
       {profiles.map((profile) => {
         const expanded = expandedProfileId === profile.id;
+        const health = reconciliation?.profiles.find(item => item.id === profile.id);
         return <div key={profile.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
           <button className="flex w-full items-center gap-2 text-left" aria-expanded={expanded} onClick={() => setExpandedProfileId(expanded ? null : profile.id)}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<span className="font-semibold">{profile.name}</span><span className="text-xs text-warm-500">В· {(profile.executors ?? []).length} {t('profiles.executors')}</span></button>
+          {health && <span className="mt-2 inline-block rounded-full bg-theme-surface-2 px-2 py-1 text-xs">{t('reconciliation.' + health.health)}</span>}
           {expanded && <div className="mt-3 space-y-3">
+            {health && <div className="space-y-2">
+              {['degraded', 'blocked', 'unknown'].includes(health.health) && <p className="text-sm text-theme-muted">{t('reconciliation.copy.' + health.health)}</p>}
+            </div>}
             <input className="input-field text-sm" aria-label={t('profiles.name')} value={profile.name} onChange={(e) => replaceProfile({ ...profile, name: e.target.value })} />
             <textarea className="input-field min-h-20 text-sm" aria-label={t('profiles.profileDescription')} value={profile.description} onChange={(e) => replaceProfile({ ...profile, description: e.target.value })} />
             {!(profile.executors ?? []).some((executor) => executor.isEnabled && executor.modelStatus === 'available') && <p className="text-xs text-status-warning">{t('profiles.noEligible')}</p>}
@@ -338,7 +380,18 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
               const unsupported = !!executor.effortValue && !!selectedModel?.supportedEfforts && !selectedModel.supportedEfforts.includes(executor.effortValue);
               const uncertain = !!executor.effortValue && capabilitiesUnknown;
               const effortValues = unsupported || uncertain ? [executor.effortValue!, ...efforts] : efforts;
+              const candidateHealth = health?.candidates.find(item => item.candidateId === executor.id);
               return <div key={executor.id} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[auto_1fr_1.4fr_1fr_auto]" style={{ borderColor: 'var(--color-border)' }}>
+                {candidateHealth && <div className="sm:col-span-5 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded-full bg-theme-surface-2 px-2 py-1">{t('reconciliation.' + candidateHealth.catalogState)}</span>
+                  <span>{t('reconciliation.reason.' + candidateHealth.catalogReasonCode)}</span>
+                  <span>{t('reconciliation.reason.' + candidateHealth.runtimeReasonCode)}</span>
+                  <button className="btn-secondary text-xs" onClick={async () => {
+                    try { const latest = await getReconciliation(); setReconciliation(latest); const current = latest.profiles.find(item => item.id === profile.id);
+                      const candidate = current?.candidates.find(item => item.candidateId === executor.id); if (current && candidate) setRepair({ profile: current, candidate }); }
+                    catch { setError(t('reconciliation.error.reconciliation_failed')); }
+                  }}>{t('reconciliation.repair')}</button>
+                </div>}
                 <span className="self-center text-xs text-warm-500">{index + 1}</span>
                 <select aria-label={`${t('profiles.agent')} ${index + 1}`} className="input-field text-sm" value={executor.cliTool} onChange={(e) => {
                   const tool = e.target.value as Tool;

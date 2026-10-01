@@ -1,0 +1,75 @@
+# Execution Profile Reconciliation V1
+
+Reconciliation derives health from `cli_models`, `cli_versions`, Execution Profiles, Provider Accounts and production ExecutorPool evaluation. It observes, explains and suggests; model refresh never repairs a profile. There is no health cache, second registry, routing policy, quality ranking or automatic model/account/provider migration.
+
+## Catalog evidence
+
+Each successful discovery assigns a UUID `cli_versions.last_refresh_id` and stamps the models it saw with `cli_models.last_seen_refresh_id`. Provider metadata includes source, authoritative/primary-success flags, refresh time and model count. Failed attempts retain the last successful generation but set primary success false. A retained `available` row alone is not confirmation. UUIDs distinguish successive refreshes even when timestamps coincide.
+
+| Candidate state | Evidence |
+|---|---|
+| current | Enabled, existing matching-provider model, available, seen in latest successful generation, valid effort/account configuration |
+| unconfirmed | Failed or absent discovery evidence, or omission from non-authoritative discovery |
+| stale | Successful authoritative omission, or independently missing model after successful discovery |
+| invalid | Provider mismatch, unsupported effort, missing required effort/variant, malformed account policy or wrong-provider fixed account |
+| orphaned | Referenced model row does not exist; legacy broken references remain visible |
+| disabled | Candidate disabled |
+
+Unknown effort capabilities preserve the existing ExecutorPool semantics and show a warning. Grouped Antigravity still requires an explicitly supported mapped effort. OpenCode does not support effort overrides.
+
+| Profile health | Enabled-candidate catalog evidence |
+|---|---|
+| ready | At least one current; no stale, invalid or orphaned candidate |
+| degraded | At least one current and at least one stale, invalid or orphaned candidate |
+| unknown | No current, but unconfirmed candidates remain |
+| blocked | No current or unconfirmed candidate |
+| disabled | Profile disabled |
+
+Catalog health and runtime state are separate. `usable` reflects a currently available ExecutorPool candidate; health does not introduce a new runtime gate. Current plus stale, in either order, is degraded. ExecutorPool can select the current fallback after rejecting a missing primary. A manual model omitted from an authoritative catalog may still be runtime-available under existing production semantics; reconciliation reports both facts.
+
+## API and explicit repair
+
+* `GET /api/execution-profiles/reconciliation` returns provider evidence, summary and all profiles, including disabled profiles and broken references.
+* `GET /api/execution-profiles/:id/reconciliation` returns one profile plus provider evidence.
+* Refresh uses existing `POST /api/models/refresh` or `/api/models/refresh/:cliTool`.
+* `POST /api/execution-profiles/:profileId/executors/:candidateId/rebind` applies an explicit repair.
+
+GET uses `ExecutorPool.evaluateCandidate({ cachedOnly: true })`. It performs no CLI probe, discovery, inference or reservation. An absent/expired tool cache produces `runtime_unconfirmed`; refresh provider status explicitly to obtain live installation evidence. Profile, model, candidate and reference lists are batch-loaded; runtime evaluation retains the production pool's existing account/quota/capacity checks.
+
+Candidate payloads include current model identity/status/source/time, catalog state/reason, runtime state/reason, configured/supported effort and capability state, account policy/identity/state, and at most ten suggestions. Suggestions are current available models from the same provider, ordered by exact model value, conservative Claude family (opus/sonnet/haiku/fable), then other current models. Ordering is not a quality or version ranking. The UI also searches all current same-provider models.
+
+Example rebind body:
+
+```json
+{
+  "newModelId": "replacement-id",
+  "newEffort": "provider-default",
+  "expectedOldModelId": "old-id",
+  "expectedProfileUpdatedAt": "2026-10-01T16:00:00.000Z",
+  "confirmActiveCampaignImpact": false
+}
+```
+
+Omitting `newEffort` preserves the configured effort. Definitely unsupported effort requires an explicit supported selection, `null`, or `provider-default` (where the provider permits it). The replacement must still be available and confirmed in current discovery. Account policy/account, priority and enabled state are preserved. A transaction validates ownership, preview tokens, provider, catalog evidence and effort; updates only candidate model/effort; inserts an audit snapshot; and advances the profile timestamp. Audit insert failure rolls everything back. Ordinary profile edits also advance timestamps for executor-only changes.
+
+Stable error codes: `profile_not_found`, `candidate_not_found`, `model_not_found`, `provider_mismatch`, `effort_unsupported`, `effort_required`, `reconciliation_stale` (409), `active_campaign_impact` (409), and `rebind_failed`. Core EN/RU/KO translations cover states, reasons, repair, impact and errors.
+
+References include review policies (members and judges) and running campaigns (review/rework arms, policy references and enrolled implementation profiles). Any running campaign reference requires `confirmActiveCampaignImpact=true`. Confirmation does not rewrite campaign hashes or suppress normal drift/contamination detection. Snapshots, running processes and completed history remain unchanged; future late binding uses the repaired model.
+
+`execution_profile_rebind_audit` stores nullable profile/candidate references, provider, old/new model IDs/values/labels, old/new effort, `manual_ui`/`manual_api` source and timestamp. Deletion nulls the references while preserving snapshots. It stores no credentials, environment values, prompts or output. Audit history and rollback UI are outside V1.
+
+Catalog refresh broadcasts `model-catalog:updated`; repair broadcasts `execution-profile:updated` through the existing broadcaster. Settings displays health badges, calm degraded/unknown explanations, candidate repair buttons, model usage counts, affected-profile links and stale/unconfirmed references even outside the available model list. Refresh surfaces one non-modal attention banner. The shared portal Modal previews old/new model and effort plus preserved fields and campaign impact.
+
+## Smoke commands
+
+```sh
+npx tsx scripts/execution-profile-reconciliation-smoke.ts
+npx tsx scripts/execution-profile-reconciliation-smoke.ts --profile=<id> --candidate=<id> --new-model=<value> --new-effort=high
+npx tsx scripts/evaluation-campaign-real-ai-smoke.ts
+```
+
+The reconciliation smoke opens source configuration read-only, copies configuration metadata into a fresh disposable DB, refreshes installed providers, reports real health, verifies no profile mutation, and fingerprints the source DB/WAL/SHM before and after. Without an explicit target it proves blocked → ready using synthetic configuration; it does not select or run a real replacement model. `--source-db=<path>` and `--report=<path>` are supported. Disposable configuration copies only inherited account contexts and no Todo/session/history/prompt data. Running campaign data is not copied, so smoke impact counts describe the disposable store, not a live-source campaign inventory.
+
+Real-AI Campaign smoke evaluates ordered candidates without reservations. Stale unavailable fallbacks are diagnostic only. The first production-available candidate must be confirmed by discovery and authorized inherited/free-local under the smoke safety policy. An earlier available but unconfirmed/unauthorized candidate is not silently bypassed: doing so could launch a different candidate than preflight approved. All-stale profiles remain ineligible. Reconciliation PASS does not establish Real-AI Campaign PASS.
+
+See [smoke evidence](Execution_Profile_Reconciliation_V1_Smoke_Report.md). Campaign readiness can advance only after actual Real-AI PASS and final green CI.
