@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, type Candidate } from '../../../../scripts/evaluation-campaign-real-ai-support.js';
+import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, RealAiBudget, sourceFingerprint, type Candidate } from '../../../../scripts/evaluation-campaign-real-ai-support.js';
 
 const roots: string[] = [];
 function temporary() { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-campaign-logic-')); roots.push(root); return root; }
@@ -11,6 +11,31 @@ function candidate(index: number, control: boolean): Candidate {
   return { todoId: `todo-${index}`, assignmentId: `assignment-${index}`, armId: control ? 'control' : 'experiment', control, bucket: control ? 0 : 1, integrity: 'clean' };
 }
 describe('manual real-AI smoke logic (no providers)', () => {
+  it('requires explicit bootstrap identity and preserves default effort', () => {
+    const args = ['--bootstrap-disposable', '--bootstrap-provider=claude', '--implementation-model=exact', '--review-model=exact'];
+    expect(parseOptions(args)).toMatchObject({ allowRealAi: false, maxRealAiProcesses: 8, implementationEffort: 'provider-default', reviewEffort: 'provider-default' });
+    for (const flag of args.slice(1)) expect(() => parseOptions(args.filter(arg => arg !== flag))).toThrow('CONFIG_ERROR');
+    expect(() => parseOptions([...args, '--bootstrap-account=id'])).toThrow('out of scope');
+    expect(() => parseOptions([...args, '--max-real-ai-processes=4'])).toThrow();
+    expect(() => parseOptions(['--implementation-model=exact'])).toThrow();
+  });
+  it('blocks unauthorized inference and process six before spawn', () => {
+    const unauthorized = new RealAiBudget(false, 8), spawn = vi.fn();
+    expect(() => { unauthorized.beforeSpawn(); spawn(); }).toThrow('real_ai_not_authorized');
+    expect(unauthorized.used).toBe(0);
+    const budget = new RealAiBudget(true, 5);
+    for (let i = 0; i < 5; i++) { budget.beforeSpawn(); spawn(); }
+    expect(() => { budget.beforeSpawn(); spawn(); }).toThrow('real_ai_process_budget_exceeded');
+    expect(spawn).toHaveBeenCalledTimes(5);
+    expect(budget.used).toBe(5);
+  });
+  it('fingerprints DB, WAL and SHM and detects concurrent changes', () => {
+    const file = path.join(temporary(), 'source.db'); fs.writeFileSync(file, 'db');
+    const before = sourceFingerprint(file);
+    expect(sourceFingerprint(file)).toEqual(before);
+    fs.writeFileSync(file + '-wal', 'changed');
+    expect(sourceFingerprint(file)).not.toEqual(before);
+  });
   it.each([[true, false], [false, true]])('detects both arms in either order: %j', async (first, second) => {
     const candidates: Candidate[] = [];
     const create = vi.fn().mockResolvedValueOnce(candidate(0, first)).mockResolvedValueOnce(candidate(1, second));

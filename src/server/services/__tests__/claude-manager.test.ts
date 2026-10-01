@@ -21,6 +21,15 @@ const syntheticArgs = (source: string) => {
 };
 
 describe('ClaudeManager', () => {
+  it('applies the launch guard before either native spawn path', async () => {
+    const manager = new ClaudeManager();
+    const guard = vi.fn(() => { throw new Error('budget exceeded'); });
+    manager.setLaunchGuard(guard);
+    const adapter = getAdapter('raw-shell');
+    expect(() => (manager as any).startWithSpawn(adapter, [], process.cwd(), '', 'headless')).toThrow('budget exceeded');
+    await expect((manager as any).startWithPty(adapter, [], process.cwd())).rejects.toThrow('budget exceeded');
+    expect(guard).toHaveBeenCalledTimes(2);
+  });
   it('handles native headless spawn failure without an unhandled process error', async () => {
     const manager = new ClaudeManager(), adapter = getAdapter('raw-shell');
     await expect((manager as any).startWithSpawn(adapter, adapter.buildArgs({ mode: 'headless', prompt: 'exit 0' }), `${process.cwd()}/missing-headless-fixture-${Date.now()}`, 'exit 0', 'headless')).rejects.toThrow('Failed to get PID');

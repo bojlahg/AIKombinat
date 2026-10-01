@@ -97,6 +97,9 @@ class CliCompatibilityError extends Error {
 }
 
 export class ClaudeManager {
+  private launchGuard?: () => void;
+
+  setLaunchGuard(guard?: () => void): void { this.launchGuard = guard; }
   private processes: Map<number, ManagedProcess> = new Map();
   private exitWaiters: Map<number, Set<() => void>> = new Map();
   private stdinStreams: Map<number, NodeJS.WritableStream> = new Map();
@@ -461,6 +464,7 @@ export class ClaudeManager {
       const command = adapter.command;
       const displayName = adapter.displayName;
       assertExternalAiCliAllowed(command);
+      this.launchGuard?.();
       const delayStdin = !!adapter.delayStdinUntilReady;
       const autoRespondRules = adapter.autoRespondRules ?? [];
       const readyPattern = adapter.readyIndicatorPattern;
@@ -661,6 +665,7 @@ export class ClaudeManager {
     exitPromise: Promise<number>;
   }> {
     assertExternalAiCliAllowed(adapter.command);
+    this.launchGuard?.();
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
       const needsStdin = adapter.needsStdin(mode);

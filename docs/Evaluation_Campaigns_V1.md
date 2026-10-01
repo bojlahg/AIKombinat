@@ -103,3 +103,21 @@ Disposable observation tables retain actual process identities, snapshots, exits
 Optional selectors are `--implementation-profile=<id>`, `--single-review-profile=<id>` and `--consensus-policy=<id>`. Selectors reference existing source metadata; they cannot select an arm or bypass eligibility. A supplied Consensus policy must use require-all, parallelism 2, and either two/three unanimous reviewers or a three-reviewer majority. `--timeout=<seconds>` defaults to 900; timeout/interruption stops only owned work through normal Stop, checks ownership and retains unresolved data for recovery.
 
 **THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.** One completed Todo per arm verifies assignment → implementation → review → analytics. It cannot identify a better, cheaper or more helpful treatment. Status remains **READY_WITH_LIMITATIONS** until an actual `PASS` and final-commit green CI are both observed. CI runs synthetic/unit coverage only; it never invokes the real-provider command.
+
+## Disposable profile bootstrap (2026-10-02)
+
+The real smoke requires `--allow-real-ai` before any implementation, review, retry or rework can launch. Without it, successful non-inference checks return `PRECHECK_READY`. Existing-profile selection remains available without the bootstrap flag.
+
+```bash
+npx tsx scripts/evaluation-campaign-real-ai-smoke.ts --bootstrap-disposable --bootstrap-provider=claude --implementation-model=claude-haiku-4-5-20251001 --review-model=claude-haiku-4-5-20251001 --implementation-effort=provider-default --review-effort=provider-default
+```
+
+For an explicitly authorized real run, append `--allow-real-ai`. Bootstrap supports Claude, Codex and free/local OpenCode models. Both exact models must belong to the explicit provider and appear in its latest successful refresh; non-authoritative Claude presence is accepted. Missing models never trigger fallback. Effort is checked against model capabilities; OpenCode effort overrides are rejected. `provider-default` maps to null.
+
+Only disposable profiles are created. Enabled inherited accounts are probed without login/logout; known account exhaustion blocks selection and unknown quota is allowed. `--bootstrap-account` is explicitly rejected in V1 because credential-bearing account configurations are never copied. Bootstrap rejects existing profile/policy selectors, creates one candidate per profile, proves reconciliation READY/current/no-repair, and proves exact ExecutorPool selection with zero reservations. The generated policy uses two distinct reviewers, unanimous/require-all, and normal capacity admission.
+
+`--max-real-ai-processes=<n>` defaults to 8 and requires at least 5. A guard at both native AI spawn paths refuses the next launch once the limit is consumed, including retries and rework. Failed spawn attempts conservatively consume budget; persisted process evidence separately counts actual launches. Review rounds remain capped at two. Runtime snapshots are compared with the explicit provider/model/effort/account policy. The requested model must also equal the resolved effective model.
+
+Source DB/WAL/SHM SHA-256 fingerprints are recorded before/after read-only copying. A changed fingerprint returns `source_changed_concurrently`, never an unchanged-source claim. Prefer running with the normal app stopped. Reports retain bounded identifiers, snapshots, exits, duration and coverage; they exclude prompts, credentials and raw provider transcripts. Cleanup proves no owned Todo/reviewer PID, resource lease or ExecutorPool reservation.
+
+**THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.** Promotion still requires real smoke PASS plus delivery-commit green CI.

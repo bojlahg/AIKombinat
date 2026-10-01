@@ -1,0 +1,858 @@
+{
+  "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.",
+  "preflight": {
+    "status": "PRECHECK_READY",
+    "startedAt": "2026-10-01T22:41:47.101Z",
+    "finishedAt": "2026-10-01T22:41:49.299Z",
+    "commit": "6bb0fa25893d3e5b314630843406f71bed55b190",
+    "scriptSha256": "59082de347429c3e2c62e7449bc9d22799ec2c770246d0bc827957c2db4ca993",
+    "os": "win32 10.0.26300 x64",
+    "node": "v22.16.0",
+    "root": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-17EGBH",
+    "cliVersions": [],
+    "baselineSha": "ea12018eec9204d888c271879f141f578fe15331",
+    "campaign": null,
+    "profiles": {
+      "implementation": {
+        "id": "5b8b046b-ead7-4cc1-8d79-c794dcc1cd25",
+        "candidates": [
+          {
+            "id": "935bc042-aeb7-43db-aa15-72d728074968",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
+            "effort": null
+          }
+        ]
+      },
+      "singleReviewer": "26d4c609-e0a9-48b9-893e-6a225163bf3b",
+      "consensusPolicy": "957e718d-5642-4495-ab5c-c5af3ed6a78d",
+      "consensusReviewers": [
+        {
+          "memberId": "c963307d-e078-4b6c-be49-559bd8f23e24",
+          "profileId": "26d4c609-e0a9-48b9-893e-6a225163bf3b"
+        },
+        {
+          "memberId": "4133e278-0b2d-4eac-8254-40bb232b3d84",
+          "profileId": "26d4c609-e0a9-48b9-893e-6a225163bf3b"
+        }
+      ]
+    },
+    "candidates": [],
+    "selected": {},
+    "analytics": null,
+    "humanFeedback": {
+      "autoCreated": false,
+      "coverage": 0
+    },
+    "cleanup": {
+      "todoPids": [],
+      "reviewerAttempts": [],
+      "leases": [],
+      "reservations": [],
+      "errors": [],
+      "observedProcesses": [],
+      "safe": true,
+      "retained": false
+    },
+    "limitations": [
+      "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+    ],
+    "preTest": {
+      "status": "FAIL",
+      "exitCode": 1,
+      "error": null
+    },
+    "bootstrap": {
+      "enabled": true,
+      "provider": "claude",
+      "implementationModel": "claude-haiku-4-5-20251001",
+      "reviewModel": "claude-haiku-4-5-20251001",
+      "implementationEffort": null,
+      "reviewEffort": null,
+      "accountPolicy": "inherited_default",
+      "sourceProfileMutation": false,
+      "implementationProfileId": "5b8b046b-ead7-4cc1-8d79-c794dcc1cd25",
+      "reviewerProfileId": "26d4c609-e0a9-48b9-893e-6a225163bf3b",
+      "implementationCandidateId": "935bc042-aeb7-43db-aa15-72d728074968",
+      "reviewerCandidateId": "e2244937-c3a0-4b58-a08c-00d3d1107182"
+    },
+    "preflight": {
+      "cli": {
+        "tool": "claude",
+        "installed": true,
+        "version": "2.1.246 (Claude Code)",
+        "usable": true
+      },
+      "catalog": {
+        "source": "claude-documented",
+        "primarySucceeded": true,
+        "authoritative": false,
+        "refreshId": "342c9e7f-70c0-4649-86ab-82a3e5f64e8a",
+        "modelValues": [
+          "claude-fable-5",
+          "claude-opus-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "claude-opus-4-7",
+          "claude-sonnet-4-6",
+          "claude-opus-4-6",
+          "claude-opus-4-5-20251101",
+          "claude-haiku-4-5-20251001",
+          "claude-sonnet-4-5-20250929"
+        ]
+      },
+      "accounts": [
+        {
+          "id": "14f370b0-8999-4032-b791-0ff92c302bdf",
+          "strategy": "inherited",
+          "health": "available",
+          "quota": "unknown"
+        }
+      ],
+      "selections": [
+        {
+          "profileId": "5b8b046b-ead7-4cc1-8d79-c794dcc1cd25",
+          "status": "selected",
+          "candidateId": "935bc042-aeb7-43db-aa15-72d728074968",
+          "evaluations": [
+            {
+              "candidateId": "935bc042-aeb7-43db-aa15-72d728074968",
+              "cliTool": "claude",
+              "toolName": "Claude",
+              "model": "claude-haiku-4-5-20251001",
+              "modelLabel": "Claude Haiku 4.5",
+              "effort": null,
+              "priority": 0,
+              "providerAccountId": "14f370b0-8999-4032-b791-0ff92c302bdf",
+              "providerAccountLabel": "Existing CLI Login",
+              "status": "available",
+              "reason": "available"
+            }
+          ],
+          "config": {
+            "providerAccountId": "14f370b0-8999-4032-b791-0ff92c302bdf",
+            "providerAccountSlug": "existing-login",
+            "providerAccountLabel": "Existing CLI Login",
+            "providerAccountStrategy": "inherited",
+            "accountPolicy": "inherited_default",
+            "cliTool": "claude",
+            "source": "profile",
+            "profileId": "5b8b046b-ead7-4cc1-8d79-c794dcc1cd25",
+            "profileSlug": "smoke-bootstrap-implementation",
+            "profileName": "Smoke Bootstrap Implementation",
+            "executorCandidateId": "935bc042-aeb7-43db-aa15-72d728074968",
+            "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+            "requestedModel": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5-20251001",
+            "effectiveModel": "claude-haiku-4-5-20251001",
+            "modelAvailability": "available",
+            "effort": {
+              "supportedEfforts": null,
+              "resolution": "provider-default"
+            },
+            "warnings": [],
+            "resolvedAt": "2026-10-01T22:41:49.274Z"
+          }
+        },
+        {
+          "profileId": "26d4c609-e0a9-48b9-893e-6a225163bf3b",
+          "status": "selected",
+          "candidateId": "e2244937-c3a0-4b58-a08c-00d3d1107182",
+          "evaluations": [
+            {
+              "candidateId": "e2244937-c3a0-4b58-a08c-00d3d1107182",
+              "cliTool": "claude",
+              "toolName": "Claude",
+              "model": "claude-haiku-4-5-20251001",
+              "modelLabel": "Claude Haiku 4.5",
+              "effort": null,
+              "priority": 0,
+              "providerAccountId": "14f370b0-8999-4032-b791-0ff92c302bdf",
+              "providerAccountLabel": "Existing CLI Login",
+              "status": "available",
+              "reason": "available"
+            }
+          ],
+          "config": {
+            "providerAccountId": "14f370b0-8999-4032-b791-0ff92c302bdf",
+            "providerAccountSlug": "existing-login",
+            "providerAccountLabel": "Existing CLI Login",
+            "providerAccountStrategy": "inherited",
+            "accountPolicy": "inherited_default",
+            "cliTool": "claude",
+            "source": "profile",
+            "profileId": "26d4c609-e0a9-48b9-893e-6a225163bf3b",
+            "profileSlug": "smoke-bootstrap-reviewer",
+            "profileName": "Smoke Bootstrap Reviewer",
+            "executorCandidateId": "e2244937-c3a0-4b58-a08c-00d3d1107182",
+            "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+            "requestedModel": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5-20251001",
+            "effectiveModel": "claude-haiku-4-5-20251001",
+            "modelAvailability": "available",
+            "effort": {
+              "supportedEfforts": null,
+              "resolution": "provider-default"
+            },
+            "warnings": [],
+            "resolvedAt": "2026-10-01T22:41:49.276Z"
+          }
+        }
+      ],
+      "profiles": [
+        {
+          "id": "5b8b046b-ead7-4cc1-8d79-c794dcc1cd25",
+          "name": "Smoke Bootstrap Implementation",
+          "updatedAt": "2026-10-01T22:41:49.273Z",
+          "health": "ready",
+          "usable": true,
+          "candidates": [
+            {
+              "candidateId": "935bc042-aeb7-43db-aa15-72d728074968",
+              "priority": 0,
+              "enabled": true,
+              "provider": "claude",
+              "modelReferenceId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "currentModel": {
+                "id": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "value": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "status": "available",
+                "source": "cli",
+                "lastSeenAt": "2026-10-01T22:41:48.183Z"
+              },
+              "catalogState": "current",
+              "catalogReasonCode": "latest_refresh_seen",
+              "repairKind": "none",
+              "effort": {
+                "configured": null,
+                "supported": null,
+                "state": "provider_default",
+                "valid": true
+              },
+              "account": {
+                "policy": "inherited_default",
+                "accountId": null,
+                "state": "runtime_managed"
+              },
+              "runtimeState": "available",
+              "runtimeReasonCode": "runtime_available",
+              "suggestions": []
+            }
+          ],
+          "references": {
+            "reviewPolicies": [],
+            "runningCampaigns": []
+          },
+          "runningCampaignReferences": [],
+          "reviewPolicyReferences": []
+        },
+        {
+          "id": "26d4c609-e0a9-48b9-893e-6a225163bf3b",
+          "name": "Smoke Bootstrap Reviewer",
+          "updatedAt": "2026-10-01T22:41:49.273Z",
+          "health": "ready",
+          "usable": true,
+          "candidates": [
+            {
+              "candidateId": "e2244937-c3a0-4b58-a08c-00d3d1107182",
+              "priority": 0,
+              "enabled": true,
+              "provider": "claude",
+              "modelReferenceId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "currentModel": {
+                "id": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "value": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "status": "available",
+                "source": "cli",
+                "lastSeenAt": "2026-10-01T22:41:48.183Z"
+              },
+              "catalogState": "current",
+              "catalogReasonCode": "latest_refresh_seen",
+              "repairKind": "none",
+              "effort": {
+                "configured": null,
+                "supported": null,
+                "state": "provider_default",
+                "valid": true
+              },
+              "account": {
+                "policy": "inherited_default",
+                "accountId": null,
+                "state": "runtime_managed"
+              },
+              "runtimeState": "available",
+              "runtimeReasonCode": "runtime_available",
+              "suggestions": []
+            }
+          ],
+          "references": {
+            "reviewPolicies": [],
+            "runningCampaigns": []
+          },
+          "runningCampaignReferences": [],
+          "reviewPolicyReferences": []
+        }
+      ],
+      "reservationCount": 0
+    },
+    "realAiProcessCount": 0,
+    "processBudget": {
+      "used": 0,
+      "limit": 8,
+      "exceeded": false
+    },
+    "sourceSafety": {
+      "sourceReadOnly": true,
+      "profileMutations": false,
+      "accountMutations": false,
+      "before": {
+        "db": "da63a52bdf62b3fc863995d79f497584be3ba97c1de4c55d1d301afbafab6cfc",
+        "-wal": "b9fb9a231166ba042b91a9df5a3f6b1553d1ca0b9e059b4191dd01ebde313ffc",
+        "-shm": "3393174de62c59b01de7754831d4f98cb34ba16f4c860819327a3ac98d417075"
+      },
+      "after": {
+        "db": "da63a52bdf62b3fc863995d79f497584be3ba97c1de4c55d1d301afbafab6cfc",
+        "-wal": "b9fb9a231166ba042b91a9df5a3f6b1553d1ca0b9e059b4191dd01ebde313ffc",
+        "-shm": "3393174de62c59b01de7754831d4f98cb34ba16f4c860819327a3ac98d417075"
+      },
+      "sourceDatabaseUnchanged": true
+    },
+    "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+  },
+  "readiness": "READY_WITH_LIMITATIONS",
+  "unrestrictedRetry": "automatic_approval_rejected",
+  "realRun": {
+    "status": "FAIL",
+    "startedAt": "2026-10-01T22:39:02.97Z",
+    "finishedAt": "2026-10-01T22:39:14.144Z",
+    "commit": "6bb0fa25893d3e5b314630843406f71bed55b190",
+    "scriptSha256": "08c001eb89df72c52371db0ccbdad2be159e42ff4d7808930c5848f09fbf0cbf",
+    "os": "win32 10.0.26300 x64",
+    "node": "v22.16.0",
+    "root": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-NR70UD",
+    "cliVersions": [],
+    "baselineSha": "a933b14912ce2e32e332b06ab201c7f5380ca1dc",
+    "campaign": {
+      "id": "1241c160-5d80-4048-af98-3385ce7bce25",
+      "project_id": "acdd4163-cc05-4c9c-9a7a-e0ee80290963",
+      "name": "Real AI Review Acceptance",
+      "description": "",
+      "status": "running",
+      "assignment_algorithm": "sha256_weighted_v1",
+      "assignment_salt": "78aef248ecf9521186c64e7924c119e6b7968a11d724c830c3e23f37ced639e9",
+      "campaign_definition_hash": "ec4934cbf8a99a4af7ddfebfe5f5753406655225881d41c951ee4dc15995ceed",
+      "auto_enroll": 0,
+      "max_assignments": null,
+      "created_at": "2026-10-01T22:39:05.244Z",
+      "started_at": "2026-10-01T22:39:05.247Z",
+      "paused_at": null,
+      "completed_at": null,
+      "updated_at": "2026-10-01T22:39:05.247Z",
+      "arms": [
+        {
+          "id": "9c1459b9-d07d-44a2-98df-763cf39f7224",
+          "campaign_id": "1241c160-5d80-4048-af98-3385ce7bce25",
+          "name": "Control",
+          "description": "",
+          "is_control": 1,
+          "weight": 1,
+          "sort_order": 0,
+          "is_enabled": 1,
+          "review_mode": "single",
+          "review_profile_id": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+          "review_policy_id": null,
+          "rework_profile_id": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+          "max_review_rounds": 2,
+          "definition_hash": "f7e898c4feb56d3b9f2512813682cd0480a3fd42b1f0deead8c057e6652824a1",
+          "created_at": "2026-10-01T22:39:05.244Z",
+          "updated_at": "2026-10-01T22:39:05.244Z"
+        },
+        {
+          "id": "b741b752-16a5-4383-b253-400b572569e3",
+          "campaign_id": "1241c160-5d80-4048-af98-3385ce7bce25",
+          "name": "Experiment",
+          "description": "",
+          "is_control": 0,
+          "weight": 1,
+          "sort_order": 1,
+          "is_enabled": 1,
+          "review_mode": "consensus",
+          "review_profile_id": null,
+          "review_policy_id": "9b5737f7-9be3-4ba0-ad78-e74169931808",
+          "rework_profile_id": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+          "max_review_rounds": 2,
+          "definition_hash": "7ad30e0a2a33f955e55bf00a16365441d0d9d43d4204e8ee99123289dae85231",
+          "created_at": "2026-10-01T22:39:05.244Z",
+          "updated_at": "2026-10-01T22:39:05.244Z"
+        }
+      ]
+    },
+    "profiles": {
+      "implementation": {
+        "id": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+        "candidates": [
+          {
+            "id": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
+            "effort": null
+          }
+        ]
+      },
+      "singleReviewer": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+      "consensusPolicy": "9b5737f7-9be3-4ba0-ad78-e74169931808",
+      "consensusReviewers": [
+        {
+          "memberId": "33b845cf-dae5-4282-be46-92bd4e1f7f6a",
+          "profileId": "4fe0a578-191b-4fc2-beab-804e16eaac14"
+        },
+        {
+          "memberId": "a2721354-fa4b-4e70-a419-e50804402a84",
+          "profileId": "4fe0a578-191b-4fc2-beab-804e16eaac14"
+        }
+      ]
+    },
+    "candidates": [
+      {
+        "todoId": "3cd0c8cd-873e-4ff2-8e89-c541ff2748af",
+        "assignmentId": "0a9d475e-8932-4c63-b77e-c72a1c6965d0",
+        "armId": "9c1459b9-d07d-44a2-98df-763cf39f7224",
+        "control": true,
+        "bucket": 0,
+        "integrity": "clean"
+      },
+      {
+        "todoId": "678764cb-a00e-45e3-bbaa-c67ff5b5440f",
+        "assignmentId": "f85d520f-225b-43d1-ab37-1fdd830c1b41",
+        "armId": "b741b752-16a5-4383-b253-400b572569e3",
+        "control": false,
+        "bucket": 1,
+        "integrity": "clean"
+      }
+    ],
+    "selected": {
+      "control": {
+        "todoId": "3cd0c8cd-873e-4ff2-8e89-c541ff2748af",
+        "assignmentId": "0a9d475e-8932-4c63-b77e-c72a1c6965d0",
+        "bucket": 0,
+        "finalStatus": "failed",
+        "processes": [
+          {
+            "ownerId": "3cd0c8cd-873e-4ff2-8e89-c541ff2748af",
+            "roundId": "9595ed2a-b984-400b-8a09-6dab7392e4f4",
+            "phase": "implementation",
+            "pid": 36672,
+            "identity": {
+              "pid": 36672,
+              "startedAt": "2026-10-01T22:39:05.5719625Z",
+              "command": "cmd.exe"
+            },
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+              "executorCandidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+              "agent": "claude",
+              "providerAccountId": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-01T22:39:05.306Z"
+            },
+            "exits": [
+              {
+                "code": 1,
+                "at": "2026-10-01T22:39:13.899Z"
+              }
+            ],
+            "durationMs": 8328
+          }
+        ],
+        "implementationTests": [],
+        "rounds": [
+          {
+            "id": "9595ed2a-b984-400b-8a09-6dab7392e4f4",
+            "phase": "implementation",
+            "index": 1,
+            "status": "failed",
+            "startedAt": "2026-10-01T22:39:05.309Z",
+            "finishedAt": "2026-10-01T22:39:13.903Z",
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+              "executorCandidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+              "agent": "claude",
+              "providerAccountId": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-01T22:39:05.306Z"
+            },
+            "artifact": null,
+            "verdict": null
+          }
+        ],
+        "batches": [],
+        "jobs": [],
+        "attempts": [],
+        "assignment": {
+          "id": "0a9d475e-8932-4c63-b77e-c72a1c6965d0",
+          "campaign_id": "1241c160-5d80-4048-af98-3385ce7bce25",
+          "arm_id": "9c1459b9-d07d-44a2-98df-763cf39f7224",
+          "todo_id": "3cd0c8cd-873e-4ff2-8e89-c541ff2748af",
+          "assignment_source": "manual_todo",
+          "assignment_algorithm": "sha256_weighted_v1",
+          "assignment_hash": "9467a17bce612e4edbecad6b1364d087e4f4a98474695a8e03f5e79f77aeea0d",
+          "assignment_bucket": 0,
+          "campaign_definition_hash": "ec4934cbf8a99a4af7ddfebfe5f5753406655225881d41c951ee4dc15995ceed",
+          "arm_definition_hash": "f7e898c4feb56d3b9f2512813682cd0480a3fd42b1f0deead8c057e6652824a1",
+          "arm_snapshot_json": "{\"id\":\"9c1459b9-d07d-44a2-98df-763cf39f7224\",\"name\":\"Control\",\"description\":\"\",\"is_control\":1,\"weight\":1,\"sort_order\":0,\"is_enabled\":1,\"review_mode\":\"single\",\"review_profile_id\":\"4fe0a578-191b-4fc2-beab-804e16eaac14\",\"review_policy_id\":null,\"rework_profile_id\":\"a2bafeb9-1788-4a70-a9d7-73d9573c83bc\",\"max_review_rounds\":2,\"review_profile_name\":\"Smoke Bootstrap Reviewer\",\"review_policy_name\":null,\"rework_profile_name\":\"Smoke Bootstrap Implementation\",\"applied_review_config\":{\"review_enabled\":1,\"review_mode\":\"single\",\"review_profile_id\":\"4fe0a578-191b-4fc2-beab-804e16eaac14\",\"review_policy_id\":null,\"rework_profile_id\":\"a2bafeb9-1788-4a70-a9d7-73d9573c83bc\",\"max_review_rounds\":2}}",
+          "assigned_review_config_hash": "7417c1452cad0bead2873a630220dbe3b626706ae06265aeb7423db420fb1006",
+          "integrity_state": "clean",
+          "integrity_reason": null,
+          "assigned_at": "2026-10-01T22:39:05.252Z",
+          "first_execution_at": "2026-10-01T22:39:05.308Z",
+          "review_started_at": null,
+          "finished_at": "2026-10-01T22:39:13.903Z",
+          "campaign_name": "Real AI Review Acceptance",
+          "arm_snapshot": {
+            "id": "9c1459b9-d07d-44a2-98df-763cf39f7224",
+            "name": "Control",
+            "description": "",
+            "is_control": 1,
+            "weight": 1,
+            "sort_order": 0,
+            "is_enabled": 1,
+            "review_mode": "single",
+            "review_profile_id": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+            "review_policy_id": null,
+            "rework_profile_id": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+            "max_review_rounds": 2,
+            "review_profile_name": "Smoke Bootstrap Reviewer",
+            "review_policy_name": null,
+            "rework_profile_name": "Smoke Bootstrap Implementation",
+            "applied_review_config": {
+              "review_enabled": 1,
+              "review_mode": "single",
+              "review_profile_id": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+              "review_policy_id": null,
+              "rework_profile_id": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+              "max_review_rounds": 2
+            }
+          },
+          "feedback": null,
+          "explanation": {
+            "algorithm": "sha256_weighted_v1",
+            "bucket": 0,
+            "totalWeight": 2,
+            "rangeStart": 0,
+            "rangeEnd": 1
+          }
+        },
+        "reviewStartHashes": []
+      }
+    },
+    "analytics": null,
+    "humanFeedback": {
+      "autoCreated": false,
+      "coverage": 0
+    },
+    "cleanup": {
+      "todoPids": [],
+      "reviewerAttempts": [],
+      "leases": [],
+      "reservations": [],
+      "errors": [],
+      "observedProcesses": [
+        {
+          "pid": 36672,
+          "verdict": "dead"
+        }
+      ],
+      "safe": true,
+      "retained": false
+    },
+    "limitations": [
+      "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+    ],
+    "preTest": {
+      "status": "FAIL",
+      "exitCode": 1,
+      "error": null
+    },
+    "bootstrap": {
+      "enabled": true,
+      "provider": "claude",
+      "implementationModel": "claude-haiku-4-5-20251001",
+      "reviewModel": "claude-haiku-4-5-20251001",
+      "implementationEffort": null,
+      "reviewEffort": null,
+      "accountPolicy": "inherited_default",
+      "sourceProfileMutation": false,
+      "implementationProfileId": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+      "reviewerProfileId": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+      "implementationCandidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+      "reviewerCandidateId": "ceae819e-e868-4b87-b1e2-56dcdd2656fc"
+    },
+    "preflight": {
+      "cli": {
+        "tool": "claude",
+        "installed": true,
+        "version": "2.1.246 (Claude Code)"
+      },
+      "catalog": {
+        "source": "claude-documented",
+        "primarySucceeded": true,
+        "authoritative": false,
+        "refreshId": "9663b025-f031-40a3-a7e7-29c7c2cfc145",
+        "modelValues": [
+          "claude-fable-5",
+          "claude-opus-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "claude-opus-4-7",
+          "claude-sonnet-4-6",
+          "claude-opus-4-6",
+          "claude-opus-4-5-20251101",
+          "claude-haiku-4-5-20251001",
+          "claude-sonnet-4-5-20250929"
+        ]
+      },
+      "accounts": [
+        {
+          "id": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+          "strategy": "inherited",
+          "health": "available"
+        }
+      ],
+      "selections": [
+        {
+          "profileId": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+          "status": "selected",
+          "candidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+          "evaluations": [
+            {
+              "candidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+              "cliTool": "claude",
+              "toolName": "Claude",
+              "model": "claude-haiku-4-5-20251001",
+              "modelLabel": "Claude Haiku 4.5",
+              "effort": null,
+              "priority": 0,
+              "providerAccountId": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+              "providerAccountLabel": "Existing CLI Login",
+              "status": "available",
+              "reason": "available"
+            }
+          ],
+          "config": {
+            "providerAccountId": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+            "providerAccountSlug": "existing-login",
+            "providerAccountLabel": "Existing CLI Login",
+            "providerAccountStrategy": "inherited",
+            "accountPolicy": "inherited_default",
+            "cliTool": "claude",
+            "source": "profile",
+            "profileId": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+            "profileSlug": "smoke-bootstrap-implementation",
+            "profileName": "Smoke Bootstrap Implementation",
+            "executorCandidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+            "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+            "requestedModel": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5-20251001",
+            "effectiveModel": "claude-haiku-4-5-20251001",
+            "modelAvailability": "available",
+            "effort": {
+              "supportedEfforts": null,
+              "resolution": "provider-default"
+            },
+            "warnings": [],
+            "resolvedAt": "2026-10-01T22:39:05.15Z"
+          }
+        },
+        {
+          "profileId": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+          "status": "selected",
+          "candidateId": "ceae819e-e868-4b87-b1e2-56dcdd2656fc",
+          "evaluations": [
+            {
+              "candidateId": "ceae819e-e868-4b87-b1e2-56dcdd2656fc",
+              "cliTool": "claude",
+              "toolName": "Claude",
+              "model": "claude-haiku-4-5-20251001",
+              "modelLabel": "Claude Haiku 4.5",
+              "effort": null,
+              "priority": 0,
+              "providerAccountId": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+              "providerAccountLabel": "Existing CLI Login",
+              "status": "available",
+              "reason": "available"
+            }
+          ],
+          "config": {
+            "providerAccountId": "e5873f64-a63d-4cb8-91b8-5ea03c8056b9",
+            "providerAccountSlug": "existing-login",
+            "providerAccountLabel": "Existing CLI Login",
+            "providerAccountStrategy": "inherited",
+            "accountPolicy": "inherited_default",
+            "cliTool": "claude",
+            "source": "profile",
+            "profileId": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+            "profileSlug": "smoke-bootstrap-reviewer",
+            "profileName": "Smoke Bootstrap Reviewer",
+            "executorCandidateId": "ceae819e-e868-4b87-b1e2-56dcdd2656fc",
+            "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+            "requestedModel": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5-20251001",
+            "effectiveModel": "claude-haiku-4-5-20251001",
+            "modelAvailability": "available",
+            "effort": {
+              "supportedEfforts": null,
+              "resolution": "provider-default"
+            },
+            "warnings": [],
+            "resolvedAt": "2026-10-01T22:39:05.152Z"
+          }
+        }
+      ],
+      "profiles": [
+        {
+          "id": "a2bafeb9-1788-4a70-a9d7-73d9573c83bc",
+          "name": "Smoke Bootstrap Implementation",
+          "updatedAt": "2026-10-01T22:39:05.149Z",
+          "health": "ready",
+          "usable": true,
+          "candidates": [
+            {
+              "candidateId": "4ffd1377-6796-4082-b8a4-b83dce716f69",
+              "priority": 0,
+              "enabled": true,
+              "provider": "claude",
+              "modelReferenceId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "currentModel": {
+                "id": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "value": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "status": "available",
+                "source": "cli",
+                "lastSeenAt": "2026-10-01T22:39:04.027Z"
+              },
+              "catalogState": "current",
+              "catalogReasonCode": "latest_refresh_seen",
+              "repairKind": "none",
+              "effort": {
+                "configured": null,
+                "supported": null,
+                "state": "provider_default",
+                "valid": true
+              },
+              "account": {
+                "policy": "inherited_default",
+                "accountId": null,
+                "state": "runtime_managed"
+              },
+              "runtimeState": "available",
+              "runtimeReasonCode": "runtime_available",
+              "suggestions": []
+            }
+          ],
+          "references": {
+            "reviewPolicies": [],
+            "runningCampaigns": []
+          },
+          "runningCampaignReferences": [],
+          "reviewPolicyReferences": []
+        },
+        {
+          "id": "4fe0a578-191b-4fc2-beab-804e16eaac14",
+          "name": "Smoke Bootstrap Reviewer",
+          "updatedAt": "2026-10-01T22:39:05.15Z",
+          "health": "ready",
+          "usable": true,
+          "candidates": [
+            {
+              "candidateId": "ceae819e-e868-4b87-b1e2-56dcdd2656fc",
+              "priority": 0,
+              "enabled": true,
+              "provider": "claude",
+              "modelReferenceId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "currentModel": {
+                "id": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "value": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "status": "available",
+                "source": "cli",
+                "lastSeenAt": "2026-10-01T22:39:04.027Z"
+              },
+              "catalogState": "current",
+              "catalogReasonCode": "latest_refresh_seen",
+              "repairKind": "none",
+              "effort": {
+                "configured": null,
+                "supported": null,
+                "state": "provider_default",
+                "valid": true
+              },
+              "account": {
+                "policy": "inherited_default",
+                "accountId": null,
+                "state": "runtime_managed"
+              },
+              "runtimeState": "available",
+              "runtimeReasonCode": "runtime_available",
+              "suggestions": []
+            }
+          ],
+          "references": {
+            "reviewPolicies": [],
+            "runningCampaigns": []
+          },
+          "runningCampaignReferences": [],
+          "reviewPolicyReferences": []
+        }
+      ],
+      "reservationCount": 0
+    },
+    "excludedExtras": [],
+    "executionOrder": [
+      "3cd0c8cd-873e-4ff2-8e89-c541ff2748af",
+      "678764cb-a00e-45e3-bbaa-c67ff5b5440f"
+    ],
+    "assertion": {
+      "message": "control did not complete\n+ actual - expected\n\n+ 'failed'\n- 'completed'\n",
+      "actual": null,
+      "expected": null
+    },
+    "failure": "acceptance_assertion:strictEqual",
+    "realAiProcessCount": 1,
+    "processBudget": {
+      "used": 1,
+      "limit": 8,
+      "exceeded": false
+    },
+    "sourceSafety": {
+      "sourceReadOnly": true,
+      "profileMutations": false,
+      "accountMutations": false,
+      "before": {
+        "db": "da63a52bdf62b3fc863995d79f497584be3ba97c1de4c55d1d301afbafab6cfc",
+        "-wal": "b9fb9a231166ba042b91a9df5a3f6b1553d1ca0b9e059b4191dd01ebde313ffc",
+        "-shm": "3393174de62c59b01de7754831d4f98cb34ba16f4c860819327a3ac98d417075"
+      },
+      "after": {
+        "db": "da63a52bdf62b3fc863995d79f497584be3ba97c1de4c55d1d301afbafab6cfc",
+        "-wal": "b9fb9a231166ba042b91a9df5a3f6b1553d1ca0b9e059b4191dd01ebde313ffc",
+        "-shm": "3393174de62c59b01de7754831d4f98cb34ba16f4c860819327a3ac98d417075"
+      },
+      "sourceDatabaseUnchanged": true
+    },
+    "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+  }
+}

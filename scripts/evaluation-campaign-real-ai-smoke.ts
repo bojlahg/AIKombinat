@@ -8,11 +8,14 @@ import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
 import express from 'express';
 import Database from 'better-sqlite3';
-import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, smokeProfileEligible, type Candidate } from './evaluation-campaign-real-ai-support.js';
+import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, smokeProfileEligible, sourceFingerprint, RealAiBudget, type Candidate } from './evaluation-campaign-real-ai-support.js';
+import { bootstrapProfiles, BootstrapError } from './evaluation-campaign-disposable-bootstrap.js';
 
 const options = parseOptions(process.argv.slice(2));
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourcePath = path.resolve(process.env.DB_PATH ?? path.join(checkout, fs.existsSync(path.join(checkout, 'aikombinat.db')) ? 'aikombinat.db' : 'clitrigger.db'));
+const sourceBefore = sourceFingerprint(sourcePath);
+const budget = new RealAiBudget(options.allowRealAi, options.maxRealAiProcesses);
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aikombinat-campaign-real-ai-'));
 const seed = path.join(root, 'seed-repo');
 process.env.DB_PATH = path.join(root, 'smoke.db');
@@ -98,6 +101,8 @@ function copySelectionState(source: Database.Database) {
   })();
 }
 async function initialize() {
+  const { claudeManager } = await import('../src/server/services/claude-manager.js');
+  claudeManager.setLaunchGuard(() => budget.beforeSpawn());
   const connection = await import('../src/server/db/connection.js'); db = connection.getDatabase();
   const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
   try { copySelectionState(source); } finally { source.close(); }
@@ -115,7 +120,7 @@ async function initialize() {
   db.function('smoke_review_hash', (todoId: string) => services.hashReviewExperimentConfig(services.getTodoById(todoId)));
   const { orchestrator, consensusReview, resourceManager, resourceFabric, providerQuotaService, executorPool, logger } = services;
   db.exec(`CREATE TABLE smoke_processes (owner TEXT, round_id TEXT, phase TEXT, pid INTEGER, identity TEXT, snapshot TEXT, PRIMARY KEY(owner,round_id,pid));
-    CREATE TABLE smoke_exits (pid INTEGER, code INTEGER, at TEXT);
+    CREATE TABLE smoke_exits (pid INTEGER, code INTEGER, at TEXT, duration_ms INTEGER);
     CREATE TABLE smoke_review_hashes (todo_id TEXT, round_id TEXT, hash TEXT, PRIMARY KEY(todo_id,round_id));
     CREATE TABLE smoke_implementation_tests (todo_id TEXT, round_id TEXT, result TEXT, PRIMARY KEY(todo_id,round_id));
     CREATE TRIGGER smoke_todo_process AFTER UPDATE ON todos WHEN NEW.process_pid > 0 AND NEW.process_identity IS NOT NULL BEGIN
@@ -130,7 +135,7 @@ async function initialize() {
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
   let loggedBytes = 0;
   logger.configure({ level: 'info', sinks: [{ write(record: any) {
-    if (record.event === 'cli.exited') db!.prepare('INSERT INTO smoke_exits VALUES(?,?,?)').run(record.fields.pid, record.fields.exitCode, record.time.toISOString());
+    if (record.event === 'cli.exited') db!.prepare('INSERT INTO smoke_exits VALUES(?,?,?,?)').run(record.fields.pid, record.fields.exitCode, record.time.toISOString(), record.fields.durationMs ?? null);
     if (record.event === 'review.artifact' && typeof record.fields.todoId === 'string') {
       const todo = services.getTodoById(record.fields.todoId);
       const completed = services.getExecutionRoundsByTodoId(todo.id).filter((round: any) => ['implementation', 'rework'].includes(round.phase) && round.status === 'completed').at(-1);
@@ -153,7 +158,7 @@ async function initialize() {
   await consensusReview.recover();
   const app = express(); app.use(express.json());
   for (const name of ['projects', 'todos', 'execution', 'evaluation-campaigns', 'execution-profiles', 'models', 'provider-accounts']) {
-    app.use('/api', (await import(`../src/server/routes/${name}.js`)).default);
+    app.use(name === 'projects' ? '/api/projects' : '/api', (await import(`../src/server/routes/${name}.js`)).default);
   }
   server = await new Promise<Server>(resolve => { const listening = app.listen(0, '127.0.0.1', () => resolve(listening)); });
   base = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/api`;
@@ -217,7 +222,7 @@ async function selectProfiles() {
 }
 function processes(ownerIds: string[]) {
   return rows('SELECT * FROM smoke_processes').filter(row => ownerIds.includes(row.owner)).map(row => ({ ownerId: row.owner, roundId: row.round_id, phase: row.phase,
-    pid: row.pid, identity: identity(row.identity), snapshot: snapshot(row.snapshot), exits: rows('SELECT code,at FROM smoke_exits WHERE pid=?', row.pid) }));
+    pid: row.pid, identity: identity(row.identity), snapshot: snapshot(row.snapshot), exits: rows('SELECT code,at,duration_ms AS durationMs FROM smoke_exits WHERE pid=?', row.pid) }));
 }
 async function runTodo(candidate: Candidate, kind: 'control' | 'experiment') {
   checkDeadline(); assert.equal(git(seed, ['rev-parse', 'HEAD']), report.baselineSha);
@@ -247,6 +252,9 @@ async function runTodo(candidate: Candidate, kind: 'control' | 'experiment') {
     durationMs: attempt.duration_ms, costUsd: attempt.cost_usd, inputTokens: attempt.input_tokens, outputTokens: attempt.output_tokens }));
   evidence.assignment = await request(`/todos/${todo.id}/evaluation-assignment?projectId=${projectId}`);
   evidence.reviewStartHashes = rows('SELECT round_id,hash FROM smoke_review_hashes WHERE todo_id=?', todo.id);
+  evidence.accountHealthAfterExecution = observed.map(process => process.snapshot?.providerAccountId).filter(Boolean)
+    .map(id => { const account = services.getProviderAccount(id); return { id, health: account?.health_state ?? 'unknown' }; });
+  if (todo.status === 'review_max_rounds') throw new Error('REAL_REVIEW_DID_NOT_CONVERGE');
   assert.equal(todo.status, 'completed', `${kind} did not complete`);
   assertInside(root, todo.worktree_path);
   evidence.tests = seedTests(todo.worktree_path);
@@ -275,6 +283,16 @@ async function runTodo(candidate: Candidate, kind: 'control' | 'experiment') {
   for (const process of observed) {
     assert.ok(process.pid > 0 && process.identity?.pid === process.pid && process.identity?.startedAt && process.snapshot?.agent && process.snapshot?.effectiveModel);
     assert.ok(process.exits.length > 0, 'Actual process exit missing');
+    if (options.bootstrapDisposable) {
+      const review = ['review', 'consensus_review'].includes(process.phase);
+      const model = review ? options.reviewModel : options.implementationModel;
+      const effort = review ? options.reviewEffort : options.implementationEffort;
+      assert.equal(process.snapshot.agent, options.bootstrapProvider);
+      assert.equal(process.snapshot.model, model);
+      assert.equal(process.snapshot.effectiveModel, model);
+      assert.equal(process.snapshot.effort, effort === 'provider-default' ? null : effort);
+      assert.equal(process.snapshot.accountPolicy, 'inherited_default');
+    }
   }
   if (kind === 'control') {
     assert.equal(todo.review_mode, 'single'); assert.equal(batches.length, 0);
@@ -302,6 +320,7 @@ async function runTodo(candidate: Candidate, kind: 'control' | 'experiment') {
 async function cleanup() {
   writeReport(root, report);
   const errors: string[] = [];
+  report.realAiProcessCount = services && db ? rows('SELECT * FROM smoke_processes').length : 0;
   if (services) {
     for (const candidate of candidates) {
       const todo = services.getTodoById(candidate.todoId);
@@ -337,11 +356,20 @@ async function cleanup() {
         }
       }
     }
+    report.realAiProcessCount = rows('SELECT * FROM smoke_processes').length;
     services.logger.flush(); services.logger.close(); services.connection.closeDatabase();
   } else {
     db?.close(); report.cleanup = { safe: true, processesLaunched: false, errors };
   }
   report.finishedAt = new Date().toISOString();
+  report.processBudget = { used: budget.used, limit: budget.limit, exceeded: budget.exceeded };
+  if (budget.exceeded) { report.status = 'FAIL'; report.failure = 'real_ai_process_budget_exceeded'; }
+  const sourceAfter = sourceFingerprint(sourcePath);
+  report.sourceSafety = { sourceReadOnly: true, profileMutations: false, accountMutations: false,
+    before: sourceBefore, after: sourceAfter, sourceDatabaseUnchanged: JSON.stringify(sourceBefore) === JSON.stringify(sourceAfter) };
+  if (!report.sourceSafety.sourceDatabaseUnchanged) {
+    report.status = 'FAIL'; report.failure = 'source_changed_concurrently';
+  }
   report.cleanup.retained = options.keep || !report.cleanup.safe;
   writeReport(root, report);
   if (!report.cleanup.retained) {
@@ -357,13 +385,14 @@ await withCleanup(async () => {
       report.status = 'SKIPPED_ENVIRONMENT'; report.limitations.push('Manual provider execution requires existing local configuration outside CI.'); return;
     }
     createSeed(); await initialize();
-    const profiles = await selectProfiles();
+    const profiles = options.bootstrapDisposable ? await bootstrapProfiles(options, report) : await selectProfiles();
     if (!profiles) { report.status = 'SKIPPED_ENVIRONMENT'; report.limitations.push('No existing execution profile has verified current catalog and safe authorized inherited/free-local candidates.'); return; }
     const { implementation, reviewer, policy } = profiles;
     report.profiles = { implementation: { id: implementation.id, candidates: implementation.executors.map((executor: any) => ({ id: executor.id, provider: executor.cli_tool, model: executor.model_value, effort: executor.effort_value })) }, singleReviewer: reviewer.id,
       consensusPolicy: policy.id, consensusReviewers: policy.members.filter(member => member.is_enabled).map(member => ({ memberId: member.id, profileId: member.execution_profile_id })) };
+    if (!options.allowRealAi) { assert.equal(budget.used, 0); report.status = 'PRECHECK_READY'; return; }
     const project = await request('/projects', 'POST', { name: 'Real AI Campaign Acceptance', path: seed, default_branch: 'main' }, 201); projectId = project.id;
-    await request(`/projects/${projectId}`, 'PUT', { sandbox_mode: 'strict', npm_auto_install: 0, use_worktree: 1, max_concurrent: 1, debug_logging: 0, auto_delegate: 0 });
+    await request(`/projects/${projectId}`, 'PUT', { sandbox_mode: 'strict', npm_auto_install: 0, use_worktree: 1, max_concurrent: 1, debug_logging: 0, auto_delegate: null });
     const campaign = await request(`/projects/${projectId}/evaluation-campaigns`, 'POST', { name: 'Real AI Review Acceptance', auto_enroll: 0, arms: [
       { name: 'Control', is_control: 1, weight: 1, sort_order: 0, review_mode: 'single', review_profile_id: reviewer.id, rework_profile_id: implementation.id, max_review_rounds: 2 },
       { name: 'Experiment', is_control: 0, weight: 1, sort_order: 1, review_mode: 'consensus', review_policy_id: policy.id, rework_profile_id: implementation.id, max_review_rounds: 2 },
@@ -400,8 +429,10 @@ await withCleanup(async () => {
       while (!interrupted) await pause();
     }
   } catch (error) {
+    if (error instanceof BootstrapError) { report.status = error.status; report.failure = error.reason; return; }
+    if (error instanceof assert.AssertionError) report.assertion = { message: error.message.slice(0, 512), actual: typeof error.actual === 'number' ? error.actual : null, expected: typeof error.expected === 'number' ? error.expected : null };
     report.status = interrupted || Date.now() >= deadline || (error instanceof Error && error.message === 'smoke_timeout') ? 'TIMEOUT' : 'FAIL';
-    report.failure = error instanceof assert.AssertionError ? `acceptance_assertion:${error.operator}` : error instanceof Error && ['assignment_distribution_unlucky', 'smoke_timeout'].includes(error.message) ? error.message : error instanceof Error ? error.name : 'Unknown failure';
+    report.failure = error instanceof assert.AssertionError ? `acceptance_assertion:${error.operator}` : error instanceof Error && ['assignment_distribution_unlucky', 'smoke_timeout', 'REAL_REVIEW_DID_NOT_CONVERGE'].includes(error.message) ? error.message : error instanceof Error ? error.name : 'Unknown failure';
   }
 }, cleanup).catch(() => { report.status = 'FAIL'; report.cleanup.error = 'Cleanup failed; disposable data retained'; writeReport(root, report); });
 process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
@@ -412,4 +443,4 @@ for (const [label, key] of [['Control', 'control'], ['Experiment', 'experiment']
   if (key === 'experiment') process.stdout.write(`  reviewers: ${selected?.attempts?.length ?? 0}\n  consensus: ${selected?.batches?.map((batch: any) => batch.status).join(', ') || 'not reached'}\n`);
 }
 process.stdout.write(`Analytics: ITT/PP ${report.analytics ? 'verified' : 'not reached'}\nCleanup: ${report.cleanup.safe ? 'verified' : 'unresolved'}\nResult: ${report.status}\nReport: ${path.join(root, 'report.json')}\n${acceptanceNotice}\n`);
-process.exitCode = ['PASS', 'SKIPPED_ENVIRONMENT'].includes(report.status) ? 0 : 1;
+process.exitCode = ['PASS', 'PRECHECK_READY', 'SKIPPED_ENVIRONMENT'].includes(report.status) ? 0 : 1;
