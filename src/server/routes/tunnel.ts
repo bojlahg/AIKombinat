@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { tunnelManager } from '../services/tunnel-manager.js';
 import { getSetting, setSetting } from '../db/app-settings.js';
+import { isRemotePasswordConfigured } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -58,6 +59,12 @@ router.put('/config', (req, res) => {
 // Body: { port?: number }
 // Manually start the tunnel
 router.post('/start', async (req, res) => {
+  if (process.env.DISABLE_AUTH === 'true') {
+    return res.status(403).json({ error: 'local_only' });
+  }
+  if (!isRemotePasswordConfigured()) {
+    return res.status(409).json({ error: 'remote_password_required' });
+  }
   try {
     const port = req.body.port || Number(process.env.PORT) || 3000;
     const { tunnelName, customHostname } = readTunnelConfig();

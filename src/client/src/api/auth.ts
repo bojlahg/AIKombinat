@@ -4,6 +4,11 @@ export interface AuthStatus {
   authenticated: boolean;
   authRequired: boolean;
   setupRequired: boolean;
+  accessMode: 'local' | 'remote';
+  passwordConfigured: boolean;
+  remoteAccessReady: boolean;
+  remoteAccessBlocked: boolean;
+  passwordSetupAllowed: boolean;
 }
 
 export function login(password: string, remember = false): Promise<{ success: true }> {

@@ -69,7 +69,8 @@ export function printStartupBanner(info: StartupBannerInfo): void {
     ` Logs: ${logPath}`,
     '========================================',
     '',
-    '    Login with the password you set on first run.',
+    '    Direct loopback access does not require a password.',
+    '    Configure a Remote Access Password locally before sharing.',
     '    Press Ctrl+C to stop.',
     '',
   ];

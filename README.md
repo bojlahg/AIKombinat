@@ -99,3 +99,8 @@ flowchart LR
     review -->|needs changes| rework[Rework]
     rework --> run
     review -->|approved| done[Done / Merge]
+```
+
+## Local and remote access
+
+Local loopback access does not require a password; a fresh installation opens the app immediately. LAN, proxy and tunnel access requires a **Remote Access Password** configured locally in **Settings → Remote Access**. A remote client cannot create the first password, and a tunnel will not start without it. Local users can change it without the old password. Plain HTTP LAN traffic is not encrypted. See [Remote Access Auth V1](docs/Remote_Access_Auth_V1.md).

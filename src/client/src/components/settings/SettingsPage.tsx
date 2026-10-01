@@ -29,7 +29,7 @@ export default function SettingsPage({ onEvent }: SettingsPageProps = {}) {
     { id: 'agents', label: t('settings.tabs.agents'), icon: Bot },
     { id: 'delegation', label: t('settings.tabs.delegation'), icon: Workflow },
     { id: 'resources', label: t('fabric.title'), icon: MonitorCog },
-    { id: 'account', label: t('settings.tabs.account'), icon: KeyRound },
+    { id: 'account', label: t('auth.remote.title'), icon: KeyRound },
     { id: 'terminals', label: t('settings.tabs.session'), icon: TerminalSquare },
     { id: 'tunnel', label: t('settings.tabs.tunnel'), icon: Cloud },
     { id: 'mcp', label: t('settings.tabs.mcp'), icon: Plug },

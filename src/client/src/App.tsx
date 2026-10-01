@@ -6,7 +6,7 @@ import { useAgentForumEnabled } from './hooks/useFeatures';
 import { useI18n } from './i18n';
 import { Skeleton } from './components/Skeleton';
 import LoginPage from './components/LoginPage';
-import SetupPage from './components/SetupPage';
+import RemoteAccessBlockedPage from './components/RemoteAccessBlockedPage';
 import Layout from './components/Layout';
 import ProjectList from './components/ProjectList';
 import ProjectDetail from './components/ProjectDetail';
@@ -22,7 +22,7 @@ import SettingsPage from './components/settings/SettingsPage';
 import AgentForumRoute from './components/experiments/AgentForumRoute';
 
 function App() {
-  const { authenticated, authRequired, setupRequired, loading, login, logout, setup, changePassword } = useAuth();
+  const { authenticated, authRequired, remoteAccessBlocked, loading, login, logout, changePassword } = useAuth();
   const { connected, onEvent, sendMessage, subscribeBinary } = useWebSocket(authenticated);
   const { t } = useI18n();
   // Paused experiment: forum routes redirect home unless the server reports
@@ -160,11 +160,11 @@ function App() {
     );
   }
 
-  if (setupRequired) {
-    return <SetupPage onSetup={setup} />;
+  if (remoteAccessBlocked) {
+    return <RemoteAccessBlockedPage />;
   }
 
-  if (!authenticated) {
+  if (authRequired && !authenticated) {
     return <LoginPage onLogin={login} onChangePassword={changePassword} />;
   }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { translateAuthError } from '../utils/auth-error';
 import LanguageSelector from './LanguageSelector';
 
 interface LoginPageProps {
@@ -51,8 +52,7 @@ export default function LoginPage({ onLogin, onChangePassword }: LoginPageProps)
         await onLogin(password, remember);
       }
     } catch (err) {
-      // In change mode the server message (e.g. wrong current password) is more useful.
-      setError(changeMode && err instanceof Error && err.message ? err.message : t('login.error'));
+      setError(err instanceof Error ? err.message : 'unknown');
     } finally {
       setLoading(false);
     }
@@ -129,7 +129,7 @@ export default function LoginPage({ onLogin, onChangePassword }: LoginPageProps)
 
             {error && (
               <div className="mt-4 py-2.5 px-4 bg-status-error/5 border border-status-error/20 rounded-xl text-sm text-status-error">
-                {error}
+                {translateAuthError(error, t)}
               </div>
             )}
 

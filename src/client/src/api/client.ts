@@ -18,10 +18,8 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 
   const res = await fetch(url, options);
 
-  if (res.status === 401) {
-    // Redirect to login — trigger a full page state change
+  if (res.status === 401 && !url.startsWith('/api/auth/')) {
     window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-    throw new ApiError(401, 'Unauthorized');
   }
 
   if (!res.ok) {

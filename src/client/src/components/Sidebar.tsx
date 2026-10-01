@@ -5,6 +5,7 @@ import type { Project, Favorite, FavoriteType } from '../types';
 import * as projectsApi from '../api/projects';
 import * as reviewApi from '../api/review';
 import * as favoritesApi from '../api/favorites';
+import { translateAuthError } from '../utils/auth-error';
 import * as tunnelApi from '../api/tunnel';
 import type { TunnelStatus } from '../api/tunnel';
 import type { FavoriteInput } from '../api/favorites';
@@ -101,7 +102,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
         toastSuccess(result.url);
       }
     } catch (err) {
-      toastError(err instanceof Error ? err.message : t('tunnel.restartFailed'));
+      toastError(translateAuthError(err instanceof Error ? err.message : 'unknown', t));
     } finally {
       setTunnelBusy(false);
     }
@@ -501,7 +502,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
           })}
         </div>
         {railDivider}
-        <span className={`w-1.5 h-1.5 rounded-full my-1 ${connected ? 'bg-status-success' : 'bg-status-error'}`} title={connected ? t('detail.live') : 'Disconnected'} />
+        <span className={`w-1.5 h-1.5 rounded-full my-1 ${connected ? 'bg-status-success' : 'bg-status-error'}`} title={connected ? t('detail.live') : t('auth.access.disconnected')} />
         <IconButton
           onClick={toggleTheme}
           label={theme === 'light' ? t('theme.dark') : t('theme.light')}
@@ -807,7 +808,7 @@ export default function Sidebar({ onLogout, authRequired, connected, onEvent, on
       <div className="px-3 pb-4 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
         {/* Controls row with connection status */}
         <div className="flex items-center gap-1 px-1">
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mr-1 ${connected ? 'bg-status-success' : 'bg-status-error'}`} title={connected ? t('detail.live') : 'Disconnected'} />
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mr-1 ${connected ? 'bg-status-success' : 'bg-status-error'}`} title={connected ? t('detail.live') : t('auth.access.disconnected')} />
           <IconButton
             onClick={toggleTheme}
             label={theme === 'light' ? t('theme.dark') : t('theme.light')}

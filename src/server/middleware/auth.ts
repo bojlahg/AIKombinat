@@ -1,16 +1,18 @@
 import crypto from 'crypto';
+import { EventEmitter } from 'node:events';
 import session from 'express-session';
 import type { RequestHandler, Express } from 'express';
 import { getSetting, setSetting } from '../db/app-settings.js';
 import { getDatabase } from '../db/connection.js';
+import { classifyRequestAccess } from '../security/request-access.js';
 
 // Session-based password authentication middleware.
 // Secret and sessions are persisted in SQLite so "remember me" survives
 // server restarts (default MemoryStore + per-process random secret both
 // invalidated every session on restart).
 
-const isProduction = process.env.NODE_ENV === 'production';
 const DEFAULT_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+export const authStateEvents = new EventEmitter();
 
 // Minimal express-session store backed by the existing better-sqlite3 DB.
 export class SqliteSessionStore extends session.Store {
@@ -95,7 +97,7 @@ export const sessionMiddleware: RequestHandler = (req, res, next) => {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        secure: isProduction,
+        secure: 'auto',
         sameSite: 'strict',
         maxAge: DEFAULT_MAX_AGE,
       },
@@ -118,10 +120,20 @@ export function matchesMcpToken(req: { headers: Record<string, unknown> }): bool
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+export function isRemotePasswordConfigured(): boolean {
+  return Boolean(getSetting('auth.password_hash'));
+}
+
+export function isValidAuthSession(sess: { authenticated?: boolean; createdAt?: number } | undefined): boolean {
+  if (!isRemotePasswordConfigured() || sess?.authenticated !== true) return false;
+  const changedAt = Number(getSetting('auth.password_changed_at') || 0);
+  return (sess.createdAt ?? 0) >= changedAt;
+}
+
 // Auth check middleware - skip for /api/auth/* routes
 export const authMiddleware: RequestHandler = (req, res, next) => {
   // Skip auth for login/status endpoints
-  if (req.path.startsWith('/api/auth') || req.path.startsWith('/auth')) {
+  if (req.path.startsWith('/api/auth/') || req.path.startsWith('/auth/')) {
     return next();
   }
   // Skip auth for health check
@@ -134,19 +146,25 @@ export const authMiddleware: RequestHandler = (req, res, next) => {
     return next();
   }
 
+  if (classifyRequestAccess(req).mode === 'direct_loopback') return next();
+
+  if (!isRemotePasswordConfigured()) {
+    res.status(401).json({ error: 'remote_access_not_configured' });
+    return;
+  }
+
   if (req.session && req.session.authenticated) {
     // Invalidate sessions issued before the most recent password change.
-    const changedAt = Number(getSetting('auth.password_changed_at') || 0);
-    if (changedAt && (req.session.createdAt ?? 0) < changedAt) {
+    if (!isValidAuthSession(req.session)) {
       req.session.destroy(() => {
-        res.status(401).json({ error: 'Unauthorized' });
+        res.status(401).json({ error: 'unauthorized' });
       });
       return;
     }
     return next();
   }
 
-  res.status(401).json({ error: 'Unauthorized' });
+  res.status(401).json({ error: 'unauthorized' });
 };
 
 export function initAuth(app: Express): void {

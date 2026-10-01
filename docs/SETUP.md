@@ -96,11 +96,11 @@ aikombinat
 ```
 Welcome to AIKombinat!
 Config created at C:\Users\<user>\.aikombinat\config.json
-Open the web UI to set your password on first launch.
+Direct loopback access does not require a password.
 🚀 AIKombinat running at http://localhost:3000
 ```
 
-브라우저에서 `http://localhost:3000` 접속 → 셋업 화면에서 비밀번호를 설정합니다. 외부 공유(Cloudflare 터널)는 셋업이 끝날 때까지 자동 시작되지 않아 첫 사용자가 본인임이 보장됩니다. 이후 비밀번호 변경은 웹 UI의 **설정 → 계정** 탭에서 합니다.
+브라우저에서 `http://localhost:3000`에 접속하면 비밀번호 없이 앱이 바로 열립니다. LAN, 프록시 또는 Cloudflare 터널을 사용하려면 서버 컴퓨터에서 **설정 → 원격 접속**으로 이동하여 원격 접속 비밀번호를 설정하세요. 원격 사용자는 첫 비밀번호를 설정할 수 없으며, 비밀번호가 없으면 터널은 시작되지 않습니다. 로컬에서는 현재 비밀번호 없이 변경할 수 있습니다.
 
 #### 이후 실행
 
@@ -119,7 +119,7 @@ aikombinat config path             # 설정 디렉토리 경로 확인
 aikombinat config clear            # 설정/DB 전체 삭제 (~/.aikombinat/)
 aikombinat --help                  # 도움말
 
-# 비밀번호는 이제 웹 UI에서만 관리합니다 (설정 → 계정 탭).
+# 비밀번호는 이제 웹 UI에서만 관리합니다 (설정 → 원격 접속 탭).
 ```
 
 #### 데이터 저장 위치

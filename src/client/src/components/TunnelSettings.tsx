@@ -3,6 +3,9 @@ import { useI18n } from '../i18n';
 import * as tunnelApi from '../api/tunnel';
 import type { TunnelStatus } from '../api/tunnel';
 import { useToast } from '../hooks/useToast';
+import * as authApi from '../api/auth';
+import { translateAuthError } from '../utils/auth-error';
+import PasswordSettingsPanel from './PasswordSettingsPanel';
 import Modal from './Modal';
 
 interface TunnelSettingsProps {
@@ -20,6 +23,14 @@ interface PanelProps {
 export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
   const { t } = useI18n();
   const { error: toastError, success: toastSuccess } = useToast();
+  const [passwordReady, setPasswordReady] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  useEffect(() => {
+    const refresh = () => authApi.getAuthStatus().then(s => setPasswordReady(s.remoteAccessReady)).catch(() => {});
+    refresh();
+    window.addEventListener('auth:changed', refresh);
+    return () => window.removeEventListener('auth:changed', refresh);
+  }, []);
   const [tunnelName, setTunnelName] = useState('');
   const [customHostname, setCustomHostname] = useState('');
   const [initialName, setInitialName] = useState('');
@@ -91,6 +102,7 @@ export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
   };
 
   const handleRestart = async () => {
+    if (!passwordReady) return;
     setRestarting(true);
     try {
       try { await tunnelApi.stopTunnel(); } catch { /* ignore stop errors */ }
@@ -98,7 +110,7 @@ export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
       setStatus({ status: 'running', url: result.url });
       toastSuccess(t('tunnel.restarted'));
     } catch (err) {
-      toastError(err instanceof Error ? err.message : t('tunnel.restartFailed'));
+      toastError(translateAuthError(err instanceof Error ? err.message : 'unknown', t));
     } finally {
       setRestarting(false);
     }
@@ -109,6 +121,11 @@ export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
       <h2 className="text-lg font-semibold text-warm-800 mb-1">{t('tunnel.title')}</h2>
       <p className="text-xs text-warm-400 mb-6">{t('tunnel.description')}</p>
 
+      {!passwordReady && <div className="panel mb-5 text-sm text-theme-text-secondary">
+        <p>{t('auth.remote.tunnelWarning')}</p>
+        <button type="button" className="btn-primary mt-3" onClick={() => setShowPassword(true)}>{t('auth.remote.setPassword')}</button>
+      </div>}
+      {showPassword && <PasswordSettingsPanel onClose={() => setShowPassword(false)} />}
       {status && (
         <div className="mb-5 p-3 rounded-lg text-xs flex items-center gap-2"
           style={{ backgroundColor: 'var(--color-bg-hover)', color: 'var(--color-text-tertiary)' }}>
@@ -188,7 +205,7 @@ export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
         <button
           type="button"
           onClick={handleRestart}
-          disabled={restarting}
+          disabled={restarting || !passwordReady}
           className="btn-ghost text-sm disabled:opacity-50"
         >
           {restarting

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { translateAuthError } from '../utils/auth-error';
 import LanguageSelector from './LanguageSelector';
 
 interface SetupPageProps {
@@ -28,7 +29,7 @@ export default function SetupPage({ onSetup }: SetupPageProps) {
     try {
       await onSetup(password, confirm);
     } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : t('setup.error'));
+      setError(err instanceof Error ? err.message : 'unknown');
     } finally {
       setLoading(false);
     }
@@ -84,7 +85,7 @@ export default function SetupPage({ onSetup }: SetupPageProps) {
 
             {error && (
               <div className="mt-4 py-2.5 px-4 bg-status-error/5 border border-status-error/20 rounded-xl text-sm text-status-error">
-                {error}
+                {translateAuthError(error, t)}
               </div>
             )}
 

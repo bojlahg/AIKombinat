@@ -2,15 +2,30 @@ import { WebSocketServer } from 'ws';
 import type { Server } from 'http';
 import type { IncomingMessage } from 'http';
 import { broadcaster, encodeSessionFrame } from './broadcaster.js';
-import { sessionMiddleware } from '../middleware/auth.js';
+import { sessionMiddleware, isValidAuthSession, authStateEvents } from '../middleware/auth.js';
+import { classifyRequestAccess } from '../security/request-access.js';
 import { claudeManager } from '../services/claude-manager.js';
 import { sessionManager } from '../services/session-manager.js';
 import { vaultWatcher, gitWatcher } from '../services/vault-watcher.js';
 import { getTodoById, createTaskLog, getSessionById, createSessionLog, getSessionRawChunks } from '../db/queries.js';
-import { getSetting } from '../db/app-settings.js';
 
 export function initWebSocket(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
+  const remoteClients = new Map<import('ws').WebSocket, { authenticated?: boolean; createdAt?: number }>();
+  const revokeStaleClients = () => {
+    for (const [ws, session] of remoteClients) {
+      if (!isValidAuthSession(session)) ws.close(1008, 'unauthorized');
+    }
+  };
+  authStateEvents.on('password-changed', revokeStaleClients);
+  const revalidateTimer = setInterval(revokeStaleClients, 1000);
+  revalidateTimer.unref();
+  server.on('close', () => {
+    clearInterval(revalidateTimer);
+    authStateEvents.off('password-changed', revokeStaleClients);
+    for (const ws of wss.clients) ws.terminate();
+    wss.close();
+  });
 
   // Handle upgrade manually to validate session auth
   const isDev = process.env.NODE_ENV !== 'production';
@@ -37,7 +52,7 @@ export function initWebSocket(server: Server): void {
     }
 
     // Skip auth when DISABLE_AUTH is set (plugin/headless mode)
-    if (process.env.DISABLE_AUTH === 'true') {
+    if (process.env.DISABLE_AUTH === 'true' || classifyRequestAccess(req).mode === 'direct_loopback') {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
       });
@@ -54,14 +69,7 @@ export function initWebSocket(server: Server): void {
 
     sessionMiddleware(req as any, res as any, () => {
       const session = (req as any).session;
-      if (!session || !session.authenticated) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-      // Reject sessions issued before the last password change (parity with HTTP).
-      const changedAt = Number(getSetting('auth.password_changed_at') || 0);
-      if (changedAt && (session.createdAt ?? 0) < changedAt) {
+      if (!isValidAuthSession(session)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -73,10 +81,14 @@ export function initWebSocket(server: Server): void {
     });
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    if (process.env.DISABLE_AUTH !== 'true' && classifyRequestAccess(req).mode !== 'direct_loopback') {
+      remoteClients.set(ws, (req as any).session);
+    }
     broadcaster.addClient(ws);
 
     ws.on('close', () => {
+      remoteClients.delete(ws);
       broadcaster.removeClient(ws);
       vaultWatcher.removeClient(ws);
       gitWatcher.removeClient(ws);
@@ -91,6 +103,10 @@ export function initWebSocket(server: Server): void {
 
     // Handle incoming messages (stdin for interactive mode)
     ws.on('message', (raw) => {
+      if (remoteClients.has(ws) && !isValidAuthSession(remoteClients.get(ws))) {
+        ws.close(1008, 'unauthorized');
+        return;
+      }
       try {
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'todo:stdin' && msg.todoId && typeof msg.input === 'string') {

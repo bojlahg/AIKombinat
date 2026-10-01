@@ -314,7 +314,6 @@ async function bootServer() {
   process.env.PORT = String(serverPort);
   process.env.DB_PATH = dbPath;
   // Only forward a legacy plaintext password so the server can migrate it.
-  // Without it, the server enters setup mode and the web UI prompts the user.
   if (config.password) {
     process.env.AUTH_PASSWORD = config.password;
   }
@@ -725,8 +724,6 @@ async function resetWebPassword() {
     defaultId: 1,
     cancelId: 1,
     message: '비밀번호를 초기화할까요?',
-    detail:
-      '초기화 후 앱 화면에서 새 비밀번호를 설정합니다. 터널이 켜져 있다면 새 비밀번호를 설정하기 전까지 외부 접속자가 먼저 설정할 수 있습니다.',
   });
   if (response !== 0) return;
   try {

@@ -2,52 +2,49 @@ import { useState, useEffect, useCallback } from 'react';
 import * as authApi from '../api/auth';
 
 export function useAuth() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [authRequired, setAuthRequired] = useState(true);
-  const [setupRequired, setSetupRequired] = useState(false);
+  const [status, setStatus] = useState<authApi.AuthStatus>({
+    authenticated: false, authRequired: true, setupRequired: false, accessMode: 'remote',
+    passwordConfigured: false, remoteAccessReady: false, remoteAccessBlocked: false,
+    passwordSetupAllowed: false,
+  });
   const [loading, setLoading] = useState(true);
+  const refresh = useCallback(async () => {
+    const next = await authApi.getAuthStatus();
+    setStatus(next);
+  }, []);
 
   useEffect(() => {
-    authApi.getAuthStatus()
-      .then((res) => {
-        setAuthenticated(res.authenticated);
-        setAuthRequired(res.authRequired);
-        setSetupRequired(res.setupRequired);
-      })
-      .catch(() => setAuthenticated(false))
+    refresh().catch(() => setStatus(s => ({ ...s, authenticated: false })))
       .finally(() => setLoading(false));
-  }, []);
+  }, [refresh]);
 
-  // Listen for 401 events from the API client
   useEffect(() => {
-    const handler = () => setAuthenticated(false);
+    const handler = () => {
+      if (status.authRequired) setStatus(s => ({ ...s, authenticated: false }));
+      refresh().catch(() => {});
+    };
     window.addEventListener('auth:unauthorized', handler);
-    return () => window.removeEventListener('auth:unauthorized', handler);
-  }, []);
+    window.addEventListener('auth:changed', handler);
+    return () => {
+      window.removeEventListener('auth:unauthorized', handler);
+      window.removeEventListener('auth:changed', handler);
+    };
+  }, [status.authRequired, refresh]);
 
   const login = useCallback(async (password: string, remember: boolean) => {
     await authApi.login(password, remember);
-    setAuthenticated(true);
-  }, []);
-
+    await refresh();
+  }, [refresh]);
   const logout = useCallback(async () => {
     await authApi.logout();
-    setAuthenticated(false);
-  }, []);
-
+    await refresh();
+  }, [refresh]);
   const setup = useCallback(async (password: string, confirmPassword: string) => {
     await authApi.setupPassword(password, confirmPassword);
-    setSetupRequired(false);
-    setAuthenticated(true);
-  }, []);
-
-  // Change password from the login screen: sign in with the current password,
-  // rotate it on the now-authenticated session, then enter the app.
+    await refresh();
+  }, [refresh]);
   const changePassword = useCallback(async (
-    oldPassword: string,
-    newPassword: string,
-    confirmPassword: string,
-    remember: boolean,
+    oldPassword: string, newPassword: string, confirmPassword: string, remember: boolean,
   ) => {
     await authApi.login(oldPassword, remember);
     try {
@@ -56,8 +53,8 @@ export function useAuth() {
       await authApi.logout().catch(() => {});
       throw err;
     }
-    setAuthenticated(true);
-  }, []);
+    await refresh();
+  }, [refresh]);
 
-  return { authenticated, authRequired, setupRequired, loading, login, logout, setup, changePassword };
+  return { ...status, loading, login, logout, setup, changePassword };
 }

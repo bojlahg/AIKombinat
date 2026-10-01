@@ -119,6 +119,7 @@ describe('API Client', () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: 'unauthorized' })),
     });
 
     await expect(get('/api/test')).rejects.toThrow(ApiError);

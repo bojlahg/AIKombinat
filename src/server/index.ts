@@ -12,7 +12,7 @@ import { createServer } from 'http';
 import crypto from 'crypto';
 import { getDatabase } from './db/connection.js';
 import { cleanOldLogs, getAllProjects, getTodosByStatus } from './db/queries.js';
-import { initAuth } from './middleware/auth.js';
+import { initAuth, isRemotePasswordConfigured } from './middleware/auth.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
 import svnRouter from './routes/svn.js';
@@ -286,12 +286,7 @@ for (const p of getAllProjects()) {
   }
 }
 
-// Password setup gate (unless auth is explicitly disabled)
-// - DB hash exists  → normal operation.
-// - No hash, but AUTH_PASSWORD env present → one-time migration to scrypt hash.
-// - Neither → setup mode: server starts, but tunnel auto-start is held until
-//   the user finishes initial setup in the browser (POST /api/auth/setup).
-let setupMode = false;
+// Migrate legacy credentials to the remote access password store.
 if (process.env.DISABLE_AUTH !== 'true') {
   const existingHash = getAppSetting('auth.password_hash');
   const envPwd = process.env.AUTH_PASSWORD;
@@ -313,11 +308,10 @@ if (process.env.DISABLE_AUTH !== 'true') {
   }
   delete process.env.AUTH_PASSWORD;
   if (!getAppSetting('auth.password_hash')) {
-    setupMode = true;
     logger.warn('startup.auth.setup-required', {
       scope: '[startup]',
-      msg: 'no password set - open the web UI to finish setup',
-      detail: 'Tunnel auto-start is paused until setup completes.',
+      msg: 'remote access password not configured; direct loopback access remains available',
+      detail: 'Configure a Remote Access Password locally before enabling LAN or tunnel access.',
     });
   }
 }
@@ -418,13 +412,13 @@ scheduler.initialize();
 initWebSocket(server);
 
 // --- Tunnel (Phase 7) ---
-if (setupMode && process.env.TUNNEL_ENABLED === 'true') {
+if (!isRemotePasswordConfigured() && process.env.TUNNEL_ENABLED === 'true') {
   logger.warn('tunnel.blocked', {
     scope: '[tunnel]',
-    msg: 'tunnel start blocked: password not initialized - finish setup in the browser first',
+    msg: 'tunnel start blocked: configure a Remote Access Password locally',
   });
 }
-if (process.env.TUNNEL_ENABLED === 'true' && !setupMode) {
+if (process.env.TUNNEL_ENABLED === 'true' && process.env.DISABLE_AUTH !== 'true' && isRemotePasswordConfigured()) {
   const port = Number(PORT);
   const tunnelName = getAppSetting('tunnel.name') ?? process.env.TUNNEL_NAME ?? '';
   const customHostname = getAppSetting('tunnel.hostname') ?? process.env.TUNNEL_HOSTNAME ?? '';
@@ -531,11 +525,16 @@ if (process.env.DISABLE_AUTH === 'true' && process.env.TUNNEL_ENABLED === 'true'
 // Default to loopback for desktop/local use. BIND_HOST explicitly enables LAN
 // sharing, except when auth is disabled (plugin/headless mode).
 const bindHost = resolveBindHost();
+if (bindHost !== '127.0.0.1' && bindHost !== '::1' && !isRemotePasswordConfigured()) {
+  logger.warn('startup.remote-password.missing', {
+    scope: '[security]', msg: 'LAN listener active without a remote password; remote API and WebSocket access is blocked',
+  });
+}
 
 function tryListen(port: number, attempt: number) {
   server.listen(port, bindHost, () => {
     setDelegationServerPort(port);
-    const tunnelEnabled = process.env.TUNNEL_ENABLED === 'true';
+    const tunnelEnabled = process.env.TUNNEL_ENABLED === 'true' && isRemotePasswordConfigured() && process.env.DISABLE_AUTH !== 'true';
     printStartupBanner({ port, requestedPort, tunnelEnabled });
     orchestrator.startStaleProcessChecker();
     sessionManager.startStaleProcessChecker();

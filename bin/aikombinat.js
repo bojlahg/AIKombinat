@@ -38,7 +38,7 @@ async function startServer() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
     console.log('Welcome to AIKombinat!');
     console.log(`Config created at ${CONFIG_FILE}`);
-    console.log('Open the web UI to set your password on first launch.\n');
+    console.log('Local access does not require a password. Configure remote access in Settings → Remote Access.\n');
   }
 
   const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
@@ -83,7 +83,7 @@ async function resetPassword() {
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await rl.question(
-    'Reset the web UI password? The next visitor to the web UI will set a new one. (y/N) '
+    'Reset the Remote Access Password? Remote access will be blocked until you configure a new one locally. (y/N) '
   );
   rl.close();
   if (answer.toLowerCase() !== 'y') {
@@ -103,8 +103,8 @@ async function resetPassword() {
   } finally {
     db.close();
   }
-  console.log('Password reset. Open the web UI to set a new password.');
-  console.log('Warning: until you do, anyone who can reach the server (including via tunnel) can claim it.');
+  console.log('Remote Access Password reset. Open AIKombinat locally and use Settings → Remote Access.');
+  console.log('Remote clients cannot configure the first password; remote access remains blocked.');
 }
 
 async function handleConfig(args) {
@@ -149,9 +149,9 @@ async function handleConfig(args) {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
     console.log(`Port changed to ${port}.`);
   } else if (args[0] === 'password') {
-    console.log('Password is now managed in the web UI.');
-    console.log('  • First launch: open the browser and set a password on the setup screen.');
-    console.log('  • Change later: open Settings → Account in the web UI, or the login screen.');
+    console.log('Remote Access Password is managed locally in Settings → Remote Access.');
+    console.log('  • First launch: localhost opens immediately without a password.');
+    console.log('  • LAN/tunnel access: configure a password locally; local changes do not require the old password.');
     console.log('  • Forgot it: run `aikombinat reset-password` on this machine.');
   } else if (args[0] === 'path') {
     console.log(CONFIG_DIR);
@@ -249,7 +249,7 @@ function printHelp() {
 AIKombinat - AI-powered task execution tool
 
 Usage:
-  aikombinat                          Start the server (set password on first launch in browser)
+  aikombinat                          Start the server (local access does not require a password)
   aikombinat config                   Show current config
   aikombinat config port <n>          Change port
   aikombinat config tunnel on         Enable Cloudflare tunnel
@@ -261,9 +261,9 @@ Usage:
                                       Clear custom domain
   aikombinat config path              Print config directory path
   aikombinat config clear             Delete all config and data
-  aikombinat reset-password           Clear the web UI password (forgot it?)
+  aikombinat reset-password           Clear the Remote Access Password (configure a new one locally)
   aikombinat --help                   Show this help
 
-Password is managed in the web UI (Settings → Account).
+Remote Access Password is configured locally in Settings → Remote Access.
 `.trim());
 }
