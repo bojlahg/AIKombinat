@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { tunnelManager } from '../services/tunnel-manager.js';
 import { getSetting, setSetting } from '../db/app-settings.js';
 import { isRemotePasswordConfigured } from '../middleware/auth.js';
+import { logger } from '../logging/index.js';
 
 const router = Router();
 
@@ -39,13 +40,13 @@ router.put('/config', (req, res) => {
   if (customHostnameRaw) {
     const lower = customHostnameRaw.toLowerCase();
     if (lower === 'localhost' || lower === '127.0.0.1' || /\s/.test(customHostnameRaw)) {
-      return res.status(400).json({ error: 'customHostname must be a public domain (e.g. app.your-domain.com)' });
+      return res.status(400).json({ error: 'invalid_tunnel_hostname' });
     }
     if (!HOSTNAME_PATTERN.test(customHostnameRaw)) {
-      return res.status(400).json({ error: 'customHostname is not a valid domain name' });
+      return res.status(400).json({ error: 'invalid_tunnel_hostname' });
     }
     if (!tunnelNameRaw) {
-      return res.status(400).json({ error: 'tunnelName is required when customHostname is set' });
+      return res.status(400).json({ error: 'tunnel_name_required' });
     }
   }
 
@@ -78,8 +79,8 @@ router.post('/start', async (req, res) => {
 
     res.json({ success: true, url });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to start tunnel';
-    res.status(500).json({ error: message });
+    logger.warn('tunnel.start.failed', { scope: '[tunnel]', err });
+    res.status(500).json({ error: 'tunnel_start_failed' });
   }
 });
 
@@ -90,8 +91,8 @@ router.post('/stop', async (_req, res) => {
     await tunnelManager.stopTunnel();
     res.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to stop tunnel';
-    res.status(500).json({ error: message });
+    logger.warn('tunnel.stop.failed', { scope: '[tunnel]', err });
+    res.status(500).json({ error: 'tunnel_stop_failed' });
   }
 });
 

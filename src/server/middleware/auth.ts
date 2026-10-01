@@ -5,6 +5,7 @@ import type { RequestHandler, Express } from 'express';
 import { getSetting, setSetting } from '../db/app-settings.js';
 import { getDatabase } from '../db/connection.js';
 import { classifyRequestAccess } from '../security/request-access.js';
+import { logger } from '../logging/index.js';
 
 // Session-based password authentication middleware.
 // Secret and sessions are persisted in SQLite so "remember me" survives
@@ -13,6 +14,43 @@ import { classifyRequestAccess } from '../security/request-access.js';
 
 const DEFAULT_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 export const authStateEvents = new EventEmitter();
+
+function readSessionRow(sid: string): { data: string; expires_at: number } | undefined {
+  return getDatabase().prepare('SELECT data, expires_at FROM auth_sessions WHERE sid = ?')
+    .get(sid) as { data: string; expires_at: number } | undefined;
+}
+
+type AuthSessionReason = 'ok' | 'missing' | 'expired' | 'not_authenticated' |
+  'password_missing' | 'password_changed' | 'invalid_payload';
+
+export function validatePersistedAuthSession(sid: string): { valid: boolean; reason: AuthSessionReason } {
+  let reason: AuthSessionReason = 'ok';
+  try {
+    if (!isRemotePasswordConfigured()) reason = 'password_missing';
+    else {
+      const row = sid ? readSessionRow(sid) : undefined;
+      if (!row) reason = 'missing';
+      else if (!Number.isFinite(row.expires_at)) reason = 'invalid_payload';
+      else if (row.expires_at <= Date.now()) reason = 'expired';
+      else {
+        let data: unknown;
+        try { data = JSON.parse(row.data); } catch { return { valid: false, reason: 'invalid_payload' }; }
+        if (!data || typeof data !== 'object' || Array.isArray(data)) reason = 'invalid_payload';
+        else {
+          const payload = data as { authenticated?: unknown; createdAt?: unknown };
+          const changedAt = Number(getSetting('auth.password_changed_at') || 0);
+          if (typeof payload.createdAt !== 'number' || !Number.isFinite(payload.createdAt) || !Number.isFinite(changedAt)) reason = 'invalid_payload';
+          else if (payload.authenticated !== true) reason = 'not_authenticated';
+          else if (payload.createdAt < changedAt) reason = 'password_changed';
+        }
+      }
+    }
+  } catch {
+    logger.warn('auth.session.validation_failed', { scope: '[auth]', msg: 'persisted session read failed' });
+    reason = 'invalid_payload';
+  }
+  return { valid: reason === 'ok', reason };
+}
 
 // Minimal express-session store backed by the existing better-sqlite3 DB.
 export class SqliteSessionStore extends session.Store {
@@ -34,10 +72,8 @@ export class SqliteSessionStore extends session.Store {
 
   get(sid: string, cb: (err: unknown, sess?: session.SessionData | null) => void): void {
     try {
-      const row = getDatabase()
-        .prepare('SELECT data, expires_at FROM auth_sessions WHERE sid = ?')
-        .get(sid) as { data: string; expires_at: number } | undefined;
-      if (!row || row.expires_at < Date.now()) return cb(null, null);
+      const row = readSessionRow(sid);
+      if (!row || row.expires_at <= Date.now()) return cb(null, null);
       cb(null, JSON.parse(row.data));
     } catch (err) {
       cb(err);
@@ -127,7 +163,7 @@ export function isRemotePasswordConfigured(): boolean {
 export function isValidAuthSession(sess: { authenticated?: boolean; createdAt?: number } | undefined): boolean {
   if (!isRemotePasswordConfigured() || sess?.authenticated !== true) return false;
   const changedAt = Number(getSetting('auth.password_changed_at') || 0);
-  return (sess.createdAt ?? 0) >= changedAt;
+  return typeof sess.createdAt === 'number' && Number.isFinite(sess.createdAt) && sess.createdAt >= changedAt;
 }
 
 // Auth check middleware - skip for /api/auth/* routes

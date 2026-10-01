@@ -95,7 +95,9 @@ export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
       setCustomHostname(updated.customHostname);
       toastSuccess(t('tunnel.saved'));
     } catch (err) {
-      toastError(err instanceof Error ? err.message : t('tunnel.saveFailed'));
+      const code = err instanceof Error ? err.message : '';
+      toastError(t(code === 'invalid_tunnel_hostname' ? 'tunnel.hostname.invalid' :
+        code === 'tunnel_name_required' ? 'tunnel.hostname.needsName' : 'tunnel.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -105,12 +107,17 @@ export function TunnelSettingsPanel({ onClose, onDirtyChange }: PanelProps) {
     if (!passwordReady) return;
     setRestarting(true);
     try {
-      try { await tunnelApi.stopTunnel(); } catch { /* ignore stop errors */ }
+      try { await tunnelApi.stopTunnel(); } catch {
+        toastError(t('tunnel.stopFailed'));
+        return;
+      }
       const result = await tunnelApi.startTunnel();
       setStatus({ status: 'running', url: result.url });
       toastSuccess(t('tunnel.restarted'));
     } catch (err) {
-      toastError(translateAuthError(err instanceof Error ? err.message : 'unknown', t));
+      const code = err instanceof Error ? err.message : '';
+      toastError(code === 'remote_password_required' || code === 'local_only'
+        ? translateAuthError(code, t) : t('tunnel.startFailed'));
     } finally {
       setRestarting(false);
     }

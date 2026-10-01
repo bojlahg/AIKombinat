@@ -628,6 +628,8 @@ export const en = {
     'tunnel.save': 'Save',
     'tunnel.saving': 'Saving…',
     'tunnel.saved': 'Tunnel settings saved. Restart the tunnel to apply.',
+    'tunnel.startFailed': "Failed to start tunnel.",
+    'tunnel.stopFailed': "Failed to stop tunnel.",
     'tunnel.saveFailed': 'Failed to save tunnel settings.',
     'tunnel.close': 'Close',
     'tunnel.restart': 'Restart tunnel',

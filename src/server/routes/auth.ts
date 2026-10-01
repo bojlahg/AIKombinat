@@ -52,7 +52,6 @@ function validatePasswordPair(password: unknown, confirmPassword: unknown):
 function markPasswordChanged(): number {
   const changedAt = Math.max(Date.now() + 1, Number(getSetting(CHANGED_AT_KEY) || 0) + 1);
   setSetting(CHANGED_AT_KEY, String(changedAt));
-  authStateEvents.emit('password-changed');
   return changedAt;
 }
 
@@ -86,6 +85,7 @@ router.post('/setup', authLimiter, async (req, res) => {
   if (isRemotePasswordConfigured()) return res.status(409).json({ error: 'already_initialized' });
   setSetting(HASH_KEY, hash);
   markPasswordChanged();
+  authStateEvents.emit('password-changed');
   res.json({ success: true });
 });
 
@@ -108,13 +108,25 @@ router.put('/password', authLimiter, async (req, res) => {
   }
   setSetting(HASH_KEY, newHash);
   const changedAt = markPasswordChanged();
-  if (!local) req.session.createdAt = changedAt;
-  res.json({ success: true });
+  if (!local) {
+    req.session.createdAt = changedAt;
+    req.session.save(err => {
+      authStateEvents.emit('password-changed');
+      if (err) return res.status(500).json({ error: 'unauthorized' });
+      res.json({ success: true });
+    });
+  } else {
+    authStateEvents.emit('password-changed');
+    res.json({ success: true });
+  }
 });
 
 router.post('/logout', (req, res) => {
+  const sid = req.sessionID;
+  if (!req.session) return res.json({ success: true });
   req.session.destroy(err => {
     if (err) return res.status(500).json({ error: 'logout_failed' });
+    if (sid) authStateEvents.emit('session-revoked', sid);
     res.json({ success: true });
   });
 });

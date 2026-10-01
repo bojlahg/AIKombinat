@@ -79,9 +79,11 @@ export function useWebSocket(authenticated: boolean) {
   const binaryCallbacksRef = useRef<Map<string, Set<BinaryCallback>>>(new Map());
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const attemptsRef = useRef(0);
+  const authenticatedRef = useRef(authenticated);
+  authenticatedRef.current = authenticated;
 
   const connect = useCallback(() => {
-    if (!authenticated) return;
+    if (!authenticatedRef.current) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -91,11 +93,13 @@ export function useWebSocket(authenticated: boolean) {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (!authenticatedRef.current || wsRef.current !== ws) return;
       setConnected(true);
       attemptsRef.current = 0;
     };
 
     ws.onmessage = (event) => {
+      if (!authenticatedRef.current || wsRef.current !== ws) return;
       // Binary frame (high-frequency PTY output): kind | sidLen | sid | payload.
       if (event.data instanceof ArrayBuffer) {
         const view = new Uint8Array(event.data);
@@ -121,8 +125,10 @@ export function useWebSocket(authenticated: boolean) {
     };
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) return;
       setConnected(false);
       wsRef.current = null;
+      if (!authenticatedRef.current) return;
       // Reconnect with exponential backoff
       const delay = Math.min(1000 * 2 ** attemptsRef.current, 30000);
       attemptsRef.current++;
@@ -132,19 +138,20 @@ export function useWebSocket(authenticated: boolean) {
     ws.onerror = () => {
       ws.close();
     };
-  }, [authenticated]);
+  }, []);
 
   useEffect(() => {
-    connect();
+    if (authenticated) connect();
+    else setConnected(false);
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      const ws = wsRef.current;
+      wsRef.current = null;
+      ws?.close();
     };
-  }, [connect]);
+  }, [authenticated, connect]);
 
   const onEvent = useCallback((cb: EventCallback) => {
     callbacksRef.current.add(cb);

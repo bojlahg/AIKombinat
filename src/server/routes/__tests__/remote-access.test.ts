@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { createServer, type Server } from 'node:http';
 import WebSocket from 'ws';
 import { initAuth, SqliteSessionStore } from '../../middleware/auth.js';
+import * as auth from '../../middleware/auth.js';
 import authRouter, { authRateLimitKey, authLimiter } from '../auth.js';
 import tunnelRouter from '../tunnel.js';
 import { initWebSocket } from '../../websocket/index.js';
@@ -14,19 +15,45 @@ vi.mock('../../services/tunnel-manager.js', () => ({ tunnelManager: {
   startTunnel: vi.fn().mockResolvedValue('https://fixture.trycloudflare.com'),
   startNamedTunnel: vi.fn().mockResolvedValue('https://app.example.com'),
   getTunnelStatus: vi.fn().mockReturnValue({ status: 'stopped', url: null }),
+  stopTunnel: vi.fn().mockResolvedValue(undefined),
 } }));
 vi.mock('../../services/claude-manager.js', () => ({ claudeManager: {} }));
-vi.mock('../../services/session-manager.js', () => ({ sessionManager: {} }));
+vi.mock('../../services/session-manager.js', () => ({ sessionManager: {
+  hasPendingPrompt: vi.fn().mockReturnValue(false), writeTerminalInput: vi.fn(),
+} }));
 vi.mock('../../services/vault-watcher.js', () => ({ vaultWatcher: { removeClient: vi.fn() }, gitWatcher: { removeClient: vi.fn() } }));
 vi.mock('../../websocket/broadcaster.js', () => ({ encodeSessionFrame: vi.fn(), broadcaster: {
   addClient: vi.fn(), removeClient: vi.fn(), getClientCount: () => 1,
 } }));
 import { tunnelManager } from '../../services/tunnel-manager.js';
+import { sessionManager } from '../../services/session-manager.js';
 
 let server: Server;
 let base: string;
 const remoteHeaders = { host: 'fixture.trycloudflare.com', 'cf-ray': 'fixture', 'x-forwarded-proto': 'http' };
 const localHeaders = { host: 'localhost' };
+const sockets = new Set<WebSocket>();
+async function openWs(cookie?: string, remote = true) {
+  const ws = new WebSocket(base.replace('http:', 'ws:') + '/ws', {
+    headers: { ...(remote ? remoteHeaders : localHeaders), ...(cookie ? { cookie } : {}) },
+  });
+  sockets.add(ws);
+  await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+  return ws;
+}
+function closedUnauthorized(ws: WebSocket) {
+  return new Promise<void>((resolve, reject) => {
+    const deadline = setTimeout(() => reject(new Error('WS was not revoked within 1500ms')), 1500);
+    ws.once('close', (code, reason) => {
+      clearTimeout(deadline);
+      try { expect(code).toBe(1008); expect(reason.toString()).toBe('unauthorized'); resolve(); }
+      catch (err) { reject(err); }
+    });
+  });
+}
+function sidFor(cookie: string) {
+  return decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1)).slice(2).split('.')[0];
+}
 async function api(path: string, method = 'GET', body?: unknown, remote = false, cookie?: string) {
   const headers: Record<string, string> = { ...(remote ? remoteHeaders : localHeaders), 'content-type': 'application/json' };
   if (cookie) headers.cookie = cookie;
@@ -78,6 +105,11 @@ beforeEach(() => {
   authLimiter.resetKey('direct_loopback');
   authLimiter.resetKey('loopback_proxy');
 });
+afterEach(() => {
+  for (const ws of sockets) ws.terminate();
+  sockets.clear();
+  vi.restoreAllMocks();
+});
 afterAll(async () => {
   await new Promise<void>(resolve => server ? server.close(() => resolve()) : resolve());
   closeDatabase();
@@ -88,6 +120,153 @@ afterAll(async () => {
 });
 
 describe('remote access HTTP and WS integration', () => {
+  it('logout immediately closes all same-SID sockets while another session stays authorized', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const a = await login(), b = await login();
+    const a1 = await openWs(a), a2 = await openWs(a), b1 = await openWs(b);
+    const closed = Promise.all([closedUnauthorized(a1), closedUnauthorized(a2)]);
+    const revoke = vi.fn();
+    auth.authStateEvents.once('session-revoked', revoke);
+    expect((await api('/api/auth/logout', 'POST', {}, true, a)).status).toBe(200);
+    expect(revoke).toHaveBeenCalledWith(sidFor(a));
+    await closed;
+    expect((await api('/api/protected', 'GET', undefined, true, a)).status).toBe(401);
+    expect(await wsStatus(true, a)).toBe(401);
+    expect((await api('/api/protected', 'GET', undefined, true, b)).status).toBe(200);
+    expect(b1.readyState).toBe(WebSocket.OPEN);
+  });
+  it('failed logout does not emit session revocation', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const cookie = await login(), ws = await openWs(cookie);
+    const revoke = vi.fn();
+    auth.authStateEvents.on('session-revoked', revoke);
+    const destroy = vi.spyOn(SqliteSessionStore.prototype, 'destroy').mockImplementation((_, cb) => cb?.(new Error('fixture failure')));
+    try {
+      expect((await api('/api/auth/logout', 'POST', {}, true, cookie)).data).toEqual({ error: 'logout_failed' });
+      expect(revoke).not.toHaveBeenCalled();
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+    } finally { destroy.mockRestore(); auth.authStateEvents.off('session-revoked', revoke); }
+  });
+  it.each([
+    ['deleted', 'DELETE FROM auth_sessions WHERE sid = ?'],
+    ['expired', 'UPDATE auth_sessions SET expires_at = 0 WHERE sid = ?'],
+    ['corrupt', "UPDATE auth_sessions SET data = '{' WHERE sid = ?"],
+    ['unauthenticated', `UPDATE auth_sessions SET data = '{"authenticated":false,"createdAt":100}' WHERE sid = ?`],
+  ])('timer revokes a %s persisted session', async (_, sql) => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const cookie = await login(), ws = await openWs(cookie);
+    const closed = closedUnauthorized(ws);
+    getDatabase().prepare(sql).run(sidFor(cookie));
+    await closed;
+    expect(await wsStatus(true, cookie)).toBe(401);
+  });
+  it('blocks a handled post-expiry message before terminal input dispatch', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const cookie = await login(), ws = await openWs(cookie);
+    const message = JSON.stringify({ type: 'session:terminal-input', sessionId: 'fixture', input: 'x' });
+    ws.send(message);
+    await vi.waitFor(() => expect(sessionManager.writeTerminalInput).toHaveBeenCalledOnce());
+    vi.mocked(sessionManager.writeTerminalInput).mockClear();
+    const closed = closedUnauthorized(ws);
+    getDatabase().prepare('UPDATE auth_sessions SET expires_at = ? WHERE sid = ?').run(Date.now() - 1, sidFor(cookie));
+    ws.send(message);
+    await closed;
+    expect(sessionManager.hasPendingPrompt).toHaveBeenCalledOnce();
+    expect(sessionManager.writeTerminalInput).not.toHaveBeenCalled();
+  });
+  it('idle WS traffic never touches or extends persisted session expiry', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const cookie = await login(), ws = await openWs(cookie);
+    const before = getDatabase().prepare('SELECT expires_at FROM auth_sessions WHERE sid = ?').get(sidFor(cookie));
+    const touch = vi.spyOn(SqliteSessionStore.prototype, 'touch');
+    ws.send(JSON.stringify({ type: 'session:terminal-input', sessionId: 'fixture', input: 'x' }));
+    await vi.waitFor(() => expect(sessionManager.writeTerminalInput).toHaveBeenCalledOnce());
+    expect(getDatabase().prepare('SELECT expires_at FROM auth_sessions WHERE sid = ?').get(sidFor(cookie))).toEqual(before);
+    expect(touch).not.toHaveBeenCalled();
+  });
+  it('remote rotation persists the requester before revocation and closes only older sessions', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const a = await login(), b = await login();
+    const requester = await openWs(a), other = await openWs(b);
+    const closed = closedUnauthorized(other);
+    const atEvent = vi.fn(() => expect(auth.validatePersistedAuthSession(sidFor(a)).valid).toBe(true));
+    auth.authStateEvents.once('password-changed', atEvent);
+    expect((await api('/api/auth/password', 'PUT', { oldPassword: 'original123', newPassword: 'replacement123', confirmPassword: 'replacement123' }, true, a)).status).toBe(200);
+    await closed;
+    expect(atEvent).toHaveBeenCalledOnce();
+    expect(requester.readyState).toBe(WebSocket.OPEN);
+    expect((await api('/api/protected', 'GET', undefined, true, a)).status).toBe(200);
+    expect((await api('/api/protected', 'GET', undefined, true, b)).status).toBe(401);
+  });
+  it('local rotation revokes both remote sessions and leaves local WS and HTTP usable', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const a = await login(), b = await login();
+    const a1 = await openWs(a), b1 = await openWs(b), local = await openWs(undefined, false);
+    const closed = Promise.all([closedUnauthorized(a1), closedUnauthorized(b1)]);
+    expect((await api('/api/auth/password', 'PUT', { newPassword: 'replacement123', confirmPassword: 'replacement123' })).status).toBe(200);
+    await closed;
+    expect((await api('/api/protected', 'GET', undefined, true, a)).status).toBe(401);
+    expect((await api('/api/protected', 'GET', undefined, true, b)).status).toBe(401);
+    expect((await api('/api/protected')).status).toBe(200);
+    expect(local.readyState).toBe(WebSocket.OPEN);
+  });
+  it('out-of-process hash removal revokes idle remote WS through the timer', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const ws = await openWs(await login());
+    const closed = closedUnauthorized(ws);
+    setSetting('auth.password_hash', null);
+    await closed;
+  });
+  it('DB read failures close remote sockets before dispatch', async () => {
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    const ws = await openWs(await login());
+    const closed = closedUnauthorized(ws);
+    const read = vi.spyOn(getDatabase(), 'prepare').mockImplementation(() => { throw new Error('read failed'); });
+    try {
+      ws.send(JSON.stringify({ type: 'session:terminal-input', sessionId: 'fixture', input: 'x' }));
+      await closed;
+      expect(sessionManager.writeTerminalInput).not.toHaveBeenCalled();
+    } finally { read.mockRestore(); }
+  });
+  it('local socket messages perform no persisted auth validation and survive the timer', async () => {
+    const ws = await openWs(undefined, false);
+    const validate = vi.spyOn(auth, 'validatePersistedAuthSession');
+    ws.send(JSON.stringify({ type: 'session:terminal-input', sessionId: 'fixture', input: 'x' }));
+    await vi.waitFor(() => expect(sessionManager.writeTerminalInput).toHaveBeenCalledOnce());
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(validate).not.toHaveBeenCalled();
+    expect((await api('/api/auth/logout', 'POST', {})).status).toBe(200);
+    expect((await api('/api/auth/status')).data.authenticated).toBe(true);
+  });
+  it('repeated server init/close cleans up auth listeners and revalidation timers', async () => {
+    const before = ['password-changed', 'session-revoked'].map(event => auth.authStateEvents.listenerCount(event));
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const originalInterval = globalThis.setInterval;
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation(((...args: Parameters<typeof setInterval>) => {
+      const timer = originalInterval(...args); timers.push(timer); return timer;
+    }) as typeof setInterval);
+    const clear = vi.spyOn(globalThis, 'clearInterval');
+    for (let i = 0; i < 3; i++) {
+      const fixture = createServer();
+      initWebSocket(fixture);
+      await new Promise<void>(resolve => fixture.listen(0, '127.0.0.1', resolve));
+      await new Promise<void>(resolve => fixture.close(() => resolve()));
+    }
+    interval.mockRestore();
+    for (const timer of timers) expect(clear).toHaveBeenCalledWith(timer);
+    expect(['password-changed', 'session-revoked'].map(event => auth.authStateEvents.listenerCount(event))).toEqual(before);
+  });
+  it('tunnel failures return stable validation and operation codes', async () => {
+    expect((await api('/api/tunnel/config', 'PUT', { customHostname: 'localhost' })).data.error).toBe('invalid_tunnel_hostname');
+    expect((await api('/api/tunnel/config', 'PUT', { customHostname: 'bad domain' })).data.error).toBe('invalid_tunnel_hostname');
+    expect((await api('/api/tunnel/config', 'PUT', { customHostname: 'app.example.com' })).data.error).toBe('tunnel_name_required');
+    setSetting('auth.password_hash', await hashPassword('original123'));
+    vi.mocked(tunnelManager.startTunnel).mockRejectedValueOnce(new Error('raw operational failure'));
+    expect((await api('/api/tunnel/start', 'POST', {})).data.error).toBe('tunnel_start_failed');
+    vi.mocked(tunnelManager.stopTunnel).mockRejectedValueOnce(new Error('raw operational failure'));
+    expect((await api('/api/tunnel/stop', 'POST', {})).data.error).toBe('tunnel_stop_failed');
+  });
   it('supports real IPv6 loopback HTTP and WS without a password', async () => {
     const app = express();
     initAuth(app);

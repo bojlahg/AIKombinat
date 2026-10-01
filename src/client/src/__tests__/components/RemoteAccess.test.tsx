@@ -8,16 +8,49 @@ import { TunnelSettingsPanel } from '../../components/TunnelSettings';
 import { useAuth } from '../../hooks/useAuth';
 import * as authApi from '../../api/auth';
 import * as tunnelApi from '../../api/tunnel';
+import { en } from '../../i18n/en';
+import { ru } from '../../i18n/ru';
+import { ko } from '../../i18n/ko';
 
 vi.mock('../../api/auth');
 vi.mock('../../api/tunnel');
-vi.mock('../../hooks/useToast', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }) }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
 const local = { authenticated: true, authRequired: false, accessMode: 'local' as const, setupRequired: false, passwordConfigured: false, remoteAccessReady: false, remoteAccessBlocked: false, passwordSetupAllowed: true };
 const remote = { ...local, authenticated: false, authRequired: true, accessMode: 'remote' as const, passwordSetupAllowed: false };
 const wrap = (ui: React.ReactElement) => render(<I18nProvider>{ui}</I18nProvider>);
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('remote access localized UX', () => {
+  it.each([['en', en], ['ru', ru], ['ko', ko]] as const)('%s maps tunnel config errors and hides arbitrary server prose', async (lang, locale) => {
+    localStorage.setItem('aikombinat-lang', lang);
+    vi.mocked(authApi.getAuthStatus).mockResolvedValue({ ...local, remoteAccessReady: true });
+    vi.mocked(tunnelApi.getTunnelConfig).mockResolvedValue({ tunnelName: '', customHostname: '' });
+    vi.mocked(tunnelApi.getTunnelStatus).mockResolvedValue({ status: 'stopped', url: null });
+    const { container } = wrap(<TunnelSettingsPanel />);
+    await waitFor(() => expect(screen.getByText(locale['tunnel.start'])).not.toBeDisabled());
+    fireEvent.change(container.querySelector('input')!, { target: { value: 'fixture' } });
+    for (const [code, key] of [
+      ['invalid_tunnel_hostname', 'tunnel.hostname.invalid'],
+      ['tunnel_name_required', 'tunnel.hostname.needsName'],
+      ['raw English stack message', 'tunnel.saveFailed'],
+    ] as const) {
+      vi.mocked(tunnelApi.updateTunnelConfig).mockRejectedValueOnce(new Error(code));
+      toast.error.mockClear();
+      fireEvent.click(screen.getByText(locale['tunnel.save']));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(locale[key]));
+      await waitFor(() => expect(screen.getByText(locale['tunnel.save'])).not.toBeDisabled());
+    }
+    vi.mocked(tunnelApi.stopTunnel).mockResolvedValueOnce({ success: true });
+    vi.mocked(tunnelApi.startTunnel).mockRejectedValueOnce(new Error('raw English stack message'));
+    fireEvent.click(screen.getByText(locale['tunnel.start']));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(locale['tunnel.startFailed']));
+    await waitFor(() => expect(screen.getByText(locale['tunnel.start'])).not.toBeDisabled());
+    vi.mocked(tunnelApi.stopTunnel).mockRejectedValueOnce(new Error('raw English stack message'));
+    fireEvent.click(screen.getByText(locale['tunnel.start']));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(locale['tunnel.stopFailed']));
+    expect(tunnelApi.startTunnel).toHaveBeenCalledOnce();
+  });
   it.each(['ru', 'ko'])('%s translates remote login, errors and recovery text', async lang => {
     localStorage.setItem('aikombinat-lang', lang);
     const onLogin = vi.fn().mockRejectedValue(new Error('invalid_password'));

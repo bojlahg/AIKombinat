@@ -37,6 +37,7 @@ export function useAuth() {
   }, [refresh]);
   const logout = useCallback(async () => {
     await authApi.logout();
+    setStatus(s => s.authRequired ? { ...s, authenticated: false } : s);
     await refresh();
   }, [refresh]);
   const setup = useCallback(async (password: string, confirmPassword: string) => {

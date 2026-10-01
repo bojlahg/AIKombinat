@@ -2,7 +2,7 @@ import { WebSocketServer } from 'ws';
 import type { Server } from 'http';
 import type { IncomingMessage } from 'http';
 import { broadcaster, encodeSessionFrame } from './broadcaster.js';
-import { sessionMiddleware, isValidAuthSession, authStateEvents } from '../middleware/auth.js';
+import { sessionMiddleware, validatePersistedAuthSession, authStateEvents } from '../middleware/auth.js';
 import { classifyRequestAccess } from '../security/request-access.js';
 import { claudeManager } from '../services/claude-manager.js';
 import { sessionManager } from '../services/session-manager.js';
@@ -11,18 +11,25 @@ import { getTodoById, createTaskLog, getSessionById, createSessionLog, getSessio
 
 export function initWebSocket(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
-  const remoteClients = new Map<import('ws').WebSocket, { authenticated?: boolean; createdAt?: number }>();
+  const remoteClients = new Map<import('ws').WebSocket, { sid: string }>();
   const revokeStaleClients = () => {
-    for (const [ws, session] of remoteClients) {
-      if (!isValidAuthSession(session)) ws.close(1008, 'unauthorized');
+    for (const [ws, client] of remoteClients) {
+      if (!validatePersistedAuthSession(client.sid).valid) ws.close(1008, 'unauthorized');
     }
   };
   authStateEvents.on('password-changed', revokeStaleClients);
+  const revokeSession = (sid: string) => {
+    for (const [ws, client] of remoteClients) {
+      if (client.sid === sid) ws.close(1008, 'unauthorized');
+    }
+  };
+  authStateEvents.on('session-revoked', revokeSession);
   const revalidateTimer = setInterval(revokeStaleClients, 1000);
   revalidateTimer.unref();
   server.on('close', () => {
     clearInterval(revalidateTimer);
     authStateEvents.off('password-changed', revokeStaleClients);
+    authStateEvents.off('session-revoked', revokeSession);
     for (const ws of wss.clients) ws.terminate();
     wss.close();
   });
@@ -67,9 +74,9 @@ export function initWebSocket(server: Server): void {
     res.setHeader = () => res;
     res.getHeader = () => undefined;
 
-    sessionMiddleware(req as any, res as any, () => {
-      const session = (req as any).session;
-      if (!isValidAuthSession(session)) {
+    sessionMiddleware(req as any, res as any, (err?: unknown) => {
+      const sid = (req as any).sessionID;
+      if (err || typeof sid !== 'string' || !validatePersistedAuthSession(sid).valid) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -83,7 +90,7 @@ export function initWebSocket(server: Server): void {
 
   wss.on('connection', (ws, req) => {
     if (process.env.DISABLE_AUTH !== 'true' && classifyRequestAccess(req).mode !== 'direct_loopback') {
-      remoteClients.set(ws, (req as any).session);
+      remoteClients.set(ws, { sid: (req as any).sessionID });
     }
     broadcaster.addClient(ws);
 
@@ -103,7 +110,8 @@ export function initWebSocket(server: Server): void {
 
     // Handle incoming messages (stdin for interactive mode)
     ws.on('message', (raw) => {
-      if (remoteClients.has(ws) && !isValidAuthSession(remoteClients.get(ws))) {
+      const client = remoteClients.get(ws);
+      if (client && !validatePersistedAuthSession(client.sid).valid) {
         ws.close(1008, 'unauthorized');
         return;
       }
