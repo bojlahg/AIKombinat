@@ -1024,7 +1024,13 @@ export type ExecutionProfileInput = Pick<ExecutionProfile, 'slug' | 'name' | 'de
 
 function replaceProfileExecutors(profileId: string, executors: NonNullable<ExecutionProfileInput['executors']>, now: string): void {
   const db = getDatabase();
-  db.prepare('DELETE FROM execution_profile_executors WHERE profile_id = ?').run(profileId);
+  const existing = db.prepare(`SELECT e.id, m.id AS model_id FROM execution_profile_executors e
+    LEFT JOIN cli_models m ON m.id = e.cli_model_id WHERE e.profile_id = ?`).all(profileId) as Array<{ id: string; model_id: string | null }>;
+  const submittedIds = new Set(executors.map(executor => executor.id));
+  const remove = db.prepare('DELETE FROM execution_profile_executors WHERE id = ? AND profile_id = ?');
+  for (const executor of existing) {
+    if (executor.model_id !== null || submittedIds.has(executor.id)) remove.run(executor.id, profileId);
+  }
   const insert = db.prepare(`INSERT INTO execution_profile_executors
     (id, profile_id, cli_model_id, effort_value, priority, is_enabled, created_at, updated_at, account_policy, provider_account_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);

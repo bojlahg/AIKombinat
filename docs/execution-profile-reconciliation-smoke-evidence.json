@@ -1,53 +1,53 @@
 {
   "status": "PASS",
-  "startedAt": "2026-10-01T19:18:37.985Z",
+  "startedAt": "2026-10-01T20:53:08.014Z",
   "sourceReadOnly": true,
   "inferenceLaunched": false,
   "reconciliation": {
-    "generatedAt": "2026-10-01T19:19:07.897Z",
+    "generatedAt": "2026-10-01T20:53:33.661Z",
     "providers": [
       {
         "provider": "claude",
-        "refreshId": "66f216c0-b1c4-4e81-ba4c-70f5ca1c9035",
+        "refreshId": "d110917c-34fe-4274-8efb-2cd7d2969f55",
         "source": "claude-documented",
         "authoritative": false,
         "primarySucceeded": true,
-        "lastRefreshedAt": "2026-10-01T19:18:38.399Z",
+        "lastRefreshedAt": "2026-10-01T20:53:08.538Z",
         "modelsSeen": 10
       },
       {
         "provider": "codex",
-        "refreshId": "277e4257-5f40-4d64-bde7-de880a9a5393",
+        "refreshId": "ea23fb2a-299b-48fe-a765-d0780aa5ebce",
         "source": "codex-app-server",
         "authoritative": true,
         "primarySucceeded": true,
-        "lastRefreshedAt": "2026-10-01T19:18:43.995Z",
-        "modelsSeen": 7
+        "lastRefreshedAt": "2026-10-01T20:53:08.976Z",
+        "modelsSeen": 8
       },
       {
         "provider": "antigravity",
-        "refreshId": "6c7c74c6-0f8a-4bcc-9150-76bfec424a68",
-        "source": "antigravity-models",
-        "authoritative": true,
-        "primarySucceeded": true,
-        "lastRefreshedAt": "2026-10-01T19:18:59.766Z",
-        "modelsSeen": 7
+        "refreshId": null,
+        "source": "antigravity-model-command",
+        "authoritative": false,
+        "primarySucceeded": false,
+        "lastRefreshedAt": "2026-10-01T20:53:21.468Z",
+        "modelsSeen": 0
       },
       {
         "provider": "opencode",
-        "refreshId": "e639d504-5f53-4049-a8ac-0bd60ea7e2c3",
-        "source": "opencode-models",
+        "refreshId": null,
+        "source": null,
         "authoritative": false,
         "primarySucceeded": false,
-        "lastRefreshedAt": "2026-10-01T19:18:45.886Z",
+        "lastRefreshedAt": null,
         "modelsSeen": 0
       }
     ],
     "summary": {
       "profiles": 3,
-      "ready": 1,
+      "ready": 0,
       "degraded": 0,
-      "unknown": 2,
+      "unknown": 3,
       "blocked": 0,
       "disabled": 0
     },
@@ -56,7 +56,7 @@
         "id": "5f9e57a5-7470-459e-84fc-1efdca85d50f",
         "name": "Antigravity Flash",
         "updatedAt": "2026-08-25T12:09:29.905Z",
-        "health": "ready",
+        "health": "unknown",
         "usable": true,
         "candidates": [
           {
@@ -71,11 +71,11 @@
               "label": "Gemini 3.7 Flash",
               "status": "available",
               "source": "manual",
-              "lastSeenAt": "2026-10-01T19:18:59.766Z"
+              "lastSeenAt": "2026-08-25T20:44:09.956Z"
             },
-            "catalogState": "current",
-            "catalogReasonCode": "latest_refresh_seen",
-            "repairKind": "none",
+            "catalogState": "unconfirmed",
+            "catalogReasonCode": "refresh_unconfirmed",
+            "repairKind": "model",
             "effort": {
               "configured": "high",
               "supported": [
@@ -287,7 +287,7 @@
                 "requiresEffortChoice": false
               },
               {
-                "modelId": "9a62a2ae-8e7a-44fc-8e86-f25136b5b162",
+                "modelId": "f7016517-944b-4b30-b2ab-6ba6f8da5f85",
                 "modelValue": "gpt-6-astra",
                 "label": "GPT-6-Astra",
                 "reasonCode": "other_current",
@@ -295,7 +295,7 @@
                 "requiresEffortChoice": false
               },
               {
-                "modelId": "a8b23843-703b-4279-aa0a-36a745061258",
+                "modelId": "d3635dcb-26d3-4d39-a350-4bf3bc6eb6dd",
                 "modelValue": "gpt-6-luna",
                 "label": "GPT-6-Luna",
                 "reasonCode": "other_current",
@@ -303,9 +303,17 @@
                 "requiresEffortChoice": false
               },
               {
-                "modelId": "d8d49ba0-3af4-44cc-983b-e7103abbf9c1",
+                "modelId": "975c59bd-fcd2-44dc-9dde-0257fe13dd9b",
                 "modelValue": "gpt-6-sol",
                 "label": "GPT-6-Sol",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "7f3a122f-49bb-4056-92be-0cbfb9f19025",
+                "modelValue": "gpt-6.1-sol",
+                "label": "GPT-6.1-Sol",
                 "reasonCode": "other_current",
                 "confidence": "alternative",
                 "requiresEffortChoice": false
@@ -326,8 +334,8 @@
               "source": "manual",
               "lastSeenAt": null
             },
-            "catalogState": "stale",
-            "catalogReasonCode": "authoritative_omission",
+            "catalogState": "unconfirmed",
+            "catalogReasonCode": "refresh_unconfirmed",
             "repairKind": "model",
             "effort": {
               "configured": null,
@@ -342,64 +350,7 @@
             },
             "runtimeState": "available",
             "runtimeReasonCode": "runtime_available",
-            "suggestions": [
-              {
-                "modelId": "23d38519-f935-475e-a203-e78c59181421",
-                "modelValue": "claude-opus-4-6-thinking",
-                "label": "Claude Opus 4.6 (Thinking)",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": false
-              },
-              {
-                "modelId": "7cc3f2f4-a967-4521-bee7-060457983b81",
-                "modelValue": "claude-sonnet-4-6",
-                "label": "Claude Sonnet 4.6 (Thinking)",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": false
-              },
-              {
-                "modelId": "8129f74f-cf6f-4acf-9966-13cb35063e3c",
-                "modelValue": "gemini-3.1-pro",
-                "label": "Gemini 3.1 Pro",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": true
-              },
-              {
-                "modelId": "71ab2a25-6406-42d5-be3f-749551871610",
-                "modelValue": "gemini-3.6-flash",
-                "label": "Gemini 3.6 Flash",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": true
-              },
-              {
-                "modelId": "e4e5a3f5-0e42-47f9-b5e4-09c3df106c28",
-                "modelValue": "gemini-3.7-flash",
-                "label": "Gemini 3.7 Flash",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": true
-              },
-              {
-                "modelId": "17d3f9c4-e3ef-45ab-9e20-68bd6fd83eef",
-                "modelValue": "gemini-3.8-flash",
-                "label": "Gemini 3.8 Flash",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": true
-              },
-              {
-                "modelId": "41942318-0402-45f1-a921-55b1313e83b8",
-                "modelValue": "gpt-oss-120b-medium",
-                "label": "GPT-OSS 120B (Medium)",
-                "reasonCode": "other_current",
-                "confidence": "alternative",
-                "requiresEffortChoice": false
-              }
-            ]
+            "suggestions": []
           }
         ],
         "references": {
@@ -597,7 +548,7 @@
                 "requiresEffortChoice": false
               },
               {
-                "modelId": "9a62a2ae-8e7a-44fc-8e86-f25136b5b162",
+                "modelId": "f7016517-944b-4b30-b2ab-6ba6f8da5f85",
                 "modelValue": "gpt-6-astra",
                 "label": "GPT-6-Astra",
                 "reasonCode": "other_current",
@@ -605,7 +556,7 @@
                 "requiresEffortChoice": false
               },
               {
-                "modelId": "a8b23843-703b-4279-aa0a-36a745061258",
+                "modelId": "d3635dcb-26d3-4d39-a350-4bf3bc6eb6dd",
                 "modelValue": "gpt-6-luna",
                 "label": "GPT-6-Luna",
                 "reasonCode": "other_current",
@@ -613,9 +564,17 @@
                 "requiresEffortChoice": false
               },
               {
-                "modelId": "d8d49ba0-3af4-44cc-983b-e7103abbf9c1",
+                "modelId": "975c59bd-fcd2-44dc-9dde-0257fe13dd9b",
                 "modelValue": "gpt-6-sol",
                 "label": "GPT-6-Sol",
+                "reasonCode": "other_current",
+                "confidence": "alternative",
+                "requiresEffortChoice": false
+              },
+              {
+                "modelId": "7f3a122f-49bb-4056-92be-0cbfb9f19025",
+                "modelValue": "gpt-6.1-sol",
+                "label": "GPT-6.1-Sol",
                 "reasonCode": "other_current",
                 "confidence": "alternative",
                 "requiresEffortChoice": false
@@ -660,8 +619,26 @@
     "effort": null,
     "afterHealth": "ready"
   },
-  "auditRows": 2,
+  "disabledOrphanedFixture": {
+    "status": "PASS",
+    "beforeHealth": "ready",
+    "afterHealth": "ready",
+    "catalogState": "disabled",
+    "repairKind": "recreate",
+    "attentionImpact": 0,
+    "nameSave": "PASS",
+    "healthyExecutorSave": "PASS",
+    "orphanRowPreserved": true,
+    "candidateIdPreserved": true,
+    "priorityPreserved": true,
+    "enabledPreserved": true,
+    "createdAtPreserved": true,
+    "accountPolicy": "inherited_default",
+    "accountId": null,
+    "effort": null
+  },
+  "auditRows": 3,
   "foreignKeys": "PASS",
   "sourceDatabaseUnchanged": true,
-  "finishedAt": "2026-10-01T19:19:07.929Z"
+  "finishedAt": "2026-10-01T20:53:33.783Z"
 }

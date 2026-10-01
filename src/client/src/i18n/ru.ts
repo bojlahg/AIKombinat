@@ -8,6 +8,7 @@ export const ru = {
     "reconciliation.error.invalid_account_policy": "Исправьте политику аккаунта или выберите аккаунт этого провайдера.",
     "reconciliation.needsAttention": "Профили выполнения, требующие внимания",
     "reconciliation.missingModelReference": "Отсутствующая ссылка на модель",
+    "reconciliation.copy.disabledOrphaned": "Этот отключённый исполнитель ссылается на модель, которой больше нет. Его можно пересоздать сейчас или оставить отключённым.",
     "reconciliation.recreate.description": "Явно выберите провайдера, актуальную модель, усилие и политику аккаунта. Приоритет и состояние включения сохраняются; прежнее усилие и фиксированный аккаунт не копируются.",
     "reconciliation.chooseProvider": "Выберите провайдера",
     "reconciliation.chooseEffort": "Выберите усилие",

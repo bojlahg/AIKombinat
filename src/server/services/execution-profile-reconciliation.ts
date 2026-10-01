@@ -9,6 +9,7 @@ export type CatalogState = 'current' | 'unconfirmed' | 'stale' | 'invalid' | 'or
 export type ProfileHealth = 'ready' | 'degraded' | 'unknown' | 'blocked' | 'disabled';
 export type RepairKind = 'model' | 'effort' | 'account' | 'recreate' | 'none';
 export function getCandidateRepairKind(catalogState: CatalogState, reasonCode: string): RepairKind {
+  if (reasonCode === 'model_not_found') return 'recreate';
   if (catalogState === 'disabled' || catalogState === 'current') return 'none';
   if (catalogState === 'orphaned') return 'recreate';
   if (['model_not_found', 'provider_mismatch'].includes(reasonCode)) return 'recreate';
@@ -50,7 +51,7 @@ export function assessExecutionCandidate(candidate: queries.ExecutionProfileExec
     || (candidate.cli_tool === 'opencode' && (policy !== 'inherited_default' || !!candidate.provider_account_id));
   const effort = model ? assessEffort(model, candidate.effort_value) : { configured: candidate.effort_value, supported: null, state: 'capability_unknown', valid: true };
   let catalogState: CatalogState = 'unconfirmed', catalogReasonCode = 'refresh_unconfirmed';
-  if (!candidate.is_enabled) { catalogState = 'disabled'; catalogReasonCode = 'candidate_disabled'; }
+  if (!candidate.is_enabled) { catalogState = 'disabled'; catalogReasonCode = model ? 'candidate_disabled' : 'model_not_found'; }
   else if (!model) { catalogState = 'orphaned'; catalogReasonCode = 'model_not_found'; }
   else if (model.cli_tool !== candidate.cli_tool) { catalogState = 'invalid'; catalogReasonCode = 'provider_mismatch'; }
   else if (invalidAccount) { catalogState = 'invalid'; catalogReasonCode = 'invalid_account_policy'; }

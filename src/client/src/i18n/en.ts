@@ -7,6 +7,7 @@ export const en = {
     "reconciliation.error.invalid_account_policy": "Fix the account policy or select an account belonging to this provider.",
     "reconciliation.needsAttention": "Execution profiles needing attention",
     "reconciliation.missingModelReference": "Missing model reference",
+    "reconciliation.copy.disabledOrphaned": "This disabled executor references a model that no longer exists. You can recreate it now or leave it disabled.",
     "reconciliation.recreate.description": "Explicitly choose a provider, current model, effort and account policy. Priority and enabled state are preserved; previous effort and fixed account are not copied.",
     "reconciliation.chooseProvider": "Choose provider",
     "reconciliation.chooseEffort": "Choose effort",

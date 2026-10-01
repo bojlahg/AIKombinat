@@ -57,11 +57,12 @@ Stable error codes: `profile_not_found`, `candidate_not_found`, `model_not_found
 
 ### Repair routing closure
 
-`getCandidateRepairKind(catalogState, reasonCode)` owns repair routing on the server. Current and disabled candidates have no CTA. The UI never treats account/effort/orphan problems as successful model replacement.
+`getCandidateRepairKind(catalogState, reasonCode)` owns repair routing on the server. Missing model references take precedence for structural repair, including disabled candidates. Disabled candidates with an existing model and current candidates have no CTA. The UI never treats account/effort/orphan problems as successful model replacement.
 
 | State/reason | repairKind | Action |
 |---|---|---|
 | current / latest_refresh_seen; disabled / candidate_disabled | none | No repair CTA |
+| disabled / model_not_found | recreate | Explicit recreate modal; candidate stays disabled |
 | weak_omission; refresh_unconfirmed; authoritative_omission; model_missing | model | Replace model modal |
 | effort_unsupported; effort_required; invalid_provider_variant | effort | Expand profile, scroll row, focus effort select |
 | invalid_account_policy | account | Expand profile, scroll row, focus account policy select |
@@ -71,7 +72,9 @@ Orphaned payloads have `currentModel=null`, `provider=null`, and `suggestions=[]
 
 Recreate requires an explicit `provider`, `newModelId`, account policy and fixed account if applicable, alongside the same optimistic/campaign tokens. Its effort defaults to provider default; grouped Antigravity requires an explicit supported mapped effort. Only available models seen in the selected provider's latest successful refresh can be applied. Without those models the UI says “Refresh catalog first” and disables Apply. The UI starts with no provider/model selection, `accountPolicy=inherited_default`, `providerAccountId=null`, and provider-default effort. It does not copy previous effort or fixed account. Priority, enabled state, candidate ID and creation time remain intact. The shared transaction/audit/timestamp/event path preserves existing snapshot and campaign guarantees; no new schema is introduced.
 
-Candidate rows have `execution-candidate-<candidateId>` targets and account/effort control refs. Orphaned rows render from reconciliation even though the ordinary profile query omits missing model joins. Ordinary profile save is blocked until orphaned references are recreated, preventing an omitted row from being silently deleted. Missing references never appear as invented selectable models.
+Candidate rows have `execution-candidate-<candidateId>` targets and account/effort control refs. Missing-reference rows render from reconciliation even though the ordinary profile query omits missing model joins. A disabled orphan shows Disabled, Missing model reference, neutral EN/RU/KO copy and Recreate executor through the existing `ProfileRecreateModal`. It offers no model/account/effort repair. Runtime/profile health still ignores every disabled candidate: current plus disabled orphan remains ready with zero attention impact; an enabled profile containing only disabled candidates retains the existing blocked result.
+
+Ordinary name/description/enabled/order and visible executor edits are allowed with disabled orphaned references present. Executor replacement loads persisted IDs and model existence, compares submitted IDs, and retains hidden orphan rows absent from the DTO without rewriting their configuration or timestamps. Omitting a visible executor still removes it intentionally. Enabled orphan rows retain the existing UI save guard. Missing references never appear as invented selectable models. No separate orphan-remove endpoint is introduced.
 
 References include review policies (members and judges) and running campaigns (review/rework arms, policy references and enrolled implementation profiles). Any running campaign reference requires `confirmActiveCampaignImpact=true`. Confirmation does not rewrite campaign hashes or suppress normal drift/contamination detection. Snapshots, running processes and completed history remain unchanged; future late binding uses the repaired model.
 

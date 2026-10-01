@@ -27,11 +27,11 @@ function fixture(tool: 'claude' | 'codex' = 'claude', values = ['claude-sonnet-o
 function input(profile: q.ExecutionProfile, newModelId: string) {
   return { newModelId, expectedOldModelId: profile.executors[0].cli_model_id, expectedProfileUpdatedAt: profile.updated_at };
 }
-async function api(path: string, body?: unknown) {
+async function api(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') {
   const app = express(); app.use(express.json()); app.use('/api', router); const server = app.listen(0);
   try {
     const address = server.address() as { port: number };
-    const res = await fetch(`http://127.0.0.1:${address.port}/api${path}`, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const res = await fetch(`http://127.0.0.1:${address.port}/api${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 }
@@ -45,9 +45,67 @@ describe('execution profile reconciliation', () => {
     ['invalid', 'effort_unsupported', 'effort'], ['invalid', 'effort_required', 'effort'],
     ['invalid', 'invalid_provider_variant', 'effort'], ['invalid', 'invalid_account_policy', 'account'],
     ['orphaned', 'model_not_found', 'recreate'], ['invalid', 'provider_mismatch', 'recreate'],
-    ['disabled', 'model_not_found', 'none'],
+    ['disabled', 'model_not_found', 'recreate'],
   ] as const)('routes %s / %s to %s', (state, reason, kind) => {
     expect(s.getCandidateRepairKind(state, reason)).toBe(kind);
+  });
+  it('keeps disabled orphan repair separate from health and selection, and recreates in place with safe defaults', async () => {
+    const { models, profile } = fixture('codex', ['old', 'current']);
+    await refresh('codex', ['old', 'current']);
+    const disabled = profile.executors[0], healthy = profile.executors[1];
+    expect(s.assessExecutionCandidate({ ...disabled, is_enabled: 0 }, models[0], undefined))
+      .toMatchObject({ catalogState: 'disabled', repairKind: 'none' });
+    const account = db.prepare("SELECT id FROM provider_accounts WHERE provider='claude'").get() as { id: string };
+    db.pragma('foreign_keys = OFF');
+    db.prepare("UPDATE execution_profile_executors SET cli_model_id='disabled-missing',is_enabled=0,priority=7,account_policy='fixed',provider_account_id=? WHERE id=?")
+      .run(account.id, disabled.id);
+    db.pragma('foreign_keys = ON');
+    const before = (await s.reconcileExecutionProfiles()).profiles[0];
+    expect(before.health).toBe('ready');
+    expect(before.candidates.find(c => c.candidateId === disabled.id))
+      .toMatchObject({ catalogState: 'disabled', catalogReasonCode: 'model_not_found', repairKind: 'recreate', provider: null, currentModel: null, suggestions: [] });
+    expect((await executorPool.selectExecutor({ executionProfileId: profile.id })).selectedCandidate?.id).toBe(healthy.id);
+    expect(s.assessExecutionProfile(true, [{ catalogState: 'disabled' }])).toBe('blocked');
+    const tokens = { newModelId: models[1].id, expectedOldModelId: 'disabled-missing', expectedProfileUpdatedAt: profile.updated_at };
+    expect(() => s.rebindExecutionCandidate(profile.id, disabled.id, tokens)).toThrow('candidate_provider_unrecoverable');
+    s.recreateExecutionCandidate(profile.id, disabled.id, { ...tokens, provider: 'codex', accountPolicy: 'inherited_default', providerAccountId: null });
+    expect(q.getExecutionProfileById(profile.id)!.executors.find(c => c.id === disabled.id))
+      .toMatchObject({ id: disabled.id, priority: 7, is_enabled: 0, created_at: disabled.created_at, effort_value: null, account_policy: 'inherited_default', provider_account_id: null });
+    expect(db.prepare('SELECT * FROM execution_profile_rebind_audit').get())
+      .toMatchObject({ executor_candidate_id: disabled.id, old_model_id: 'disabled-missing', old_model_value: null, new_model_id: models[1].id });
+    const after = (await s.reconcileExecutionProfiles()).profiles[0];
+    expect(after.health).toBe('ready');
+    expect(after.candidates.find(c => c.candidateId === disabled.id)).toMatchObject({ catalogState: 'disabled', repairKind: 'none' });
+  });
+  it('ordinary PATCH preserves hidden disabled orphans during name and visible executor edits', async () => {
+    const { profile } = fixture('codex', ['old', 'current']); await refresh('codex', ['current']);
+    const orphanId = profile.executors[0].id, healthyId = profile.executors[1].id;
+    db.pragma('foreign_keys = OFF');
+    db.prepare("UPDATE execution_profile_executors SET cli_model_id='disabled-missing',is_enabled=0 WHERE id=?").run(orphanId);
+    db.pragma('foreign_keys = ON');
+    const orphanRow = () => db.prepare('SELECT * FROM execution_profile_executors WHERE id=?').get(orphanId);
+    const original = orphanRow();
+    const visible = (await api(`/execution-profiles/${profile.id}`)).body.executors;
+    expect(visible.map((c: { id: string }) => c.id)).toEqual([healthyId]);
+    let updatedAt = profile.updated_at;
+    for (const edit of [
+      { name: 'Renamed profile', executors: visible },
+      { executors: [{ ...visible[0], effortValue: null, priority: 5 }] },
+    ]) {
+      expect(await api(`/execution-profiles/${profile.id}`, edit, 'PATCH')).toMatchObject({ status: 200 });
+      expect(orphanRow()).toEqual(original);
+      expect(db.prepare('SELECT id FROM execution_profile_executors WHERE profile_id=? ORDER BY id').all(profile.id))
+        .toEqual([orphanId, healthyId].sort().map(id => ({ id })));
+      const saved = q.getExecutionProfileById(profile.id)!;
+      expect(saved.updated_at > updatedAt).toBe(true); updatedAt = saved.updated_at;
+      const reconciled = (await s.reconcileExecutionProfiles()).profiles[0];
+      expect(reconciled.health).toBe('ready');
+      expect(reconciled.candidates.find(c => c.candidateId === orphanId)).toMatchObject({ catalogState: 'disabled', repairKind: 'recreate' });
+    }
+    expect(q.getExecutionProfileById(profile.id)).toMatchObject({ name: 'Renamed profile', executors: [{ id: healthyId, effort_value: null, priority: 5 }] });
+    expect(await api(`/execution-profiles/${profile.id}`, { executors: [] }, 'PATCH')).toMatchObject({ status: 200 });
+    expect(orphanRow()).toEqual(original);
+    expect(q.getExecutionProfileById(profile.id)!.executors).toEqual([]);
   });
   it('returns orphaned rows without inferred providers or suggestions and rejects generic rebind with stable 409', async () => {
     const { profile } = fixture(); await refresh('claude', ['replacement'], false);

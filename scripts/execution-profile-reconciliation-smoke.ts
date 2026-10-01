@@ -125,6 +125,43 @@ try {
   report.orphanedFixture = { status: 'PASS', genericRebind: '409 candidate_provider_unrecoverable', explicitProvider: true,
     candidateIdPreserved: recreated.id === orphanCandidate.id, priorityPreserved: true, enabledPreserved: true,
     accountPolicy: recreated.account_policy, accountId: recreated.provider_account_id, effort: recreated.effort_value, afterHealth: afterClosure.health };
+  const attentionCount = (value: Awaited<ReturnType<typeof s.reconcileExecutionProfiles>>) =>
+    value.profiles.filter(profile => ['degraded', 'unknown', 'blocked'].includes(profile.health)).length;
+  const attentionBefore = attentionCount(await s.reconcileExecutionProfiles());
+  const disabledProfile = q.createExecutionProfile({ slug: 'reconciliation-disabled-orphan', name: 'Disabled orphan fixture', description: '', executors: [
+    { cli_model_id: current.id, effort_value: 'high', priority: 0 },
+    { cli_model_id: current.id, effort_value: null, priority: 9, is_enabled: 0 },
+  ] });
+  const disabledCandidate = disabledProfile.executors[1];
+  db.pragma('foreign_keys = OFF');
+  db.prepare("UPDATE execution_profile_executors SET cli_model_id='reconciliation-disabled-missing',effort_value='unsafe',account_policy='fixed',provider_account_id=? WHERE id=?")
+    .run(wrongAccount.id, disabledCandidate.id);
+  db.pragma('foreign_keys = ON');
+  const orphanRow = () => db.prepare('SELECT * FROM execution_profile_executors WHERE id=?').get(disabledCandidate.id);
+  const originalOrphan = orphanRow();
+  const disabledBefore = await s.reconcileExecutionProfiles();
+  const disabledHealth = disabledBefore.profiles.find(item => item.id === disabledProfile.id)!;
+  assert.equal(disabledHealth.health, 'ready'); assert.equal(attentionCount(disabledBefore), attentionBefore);
+  assert.equal(disabledHealth.candidates[1].catalogState, 'disabled'); assert.equal(disabledHealth.candidates[1].repairKind, 'recreate');
+  let saved = q.updateExecutionProfile(disabledProfile.id, { name: 'Renamed disabled orphan fixture', executors: q.getExecutionProfileById(disabledProfile.id)!.executors })!;
+  assert.deepEqual(orphanRow(), originalOrphan); assert.ok(saved.updated_at > disabledProfile.updated_at);
+  saved = q.updateExecutionProfile(disabledProfile.id, { executors: saved.executors.map(item => ({ ...item, priority: 3 })) })!;
+  assert.deepEqual(orphanRow(), originalOrphan);
+  assert.equal((db.prepare('SELECT COUNT(*) count FROM execution_profile_executors WHERE profile_id=?').get(disabledProfile.id) as { count: number }).count, 2);
+  const disabledTokens = { newModelId: current.id, expectedOldModelId: 'reconciliation-disabled-missing', expectedProfileUpdatedAt: saved.updated_at };
+  assert.throws(() => s.rebindExecutionCandidate(disabledProfile.id, disabledCandidate.id, disabledTokens), (error: unknown) =>
+    error instanceof s.RebindError && error.code === 'candidate_provider_unrecoverable');
+  s.recreateExecutionCandidate(disabledProfile.id, disabledCandidate.id, { ...disabledTokens, provider: 'codex', accountPolicy: 'inherited_default', providerAccountId: null });
+  const disabledRecreated = q.getExecutionProfileById(disabledProfile.id)!.executors.find(item => item.id === disabledCandidate.id)!;
+  assert.equal(disabledRecreated.priority, 9); assert.equal(disabledRecreated.is_enabled, 0); assert.equal(disabledRecreated.created_at, disabledCandidate.created_at);
+  assert.equal(disabledRecreated.effort_value, null); assert.equal(disabledRecreated.account_policy, 'inherited_default'); assert.equal(disabledRecreated.provider_account_id, null);
+  const disabledAfter = await s.reconcileExecutionProfiles();
+  assert.equal(disabledAfter.profiles.find(item => item.id === disabledProfile.id)!.health, 'ready');
+  assert.equal(attentionCount(disabledAfter), attentionBefore);
+  report.disabledOrphanedFixture = { status: 'PASS', beforeHealth: 'ready', afterHealth: 'ready', catalogState: 'disabled', repairKind: 'recreate', attentionImpact: 0,
+    nameSave: 'PASS', healthyExecutorSave: 'PASS', orphanRowPreserved: true, candidateIdPreserved: disabledRecreated.id === disabledCandidate.id,
+    priorityPreserved: true, enabledPreserved: true, createdAtPreserved: true, accountPolicy: disabledRecreated.account_policy,
+    accountId: disabledRecreated.provider_account_id, effort: disabledRecreated.effort_value };
   report.auditRows = (db.prepare('SELECT COUNT(*) count FROM execution_profile_rebind_audit').get() as { count: number }).count;
   assert.deepEqual(db.pragma('foreign_key_check'), []);
   report.foreignKeys = 'PASS'; report.status = 'PASS';

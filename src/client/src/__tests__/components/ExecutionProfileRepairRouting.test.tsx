@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import AgentsSettingsPanel from '../../components/settings/AgentsSettingsPanel';
 import { I18nProvider } from '../../i18n';
 import type { ReconciledCandidate, Reconciliation } from '../../api/reconciliation';
+import { countNeedsAttention } from '../../api/reconciliation';
 import type { WsEvent } from '../../hooks/useWebSocket';
 const models = { claude: [{ id: 'model', value: 'current', label: 'Current model', status: 'available', source: 'cli', supportedEfforts: ['high'], sortOrder: 0, lastSeenAt: null, lastCheckedAt: null, lastSeenRefreshId: 'refresh' }],
   antigravity: [{ id: 'group', value: 'group', label: 'Grouped model', status: 'available', source: 'cli', supportedEfforts: ['high'], providerVariants: { high: 'variant' }, sortOrder: 0, lastSeenAt: null, lastCheckedAt: null, lastSeenRefreshId: 'refresh' }] };
@@ -107,6 +108,38 @@ describe('execution profile repair routing and attention', () => {
     await screen.findByText('Ready');
     fireEvent.click(screen.getByRole('button', { name: /Profile 1/ }));
     expect(screen.queryByRole('button', { name: /Replace model|Fix effort|Fix account settings|Recreate executor/ })).not.toBeInTheDocument();
+  });
+  it('shows disabled orphan recreation without attention and allows ordinary profile and healthy executor saves', async () => {
+    setup(['none']);
+    const orphan = { ...candidate('disabled-orphan', 'recreate'), enabled: false, catalogState: 'disabled' };
+    reconciliation.profiles[0].candidates.push(orphan);
+    expect(countNeedsAttention(reconciliation)).toBe(0);
+    render(<I18nProvider><AgentsSettingsPanel /></I18nProvider>);
+    const recreate = await screen.findByRole('button', { name: 'Recreate executor' });
+    const row = within(document.getElementById('execution-candidate-disabled-orphan')!);
+    expect(row.getByText('Disabled')).toBeInTheDocument();
+    expect(row.getByText('Missing model reference')).toBeInTheDocument();
+    expect(row.getByText('This disabled executor references a model that no longer exists. You can recreate it now or leave it disabled.')).toBeInTheDocument();
+    expect(row.queryByRole('button', { name: /Replace model|Fix effort|Fix account settings/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Execution Profiles need attention/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } });
+    fireEvent.click(screen.getByTitle('Save'));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(1));
+    await waitFor(() => expect(screen.getByTitle('Save')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Effort 1'), { target: { value: 'high' } });
+    fireEvent.click(screen.getByTitle('Save'));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(2));
+    const bodies = fetchMock.mock.calls.filter(call => call[1]?.method === 'PATCH').map(call => JSON.parse(call[1].body));
+    expect(bodies[0].name).toBe('Renamed');
+    expect(bodies[1].executors[0].effortValue).toBe('high');
+    expect(bodies.every(body => body.executors.length === 1 && body.executors[0].id === 'e0')).toBe(true);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(recreate);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Agent')).toHaveValue('');
+    expect(within(dialog).getByLabelText('Account')).toHaveValue('inherited_default');
+    expect(within(dialog).getByLabelText('Effort')).toHaveValue('');
+    expect(within(dialog).getByRole('button', { name: 'Apply rebind' })).toBeDisabled();
   });
   it.each(['execution-profile:updated', 'model-catalog:updated'] as const)('recalculates attention on %s with one health reload', async type => {
     setup(['account']); let listener: (event: WsEvent) => void = () => {};

@@ -247,7 +247,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
     } catch (e) { setError(String(e)); }
   };
   const saveProfile = async (profile: profilesApi.ExecutionProfile) => {
-    if (reconciliation?.profiles.find(item => item.id === profile.id)?.candidates.some(candidate => !candidate.currentModel)) {
+    if (reconciliation?.profiles.find(item => item.id === profile.id)?.candidates.some(candidate => candidate.enabled && !candidate.currentModel)) {
       setError(t('reconciliation.error.candidate_provider_unrecoverable')); return;
     }
     for (const executor of profile.executors ?? []) {
@@ -315,7 +315,7 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
     } catch { setError(t('reconciliation.error.reconciliation_failed')); }
   };
   const repairAction = (profile: ReconciledProfile, candidate: ReconciledCandidate) => candidate.repairKind && candidate.repairKind !== 'none'
-    && !['current', 'disabled'].includes(candidate.catalogState) && <button className="btn-secondary text-xs" onClick={() => void runRepair(profile, candidate)}>{t('reconciliation.action.' + candidate.repairKind)}</button>;
+    && candidate.catalogState !== 'current' && <button className="btn-secondary text-xs" onClick={() => void runRepair(profile, candidate)}>{t('reconciliation.action.' + candidate.repairKind)}</button>;
 
   if (busy) return <div className="flex justify-center p-12"><Loader2 className="animate-spin" /></div>;
   return <div className="space-y-5 p-5 sm:p-6">
@@ -407,7 +407,9 @@ export default function AgentsSettingsPanel({ onEvent }: AgentsSettingsPanelProp
               {['degraded', 'blocked', 'unknown'].includes(health.health) && <p className="text-sm text-theme-muted">{t('reconciliation.copy.' + health.health)}</p>}
             </div>}
             {health?.candidates.filter(candidate => !candidate.currentModel).map(candidate => <div id={`execution-candidate-${candidate.candidateId}`} key={candidate.candidateId} className="rounded-xl bg-theme-surface-2 p-3 space-y-2">
+              {candidate.catalogState === 'disabled' && <span className="rounded-full bg-theme-surface-2 px-2 py-1 text-xs">{t('reconciliation.disabled')}</span>}
               <p>{t('reconciliation.missingModelReference')}</p>{repairAction(health, candidate)}
+              {candidate.catalogState === 'disabled' && <p className="text-sm text-theme-muted">{t('reconciliation.copy.disabledOrphaned')}</p>}
             </div>)}
             <input className="input-field text-sm" aria-label={t('profiles.name')} value={profile.name} onChange={(e) => replaceProfile({ ...profile, name: e.target.value })} />
             <textarea className="input-field min-h-20 text-sm" aria-label={t('profiles.profileDescription')} value={profile.description} onChange={(e) => replaceProfile({ ...profile, description: e.target.value })} />

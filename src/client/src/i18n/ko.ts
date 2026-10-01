@@ -8,6 +8,7 @@ export const ko = {
     "reconciliation.error.invalid_account_policy": "계정 정책을 수정하거나 이 공급자의 계정을 선택하세요.",
     "reconciliation.needsAttention": "확인이 필요한 실행 프로필",
     "reconciliation.missingModelReference": "모델 참조 없음",
+    "reconciliation.copy.disabledOrphaned": "이 비활성화된 실행기는 더 이상 존재하지 않는 모델을 참조합니다. 지금 다시 생성하거나 비활성화 상태로 둘 수 있습니다.",
     "reconciliation.recreate.description": "공급자, 최신 모델, 추론 강도 및 계정 정책을 명시적으로 선택하세요. 우선순위와 활성 상태는 유지되며 이전 추론 강도와 고정 계정은 복사되지 않습니다.",
     "reconciliation.chooseProvider": "공급자 선택",
     "reconciliation.chooseEffort": "추론 강도 선택",
