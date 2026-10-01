@@ -2,7 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import * as queries from '../db/queries.js';
 import { validateAccountPolicy } from '../services/provider-account-service.js';
 import { validateAntigravityExecutionEffort } from '../services/execution-selection.js';
-import { reconcileExecutionProfiles, rebindExecutionCandidate, RebindError } from '../services/execution-profile-reconciliation.js';
+import { reconcileExecutionProfiles, rebindExecutionCandidate, recreateExecutionCandidate, RebindError } from '../services/execution-profile-reconciliation.js';
+import { broadcaster } from '../websocket/broadcaster.js';
 import { logger } from '../logging/logger.js';
 
 const router = Router();
@@ -116,6 +117,15 @@ router.post('/execution-profiles/:profileId/executors/:candidateId/rebind', (req
   }
 });
 
+router.post('/execution-profiles/:profileId/executors/:candidateId/recreate', (req, res) => {
+  try { res.json(recreateExecutionCandidate(req.params.profileId, req.params.candidateId, req.body ?? {})); }
+  catch (error) {
+    if (error instanceof RebindError) { res.status(error.status).json({ error: error.code }); return; }
+    logger.error('execution-profile.rebind-failed', { scope: 'execution-profile-reconciliation', msg: 'Rebind transaction rolled back' });
+    res.status(400).json({ error: 'rebind_failed' });
+  }
+});
+
 router.post('/execution-profiles', (req: Request, res: Response) => {
   try {
     const input = profileInput(req.body ?? {}) as queries.ExecutionProfileInput;
@@ -135,7 +145,9 @@ router.get('/execution-profiles/:id', (req: Request<{ id: string }>, res: Respon
 router.patch('/execution-profiles/:id', (req: Request<{ id: string }>, res: Response) => {
   try {
     if (!queries.getExecutionProfileById(req.params.id)) { res.status(404).json({ error: 'Execution profile not found' }); return; }
-    res.json(toApi(queries.updateExecutionProfile(req.params.id, profileInput(req.body ?? {}, true))!));
+    const updated = queries.updateExecutionProfile(req.params.id, profileInput(req.body ?? {}, true))!;
+    broadcaster.broadcast({ type: 'execution-profile:updated', profileId: req.params.id });
+    res.json(toApi(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid profile';
     res.status(message.includes('UNIQUE constraint') ? 409 : 400).json({ error: message });

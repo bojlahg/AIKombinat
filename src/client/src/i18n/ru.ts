@@ -1,5 +1,18 @@
 import type { TranslationKey } from './types';
 export const ru = {
+    "reconciliation.action.model": "Заменить модель",
+    "reconciliation.action.effort": "Исправить усилие",
+    "reconciliation.action.account": "Исправить настройки аккаунта",
+    "reconciliation.action.recreate": "Создать исполнитель заново",
+    "reconciliation.error.candidate_provider_unrecoverable": "Провайдер невозможно безопасно определить. Создайте исполнитель заново.",
+    "reconciliation.error.invalid_account_policy": "Исправьте политику аккаунта или выберите аккаунт этого провайдера.",
+    "reconciliation.needsAttention": "Профили выполнения, требующие внимания",
+    "reconciliation.missingModelReference": "Отсутствующая ссылка на модель",
+    "reconciliation.recreate.description": "Явно выберите провайдера, актуальную модель, усилие и политику аккаунта. Приоритет и состояние включения сохраняются; прежнее усилие и фиксированный аккаунт не копируются.",
+    "reconciliation.chooseProvider": "Выберите провайдера",
+    "reconciliation.chooseEffort": "Выберите усилие",
+    "reconciliation.refreshFirst": "Сначала обновите каталог",
+
     "reconciliation.ready": "Готов",
     "reconciliation.degraded": "Требует внимания",
     "reconciliation.unknown": "Не подтверждён",

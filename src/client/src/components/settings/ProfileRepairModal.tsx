@@ -24,7 +24,7 @@ export default function ProfileRepairModal({ profile, candidate, models, onClose
       await onApplied(); onClose();
     } catch (err) {
       const code = err instanceof Error ? err.message : 'rebind_failed';
-      const known = ['profile_not_found', 'candidate_not_found', 'model_not_found', 'provider_mismatch', 'effort_unsupported', 'effort_required', 'reconciliation_stale', 'active_campaign_impact'];
+      const known = ['profile_not_found', 'candidate_not_found', 'model_not_found', 'provider_mismatch', 'effort_unsupported', 'effort_required', 'reconciliation_stale', 'active_campaign_impact', 'candidate_provider_unrecoverable', 'invalid_account_policy'];
       setError(t(`reconciliation.error.${known.includes(code) ? code : 'rebind_failed'}`));
     } finally { setBusy(false); }
   };

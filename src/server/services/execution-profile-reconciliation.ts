@@ -2,10 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../db/connection.js';
 import * as queries from '../db/queries.js';
 import { executorPool, type CandidateEvaluation } from './executor-pool.js';
+import { validateAccountPolicy } from './provider-account-service.js';
 import { broadcaster } from '../websocket/broadcaster.js';
 
 export type CatalogState = 'current' | 'unconfirmed' | 'stale' | 'invalid' | 'orphaned' | 'disabled';
 export type ProfileHealth = 'ready' | 'degraded' | 'unknown' | 'blocked' | 'disabled';
+export type RepairKind = 'model' | 'effort' | 'account' | 'recreate' | 'none';
+export function getCandidateRepairKind(catalogState: CatalogState, reasonCode: string): RepairKind {
+  if (catalogState === 'disabled' || catalogState === 'current') return 'none';
+  if (catalogState === 'orphaned') return 'recreate';
+  if (['model_not_found', 'provider_mismatch'].includes(reasonCode)) return 'recreate';
+  if (reasonCode === 'invalid_account_policy') return 'account';
+  if (['effort_unsupported', 'effort_required', 'invalid_provider_variant'].includes(reasonCode)) return 'effort';
+  if (['weak_omission', 'refresh_unconfirmed', 'authoritative_omission', 'model_missing'].includes(reasonCode)) return 'model';
+  return 'none';
+}
 export interface ProviderRefresh {
   provider: string; refreshId: string | null; source: string | null; authoritative: boolean;
   primarySucceeded: boolean; lastRefreshedAt: string | null; modelsSeen: number;
@@ -49,9 +60,9 @@ export function assessExecutionCandidate(candidate: queries.ExecutionProfileExec
   } else if (refresh?.primarySucceeded && refresh.authoritative) { catalogState = 'stale'; catalogReasonCode = 'authoritative_omission'; }
   else if (model.status === 'missing' && refresh?.primarySucceeded) { catalogState = 'stale'; catalogReasonCode = 'model_missing'; }
   else catalogReasonCode = refresh?.primarySucceeded ? 'weak_omission' : 'refresh_unconfirmed';
-  return { candidateId: candidate.id, priority: candidate.priority, enabled: !!candidate.is_enabled, provider: candidate.cli_tool,
+  return { candidateId: candidate.id, priority: candidate.priority, enabled: !!candidate.is_enabled, provider: model?.cli_tool ?? null, modelReferenceId: candidate.cli_model_id,
     currentModel: model ? { id: model.id, value: model.model_value, label: model.model_label, status: model.status, source: model.source, lastSeenAt: model.last_seen_at } : null,
-    catalogState, catalogReasonCode, effort,
+    catalogState, catalogReasonCode, repairKind: getCandidateRepairKind(catalogState, catalogReasonCode), effort,
     account: { policy, accountId: candidate.provider_account_id ?? null, state: invalidAccount ? 'invalid' : fixed?.health_state ?? 'runtime_managed' } };
 }
 export function assessExecutionProfile(enabled: boolean, candidates: Array<{ catalogState: CatalogState; runtimeState?: string }>): ProfileHealth {
@@ -117,7 +128,7 @@ export async function reconcileExecutionProfiles(options: { cachedOnly?: boolean
       if (candidate.cli_tool && modelMap.has(candidate.cli_model_id)) runtime = await executorPool.evaluateCandidate(candidate, { cachedOnly: options.cachedOnly ?? true });
       const runtimeState = runtime?.reason === 'runtime_unconfirmed' ? 'unknown' : runtime?.status ?? 'invalid';
       return { ...assessment, runtimeState, runtimeReasonCode: runtimeState === 'unknown' ? 'runtime_unconfirmed' : `runtime_${runtimeState}`,
-        suggestions: buildModelReplacementSuggestions(candidate, models, refresh) };
+        suggestions: assessment.repairKind === 'model' && assessment.currentModel ? buildModelReplacementSuggestions(candidate, models, refresh) : [] };
     }));
     const refs = references(profile.id);
     return { id: profile.id, name: profile.name, updatedAt: profile.updated_at, health: assessExecutionProfile(!!profile.is_enabled, candidates),
@@ -135,7 +146,16 @@ export interface RebindInput {
   newModelId: string; newEffort?: string | null; expectedOldModelId: string; expectedProfileUpdatedAt: string;
   confirmActiveCampaignImpact?: boolean; source?: 'manual_ui' | 'manual_api';
 }
+export interface RecreateInput extends RebindInput {
+  provider: string; accountPolicy: 'inherited_default' | 'automatic' | 'fixed'; providerAccountId: string | null;
+}
 export function rebindExecutionCandidate(profileId: string, candidateId: string, input: RebindInput) {
+  return replaceExecutionCandidate(profileId, candidateId, input);
+}
+export function recreateExecutionCandidate(profileId: string, candidateId: string, input: RecreateInput) {
+  return replaceExecutionCandidate(profileId, candidateId, input, input);
+}
+function replaceExecutionCandidate(profileId: string, candidateId: string, input: RebindInput, recreate?: RecreateInput) {
   const db = getDatabase();
   const result = db.transaction(() => {
     const profile = db.prepare('SELECT * FROM execution_profiles WHERE id=?').get(profileId) as queries.ExecutionProfile | undefined;
@@ -143,24 +163,29 @@ export function rebindExecutionCandidate(profileId: string, candidateId: string,
     const candidate = db.prepare('SELECT * FROM execution_profile_executors WHERE id=? AND profile_id=?').get(candidateId, profileId) as queries.ExecutionProfileExecutor | undefined;
     if (!candidate) throw new RebindError('candidate_not_found', 404);
     if (candidate.cli_model_id !== input.expectedOldModelId || profile.updated_at !== input.expectedProfileUpdatedAt) throw new RebindError('reconciliation_stale', 409);
-    const oldModel = queries.getModelById(candidate.cli_model_id), newModel = queries.getModelById(input.newModelId);
+    const oldModel = queries.getModelById(candidate.cli_model_id);
+    if (!oldModel && !recreate) throw new RebindError('candidate_provider_unrecoverable', 409);
+    const newModel = queries.getModelById(input.newModelId);
     if (!newModel) throw new RebindError('model_not_found', 404);
-    if (!oldModel) throw new RebindError('model_not_found', 404);
-    if (oldModel.cli_tool !== newModel.cli_tool) throw new RebindError('provider_mismatch');
+    if ((recreate ? recreate.provider : oldModel!.cli_tool) !== newModel.cli_tool) throw new RebindError('provider_mismatch');
+    const policy = recreate ? recreate.accountPolicy : candidate.account_policy ?? 'inherited_default';
+    const accountId = recreate ? recreate.providerAccountId : candidate.provider_account_id ?? null;
+    try { validateAccountPolicy(newModel.cli_tool, policy, accountId); }
+    catch { throw new RebindError('invalid_account_policy'); }
     const refresh = getProviderRefreshMetadata().find(provider => provider.provider === newModel.cli_tool);
     if (newModel.status !== 'available' || !refresh?.primarySucceeded || !refresh.refreshId || newModel.last_seen_refresh_id !== refresh.refreshId) throw new RebindError('reconciliation_stale', 409);
     if (input.newEffort !== undefined && input.newEffort !== null && (typeof input.newEffort !== 'string' || !input.newEffort.trim())) throw new RebindError('effort_unsupported');
     const chosenEffort = typeof input.newEffort === 'string' ? input.newEffort.trim() : input.newEffort;
-    const effort = chosenEffort === undefined ? candidate.effort_value : chosenEffort === 'provider-default' ? null : chosenEffort;
+    const effort = chosenEffort === undefined ? (recreate ? null : candidate.effort_value) : chosenEffort === 'provider-default' ? null : chosenEffort;
     const assessment = assessEffort(newModel, effort);
     if (!assessment.valid) throw new RebindError(input.newEffort === undefined || assessment.state === 'effort_required' ? 'effort_required' : 'effort_unsupported');
     const references = getProfileReferences()(profileId);
     if (references.runningCampaigns.length && input.confirmActiveCampaignImpact !== true) throw new RebindError('active_campaign_impact', 409);
     const now = new Date(Math.max(Date.now(), Date.parse(profile.updated_at) + 1)).toISOString();
-    db.prepare('UPDATE execution_profile_executors SET cli_model_id=?,effort_value=?,updated_at=? WHERE id=?').run(newModel.id, effort, now, candidate.id);
+    db.prepare('UPDATE execution_profile_executors SET cli_model_id=?,effort_value=?,account_policy=?,provider_account_id=?,updated_at=? WHERE id=?').run(newModel.id, effort, policy, accountId, now, candidate.id);
     db.prepare(`INSERT INTO execution_profile_rebind_audit(id,profile_id,executor_candidate_id,provider,old_model_id,old_model_value,old_model_label,
       new_model_id,new_model_value,new_model_label,old_effort,new_effort,source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(randomUUID(), profileId, candidate.id, oldModel.cli_tool, oldModel.id, oldModel.model_value, oldModel.model_label,
+      .run(randomUUID(), profileId, candidate.id, newModel.cli_tool, candidate.cli_model_id, oldModel?.model_value ?? null, oldModel?.model_label ?? null,
         newModel.id, newModel.model_value, newModel.model_label, candidate.effort_value, effort, input.source === 'manual_ui' ? 'manual_ui' : 'manual_api', now);
     db.prepare('UPDATE execution_profiles SET updated_at=? WHERE id=?').run(now, profileId);
     return { profileId, candidateId, updatedAt: now };

@@ -1,4 +1,17 @@
 export const en = {
+    "reconciliation.action.model": "Replace model",
+    "reconciliation.action.effort": "Fix effort",
+    "reconciliation.action.account": "Fix account settings",
+    "reconciliation.action.recreate": "Recreate executor",
+    "reconciliation.error.candidate_provider_unrecoverable": "The provider cannot be recovered safely. Recreate this executor.",
+    "reconciliation.error.invalid_account_policy": "Fix the account policy or select an account belonging to this provider.",
+    "reconciliation.needsAttention": "Execution profiles needing attention",
+    "reconciliation.missingModelReference": "Missing model reference",
+    "reconciliation.recreate.description": "Explicitly choose a provider, current model, effort and account policy. Priority and enabled state are preserved; previous effort and fixed account are not copied.",
+    "reconciliation.chooseProvider": "Choose provider",
+    "reconciliation.chooseEffort": "Choose effort",
+    "reconciliation.refreshFirst": "Refresh catalog first",
+
     "reconciliation.ready": "Ready",
     "reconciliation.degraded": "Degraded",
     "reconciliation.unknown": "Unknown",

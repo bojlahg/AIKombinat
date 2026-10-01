@@ -4,7 +4,7 @@ import { I18nProvider } from '../../i18n';
 import ProfileRepairModal from '../../components/settings/ProfileRepairModal';
 import { rebindCandidate, type ReconciledCandidate, type ReconciledProfile } from '../../api/reconciliation';
 vi.mock('../../api/reconciliation', () => ({ rebindCandidate: vi.fn() }));
-const candidate: ReconciledCandidate = { candidateId: 'c', provider: 'claude', priority: 2, enabled: true,
+const candidate: ReconciledCandidate = { candidateId: 'c', modelReferenceId: 'old', repairKind: 'model', provider: 'claude', priority: 2, enabled: true,
   currentModel: { id: 'old', value: 'claude-old', label: 'Old model', status: 'missing', source: 'cli', lastSeenAt: null }, catalogState: 'stale', catalogReasonCode: 'authoritative_omission', runtimeState: 'unavailable', runtimeReasonCode: 'runtime_unavailable',
   effort: { configured: 'high', supported: ['high'], state: 'effort_supported' }, account: { policy: 'fixed', accountId: 'account', state: 'available' },
   suggestions: [{ modelId: 'new', modelValue: 'claude-new', label: 'New model', reasonCode: 'same_family', requiresEffortChoice: true }] };

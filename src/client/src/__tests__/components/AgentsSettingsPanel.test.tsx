@@ -68,7 +68,7 @@ describe('Agents settings model catalog and profiles UX', () => {
     expect(await screen.findByText('Degraded')).toBeInTheDocument();
     expect(screen.getByText('This profile can run, but some fallback candidates need attention.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Models' }));
-    expect(screen.getByText('Stale or unconfirmed profile references')).toBeInTheDocument();
+    expect(screen.getByText('Execution profiles needing attention')).toBeInTheDocument();
     expect(screen.getAllByText('Used by 1 profile candidates')).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: /Complex · Gemini Missing · Stale/ }));
     expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute('aria-selected','true');

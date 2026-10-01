@@ -1,5 +1,18 @@
 import type { TranslationKey } from './types';
 export const ko = {
+    "reconciliation.action.model": "모델 교체",
+    "reconciliation.action.effort": "추론 강도 수정",
+    "reconciliation.action.account": "계정 설정 수정",
+    "reconciliation.action.recreate": "실행기 재생성",
+    "reconciliation.error.candidate_provider_unrecoverable": "공급자를 안전하게 확인할 수 없습니다. 실행기를 재생성하세요.",
+    "reconciliation.error.invalid_account_policy": "계정 정책을 수정하거나 이 공급자의 계정을 선택하세요.",
+    "reconciliation.needsAttention": "확인이 필요한 실행 프로필",
+    "reconciliation.missingModelReference": "모델 참조 없음",
+    "reconciliation.recreate.description": "공급자, 최신 모델, 추론 강도 및 계정 정책을 명시적으로 선택하세요. 우선순위와 활성 상태는 유지되며 이전 추론 강도와 고정 계정은 복사되지 않습니다.",
+    "reconciliation.chooseProvider": "공급자 선택",
+    "reconciliation.chooseEffort": "추론 강도 선택",
+    "reconciliation.refreshFirst": "먼저 카탈로그를 새로고침하세요",
+
     "reconciliation.ready": "준비됨",
     "reconciliation.degraded": "주의 필요",
     "reconciliation.unknown": "확인되지 않음",

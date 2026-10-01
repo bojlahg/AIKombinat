@@ -82,13 +82,49 @@ try {
     const profile = q.createExecutionProfile({ slug: 'reconciliation-synthetic', name: 'Synthetic repair', description: '', executors: [{ cli_model_id: old.id, effort_value: 'high', priority: 0 }] });
     await refreshModelCatalog('codex', { discover: async () => ({ source: 'codex-app-server', authoritative: true, primarySucceeded: true,
       models: [{ value: 'reconciliation-synthetic-current', label: 'Synthetic current', supportedEfforts: ['high'] }] }) });
-    const oldHealth = (await s.reconcileExecutionProfiles()).profiles.find(item => item.id === profile.id)!.health;
+    const staleProfile = (await s.reconcileExecutionProfiles()).profiles.find(item => item.id === profile.id)!;
+    const oldHealth = staleProfile.health;
+    assert.equal(staleProfile.candidates[0].repairKind, 'model');
     const model = q.getModelByValue('codex','reconciliation-synthetic-current')!;
     s.rebindExecutionCandidate(profile.id, profile.executors[0].id, { newModelId: model.id, expectedOldModelId: old.id, expectedProfileUpdatedAt: profile.updated_at });
     const newHealth = (await s.reconcileExecutionProfiles()).profiles.find(item => item.id === profile.id)!.health;
     assert.equal(oldHealth, 'blocked'); assert.equal(newHealth, 'ready');
     report.disposableRebind = { synthetic: true, oldModel: old.model_value, newModel: model.model_value, oldEffort: 'high', newEffort: 'high', beforeHealth: oldHealth, afterHealth: newHealth };
   }
+  const current = q.getModelByValue('codex', 'reconciliation-synthetic-current') ?? q.addModel('codex', 'reconciliation-closure-current', 'Closure current', ['high']);
+  await refreshModelCatalog('codex', { discover: async () => ({ source: 'codex-app-server', authoritative: true, primarySucceeded: true,
+    models: [{ value: current.model_value, label: current.model_label, supportedEfforts: ['high'] }] }) });
+  const effortProfile = q.createExecutionProfile({ slug: 'reconciliation-effort', name: 'Effort fixture', description: '',
+    executors: [{ cli_model_id: current.id, effort_value: 'unsupported', priority: 7 }] });
+  const accountProfile = q.createExecutionProfile({ slug: 'reconciliation-account', name: 'Account fixture', description: '',
+    executors: [{ cli_model_id: current.id, effort_value: null, priority: 8 }] });
+  const closure = q.createExecutionProfile({ slug: 'reconciliation-closure', name: 'Orphan fixture', description: '',
+    executors: [{ cli_model_id: current.id, effort_value: 'high', priority: 9 }] });
+  const accountCandidate = accountProfile.executors[0], orphanCandidate = closure.executors[0];
+  const wrongAccount = db.prepare("SELECT id FROM provider_accounts WHERE provider='claude'").get() as { id: string };
+  db.prepare("UPDATE execution_profile_executors SET account_policy='fixed',provider_account_id=? WHERE id=?").run(wrongAccount.id, accountCandidate.id);
+  db.pragma('foreign_keys = OFF');
+  db.prepare("UPDATE execution_profile_executors SET cli_model_id='reconciliation-legacy-missing',account_policy='fixed',provider_account_id=? WHERE id=?").run(wrongAccount.id, orphanCandidate.id);
+  db.pragma('foreign_keys = ON');
+  const fixtures = await s.reconcileExecutionProfiles();
+  const beforeClosure = fixtures.profiles.find(item => item.id === closure.id)!;
+  assert.equal(fixtures.profiles.find(item => item.id === effortProfile.id)!.candidates[0].repairKind, 'effort');
+  assert.equal(fixtures.profiles.find(item => item.id === accountProfile.id)!.candidates[0].repairKind, 'account');
+  const orphan = beforeClosure.candidates.find(item => item.candidateId === orphanCandidate.id)!;
+  assert.equal(orphan.repairKind, 'recreate'); assert.equal(orphan.provider, null); assert.equal(orphan.currentModel, null); assert.deepEqual(orphan.suggestions, []);
+  const tokens = { newModelId: current.id, expectedOldModelId: 'reconciliation-legacy-missing', expectedProfileUpdatedAt: closure.updated_at };
+  assert.throws(() => s.rebindExecutionCandidate(closure.id, orphanCandidate.id, tokens), (error: unknown) =>
+    error instanceof s.RebindError && error.status === 409 && error.code === 'candidate_provider_unrecoverable');
+  s.recreateExecutionCandidate(closure.id, orphanCandidate.id, { ...tokens, provider: 'codex', newEffort: null, accountPolicy: 'inherited_default', providerAccountId: null });
+  const recreated = q.getExecutionProfileById(closure.id)!.executors.find(item => item.id === orphanCandidate.id)!;
+  assert.equal(recreated.priority, 9); assert.equal(recreated.is_enabled, 1); assert.equal(recreated.effort_value, null);
+  assert.equal(recreated.account_policy, 'inherited_default'); assert.equal(recreated.provider_account_id, null);
+  const afterClosure = (await s.reconcileExecutionProfiles()).profiles.find(item => item.id === closure.id)!;
+  assert.equal(afterClosure.health, 'ready'); assert.ok(afterClosure.candidates.every(item => item.catalogState === 'current' && item.repairKind === 'none'));
+  report.repairRouting = { stale: 'model', invalidEffort: 'effort', invalidAccount: 'account', orphaned: 'recreate' };
+  report.orphanedFixture = { status: 'PASS', genericRebind: '409 candidate_provider_unrecoverable', explicitProvider: true,
+    candidateIdPreserved: recreated.id === orphanCandidate.id, priorityPreserved: true, enabledPreserved: true,
+    accountPolicy: recreated.account_policy, accountId: recreated.provider_account_id, effort: recreated.effort_value, afterHealth: afterClosure.health };
   report.auditRows = (db.prepare('SELECT COUNT(*) count FROM execution_profile_rebind_audit').get() as { count: number }).count;
   assert.deepEqual(db.pragma('foreign_key_check'), []);
   report.foreignKeys = 'PASS'; report.status = 'PASS';

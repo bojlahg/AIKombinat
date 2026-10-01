@@ -38,6 +38,60 @@ async function api(path: string, body?: unknown) {
 describe('execution profile reconciliation', () => {
   beforeEach(() => { db = new Database(':memory:'); initDatabase(db); vi.clearAllMocks(); });
   afterEach(() => { vi.restoreAllMocks(); db.close(); });
+  it.each([
+    ['current', 'latest_refresh_seen', 'none'], ['disabled', 'candidate_disabled', 'none'],
+    ['unconfirmed', 'weak_omission', 'model'], ['unconfirmed', 'refresh_unconfirmed', 'model'],
+    ['stale', 'authoritative_omission', 'model'], ['stale', 'model_missing', 'model'],
+    ['invalid', 'effort_unsupported', 'effort'], ['invalid', 'effort_required', 'effort'],
+    ['invalid', 'invalid_provider_variant', 'effort'], ['invalid', 'invalid_account_policy', 'account'],
+    ['orphaned', 'model_not_found', 'recreate'], ['invalid', 'provider_mismatch', 'recreate'],
+    ['disabled', 'model_not_found', 'none'],
+  ] as const)('routes %s / %s to %s', (state, reason, kind) => {
+    expect(s.getCandidateRepairKind(state, reason)).toBe(kind);
+  });
+  it('returns orphaned rows without inferred providers or suggestions and rejects generic rebind with stable 409', async () => {
+    const { profile } = fixture(); await refresh('claude', ['replacement'], false);
+    db.pragma('foreign_keys = OFF');
+    db.prepare('UPDATE execution_profile_executors SET cli_model_id=? WHERE id=?').run('legacy-missing', profile.executors[0].id);
+    db.pragma('foreign_keys = ON');
+    const orphan = (await s.reconcileExecutionProfiles()).profiles[0].candidates.find(c => c.candidateId === profile.executors[0].id)!;
+    expect(orphan).toMatchObject({ currentModel: null, provider: null, repairKind: 'recreate', suggestions: [], modelReferenceId: 'legacy-missing' });
+    const tokens = { ...input(profile, 'missing-replacement'), expectedOldModelId: 'legacy-missing' };
+    expect(await api(`/execution-profiles/${profile.id}/executors/${orphan.candidateId}/rebind`, tokens))
+      .toMatchObject({ status: 409, body: { error: 'candidate_provider_unrecoverable' } });
+    expect(await api(`/execution-profiles/${profile.id}/executors/${orphan.candidateId}/rebind`, { ...tokens, expectedOldModelId: 'wrong' }))
+      .toMatchObject({ status: 409, body: { error: 'reconciliation_stale' } });
+    expect(await api(`/execution-profiles/${profile.id}/executors/${orphan.candidateId}/recreate`, {
+      ...tokens, newModelId: q.getModelByValue('claude', 'replacement')!.id, provider: 'claude', accountPolicy: 'inherited_default', providerAccountId: null, newEffort: null,
+    })).toMatchObject({ status: 200 });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+    expect((await s.reconcileExecutionProfiles()).profiles[0].candidates.find(c => c.candidateId === orphan.candidateId))
+      .toMatchObject({ catalogState: 'current', repairKind: 'none' });
+    expect(db.prepare('SELECT old_model_id,old_model_value FROM execution_profile_rebind_audit').get()).toEqual({ old_model_id: 'legacy-missing', old_model_value: null });
+  });
+  it('recreate preserves safe fields, validates explicit provider, effort and account and resets unsafe defaults', async () => {
+    const { profile } = fixture(); await refresh('codex', ['replacement']);
+    const account = db.prepare("SELECT id FROM provider_accounts WHERE provider='claude'").get() as { id: string };
+    db.prepare("UPDATE execution_profile_executors SET account_policy='fixed',provider_account_id=?,priority=7,is_enabled=0 WHERE id=?").run(account.id, profile.executors[0].id);
+    const tokens = { ...input(profile, q.getModelByValue('codex', 'replacement')!.id), provider: 'codex', accountPolicy: 'inherited_default' as const, providerAccountId: null, newEffort: null };
+    const recreate = (change = {}) => s.recreateExecutionCandidate(profile.id, profile.executors[0].id, { ...tokens, ...change });
+    expect(() => recreate({ provider: null })).toThrow('provider_mismatch');
+    expect(() => recreate({ newEffort: 'unsupported' })).toThrow('effort_unsupported');
+    expect(() => recreate({ accountPolicy: 'fixed', providerAccountId: account.id })).toThrow('invalid_account_policy');
+    recreate();
+    expect(q.getExecutionProfileById(profile.id)!.executors.find(c => c.id === profile.executors[0].id))
+      .toMatchObject({ priority: 7, is_enabled: 0, effort_value: null, account_policy: 'inherited_default', provider_account_id: null });
+  });
+  it('rebind rejects invalid account compatibility before committing or auditing', async () => {
+    const { profile } = fixture(); await refresh('claude', ['replacement'], false);
+    const account = db.prepare("SELECT id FROM provider_accounts WHERE provider='codex'").get() as { id: string };
+    db.prepare("UPDATE execution_profile_executors SET account_policy='fixed',provider_account_id=? WHERE id=?").run(account.id, profile.executors[0].id);
+    expect(() => s.rebindExecutionCandidate(profile.id, profile.executors[0].id, input(profile, q.getModelByValue('claude', 'replacement')!.id)))
+      .toThrow('invalid_account_policy');
+    expect(q.getExecutionProfileById(profile.id)!.executors[0].cli_model_id).toBe(profile.executors[0].cli_model_id);
+    expect(q.getExecutionProfileById(profile.id)!.updated_at).toBe(profile.updated_at);
+    expect(db.prepare('SELECT * FROM execution_profile_rebind_audit').all()).toEqual([]);
+  });
   it.each([0, 1])('keeps current plus stale usable in order %i without reservations', async staleIndex => {
     const { models, profile } = fixture('codex', ['old', 'current']);
     db.prepare("UPDATE cli_models SET source='cli' WHERE id=?").run(models[staleIndex].id);

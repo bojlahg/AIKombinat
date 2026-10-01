@@ -1,12 +1,24 @@
-# Execution Profile Reconciliation V1 — Smoke Report
+# Execution Profile Reconciliation V1 — Repair UX Closure Report
 
-Date: 2026-10-01 (Asia/Yekaterinburg). Baseline: `1ad1228fbfeb265a847e1027af2834b6a1a9232d`.
+Date: 2026-10-02 (Asia/Yekaterinburg). Baseline: `e60deab7fd57691572655d027a2be02d174f8dc4` (baseline CI #89 succeeded). Baseline CI is not evidence for the closure delivery commit.
 
-## Real discovery and disposable repair
+## Repair routing and recovery
 
-`npx tsx scripts/execution-profile-reconciliation-smoke.ts --report=docs/execution-profile-reconciliation-smoke-evidence.json` returned **PASS**. Source DB was opened read-only; DB/WAL/SHM fingerprints were unchanged. Only disposable configuration was repaired. No inference, login/logout or account switch was requested. [Machine-readable evidence](execution-profile-reconciliation-smoke-evidence.json) contains IDs and model/configuration metadata, without credentials, prompts or provider output.
+The canonical server helper returns `none` for current/disabled, `model` for stale/unconfirmed model evidence, `effort` for unsupported/required/invalid-variant effort, `account` for invalid account policy, and `recreate` for orphaned references/provider mismatch. Table-driven tests cover every required reason and disabled precedence. Only model repair opens the replacement modal. Account/effort actions expand the profile, scroll the stable candidate target and focus the relevant select. Current and disabled candidates have no repair CTA. EN/RU/KO key and placeholder parity passes.
 
-The first sandboxed discovery attempt encountered provider access restrictions. The final run used installed provider access and produced:
+Orphan payloads carry no fabricated provider: `provider=null`, `currentModel=null`, `suggestions=[]`. Matching optimistic tokens followed by generic rebind yield **409 candidate_provider_unrecoverable**, including when the replacement ID is missing. Stale tokens retain the existing concurrency error. The recreate flow requires explicit provider and a model available in its latest successful discovery. A provider without confirmed models shows “Refresh catalog first” and cannot apply.
+
+Recreate preserves candidate ID, priority, enabled state and creation time through the shared production transaction, audit, optimistic tokens and campaign-impact confirmation. Previous effort/account policy/fixed account are not silently copied: the UI starts with provider-default effort, inherited-default account policy and no account ID. Grouped Antigravity requires explicit supported mapped effort. Tests verify preserved priority 7 and disabled state; the disposable orphan smoke preserves priority 9 and enabled state. Generic model rebind retains same-provider enforcement and validates current account compatibility before committing or auditing. Invalid compatibility returns `invalid_account_policy`; injected audit failure still rolls candidate/timestamp back. Running snapshots and completed history remain immutable, while future late binding uses repaired configuration.
+
+Missing-reference rows render from reconciliation separately from ordinary profile rows. Ordinary save cannot silently discard an orphan hidden by an inner join; it requests recreation first. There is no invented selectable model option and no schema change.
+
+## Attention lifecycle
+
+Every reconciliation load counts degraded/unknown/blocked profiles, excluding disabled profiles. The surface is now “Execution profiles needing attention” and includes invalid account/effort candidates. Client tests verify **2 → 1 → 0**, followed by banner removal, both after successive model repairs and after ordinary account/effort saves. Ordinary save reloads profiles and reconciliation. Both `execution-profile:updated` and `model-catalog:updated` perform one health reload and count recalculation. Ordinary PATCH now broadcasts the canonical profile update event.
+
+## Real discovery and disposable smoke
+
+`npx tsx scripts/execution-profile-reconciliation-smoke.ts --report=docs/execution-profile-reconciliation-smoke-evidence.json` returned **PASS**. [Machine-readable evidence](execution-profile-reconciliation-smoke-evidence.json) records source read-only access, unchanged DB/WAL/SHM fingerprints and no inference. No source configuration was repaired and no login/logout was requested.
 
 | Provider | Source | Primary success | Authoritative | Models seen |
 |---|---|---|---|---:|
@@ -15,42 +27,20 @@ The first sandboxed discovery attempt encountered provider access restrictions. 
 | Antigravity | antigravity-models | yes | yes | 7 |
 | OpenCode | opencode-models | no | no | 0 |
 
-| Health | Profiles |
-|---|---:|
-| ready | 1 |
-| degraded | 0 |
-| unknown | 2 |
-| blocked | 0 |
-| disabled | 0 |
+Real copied configuration has **1 ready, 2 unknown, 0 degraded, 0 blocked, 0 disabled** profiles. Existing stale/unconfirmed references remain visible and untouched.
 
-`Antigravity Flash` is ready with current `gemini-3.7-flash`. The profiles requiring attention are:
+Independent synthetic fixtures prove stale → model, invalid effort → effort, invalid account → account, and orphaned → recreate. Legacy dangling reference creation temporarily disables FK enforcement only in the disposable database, immediately reenables it, and uses the production service for repair. Generic orphan rebind fails with the stable 409 code. Explicit recreate succeeds with the same candidate ID, preserved priority/enabled state, inherited-default account, null account ID and provider-default effort; that orphan profile becomes **current/ready**. The independent invalid effort/account fixtures remain invalid. The model-only synthetic rebind also changes blocked → ready and preserves high effort. **2 audit rows** are inserted and the final foreign-key check passes.
 
-| Profile | Candidate model | Catalog state | Reason |
-|---|---|---|---|
-| Deterministic Order | Claude `m-1` | unconfirmed | weak_omission |
-| Deterministic Order | Codex `m-2` | stale | authoritative_omission |
-| Deterministic Order | Antigravity `m-3` | stale | authoritative_omission |
-| Priority Test | Claude `claude-3.7-sonnet` | unconfirmed | weak_omission |
-| Priority Test | Codex `gpt-5` | stale | authoritative_omission |
+An initial sandboxed run could not access Antigravity CLI log locations. Installed-provider access was used for the final PASS; source fingerprints remained unchanged throughout. An early combined synthetic fixture hit the existing executor uniqueness constraint; final smoke uses independent profiles for the different problems.
 
-These retained manual rows can remain production-runtime available despite stale catalog evidence. No source repair was made. Suggestions remain same-provider; full exact/family/alternative classifications and candidate IDs are in the JSON evidence. Claude Sonnet references receive same-family suggestions; arbitrary fixture model identities receive alternatives, not guessed family/version mappings. OpenCode supplies no confirmed replacements on this machine.
+## Real-AI Campaign regression
 
-The default synthetic disposable repair changed `reconciliation-synthetic-old` → `reconciliation-synthetic-current`, preserved `high` effort, and changed **blocked → ready**. It inserted **1 audit row**. Foreign-key validation passed. No real model was chosen automatically. Running campaign references were **0 in disposable configuration**; live-source campaigns were not copied.
+`npx tsx scripts/evaluation-campaign-real-ai-smoke.ts` returned **SKIPPED_ENVIRONMENT**. No existing profile has both verified current discovery and authorized inherited/free-local candidates under the established smoke policy. No implementation/review was executed, no assignment or comparative quality evidence is claimed, and cleanup verified no retained ownership, leases or reservations. The final controller report was written to `aikombinat-campaign-real-ai-YxVrZB/report.json` under the system temporary directory before guarded cleanup. The deliberately failing seed pre-test is expected by this smoke's acceptance contract.
 
-## Runtime and API regressions
-
-Automated tests prove current primary + stale fallback and stale primary + current fallback are degraded, runtime-usable, smoke-eligible and reservation-free; all stale is blocked and smoke-ineligible. Weak and failed discovery do not create false stale. API GET is cache-only and launches no discovery. Rebind rejects stale previews, wrong providers and unsupported effort; preserves account/priority/enabled fields; rolls candidate/timestamp back on injected audit failure; and leaves an existing running Todo snapshot unchanged while future selection uses the replacement.
-
-Running campaign references are detected through direct profiles and policy members/judges. Apply without impact confirmation fails; confirmed apply changes ordinary review configuration hashing, preserving drift detection. Migration is idempotent and leaves existing profiles untouched. UI tests cover badges/usage links, searchable replacements, effort choice, old/new preview, campaign confirmation and localized errors. EN/RU/KO key and placeholder parity is green.
-
-## Real-AI Campaign rerun
-
-`npx tsx scripts/evaluation-campaign-real-ai-smoke.ts --keep` returned **SKIPPED_ENVIRONMENT**. No existing profile had both a current discovery-confirmed candidate and an authorized inherited/free-local candidate under the smoke policy. Antigravity is available for reconciliation but excluded by the established Real-AI Campaign safety policy. The existing Claude profiles are unconfirmed, and their Codex candidates are absent from authoritative discovery.
-
-No implementation/review process was launched. No assignment, inference cost, token savings or comparative quality evidence is claimed. Cleanup verified no retained process ownership, leases or reservations. The disposable controller report was retained locally at `aikombinat-campaign-real-ai-8GgAMI/report.json` under the system temporary directory. Evaluation Campaigns V1 remains **READY_WITH_LIMITATIONS**.
+Evaluation Campaigns V1 remains **READY_WITH_LIMITATIONS** until actual Real-AI PASS and delivered-commit green CI.
 
 ## Validation and delivery
 
-Final local validation: **2605 server tests passed, 2 skipped; 234 client tests passed**. Typecheck, production build, ERD check and diff whitespace check passed. Focused reconciliation coverage has 15 passing tests, including persisted history, fixed-account preservation and cold runtime cache. GitHub CI is verified for the delivered commit separately; an earlier baseline CI result is not used as delivery evidence.
+Final local validation: **2621 server tests passed, 2 skipped; 243 client tests passed**. Server reconciliation coverage has 31 passing tests; client routing/attention coverage has 9 passing tests, in addition to existing model-modal/settings coverage. Typecheck, production build, ERD check and Git whitespace check pass. The first sandboxed build could not overwrite existing generated outputs; the final build passed with the required output access.
 
-Execution Profile Reconciliation V1: **READY** after delivery validation. Evaluation Campaigns V1: **READY_WITH_LIMITATIONS**, pending a real eligible-profile acceptance PASS.
+Execution Profile Reconciliation V1 closure satisfies local acceptance; **READY** requires the delivered commit's green GitHub CI, verified and linked in the delivery response. Baseline green CI is not substituted for that check. Evaluation Campaigns V1 remains **READY_WITH_LIMITATIONS**.
