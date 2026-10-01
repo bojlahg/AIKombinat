@@ -1,3 +1,4 @@
+import { evaluationCsvCell } from './evaluation-csv.js';
 import { createHash } from 'node:crypto';
 import { getDatabase } from '../db/connection.js';
 import type { ConsensusBatch, ConsensusJob, ConsensusAttempt } from './consensus-review.js';
@@ -347,6 +348,6 @@ export function getConsensusAnalytics(projectId: string,filters: EvaluationFilte
 
 export function consensusCsv(data: ReturnType<typeof getConsensusAnalytics>): string {
   const fields=['batch_id','todo_id','created_at','policy_id','policy_variant_id','strategy','failure_policy','reviewer_count','successful_reviewers','failed_reviewers','agreement','judge_invoked','final_verdict','rework_triggered','distinct_providers','distinct_accounts','distinct_models','known_cost_usd','cost_coverage','known_tokens','token_coverage','duration_ms','human_feedback'];
-  const cell=(value: unknown) => { let text=value===null || value===undefined ? '' : String(value);if (/^\s*[=+@\-]|^[\t\r\n]/.test(text)) text="'"+text;return '"'+text.replace(/"/g,'""')+'"'; };
-  return [fields.join(','),...data.batches.map(b=>[b.id,b.todoId,b.createdAt,b.policyId,b.policyVariantId,b.strategy,b.failurePolicy,b.reviewerCount,b.successfulReviewers,b.failedReviewers,b.agreement,b.judgeInvoked,b.finalVerdict,b.reworkTriggered,b.diversity.distinctProviders,b.diversity.distinctAccounts,b.diversity.distinctModels,b.telemetry.knownCostUsd,b.telemetry.costCoverage,b.telemetry.knownTokens,b.telemetry.tokenCoverage,b.batchDurationMs,b.feedback.find(f=>f.scope==='batch')?.label].map(cell).join(','))].join('\r\n');
+
+  return [fields.join(','),...data.batches.map(b=>[b.id,b.todoId,b.createdAt,b.policyId,b.policyVariantId,b.strategy,b.failurePolicy,b.reviewerCount,b.successfulReviewers,b.failedReviewers,b.agreement,b.judgeInvoked,b.finalVerdict,b.reworkTriggered,b.diversity.distinctProviders,b.diversity.distinctAccounts,b.diversity.distinctModels,b.telemetry.knownCostUsd,b.telemetry.costCoverage,b.telemetry.knownTokens,b.telemetry.tokenCoverage,b.batchDurationMs,b.feedback.find(f=>f.scope==='batch')?.label].map(evaluationCsvCell).join(','))].join('\r\n');
 }

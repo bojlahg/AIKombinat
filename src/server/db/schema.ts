@@ -4,6 +4,7 @@ import os from 'node:os';
 import { migrateProviderAccounts } from './provider-accounts.js';
 import { migrateConsensusReview } from './consensus-review.js';
 import { migrateReviewEvaluation } from './review-evaluation.js';
+import { migrateEvaluationCampaigns } from './evaluation-campaigns.js';
 import { migrateAccountQuota } from './account-quota.js';
 
 export function migrateOrchestratorResourceChecks(db: Database.Database): void {
@@ -1081,6 +1082,7 @@ export function initDatabase(db: Database.Database): void {
   enforceAgentForumUniqueIndexes(db);
   migrateConsensusReview(db);
   migrateReviewEvaluation(db);
+  migrateEvaluationCampaigns(db);
 
 }
 function migrateOpenCodeCatalog(db: Database.Database): void {

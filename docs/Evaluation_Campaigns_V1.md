@@ -1,0 +1,93 @@
+# Evaluation Campaigns V1
+
+Project campaigns assign new, manually created Todos to persisted review strategies before execution. A campaign has 2–6 enabled arms, exactly one enabled control, positive integer weights (1–1000), and a Single Review profile or Consensus Review policy per arm. Optional Rework profile and review-round limit are the only additional treatment fields. Implementation provider, profile, model, effort, account policy, prompt, dependencies, resources, Wiki inputs and worktree settings follow the ordinary Todo path.
+
+The feature records evidence for future routing decisions. It does not change executor selection, provider failover, scheduler admission, quota handling, Resource Fabric or orchestration decisions, and does not select a winner.
+
+## Lifecycle and enrollment
+
+Create and edit drafts in **Project → Automation → Analytics → Evaluation campaigns**. Auto-enroll defaults OFF. Start validates references, creates definition hashes and locks the definition. The lifecycle is `draft → running ↔ paused → completed → archived`. Pause, Complete and Archive preserve assigned Todos and their pipeline. Only unstarted, empty drafts can be deleted. Clone produces a new draft with fresh IDs and salt, unchanged treatment settings, and auto-enroll OFF.
+
+After Start, only campaign name/description and lifecycle actions are editable. Arms, weights, control, salt, algorithm, auto-enroll and assignment cap stay locked. To change enrollment policy or treatment, clone and start a new campaign. At most one running auto-enroll campaign exists per project; both the service and a partial unique index enforce this. Optional assignment caps are 2–100000; reaching the cap atomically completes enrollment. Withdrawals still consume an assignment slot.
+
+The ordinary manual Todo form can explicitly enroll in a running campaign or opt out. With a running auto-enroll campaign, enrollment is checked by default. The arm is revealed only after successful creation. Existing Todos, schedule-created Todos, delegated children and internal `createTodo` callers are not backfilled or auto-enrolled. The canonical manual HTTP creation path wraps Todo insertion, existing configuration updates, treatment application and assignment insertion in one immediate SQLite transaction; any failure rolls everything back. Scheduled/delegated creation cannot use that enrollment wrapper to participate.
+
+## Assignment contract
+
+`sha256_weighted_v1` hashes UTF-8 `assignment_salt + ':' + todo_id`. The salt is 32 cryptographically random bytes persisted as hexadecimal. Interpret the **first eight digest bytes as an unsigned big-endian 64-bit integer**, using BigInt, then take modulo the sum of enabled weights. Sort arms by `(sort_order, id)` with lexical ID ordering. Select the first cumulative half-open weight range containing the bucket. No outcome, runtime load, quota or history enters this calculation.
+
+Independent golden vectors for salt `0123456789abcdef0123456789abcdef` and ordered weights `3:1`:
+
+| Todo ID | Bucket | Range |
+| --- | ---: | --- |
+| `todo-1` | 3 | experiment `[3,4)` |
+| `todo-2` | 0 | control `[0,3)` |
+| `todo-3` | 3 | experiment `[3,4)` |
+| `todo-4` | 1 | control `[0,3)` |
+| `00000000-0000-0000-0000-000000000000` | 2 | control `[0,3)` |
+
+Each Todo has at most one assignment. Persisted algorithm, digest, bucket, campaign/arm hashes, safe arm snapshot and assigned deep review-config hash remain immutable through retries, rework, Stop and controller restart. Production create/update routes reject `evaluation_arm_id`; they never accept a client-selected treatment.
+
+## Integrity and timing
+
+Assignments begin `clean`. Ordinary review-field edits return HTTP 409 `experiment_assignment_locked`. The explicit UI Override action sends `evaluation_override: true`; an actual review-config change and `clean → contaminated` transition occur atomically, preserving the original arm. Non-review changes and unchanged review values do not contaminate.
+
+Withdrawal is available only while clean and before implementation/review start. It records `excluded / withdrawn_before_execution`, unlocks ordinary review controls and retains the assignment for audit. Contaminated/excluded states never revert to clean. Campaign-assigned Todos cannot be individually deleted through the ordinary Todo API, preventing silent removal from ITT; Stop and withdrawal are the supported task-level actions.
+
+At the first actual implementation launch, record `first_execution_at` once. Both Single and Consensus review entry points record `review_started_at` once and check the treatment immediately before review. Canonical JSON recursively sorts object keys and orders arm/profile/policy members deterministically. The deep hash includes review mode/enablement, referenced profile IDs and enabled candidate provider/model/effort/account-policy/fixed-account configuration, candidate priority, Consensus strategy/failure/quorum/diversity/parallelism, member enabled/weight/priority configuration, judge profile, Rework profile and review-round limit. Missing references and semantic edits count as drift. Campaign/arm mismatch and review-configuration drift have separate reason codes.
+
+Quota observations, account health/cooldown, model availability, runtime admission and actual fallback selection are excluded from this hash. Actual identities are observed separately. Stop, retry, manual Approve/Rework and ordinary provider failover do not themselves contaminate. Terminal lifecycle callbacks persist `finished_at`; retry completion refreshes that timestamp while retaining the original implementation start, so Todo wall time includes intervening waits and retries.
+
+## Analytics and denominators
+
+Analytics is a read-only projection of durable assignments, Todo status/usage, execution rounds, Consensus attempts, human actions and campaign feedback. ITT is the default; it retains contamination in its assigned arm and omits pre-start withdrawals. PP includes clean assignments. Attrition is also returned over all assignments, including exclusions.
+
+| Metric | Population / denominator |
+| --- | --- |
+| Assigned, started, reached review, terminal, completed, failed, stopped | Selected ITT/PP population; start/review timestamps and current Todo status. Merged counts as completed. |
+| Completion/failure rate | Completed/failed divided by selected assignments. |
+| Final approved / needs changes | Reached-review Todos with a completed latest final Review result; `finalReviewSamples` is explicit. |
+| Rework rate | Reached-review Todos with at least one started Rework divided by reached-review Todos; numerator and denominator are explicit. |
+| Manual Approve/Rework | Durable human-action counts for reached-review Todos. |
+| Todo wall time | Terminal Todos with valid implementation-start and finish timestamps; sample count plus mean/P50/P95 in milliseconds. |
+| Known Todo cost/tokens | Whole-Todo known values summed in the selected population, with separate known/total counts and coverage. All unknown yields null, never invented zero. |
+| Feedback response/evaluation coverage | Response/evaluative count divided by reached-review Todos. |
+| Helpful rate | `helpful / (helpful + not_helpful + mixed)`; unknown is a response but not an evaluative judgment. |
+
+Review verdict, rework, manual-action and helpfulness metrics require review start in both protocols. Whole-Todo usage, wall time and attrition retain implementation-only failures because they describe the entire Todo, and are not claimed as isolated treatment cost. Single Review lacks some Consensus-only telemetry; Consensus reviewer-only cost remains diagnostic and cannot be compared directly with a missing Single Review equivalent. Coverage must be inspected before interpreting differences.
+
+Each experiment reports control value, arm value, arm-minus-control difference and arm/control ratio. Missing values remain null; a zero control yields a null ratio. Expected weighted and observed assignment distributions, clean/contaminated/excluded counts and a warning below 10 assignments are visible. There is no significance estimate, confidence interval, winner or routing recommendation.
+
+Actual provider/account/model/effort distributions count distinct Todos for each observed identity across execution rounds and Consensus attempts. A Todo may appear in multiple identities after failover. Identity sets are descriptive, protocol-filtered and capped at 100 entries per category, with omitted counts; they do not create post-hoc treatment groups.
+
+## Campaign feedback and privacy
+
+Campaign feedback asks whether the overall review was helpful, symmetrically for Single and Consensus. Labels are `helpful`, `not_helpful`, `mixed`, `unknown`; one current updatable record belongs to an assignment. Feedback requires review start. Notes accept plain text up to 4 KiB UTF-8, reject HTML, and use shared secret redaction before storage. Campaign feedback is separate from Consensus batch/job/issue correctness/usefulness feedback; those records are not copied into campaign helpfulness.
+
+Analytics and CSV use explicit safe projections, omitting prompts, descriptions, notes, outputs, issue payloads, authentication tokens, credentials, environment, authentication and full execution snapshots. CSV escapes cells and prefixes spreadsheet formula-leading content. INFO logs and WebSocket events carry bounded identifiers/status only; they never carry feedback notes or task prompts. Assignment drill-down contains safe treatment metadata and hashes, rather than full provider configuration.
+
+## API and live updates
+
+All routes use the existing authenticated API mount. Project-path routes scope directly to the project. ID routes require `projectId` in the query or request body and verify ownership.
+
+| Method | `/api` path |
+| --- | --- |
+| GET / POST | `/projects/:projectId/evaluation-campaigns` |
+| GET / PATCH / DELETE | `/evaluation-campaigns/:id` |
+| POST | `/evaluation-campaigns/:id/start`, `/pause`, `/resume`, `/complete`, `/archive`, `/clone` |
+| GET | `/evaluation-campaigns/:id/analytics`, `/assignments`, `/export.csv` |
+| GET | `/todos/:id/evaluation-assignment` |
+| POST | `/todos/:id/evaluation-assignment/withdraw` |
+| PUT | `/todos/:id/evaluation-assignment/feedback` |
+
+Todo creation accepts `evaluation_campaign_id` with `evaluation_campaign_enroll: true` for explicit enrollment. `evaluation_campaign_enroll: false` opts out; omission permits the project's running auto-enroll campaign. Review override uses the existing Todo PUT endpoint. Invalid input is 400, scoped missing objects 404, lifecycle/assignment conflicts 409.
+
+Assignments and CSV default to 100 rows, permit `limit=1..200` and `offset=0..1000000`, and expose total/has-more metadata. CSV headers include `X-Total-Count`, `X-Has-More`, `X-Next-Offset`; the UI combines bounded pages into a download. Analytics responses aggregate rather than returning all histories; a 10000-assignment regression enforces bounded output size.
+
+Events: `evaluation-campaign:created`, `:updated`, `:status`, `:assignment`, `:assignment-updated`, `:feedback-updated`. Dashboard and open Todo assignment details refresh on relevant events. EN/KO/RU core strings and placeholders retain parity. Floating UI uses the shared portal Modal and established menus.
+
+## Persistence and validation
+
+Four additive tables are installed after existing review evaluation migrations: `evaluation_campaigns`, `evaluation_campaign_arms`, `evaluation_campaign_assignments`, `evaluation_campaign_assignment_feedback`. Indexes cover project/status, arm ordering and campaign/arm assignments. Constraints enforce Todo/feedback uniqueness and same-campaign arm ownership. Triggers protect started definitions and monotonic assignment integrity. Migration is idempotent; no historical Todo is assigned or rewritten. The ERD generator includes all four tables.
+
+See [testing instructions](TESTING.md) and [smoke evidence](Evaluation_Campaigns_V1_Smoke_Report.md). Before using evidence for Dynamic AI Routing V1, run real campaigns on ordinary tasks, inspect attrition/coverage/feedback and accumulate adequate samples.

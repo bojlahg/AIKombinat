@@ -8,6 +8,7 @@ export interface WsEvent {
   todo?: Todo;
   round?: TodoExecutionRound;
   projectId?: string;
+  campaignId?: string;
   status?: string;
   message?: string;
   logType?: string;

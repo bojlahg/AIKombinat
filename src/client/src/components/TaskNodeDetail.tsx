@@ -1,3 +1,5 @@
+import CampaignAssignmentDetails from './CampaignAssignmentDetails';
+import type { EvaluationTodoOptions } from '../api/evaluationCampaigns';
 import ExecutionAccountIdentity from './ExecutionAccountIdentity';
 import type { ResourceRequirements } from '../types';
 import { useState, useEffect } from 'react';
@@ -18,7 +20,7 @@ interface TaskNodeDetailProps {
   projectIsGitRepo?: boolean;
   projectUseWorktree?: boolean;
   onClose: () => void;
-  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => Promise<void>;
+  onEdit: (id: string, title: string, description: string, cliTool?: string, dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: 'none' | 'all' | 'selected' | 'auto', memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null, evaluation?: EvaluationTodoOptions) => Promise<void>;
   onStart: (id: string, mode?: 'headless' | 'interactive' | 'verbose') => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
@@ -190,11 +192,12 @@ export default function TaskNodeDetail({
           projectIsGitRepo={projectIsGitRepo}
           projectUseWorktree={projectUseWorktree}
           existingImages={existingImages}
+          projectId={todo.project_id}
           todoId={todo.id}
           availableTodos={allTodos.filter(t => t.id !== todo.id)}
           onDeleteImage={async (imageId) => { await todosApi.deleteTodoImage(todo.id, imageId); }}
-          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId) => {
-            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId);
+          onSave={async (title, description, cliTool, newImages, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId, evaluation) => {
+            await onEdit(todo.id, title, description, cliTool, dependsOn, maxTurns, useWorktree, memoryInjectMode, memoryNodeIds, memoryRawFilePaths, cliModel, cliEffort, executionProfileId, resourceRequirements, reviewEnabled, reviewProfileId, reworkProfileId, maxReviewRounds, providerAccountId, reviewMode, reviewPolicyId, evaluation);
             if (newImages && newImages.length > 0) {
               await todosApi.uploadTodoImages(todo.id, newImages.map(img => ({ name: img.name, data: img.data })));
             }
@@ -208,6 +211,7 @@ export default function TaskNodeDetail({
 
   return (
     <div className="w-[380px] border-l border-warm-200 bg-theme-card overflow-y-auto">
+      <CampaignAssignmentDetails todoId={todo.id} projectId={todo.project_id} onEvent={onEvent} />
       <ExecutionAccountIdentity snapshot={todo.execution_snapshot} />
       {/* Header */}
       <div className="sticky top-0 bg-theme-card border-b border-warm-200 px-4 py-3 flex items-center gap-2 z-10">

@@ -1,3 +1,6 @@
+import { listCampaigns, type Campaign, type CampaignAssignment } from '../api/evaluationCampaigns';
+import CampaignAssignmentDetails from './CampaignAssignmentDetails';
+import type { EvaluationTodoOptions } from '../api/evaluationCampaigns';
 import { getPolicies, type ReviewPolicy } from '../api/consensusReview';
 import { parseResourceRequirements } from '../utils/resource-requirements';
 import type { ResourceRequirements } from '../types';
@@ -31,7 +34,7 @@ export interface PendingImage {
 }
 
 interface TodoFormProps {
-  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null) => void;
+  onSave: (title: string, description: string, cliTool?: string, newImages?: PendingImage[], dependsOn?: string, maxTurns?: number, useWorktree?: number | null, memoryInjectMode?: MemoryInjectMode, memoryNodeIds?: string[], memoryRawFilePaths?: string[], cliModel?: string, cliEffort?: string | null, executionProfileId?: string | null, resourceRequirements?: ResourceRequirements, reviewEnabled?: number, reviewProfileId?: string | null, reworkProfileId?: string | null, maxReviewRounds?: number, providerAccountId?: string | null, reviewMode?: 'single' | 'consensus', reviewPolicyId?: string | null, evaluation?: EvaluationTodoOptions) => void;
   onCancel: () => void;
   initialTitle?: string;
   initialDescription?: string;
@@ -97,6 +100,17 @@ export default function TodoForm({
   onDeleteImage,
   availableTodos = [],
 }: TodoFormProps) {
+  const [campaigns,setCampaigns]=useState<Campaign[]>([]);
+  const [campaignId,setCampaignId]=useState(''),[enroll,setEnroll]=useState(false),[campaignLoading,setCampaignLoading]=useState(!!projectId && !todoId),[campaignError,setCampaignError]=useState(false);
+  const [assignment,setAssignment]=useState<CampaignAssignment | null>(null),[assignmentLoading,setAssignmentLoading]=useState(!!todoId),[evaluationOverride,setEvaluationOverride]=useState(false);
+  const receiveAssignment=useCallback((value: CampaignAssignment | null)=>{ setAssignment(value);setAssignmentLoading(false); },[]);
+  useEffect(()=>{
+    if (!projectId || todoId) return;
+    let disposed=false;
+    listCampaigns(projectId).then(data=>{ if (!disposed) { const active=data.filter(c=>c.status==='running');setCampaigns(active);const preferred=active.find(c=>c.auto_enroll) ?? active[0];setCampaignId(preferred?.id ?? '');setEnroll(!!preferred?.auto_enroll);setCampaignLoading(false); } }).catch(()=>{ if (!disposed) { setCampaignError(true);setCampaignLoading(false); } });
+    return ()=>{ disposed=true; };
+  },[projectId,todoId]);
+  const reviewLocked=assignmentLoading || !!assignment && assignment.integrity_state!=='excluded' && !evaluationOverride || !todoId && enroll;
   const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState(initialDescription);
   const [cliTool, setCliTool] = useState<CliTool>((initialCliTool as CliTool) || (projectCliTool as CliTool) || 'claude');
@@ -201,7 +215,7 @@ export default function TodoForm({
     if (!title.trim()) return;
     const parsedMaxTurns = maxTurns ? parseInt(maxTurns, 10) : undefined;
     const useWorktreeValue: number | null = useWorktreeMode === 'force-on' ? 1 : useWorktreeMode === 'force-off' ? 0 : null;
-    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds, executionProfileId ? null : providerAccountId, reviewMode, reviewPolicyId || null);
+    onSave(title.trim(), description.trim(), cliTool, pendingImages.length > 0 ? pendingImages : undefined, dependsOn || undefined, parsedMaxTurns || undefined, useWorktreeValue, memoryInjectMode, [], vaultPaths, executionProfileId ? undefined : cliModel || undefined, executionProfileId ? null : cliEffort || null, executionProfileId || null, resourceRequirements, reviewEnabled ? 1 : 0, reviewProfileId || null, reworkProfileId || null, maxReviewRounds, executionProfileId ? null : providerAccountId, reviewMode, reviewPolicyId || null, todoId ? { evaluation_override: evaluationOverride } : { evaluation_campaign_enroll: enroll, ...(enroll ? { evaluation_campaign_id: campaignId } : {}) });
   };
 
   const totalImages = existingImgs.length + pendingImages.length;
@@ -441,8 +455,16 @@ export default function TodoForm({
         </div>
       )}
 
+      {todoId && projectId && <CampaignAssignmentDetails todoId={todoId} projectId={projectId} onAssignment={receiveAssignment} onOverride={()=>setEvaluationOverride(true)} />}
+      {evaluationOverride && <p className="text-status-warning text-xs mb-3">{t('campaign.overrideWarning')}</p>}
+      {!todoId && campaigns.length>0 && <div className="mb-4 space-y-2">
+        <label className="text-sm flex gap-2"><input type="checkbox" checked={enroll} onChange={e=>setEnroll(e.target.checked)} />{t('campaign.participate')}</label>
+        {enroll && <select className="input-field w-full" aria-label={t('campaign.title')} value={campaignId} onChange={e=>setCampaignId(e.target.value)}>{campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>}
+        <p className="text-xs text-theme-muted">{t('campaign.enrollmentHelp')}</p>
+      </div>}
+      {campaignError && <p role="alert" className="text-status-error text-xs">{t('campaign.loadError')}</p>}
       {/* Review & Rework Pipeline Configuration */}
-      <div className="mb-4 p-3 rounded-lg border border-theme-border bg-theme-card/30">
+      <fieldset disabled={reviewLocked} className="mb-4 p-3 rounded-lg border border-theme-border bg-theme-card/30 disabled:opacity-60">
         <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-warm-700">
           <input
             type="checkbox"
@@ -523,7 +545,7 @@ export default function TodoForm({
             </div>
           </div>
         )}
-      </div>
+      </fieldset>
 
       <div className="flex gap-3 justify-end">
         <button
@@ -535,7 +557,7 @@ export default function TodoForm({
         </button>
         <button
           type="submit"
-          disabled={!title.trim()}
+          disabled={!title.trim() || campaignLoading || campaignError || assignmentLoading}
           className="btn-primary text-sm"
         >
           {t('todoForm.save')}

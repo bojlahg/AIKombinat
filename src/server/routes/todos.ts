@@ -1,7 +1,9 @@
+import { EvaluationCampaignError, getEvaluationAssignment, createTodoWithEvaluationAssignment, updateTodoWithEvaluationGuard } from '../services/evaluation-campaign-service.js';
+import { ZodError } from 'zod';
 import { validateReviewConfig } from '../services/review-policy.js';
 import { hasActiveConsensusReview } from '../services/consensus-review.js';
 import { Router, Request, Response } from 'express';
-import { createTodo, getTodosByProjectId, getTodoById, updateTodo, deleteTodo } from '../db/queries.js';
+import { getTodosByProjectId, getTodoById, deleteTodo } from '../db/queries.js';
 import { getProjectById } from '../db/queries.js';
 import { validatePromptContent, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH } from '../services/prompt-guard.js';
 import { cleanupTodoImages } from './images.js';
@@ -71,7 +73,7 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
     const execution = normalizeExecutionSelection({ providerAccountId: req.body.provider_account_id, accountPolicy: req.body.account_policy, cliTool: cli_tool, cliModel: cli_model, cliModelId: cli_model_id, cliEffort: cli_effort, executionProfileId: execution_profile_id, executionProfile: execution_profile });
     try { validateReviewConfig(review_mode,review_policy_id); } catch(error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid review configuration' });return; }
     const parsedMaxReviewRounds = max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3;
-    const todo = createTodo(
+    const todo = createTodoWithEvaluationAssignment([
       projectId,
       title,
       description,
@@ -94,12 +96,15 @@ router.post('/projects/:id/todos', (req: Request<{ id: string }>, res: Response)
       review_profile_id ?? null,
       rework_profile_id ?? null,
       parsedMaxReviewRounds,
-    );
-    updateTodo(todo.id, { review_mode: review_mode ?? getProjectById(req.params.id)?.default_review_mode ?? 'single', review_policy_id: review_policy_id ?? null, provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy });
+    ], { review_mode: review_mode ?? project.default_review_mode ?? 'single', review_policy_id: review_policy_id ?? null, provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy }, {
+      ...(req.body.evaluation_campaign_id !== undefined ? { evaluation_campaign_id: req.body.evaluation_campaign_id } : {}),
+      ...(req.body.evaluation_campaign_enroll !== undefined ? { evaluation_campaign_enroll: req.body.evaluation_campaign_enroll } : {}),
+      ...(req.body.evaluation_arm_id !== undefined ? { evaluation_arm_id: req.body.evaluation_arm_id } : {}),
+    });
     res.status(201).json(getTodoById(todo.id));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
+    res.status(err instanceof EvaluationCampaignError ? err.status : err instanceof ZodError || err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -124,6 +129,7 @@ router.get('/projects/:id/todos', (req: Request<{ id: string }>, res: Response) 
 // PUT /api/todos/:id - update todo
 router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
   try {
+    if ('evaluation_arm_id' in req.body) throw new EvaluationCampaignError('Client arm selection is forbidden');
     const existing = getTodoById(req.params.id);
     if (!existing) {
       res.status(404).json({ error: 'Todo not found' });
@@ -163,7 +169,7 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     const normalizedResources = resource_requirements === undefined
       ? undefined
       : serializeResourceRequirements(normalizeResourceRequirements(resource_requirements));
-    const todo = updateTodo(req.params.id, {
+    const todo = updateTodoWithEvaluationGuard(req.params.id, {
       title, description, priority, cli_tool: execution?.cliTool ?? cli_tool, cli_model: execution ? execution.cliModel : cli_model, depends_on, position_x, position_y,
       ...(execution ? { cli_tool: execution.cliTool, cli_model: execution.cliModel, cli_model_id: execution.cliModelId, execution_profile_id: execution.executionProfileId, provider_account_id: execution.providerAccountId, account_policy: execution.accountPolicy, cli_effort: execution.cliEffort } : {}),
       ...(parsedMaxTurns !== undefined ? { max_turns: parsedMaxTurns } : {}),
@@ -179,11 +185,11 @@ router.put('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
       ...(rework_profile_id !== undefined ? { rework_profile_id } : {}),
       ...(max_review_rounds !== undefined ? { max_review_rounds: max_review_rounds != null ? parseInt(max_review_rounds, 10) : 3 } : {}),
       ...(pipeline_phase !== undefined ? { pipeline_phase } : {}),
-    });
+    }, req.body.evaluation_override);
     res.json(todo);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
+    res.status(err instanceof EvaluationCampaignError ? err.status : err instanceof ZodError || err instanceof ExecutionSelectionError || err instanceof ResourceValidationError ? 400 : 500).json({ error: message });
   }
 });
 
@@ -197,6 +203,10 @@ router.delete('/todos/:id', (req: Request<{ id: string }>, res: Response) => {
     }
     if (todo.status === 'running' || hasActiveConsensusReview({ todoId: todo.id })) {
       res.status(400).json({ error: 'Cannot delete a running todo. Stop it first.' });
+      return;
+    }
+    if (getEvaluationAssignment(todo.id)) {
+      res.status(409).json({ error: 'experiment_assignment_delete_locked' });
       return;
     }
     cleanupTodoImages(req.params.id);

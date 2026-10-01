@@ -9,6 +9,8 @@ export function getTodos(projectId: string): Promise<Todo[]> {
 export function createTodo(
   projectId: string,
   data: {
+    evaluation_campaign_id?: string;
+    evaluation_campaign_enroll?: boolean;
     title: string;
     description?: string;
     priority?: number;
@@ -41,6 +43,7 @@ export function createTodo(
 export function updateTodo(
   id: string,
   data: {
+    evaluation_override?: boolean;
     title?: string;
     description?: string;
     priority?: number;

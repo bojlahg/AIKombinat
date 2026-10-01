@@ -104,6 +104,7 @@ function parseTable(name: string, body: string): Table {
   const uniqueConstraints: string[][] = [];
 
   for (const entry of entries) {
+    if (/^(?:FOREIGN\s+KEY|CHECK)\b/i.test(entry)) continue;
     const unique = parseUniqueLine(entry);
     if (unique) {
       uniqueConstraints.push(unique);
@@ -127,7 +128,8 @@ function parseTables(source: string): Table[] {
   const quotaSql = /export function migrateAccountQuota[\s\S]*?db\.exec\(`([\s\S]*?)`\)/.exec(source)?.[1] ?? '';
   const consensusSql = /export function migrateConsensusReview[\s\S]*?db\.exec\(`([\s\S]*?)`\)/.exec(source)?.[1] ?? '';
   const evaluationSql = /export function migrateReviewEvaluation[\s\S]*?db\.exec\(`([\s\S]*?)`\)/.exec(source)?.[1] ?? '';
-  const sql = extractSchemaSql(source) + '\n' + accountSql + '\n' + quotaSql + '\n' + consensusSql + '\n' + evaluationSql;
+  const campaignSql = /export function migrateEvaluationCampaigns[\s\S]*?db\.exec\(`([\s\S]*?)`\)/.exec(source)?.[1] ?? '';
+  const sql = extractSchemaSql(source) + '\n' + accountSql + '\n' + quotaSql + '\n' + consensusSql + '\n' + evaluationSql + '\n' + campaignSql;
   const tables: Table[] = [];
   const re = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\(([\s\S]*?)\);/gi;
   let m: RegExpExecArray | null;
@@ -239,7 +241,7 @@ ${mermaid}
 }
 
 function generate(): string {
-  const source = readFileSync(SCHEMA_PATH, 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/provider-accounts.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/account-quota.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/consensus-review.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/review-evaluation.ts'), 'utf8');
+  const source = readFileSync(SCHEMA_PATH, 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/provider-accounts.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/account-quota.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/consensus-review.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/review-evaluation.ts'), 'utf8') + '\n' + readFileSync(join(ROOT, 'src/server/db/evaluation-campaigns.ts'), 'utf8');
   const tables = parseTables(source);
   const migrations = parseMigrations(source);
   mergeMigrations(tables, migrations);

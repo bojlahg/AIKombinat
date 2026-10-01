@@ -1,3 +1,4 @@
+import { observeImplementationStart, observeReviewStart } from './evaluation-campaign-service.js';
 import { attemptedAccounts, quotaChain, setQuotaChain, prepareTodoQuotaRetry, bindFailoverTarget } from './account-failover.js';
 import fs from 'fs';
 import path from 'path';
@@ -1130,6 +1131,9 @@ export class Orchestrator {
         this.activeResourceRuns.set(todoId, resourceRunToken);
         queries.createTaskLog(todoId, 'output', `[resource-manager] Acquired resources: ${acquisition.resources.join(', ')}`, roundNumber);
       }
+
+      if (currentRound?.phase === 'review') observeReviewStart(todoId);
+      else if (currentRound?.phase === 'implementation') observeImplementationStart(todoId);
 
       // Persist running provider usage, then release the temporary provider reservation.
       queries.updateTodoStatus(todoId, 'running');

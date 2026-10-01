@@ -1,3 +1,4 @@
+import EvaluationCampaignsPanel from './EvaluationCampaignsPanel';
 import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
 import { Skeleton } from './Skeleton';
@@ -102,7 +103,7 @@ function TokenTooltip({ active, payload, label }: ChartTooltipProps) {
 export default function AnalyticsPanel({ projectId,onEvent }: AnalyticsPanelProps) {
   const { t } = useI18n();
   const [tab,setTab] = useState('overview');
-  return <div className="space-y-4"><div className="flex gap-2 border-b border-theme-border"><button className={`btn-ghost ${tab==='overview' ? 'text-accent' : ''}`} onClick={()=>setTab('overview')}>{t('evaluation.overview')}</button><button className={`btn-ghost ${tab==='consensus' ? 'text-accent' : ''}`} onClick={()=>setTab('consensus')}>{t('consensus.title')}</button></div>{tab==='consensus' ? <ConsensusAnalyticsPanel key={projectId} projectId={projectId} onEvent={onEvent} /> : <OverviewAnalyticsPanel projectId={projectId} />}</div>;
+  return <div className="space-y-4"><div className="flex gap-2 border-b border-theme-border"><button className={`btn-ghost ${tab==='overview' ? 'text-accent' : ''}`} onClick={()=>setTab('overview')}>{t('evaluation.overview')}</button><button className={`btn-ghost ${tab==='consensus' ? 'text-accent' : ''}`} onClick={()=>setTab('consensus')}>{t('consensus.title')}</button><button className={`btn-ghost ${tab==='campaigns' ? 'text-accent' : ''}`} onClick={()=>setTab('campaigns')}>{t('campaign.title')}</button></div>{tab==='campaigns' ? <EvaluationCampaignsPanel key={projectId} projectId={projectId} onEvent={onEvent} /> : tab==='consensus' ? <ConsensusAnalyticsPanel key={projectId} projectId={projectId} onEvent={onEvent} /> : <OverviewAnalyticsPanel projectId={projectId} />}</div>;
 }
 
 function OverviewAnalyticsPanel({ projectId }: AnalyticsPanelProps) {

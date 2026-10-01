@@ -5,6 +5,7 @@ export type SupportedProviderTool = 'claude' | 'codex' | 'antigravity';
 export type ProviderQuotaStateValue = 'available' | 'exhausted' | 'unknown';
 
 export type WSEvent =
+  | { type: 'evaluation-campaign:created' | 'evaluation-campaign:updated' | 'evaluation-campaign:status' | 'evaluation-campaign:assignment' | 'evaluation-campaign:assignment-updated' | 'evaluation-campaign:feedback-updated'; campaignId: string; projectId: string; status: string; todoId?: string }
   | { type: 'review-evaluation:feedback-updated'; projectId: string; batchId: string }
   | { type: 'consensus-review:batch-created' | 'consensus-review:batch-updated' | 'consensus-review:job-created' | 'consensus-review:job-updated' | 'consensus-review:attempt-updated' | 'consensus-review:completed'; todoId: string; batchId: string; jobId?: string; attemptId?: string }
 

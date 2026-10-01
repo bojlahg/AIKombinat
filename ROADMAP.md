@@ -135,7 +135,7 @@ Authentication may differ by provider (`system_keyring`, isolated OS user/securi
 
 #### Account-aware Quota V2
 
-Status: **READY_WITH_LIMITATIONS** — persisted account quota, derived aggregates, account cooldown/wake, APIs and live UI are locally validated. See [implementation](docs/Account_Aware_Quota_V2.md) and [smoke evidence](docs/Account_Aware_Quota_V2_Smoke_Report.md). Final pushed-commit CI acceptance is pending.
+Status: **READY** — persisted account quota, derived aggregates, account cooldown/wake, APIs and live UI are accepted at the Evaluation Campaigns V1 baseline. See [implementation](docs/Account_Aware_Quota_V2.md) and [smoke evidence](docs/Account_Aware_Quota_V2_Smoke_Report.md).
 
 Move quota state from only the provider level to the provider-account level.
 
@@ -183,7 +183,7 @@ The system must remain useful without quantitative telemetry. Reactive detection
 
 #### Automatic Account Failover
 
-Status: **READY_WITH_LIMITATIONS** — automatic Todo/Review/Rework and Orchestrator attempts are bounded, preserve workspaces and durable lineage; fixed/inherited accounts and interactive Sessions stay pinned. Final pushed-commit CI acceptance is pending. Next experiment: **Consensus Review V1**.
+Status: **READY** — automatic Todo/Review/Rework and Orchestrator attempts are bounded, preserve workspaces and durable lineage; fixed/inherited accounts and interactive Sessions stay pinned. Accepted at the Evaluation Campaigns V1 baseline. Next experiment: **Evaluation Campaigns V1**.
 
 On a classified account-level provider failure:
 
@@ -222,9 +222,15 @@ The next experimental step is to collect agreement/disagreement, unique defects,
 
 ---
 
-### Consensus Review Evaluation / Telemetry V1
+### Consensus Review Evaluation / Telemetry V1 — READY
 
-Implemented observational evaluation derives durable Consensus history, job votes, attempt usage/coverage, historical member/execution identities, policy variants, exact unique/shared findings, deterministic marginal contributions, judge behavior and review/rework chains. Explicit human feedback and human action audits are separate persisted observations. Project Analytics includes the dashboard, batch drill-down, feedback controls and bounded CSV export. See [definitions and boundaries](docs/Consensus_Review_Evaluation_V1.md) and [acceptance evidence](docs/Consensus_Review_Evaluation_V1_Smoke_Report.md). Final acceptance requires the delivered commit's green CI; no routing policy changes are enabled by evaluation.
+Implemented observational evaluation derives durable Consensus history, job votes, attempt usage/coverage, historical member/execution identities, policy variants, exact unique/shared findings, deterministic marginal contributions, judge behavior and review/rework chains. Explicit human feedback and human action audits are separate persisted observations. Project Analytics includes the dashboard, batch drill-down, feedback controls and bounded CSV export. See [definitions and boundaries](docs/Consensus_Review_Evaluation_V1.md) and [acceptance evidence](docs/Consensus_Review_Evaluation_V1_Smoke_Report.md). Accepted baseline `b6b4115` passed GitHub CI #82; no routing policy changes are enabled by evaluation.
+
+### Evaluation Campaigns V1 — READY_WITH_LIMITATIONS
+
+Project campaigns now assign new manual Todos deterministically to locked weighted review arms, preserve atomic assignment/configuration through restart, and expose integrity, attrition, ITT/PP, whole-Todo usage coverage, symmetric helpfulness feedback and raw control comparisons. Ordinary implementation selection, admission, failover and orchestration stay on their existing paths. See [definition and API contract](docs/Evaluation_Campaigns_V1.md) and [controller, migration and browser smoke evidence](docs/Evaluation_Campaigns_V1_Smoke_Report.md).
+
+Real enrollment, controller restart and browser lifecycle/override/withdrawal/feedback passed on disposable state. Review outcomes in this smoke are explicitly synthetic because no safe/free live-provider path was established. Final acceptance requires the delivered commit's green GitHub CI. Next: run real campaigns and accumulate evidence before Dynamic AI Routing V1.
 
 Track evidence such as:
 

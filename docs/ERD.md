@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 68 tables, 796 columns, 105 foreign keys
+Stats: 72 tables, 851 columns, 114 foreign keys
 
 ## Diagram
 
@@ -116,6 +116,15 @@ erDiagram
     todos ||--o{ review_human_actions : "todo_id"
     todo_execution_rounds ||--o{ review_human_actions : "review_round_id"
     consensus_review_batches ||--o{ review_human_actions : "batch_id"
+    projects ||--o{ evaluation_campaigns : "project_id"
+    evaluation_campaigns ||--o{ evaluation_campaign_arms : "campaign_id"
+    execution_profiles ||--o{ evaluation_campaign_arms : "review_profile_id"
+    review_policies ||--o{ evaluation_campaign_arms : "review_policy_id"
+    execution_profiles ||--o{ evaluation_campaign_arms : "rework_profile_id"
+    evaluation_campaigns ||--o{ evaluation_campaign_assignments : "campaign_id"
+    evaluation_campaign_arms ||--o{ evaluation_campaign_assignments : "arm_id"
+    todos ||--o{ evaluation_campaign_assignments : "todo_id"
+    evaluation_campaign_assignments ||--o{ evaluation_campaign_assignment_feedback : "assignment_id"
 
     orchestrators {
         TEXT id PK
@@ -1048,6 +1057,69 @@ erDiagram
         TEXT action
         TEXT previous_verdict
         TEXT created_at
+    }
+    evaluation_campaigns {
+        TEXT id PK
+        TEXT project_id FK
+        TEXT name
+        TEXT description
+        TEXT status
+        TEXT assignment_algorithm
+        TEXT assignment_salt
+        TEXT campaign_definition_hash
+        INTEGER auto_enroll
+        INTEGER max_assignments
+        TEXT created_at
+        TEXT started_at
+        TEXT paused_at
+        TEXT completed_at
+        TEXT updated_at
+    }
+    evaluation_campaign_arms {
+        TEXT id PK
+        TEXT campaign_id FK
+        TEXT name
+        TEXT description
+        INTEGER is_control
+        INTEGER weight
+        INTEGER sort_order
+        INTEGER is_enabled
+        TEXT review_mode
+        TEXT review_profile_id FK
+        TEXT review_policy_id FK
+        TEXT rework_profile_id FK
+        INTEGER max_review_rounds
+        TEXT definition_hash
+        TEXT created_at
+        TEXT updated_at
+    }
+    evaluation_campaign_assignments {
+        TEXT id PK
+        TEXT campaign_id FK
+        TEXT arm_id FK
+        TEXT todo_id FK,UK
+        TEXT assignment_source
+        TEXT assignment_algorithm
+        TEXT assignment_hash
+        INTEGER assignment_bucket
+        TEXT campaign_definition_hash
+        TEXT arm_definition_hash
+        TEXT arm_snapshot_json
+        TEXT assigned_review_config_hash
+        TEXT integrity_state
+        TEXT integrity_reason
+        TEXT assigned_at
+        TEXT first_execution_at
+        TEXT review_started_at
+        TEXT finished_at
+    }
+    evaluation_campaign_assignment_feedback {
+        TEXT id PK
+        TEXT assignment_id FK,UK
+        TEXT label
+        TEXT note
+        TEXT created_at
+        TEXT updated_at
     }
 ```
 

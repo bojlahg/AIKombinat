@@ -344,7 +344,9 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'de
 
 export function updateTodoStatus(id: string, status: string): Todo | undefined {
   const db = getDatabase();
-  db.prepare('UPDATE todos SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
+  const at = new Date().toISOString();
+  db.prepare('UPDATE todos SET status = ?, updated_at = ? WHERE id = ?').run(status, at, id);
+  todoLifecycle.emit('transition', id, status, at);
   queueMicrotask(() => todoLifecycle.emit('status', id));
   return getTodoById(id);
 }

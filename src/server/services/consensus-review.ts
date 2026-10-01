@@ -1,3 +1,4 @@
+import { observeReviewStart } from './evaluation-campaign-service.js';
 import { accountCandidates, accountIneligibleReason } from './provider-account-service.js';
 import { ConsensusOutputCollector } from './consensus-output.js';
 import { randomUUID, createHash } from 'node:crypto';
@@ -109,6 +110,7 @@ export class ConsensusReviewService {
       const members = policy?.members.filter(m => m.is_enabled);
       if (!policy?.is_enabled || !members || members.length < 2 || members.length > 7) throw new Error('Consensus review policy is unavailable');
       if (!round.artifact_identity || !round.input_payload) throw new Error('Review evidence is unavailable');
+      observeReviewStart(todoId);
       const id = randomUUID(), timestamp = now();
       db.prepare(`INSERT INTO consensus_review_batches
         (id,todo_id,review_round_id,review_policy_id,strategy,failure_policy,min_successful_reviewers,diversity_policy,max_parallel_reviewers,judge_execution_profile_id,
