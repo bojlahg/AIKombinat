@@ -92,6 +92,8 @@ export function migrateConsensusReview(db: Database.Database): void {
           retry_of_attempt_id TEXT REFERENCES consensus_review_attempts(id),
           diversity_diagnostics_json TEXT,
           duration_ms INTEGER,
+          attempt_wall_duration_ms INTEGER,
+          provider_duration_ms INTEGER,
           input_tokens INTEGER,
           output_tokens INTEGER,
           cost_usd REAL,
@@ -108,8 +110,12 @@ export function migrateConsensusReview(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_consensus_todo ON consensus_review_batches(todo_id);
       `);
       const attemptColumns = db.prepare('PRAGMA table_info(consensus_review_attempts)').all() as { name: string }[];
-      for (const column of ['cache_read_input_tokens', 'cache_creation_input_tokens']) {
+      for (const column of ['cache_read_input_tokens', 'cache_creation_input_tokens', 'attempt_wall_duration_ms', 'provider_duration_ms']) {
         if (!attemptColumns.some(c => c.name === column)) db.exec(`ALTER TABLE consensus_review_attempts ADD COLUMN ${column} INTEGER`);
+      }
+      if (!attemptColumns.some(c => c.name === 'attempt_wall_duration_ms')) {
+        db.exec(`UPDATE consensus_review_attempts SET attempt_wall_duration_ms = duration_ms
+          WHERE attempt_wall_duration_ms IS NULL AND typeof(duration_ms) IN ('integer','real') AND duration_ms >= 0 AND duration_ms < 1e999`);
       }
       for (const name of ['resource_requests', 'resource_leases']) {
         const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(name) as { sql: string };

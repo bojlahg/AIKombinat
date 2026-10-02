@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from './connection.js';
+import { attemptWallDuration } from '../services/attempt-duration.js';
 
 // ── Projects ──
 
@@ -454,6 +455,8 @@ export interface TodoExecutionRound {
   updated_at: string;
   artifact_identity: string | null;
   duration_ms: number | null;
+  attempt_wall_duration_ms: number | null;
+  provider_duration_ms: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
   cache_read_input_tokens: number | null;
@@ -582,6 +585,11 @@ export function updateExecutionRound(
   if (error_message !== undefined) { fields.push('error_message = ?'); values.push(error_message); }
   if (started_at !== undefined) { fields.push('started_at = ?'); values.push(started_at); }
   if (finished_at !== undefined) { fields.push('finished_at = ?'); values.push(finished_at); }
+  if (finished_at) {
+    const round = getExecutionRoundById(id);
+    fields.push('attempt_wall_duration_ms = COALESCE(attempt_wall_duration_ms, ?)');
+    values.push(attemptWallDuration(started_at ?? round?.started_at ?? null, finished_at));
+  }
   if (artifact_identity !== undefined) { fields.push('artifact_identity = ?'); values.push(artifact_identity); }
 
   if (fields.length === 0) return getExecutionRoundById(id);

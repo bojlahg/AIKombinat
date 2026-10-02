@@ -13,7 +13,7 @@ export interface ReviewPolicy {
 }
 export interface ConsensusAttempt {
   id: string; attempt_index: number; status: string; execution_snapshot: string | null;
-  process_pid: number; error_message: string | null; duration_ms: number | null;
+  process_pid: number; error_message: string | null; duration_ms: number | null; attempt_wall_duration_ms: number | null; provider_duration_ms: number | null;
   input_tokens: number | null; output_tokens: number | null; cost_usd: number | null;
 }
 export interface ConsensusJob {

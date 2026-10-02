@@ -227,6 +227,8 @@ export interface TokenUsage {
   cache_creation_input_tokens: number | null;
   total_cost: number | null;
   duration_ms: number | null;
+  attempt_wall_duration_ms: number | null;
+  provider_duration_ms: number | null;
   num_turns: number | null;
   context_window: number | null;
 }

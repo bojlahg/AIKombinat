@@ -1,4 +1,5 @@
 import { persistExecutionRoundUsage } from './treatment-usage.js';
+import { attemptWallDuration } from './attempt-duration.js';
 import { observeImplementationStart, observeReviewStart } from './evaluation-campaign-service.js';
 import { attemptedAccounts, quotaChain, setQuotaChain, prepareTodoQuotaRetry, bindFailoverTarget } from './account-failover.js';
 import fs from 'fs';
@@ -1513,7 +1514,11 @@ export class Orchestrator {
 
       const isContextExhausted = logStreamer.isContextExhausted(currentRound?.run_token ?? todoId);
       const tokenUsage = logStreamer.getTokenUsage(todoId, currentRound?.run_token ?? todoId);
+      if (currentRound) persistExecutionRoundUsage(currentRound.id, {
+        attempt_wall_duration_ms: attemptWallDuration(currentRound.started_at, new Date().toISOString()),
+      });
       if (currentRound && tokenUsage) persistExecutionRoundUsage(currentRound.id, {
+        provider_duration_ms: tokenUsage.duration_ms,
         duration_ms: tokenUsage.duration_ms, input_tokens: tokenUsage.input_tokens, output_tokens: tokenUsage.output_tokens,
         cache_read_input_tokens: tokenUsage.cache_read_input_tokens, cache_creation_input_tokens: tokenUsage.cache_creation_input_tokens,
         cost_usd: tokenUsage.total_cost,

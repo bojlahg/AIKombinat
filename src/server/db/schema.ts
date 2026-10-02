@@ -976,6 +976,8 @@ export function initDatabase(db: Database.Database): void {
     { table: 'todo_execution_rounds', column: 'attempt_index', definition: 'INTEGER NOT NULL DEFAULT 1' },
     { table: 'todo_execution_rounds', column: 'artifact_identity', definition: 'TEXT' },
     { table: 'todo_execution_rounds', column: 'duration_ms', definition: 'INTEGER' },
+    { table: 'todo_execution_rounds', column: 'attempt_wall_duration_ms', definition: 'INTEGER' },
+    { table: 'todo_execution_rounds', column: 'provider_duration_ms', definition: 'INTEGER' },
     { table: 'todo_execution_rounds', column: 'input_tokens', definition: 'INTEGER' },
     { table: 'todo_execution_rounds', column: 'output_tokens', definition: 'INTEGER' },
     { table: 'todo_execution_rounds', column: 'cache_read_input_tokens', definition: 'INTEGER' },
@@ -991,6 +993,10 @@ export function initDatabase(db: Database.Database): void {
   for (const { table, column, definition } of migrations) {
     try {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      if (table === 'todo_execution_rounds' && column === 'provider_duration_ms') {
+        db.exec(`UPDATE todo_execution_rounds SET provider_duration_ms = duration_ms
+          WHERE provider_duration_ms IS NULL AND typeof(duration_ms) IN ('integer','real') AND duration_ms >= 0 AND duration_ms < 1e999`);
+      }
     } catch {
       // Column already exists - ignore
     }

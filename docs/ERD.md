@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 73 tables, 880 columns, 116 foreign keys
+Stats: 73 tables, 884 columns, 116 foreign keys
 
 ## Diagram
 
@@ -779,6 +779,8 @@ erDiagram
         DATETIME created_at
         DATETIME updated_at
         INTEGER duration_ms
+        INTEGER attempt_wall_duration_ms
+        INTEGER provider_duration_ms
         INTEGER input_tokens
         INTEGER output_tokens
         INTEGER cache_read_input_tokens
@@ -1057,6 +1059,8 @@ erDiagram
         TEXT retry_of_attempt_id FK
         TEXT diversity_diagnostics_json
         INTEGER duration_ms
+        INTEGER attempt_wall_duration_ms
+        INTEGER provider_duration_ms
         INTEGER input_tokens
         INTEGER output_tokens
         REAL cost_usd

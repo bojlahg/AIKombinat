@@ -191,8 +191,8 @@ describe('ITT/PP projections, pagination and migration',()=>{
     const c=running(),todo=enroll(c),partial=enroll(c),pending=enroll(c);
     const r1=q.createExecutionRound(todo.id,'implementation',1,randomUUID(),{ status: 'failed',startedAt: now() });
     const r2=q.createExecutionRound(todo.id,'implementation',2,randomUUID(),{ status: 'completed',startedAt: now(),retryOfRoundId: r1.id });
-    persistExecutionRoundUsage(r1.id,{ cost_usd: .0426689,input_tokens: 10,output_tokens: 5 });
-    persistExecutionRoundUsage(r2.id,{ cost_usd: .0356593,input_tokens: 10,output_tokens: 5 });
+    persistExecutionRoundUsage(r1.id,{ attempt_wall_duration_ms: 150,provider_duration_ms: 120,cost_usd: .0426689,input_tokens: 10,output_tokens: 5 });
+    persistExecutionRoundUsage(r2.id,{ attempt_wall_duration_ms: 150,provider_duration_ms: 0,cost_usd: .0356593,input_tokens: 10,output_tokens: 5 });
     const review=q.createExecutionRound(todo.id,'review',3,randomUUID(),{ status: 'completed',startedAt: now() });
     const batch=randomUUID();
     db.prepare(`INSERT INTO consensus_review_batches (id,todo_id,review_round_id,review_policy_id,strategy,failure_policy,min_successful_reviewers,diversity_policy,max_parallel_reviewers,status,artifact_identity_json,evidence_hash,created_at,updated_at)
@@ -218,12 +218,21 @@ describe('ITT/PP projections, pagination and migration',()=>{
     expect(covered.itt.avgTreatmentCostUsd).toBeCloseTo(.1526221,10);
     expect(covered.itt.p50TreatmentCostUsd).toBeCloseTo(.1526221,10);
     expect(data.arms.reduce((n,a)=>n+(a.itt.knownTreatmentCostUsd??0),0)).toBeCloseTo(.1626221,10);
+    for (const protocol of ['attrition','itt','pp'] as const) {
+      expect(data.arms.reduce((n,a)=>n+(a[protocol].knownAttemptWallDurationMs ?? 0),0)).toBe(300);
+      expect(data.arms.reduce((n,a)=>n+(a[protocol].knownProviderDurationMs ?? 0),0)).toBe(120);
+      expect(data.arms.reduce((n,a)=>n+a[protocol].providerDurationAttemptsKnown,0)).toBe(2);
+      expect(data.arms.reduce((n,a)=>n+a[protocol].attemptWallDurationAttemptsTotal,0)).toBe(6);
+    }
     const page=analytics.listCampaignAssignments(c.id,projectId);
     const assignment=page.assignments.find(a=>a.todo_id===todo.id)!;
+    expect(assignment).toMatchObject({ known_attempt_wall_duration_ms: 300,attempt_wall_duration_attempts_known: 2,attempt_wall_duration_attempts_total: 4,attempt_wall_duration_coverage: .5,known_provider_duration_ms: 120,provider_duration_attempts_known: 2,provider_duration_attempts_total: 4,provider_duration_coverage: .5 });
     expect(assignment.known_treatment_cost_usd).toBeCloseTo(.1526221,10);
     expect(assignment).toMatchObject({ treatment_cost_attempts_known: 4,treatment_cost_attempts_total: 4,treatment_cost_coverage: 1,treatment_process_attempts: 4,known_treatment_io_tokens: 60,known_todo_cost_usd: .0356593 });
     expect(page.assignments.find(a=>a.todo_id===pending.id)).toMatchObject({ known_treatment_cost_usd: null,treatment_cost_coverage: null,treatment_process_attempts: 0 });
     const csv=analytics.campaignCsv(page);expect(csv).toContain('known_treatment_cost_usd,treatment_cost_attempts_known,treatment_cost_attempts_total,treatment_cost_coverage');
+    expect(csv).toContain('known_attempt_wall_duration_ms,attempt_wall_duration_attempts_known,attempt_wall_duration_attempts_total,attempt_wall_duration_coverage');
+    expect(csv).toContain('provider_duration_attempts_total');
     expect(csv).toContain('known_treatment_io_tokens');expect(csv).toContain('known_cache_read_tokens');
     expect([todo,partial,pending].map(t=>service.getEvaluationAssignment(t.id))).toEqual(before);
   });

@@ -46,6 +46,49 @@ function consensus() {
   };
 }
 describe('whole treatment accounting', () => {
+  it('separates wall and provider duration with partial coverage and no waiting denominator', () => {
+    const implementation = round('implementation', null);
+    const review = round('review', null);
+    const rework = round('rework', null, { status: 'stopped' });
+    const failed = round('implementation', null, { status: 'failed' });
+    round('implementation', null, { started: false, status: 'waiting_executor' });
+    for (const r of [implementation, review, rework, failed]) q.updateExecutionRound(r.id, { finished_at: '2026-10-02T00:00:00.150Z' });
+    persistExecutionRoundUsage(implementation.id, { provider_duration_ms: 120 });
+    persistExecutionRoundUsage(review.id, { provider_duration_ms: 0 });
+    const usage = getTodoTreatmentUsage(todoId);
+    expect(usage.attemptWallDuration).toEqual({ known: 600, attemptsKnown: 4, attemptsTotal: 4, coverage: 1 });
+    expect(usage.providerDuration).toEqual({ known: 120, attemptsKnown: 2, attemptsTotal: 4, coverage: .5 });
+    expect(usage.phases.singleReview.providerDuration.known).toBe(0);
+    expect(usage.phases.rework.attemptWallDuration.known).toBe(150);
+    expect(q.getExecutionRoundById(failed.id)?.provider_duration_ms).toBeNull();
+  });
+  it('backfills each historical duration only to its proven metric and preserves explicit values', () => {
+    const ordinary = round('implementation', null);
+    const attempt = consensus()('reviewer', [null]);
+    db.prepare('UPDATE todo_execution_rounds SET duration_ms=123 WHERE id=?').run(ordinary.id);
+    db.prepare('UPDATE consensus_review_attempts SET duration_ms=456 WHERE id=?').run(attempt);
+    for (const table of ['todo_execution_rounds', 'consensus_review_attempts']) {
+      for (const column of ['provider_duration_ms', 'attempt_wall_duration_ms']) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    }
+    initDatabase(db); initDatabase(db);
+    expect(q.getExecutionRoundById(ordinary.id)).toMatchObject({ provider_duration_ms: 123, attempt_wall_duration_ms: null });
+    expect(db.prepare('SELECT * FROM consensus_review_attempts WHERE id=?').get(attempt)).toMatchObject({ provider_duration_ms: null, attempt_wall_duration_ms: 456 });
+    db.prepare('UPDATE todo_execution_rounds SET provider_duration_ms=0,attempt_wall_duration_ms=150 WHERE id=?').run(ordinary.id);
+    db.prepare('UPDATE consensus_review_attempts SET provider_duration_ms=350,attempt_wall_duration_ms=500 WHERE id=?').run(attempt);
+    initDatabase(db); initDatabase(db);
+    expect(q.getExecutionRoundById(ordinary.id)).toMatchObject({ provider_duration_ms: 0, attempt_wall_duration_ms: 150 });
+    expect(db.prepare('SELECT * FROM consensus_review_attempts WHERE id=?').get(attempt)).toMatchObject({ provider_duration_ms: 350, attempt_wall_duration_ms: 500 });
+    expect(getTodoTreatmentUsage(todoId).providerDuration.known).toBe(350);
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+  it('ignores invalid duration telemetry and invalid local timestamps', () => {
+    const r = round('implementation', null);
+    for (const value of [-1, NaN, Infinity]) persistExecutionRoundUsage(r.id, { provider_duration_ms: value, attempt_wall_duration_ms: value });
+    q.updateExecutionRound(r.id, { finished_at: 'invalid' });
+    expect(q.getExecutionRoundById(r.id)).toMatchObject({ provider_duration_ms: null, attempt_wall_duration_ms: null });
+    q.updateExecutionRound(r.id, { finished_at: '2026-10-01T00:00:00Z' });
+    expect(q.getExecutionRoundById(r.id)?.attempt_wall_duration_ms).toBeNull();
+  });
   it('keeps overlapping streams isolated by run token and retains duration-only telemetry', async () => {
     const streamer = new LogStreamer();
     const first = new PassThrough(), second = new PassThrough(), err1 = new PassThrough(), err2 = new PassThrough();
@@ -133,7 +176,7 @@ describe('whole treatment accounting', () => {
     const collector = new ConsensusOutputCollector(true);
     collector.push(JSON.stringify({ type: 'result', usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 }, total_cost_usd: 0 }));
     collector.finish();
-    expect(collector.usage).toEqual({ input_tokens: 2, output_tokens: 3, cost_usd: 0, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 });
+    expect(collector.usage).toEqual({ provider_duration_ms: null, input_tokens: 2, output_tokens: 3, cost_usd: 0, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 });
     const empty = new ConsensusOutputCollector(true); empty.push('{"type":"result","usage":{"input_tokens":-2}}'); empty.finish();
     expect(Object.values(empty.usage).every(v => v === null)).toBe(true);
   });

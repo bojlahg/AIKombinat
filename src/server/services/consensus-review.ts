@@ -1,4 +1,5 @@
 import { observeReviewStart } from './evaluation-campaign-service.js';
+import { attemptWallDuration } from './attempt-duration.js';
 import { accountCandidates, accountIneligibleReason } from './provider-account-service.js';
 import { ConsensusOutputCollector } from './consensus-output.js';
 import { randomUUID, createHash } from 'node:crypto';
@@ -42,7 +43,7 @@ export interface ConsensusAttempt {
   id: string; review_job_id: string; attempt_index: number; status: string; run_token: string;
   execution_snapshot: string | null; input_payload: string | null; result_payload: string | null; error_message: string | null;
   process_pid: number; process_identity: string | null; quota_chain_id: string | null; retry_of_attempt_id: string | null;
-  diversity_diagnostics_json: string | null; duration_ms: number | null; input_tokens: number | null;
+  diversity_diagnostics_json: string | null; duration_ms: number | null; attempt_wall_duration_ms: number | null; provider_duration_ms: number | null; input_tokens: number | null;
   output_tokens: number | null; cache_read_input_tokens: number | null; cache_creation_input_tokens: number | null; cost_usd: number | null; started_at: string | null; finished_at: string | null;
   created_at: string; updated_at: string;
 }
@@ -78,6 +79,11 @@ export function hasActiveConsensusReview(scope: { todoId?: string; projectId?: s
     .get(scope.todoId ?? scope.projectId);
 }
 function change(table: 'batches' | 'jobs' | 'attempts', id: string, updates: Record<string, unknown>): void {
+  if (table === 'attempts' && typeof updates.finished_at === 'string') {
+    const attempt = getDatabase().prepare('SELECT started_at FROM consensus_review_attempts WHERE id=?').get(id) as { started_at: string | null };
+    updates.attempt_wall_duration_ms = attemptWallDuration(attempt.started_at, updates.finished_at);
+    updates.duration_ms = updates.attempt_wall_duration_ms;
+  }
   const fields = { ...updates, updated_at: now() };
   getDatabase().prepare(`UPDATE consensus_review_${table} SET ${Object.keys(fields).map(k => `${k}=?`).join(',')} WHERE id=?`).run(...Object.values(fields),id);
 }
@@ -290,7 +296,7 @@ export class ConsensusReviewService {
     this.managedAttempts.delete(attempt.id);
     const fresh = consensusAttempts(job.id).find(a => a.id === attempt.id);
     if (!fresh || terminal.has(fresh.status)) return;
-    change('attempts',attempt.id,{ process_pid: 0,process_identity: null,finished_at: now(),duration_ms: fresh.started_at ? Date.now()-Date.parse(fresh.started_at) : null });
+    change('attempts',attempt.id,{ process_pid: 0,process_identity: null,finished_at: now() });
     this.release(attempt);
     if (!this.valid(batch)) {
       change('attempts',attempt.id,{ status: 'stopped' }); change('jobs',job.id,{ status: 'stopped' }); event('job-updated',batch,job.id,attempt.id);

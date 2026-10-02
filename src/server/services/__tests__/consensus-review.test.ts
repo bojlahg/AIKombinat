@@ -101,11 +101,13 @@ describe('durable consensus lifecycle', () => {
     start('judge'); await vi.waitFor(() => expect(processes).toHaveLength(3));
     for (let i = 0; i < 4; i++) {
       await vi.waitFor(() => expect(processes).toHaveLength(i < 3 ? 3 : 4));
-      processes[i].stdout.write(JSON.stringify({ type: 'result', result: JSON.stringify(approved), usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 }, total_cost_usd: .01 }));
+      processes[i].stdout.write(JSON.stringify({ type: 'result', result: JSON.stringify(approved), usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 }, total_cost_usd: .01, duration_ms: i === 1 ? undefined : 350 }));
       processes[i].exit(0);
       await vi.waitFor(() => expect(consensusJobs(batchId).flatMap(j => consensusAttempts(j.id)).filter(a => a.status === 'completed')).toHaveLength(i + 1));
     }
-    expect(consensusJobs(batchId).flatMap(j => consensusAttempts(j.id)).every(a => a.cost_usd === .01 && a.cache_read_input_tokens === 50 && a.cache_creation_input_tokens === 0)).toBe(true);
+    expect(consensusJobs(batchId).flatMap(j => consensusAttempts(j.id)).every(a => a.attempt_wall_duration_ms !== null && a.attempt_wall_duration_ms === Date.parse(a.finished_at!) - Date.parse(a.started_at!) && a.cost_usd === .01 && a.cache_read_input_tokens === 50 && a.cache_creation_input_tokens === 0)).toBe(true);
+    const attempts = consensusJobs(batchId).flatMap(j => consensusAttempts(j.id));
+    expect(attempts.map(a => a.provider_duration_ms).sort()).toEqual([350,350,350,null].sort());
   });
   it('creates one round/batch, preserves dissent and chains ordinary rework exactly once', async () => {
     start();expect(service.start(todo.id,round.id).id).toBe(batchId);
@@ -166,6 +168,9 @@ describe('durable consensus lifecycle', () => {
     start('majority','require_all',3,1);await vi.waitFor(() => expect(processes).toHaveLength(1));
     expect(await service.stop(todo.id)).toBe(true);service.wake();await new Promise(resolve => setTimeout(resolve,30));
     expect(processes).toHaveLength(1);expect(getConsensusBatch(batchId)?.status).toBe('stopped');
+    const attempts = consensusJobs(batchId).flatMap(j => consensusAttempts(j.id));
+    expect(attempts.filter(a => a.started_at !== null).every(a => a.attempt_wall_duration_ms !== null && a.provider_duration_ms === null)).toBe(true);
+    expect(attempts.filter(a => a.started_at === null).every(a => a.attempt_wall_duration_ms === null && a.provider_duration_ms === null)).toBe(true);
   });
   it('policy edits/disable do not change batch snapshots and migration is idempotent/FK clean', async () => {
     const policy = start();await vi.waitFor(() => expect(processes).toHaveLength(3));
@@ -279,7 +284,7 @@ describe('durable consensus lifecycle', () => {
     const recovered = new ConsensusReviewService();await recovered.recover();
     await vi.waitFor(() => expect(getConsensusBatch(batchId)?.status).toBe('failed'));
     const failed = consensusJobs(batchId).find(j=>j.status==='failed')!;
-    expect(consensusAttempts(failed.id)[0]).toMatchObject({ error_message:'controller_restart',process_pid:0 });
+    expect(consensusAttempts(failed.id)[0]).toMatchObject({ error_message:'controller_restart',process_pid:0,attempt_wall_duration_ms: expect.any(Number),provider_duration_ms: null });
     await recovered.retry(failed.id);await vi.waitFor(() => expect(processes).toHaveLength(4));await complete(3,approved);
     await vi.waitFor(() => expect(getConsensusBatch(batchId)?.status).toBe('completed'));
     expect(consensusJobs(batchId).filter(j=>j.id!==failed.id).every(j=>consensusAttempts(j.id).length===1)).toBe(true);
@@ -298,7 +303,7 @@ describe('durable consensus lifecycle', () => {
     collector.push(JSON.stringify({ type: 'system',message: 'noise' })+'\n');
     collector.push(JSON.stringify({ type: 'assistant',message: { content: [{ type: 'text',text: JSON.stringify(approved) }] } })+'\n');
     collector.push(JSON.stringify({ type: 'result',result: JSON.stringify(approved),usage: { input_tokens: 10,output_tokens: 20 },total_cost_usd: 0.001 }));
-    expect(JSON.parse(collector.finish())).toEqual(approved);expect(collector.usage).toEqual({ input_tokens: 10,output_tokens: 20,cost_usd: 0.001,cache_read_input_tokens: null,cache_creation_input_tokens: null });expect(collector.overflow).toBe(false);
+    expect(JSON.parse(collector.finish())).toEqual(approved);expect(collector.usage).toEqual({ provider_duration_ms: null,input_tokens: 10,output_tokens: 20,cost_usd: 0.001,cache_read_input_tokens: null,cache_creation_input_tokens: null });expect(collector.overflow).toBe(false);
   });
 
   it('full implementation -> consensus changes -> ordinary rework -> fresh consensus approval', async () => {

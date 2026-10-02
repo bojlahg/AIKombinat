@@ -30,6 +30,8 @@ export interface CampaignMetrics {
   treatmentCostTodosFullyCovered: number; treatmentCostTodosStarted: number; treatmentCostTodoCoverage: number | null;
   avgTreatmentCostUsd: number | null; p50TreatmentCostUsd: number | null;
   knownCacheReadTokens: number | null; cacheReadCoverage: number | null; knownCacheCreationTokens: number | null; cacheCreationCoverage: number | null;
+  knownAttemptWallDurationMs: number | null; attemptWallDurationAttemptsKnown: number; attemptWallDurationAttemptsTotal: number; attemptWallDurationCoverage: number | null;
+  providerDurationAttemptsKnown: number; providerDurationAttemptsTotal: number;
   knownProviderDurationMs: number | null; providerDurationCoverage: number | null; treatmentProcessAttempts: number;
   lowSample: boolean;
   feedback: { responses: number; evaluative: number; denominator: number; helpful: number; notHelpful: number; mixed: number; unknown: number; helpfulRate: number | null; responseCoverage: number | null; evaluativeCoverage: number | null };
@@ -48,7 +50,8 @@ export interface AssignmentPage {
     known_treatment_cost_usd: number | null; treatment_cost_attempts_known: number; treatment_cost_attempts_total: number; treatment_cost_coverage: number | null;
     known_treatment_io_tokens: number | null; treatment_token_attempts_known: number; treatment_token_attempts_total: number; treatment_token_coverage: number | null;
     known_cache_read_tokens: number | null; known_cache_creation_tokens: number | null; treatment_process_attempts: number;
-    known_provider_duration_ms: number | null;
+    known_attempt_wall_duration_ms: number | null; attempt_wall_duration_attempts_known: number; attempt_wall_duration_attempts_total: number; attempt_wall_duration_coverage: number | null;
+    known_provider_duration_ms: number | null; provider_duration_attempts_known: number; provider_duration_attempts_total: number; provider_duration_coverage: number | null;
   }[];
 }
 const scoped=(projectId: string)=>`projectId=${encodeURIComponent(projectId)}`;

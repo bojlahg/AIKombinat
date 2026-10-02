@@ -7,7 +7,7 @@ export class ConsensusOutputCollector {
   private droppingLine = false;
   overflow = false;
   diagnostic = '';
-  usage: AttemptUsage = { input_tokens: null,output_tokens: null,cost_usd: null,cache_read_input_tokens: null,cache_creation_input_tokens: null };
+  usage: AttemptUsage = { provider_duration_ms: null,input_tokens: null,output_tokens: null,cost_usd: null,cache_read_input_tokens: null,cache_creation_input_tokens: null };
   constructor(private structured: boolean) {}
   push(chunk: string): void {
     if (!this.structured) { this.text = this.bound(this.text + chunk);return; }
@@ -37,7 +37,7 @@ export class ConsensusOutputCollector {
         if (typeof data.result === 'string') this.finalText = this.bound(data.result);
         if (Array.isArray(data.errors)) this.diagnostic = data.errors.filter((e: unknown) => typeof e === 'string').join('; ').slice(-8192);
         const finite = knownUsage;
-        this.usage = { input_tokens: finite(data.usage?.input_tokens),output_tokens: finite(data.usage?.output_tokens),cost_usd: finite(data.total_cost_usd),cache_read_input_tokens: finite(data.usage?.cache_read_input_tokens),cache_creation_input_tokens: finite(data.usage?.cache_creation_input_tokens) };
+        this.usage = { provider_duration_ms: finite(data.duration_ms),input_tokens: finite(data.usage?.input_tokens),output_tokens: finite(data.usage?.output_tokens),cost_usd: finite(data.total_cost_usd),cache_read_input_tokens: finite(data.usage?.cache_read_input_tokens),cache_creation_input_tokens: finite(data.usage?.cache_creation_input_tokens) };
       } else if (data.verdict) this.text = this.bound(this.text + line);
     } catch { this.text = this.bound(this.text + line + '\n'); }
   }

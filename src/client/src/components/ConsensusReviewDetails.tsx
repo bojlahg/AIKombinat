@@ -26,7 +26,7 @@ export default function ConsensusReviewDetails({ todoId,roundId,onEvent }: { tod
         <p className="font-semibold">{job.role === 'judge' ? t('consensus.judge') : job.label || t('consensus.reviewer')} · {t(`consensus.status.${job.status}`)} · {t('consensus.weight')}: {job.weight}</p>
         {job.attempts.map(attempt => { const identity = JSON.parse(attempt.execution_snapshot ?? '{}');return <div key={attempt.id} className="text-theme-muted">
           {t('consensus.attempt')} {attempt.attempt_index} · {identity.profileName ?? job.execution_profile_id} · {identity.agent} / {identity.providerAccountLabel ?? t('accounts.legacy')} / {identity.effectiveModel ?? identity.model} / {identity.effort ?? '—'} · {t(`consensus.status.${attempt.status}`)}
-          {attempt.duration_ms !== null && <> · {attempt.duration_ms} ms</>}{attempt.cost_usd !== null && <> · ${attempt.cost_usd}</>}
+          {attempt.attempt_wall_duration_ms != null && <> · {t('campaign.knownAttemptWallDurationMs')}: {attempt.attempt_wall_duration_ms}</>}{attempt.provider_duration_ms != null && <> · {t('campaign.knownProviderDurationMs')}: {attempt.provider_duration_ms}</>}{attempt.cost_usd !== null && <> · ${attempt.cost_usd}</>}
         </div>; })}
         {result && <><p>{t(`review.pipeline.verdict.${result.verdict}`)} · {result.summary}</p><ul>{result.issues.map((issue,i) => <li key={i}>{t(`review.pipeline.severity.${issue.severity}`)}: {issue.description} {issue.files?.join(', ')}</li>)}</ul></>}
         {job.final_error_message && <p className="text-status-error">{job.final_error_message}</p>}
