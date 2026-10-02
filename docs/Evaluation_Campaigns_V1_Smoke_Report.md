@@ -108,3 +108,35 @@ Source DB/WAL/SHM fingerprints matched before/after both runs. Source opened rea
 Machine-readable [bootstrap evidence](evaluation-campaign-real-ai-evidence.json) contains both reports and their tested script hashes. These identify the tested source independently of the pre-delivery baseline commit; the failed run precedes final quota/duration/reporting refinements. Earlier zero-launch setup failures exposed and fixed the projects router mount and invalid delegation-disable value in the smoke.
 
 Local validation passed: server 2,634 tests (2 skipped), client 244 tests, typecheck, explicit smoke-script typecheck, build and ERD freshness. Final guard/report refinements passed repeat validation before delivery. Delivery CI is reported against the pushed commit; no READY promotion is claimed.
+
+## Real-AI PASS closure — 2026-10-02
+
+**THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.** Real-AI acceptance is now **PASS**; READY promotion waits for the delivered fix commit's green CI.
+
+The earlier restricted-shell implementation exited 1 and emitted `provider-account.health` immediately after failure. The manager emits that event for a nonzero exit only when provider output matched an authentication rejection. This identifies an inference authentication failure in that run; the exact provider text was not retained, so the underlying credential/network restriction is not further asserted. The same inherited login and exact Haiku model executed successfully outside the restricted shell after explicit user authorization. No credentials, login/logout state, production profile or account settings were changed.
+
+The first unrestricted reproduction then exposed a separate smoke instrumentation defect: `Failed to start Claude CLI: This database connection is busy executing a query`. The review PID trigger invoked a SQLite UDF that reread the executing connection to compute the configuration hash. The corrected triggers perform SQL-only evidence inserts; actual configuration hashes are captured outside the trigger at CLI start and polling. Artifact collection happens before the implementation round is marked completed, so the smoke now tests the still-running implementation/rework round at that boundary. A real SQLite regression covers PID persistence, actual config hashing and immutable first-hash capture.
+
+The exact target stayed Claude `claude-haiku-4-5-20251001` for both implementation and review, null/provider-default effort, inherited-default account, fresh successful non-authoritative `claude-documented` catalog. Both bootstrap profiles are ready/current/no-repair, and preflight selected exact candidates with zero reservations. Account health was available; preflight quota was unknown.
+
+| Evidence | Result |
+|---|---|
+| Campaign | `9648b8ea-599c-442f-9ebc-4023e4afaa88` |
+| Assignment search | 3 real candidates; 1 extra withdrawn before execution |
+| Control implementation | PID 17232; exit 0; deterministic tests PASS |
+| Control Single Review | PID 6704; exit 0; approved; one logical round; no Consensus batch |
+| Experiment implementation | PID 27496; exit 0; deterministic tests PASS |
+| Consensus reviewers | PIDs 31912 and 19876; independent identities/jobs; both exit 0 |
+| Consensus aggregate | One batch, two reviewers, unanimous/require-all, approved |
+| Final Todos | Both completed; clean assignments; review-start hashes match |
+| Artifact | Same immutable consensus identity; unchanged after review |
+| Tests and package | Unchanged; `src/math.js` changed in both worktrees |
+| ITT / PP | Each arm: assignments=1, started=1, reachedReview=1, terminal=1, completed=1 |
+| Rework / manual overrides | 0 / 0 |
+| Usage coverage | Cost and token coverage 1/1 in each arm; only provider-exposed values |
+| Human feedback | No auto-created labels; zero responses |
+| Process budget | 5/8; no retries or rework |
+| Source safety | Read-only; DB/WAL/SHM fingerprints identical; no profile/account mutation |
+| Cleanup | All five identities dead; Todo/reviewer PIDs=0, leases=0, reservations=0 |
+
+The retained disposable root is `C:\Users\bojla\AppData\Local\Temp\aikombinat-campaign-real-ai-Y9vRlh`. Only the bounded report is committed in [machine evidence](evaluation-campaign-real-ai-evidence.json); raw task/provider output and disposable DB are not committed. The runner SHA-256 records the tested source; the final helper extraction preserves the same SQL and is covered by the SQLite regression. Local checks passed: 2,635 server tests (2 skipped), 244 client tests, typecheck, explicit runner typecheck, build, ERD freshness and diff check. CI never launches provider AI.

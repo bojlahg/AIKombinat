@@ -1,6 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import type Database from 'better-sqlite3';
+
+export function installProcessEvidence(db: Database.Database) {
+  db.exec(`CREATE TABLE smoke_processes (owner TEXT, round_id TEXT, phase TEXT, pid INTEGER, identity TEXT, snapshot TEXT, PRIMARY KEY(owner,round_id,pid));
+    CREATE TABLE smoke_exits (pid INTEGER, code INTEGER, at TEXT, duration_ms INTEGER);
+    CREATE TABLE smoke_review_hashes (todo_id TEXT, round_id TEXT, hash TEXT, PRIMARY KEY(todo_id,round_id));
+    CREATE TABLE smoke_implementation_tests (todo_id TEXT, round_id TEXT, result TEXT, PRIMARY KEY(todo_id,round_id));
+    CREATE TRIGGER smoke_todo_process AFTER UPDATE ON todos WHEN NEW.process_pid > 0 AND NEW.process_identity IS NOT NULL BEGIN
+      INSERT OR REPLACE INTO smoke_processes SELECT NEW.id,r.id,r.phase,NEW.process_pid,NEW.process_identity,NEW.execution_snapshot
+      FROM todo_execution_rounds r WHERE r.todo_id=NEW.id AND r.status='running'; END;
+    CREATE TRIGGER smoke_reviewer_process AFTER UPDATE ON consensus_review_attempts WHEN NEW.process_pid > 0 AND NEW.process_identity IS NOT NULL BEGIN
+      INSERT OR REPLACE INTO smoke_processes VALUES(NEW.id,NEW.review_job_id,'consensus_review',NEW.process_pid,NEW.process_identity,NEW.execution_snapshot); END;`);
+}
+
+export function captureReviewStartHashes(db: Database.Database, hash: (todoId: string) => string) {
+  const rounds = db.prepare("SELECT id,todo_id FROM todo_execution_rounds WHERE phase='review' AND status='running'").all() as Array<{ id: string; todo_id: string }>;
+  for (const round of rounds) db.prepare('INSERT OR IGNORE INTO smoke_review_hashes VALUES(?,?,?)').run(round.todo_id, round.id, hash(round.todo_id));
+}
 
 export function sourceFingerprint(file: string) {
   return Object.fromEntries(['', '-wal', '-shm'].map(suffix => [suffix || 'db', fs.existsSync(file + suffix)

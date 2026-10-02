@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
 import express from 'express';
 import Database from 'better-sqlite3';
-import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, smokeProfileEligible, sourceFingerprint, RealAiBudget, type Candidate } from './evaluation-campaign-real-ai-support.js';
+import { acceptanceNotice, assertInside, parseOptions, selectCandidates, withCleanup, writeReport, smokeProfileEligible, sourceFingerprint, RealAiBudget, installProcessEvidence, captureReviewStartHashes, type Candidate } from './evaluation-campaign-real-ai-support.js';
 import { bootstrapProfiles, BootstrapError } from './evaluation-campaign-disposable-bootstrap.js';
 
 const options = parseOptions(process.argv.slice(2));
@@ -117,34 +117,21 @@ async function initialize() {
   ]);
   services = Object.assign({ connection }, ...modules);
   services.hashReviewExperimentConfig = (await import('../src/server/services/evaluation-campaign-definition.js')).hashReviewExperimentConfig;
-  db.function('smoke_review_hash', (todoId: string) => services.hashReviewExperimentConfig(services.getTodoById(todoId)));
   const { orchestrator, consensusReview, resourceManager, resourceFabric, providerQuotaService, executorPool, logger } = services;
-  db.exec(`CREATE TABLE smoke_processes (owner TEXT, round_id TEXT, phase TEXT, pid INTEGER, identity TEXT, snapshot TEXT, PRIMARY KEY(owner,round_id,pid));
-    CREATE TABLE smoke_exits (pid INTEGER, code INTEGER, at TEXT, duration_ms INTEGER);
-    CREATE TABLE smoke_review_hashes (todo_id TEXT, round_id TEXT, hash TEXT, PRIMARY KEY(todo_id,round_id));
-    CREATE TABLE smoke_implementation_tests (todo_id TEXT, round_id TEXT, result TEXT, PRIMARY KEY(todo_id,round_id));
-    CREATE TRIGGER smoke_todo_process AFTER UPDATE ON todos WHEN NEW.process_pid > 0 AND NEW.process_identity IS NOT NULL BEGIN
-      INSERT OR REPLACE INTO smoke_processes SELECT NEW.id,r.id,r.phase,NEW.process_pid,NEW.process_identity,NEW.execution_snapshot
-      FROM todo_execution_rounds r WHERE r.todo_id=NEW.id AND r.status='running';
-      INSERT OR IGNORE INTO smoke_review_hashes SELECT NEW.id,r.id,smoke_review_hash(NEW.id)
-      FROM todo_execution_rounds r WHERE r.todo_id=NEW.id AND r.phase='review' AND r.status='running'; END;
-    CREATE TRIGGER smoke_reviewer_process AFTER UPDATE ON consensus_review_attempts WHEN NEW.process_pid > 0 AND NEW.process_identity IS NOT NULL BEGIN
-      INSERT OR REPLACE INTO smoke_processes VALUES(NEW.id,NEW.review_job_id,'consensus_review',NEW.process_pid,NEW.process_identity,NEW.execution_snapshot);
-      INSERT OR IGNORE INTO smoke_review_hashes SELECT b.todo_id,b.review_round_id,smoke_review_hash(b.todo_id)
-      FROM consensus_review_jobs j JOIN consensus_review_batches b ON b.id=j.batch_id WHERE j.id=NEW.review_job_id; END;`);
+  installProcessEvidence(db);
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
   let loggedBytes = 0;
   logger.configure({ level: 'info', sinks: [{ write(record: any) {
     if (record.event === 'cli.exited') db!.prepare('INSERT INTO smoke_exits VALUES(?,?,?,?)').run(record.fields.pid, record.fields.exitCode, record.time.toISOString(), record.fields.durationMs ?? null);
     if (record.event === 'review.artifact' && typeof record.fields.todoId === 'string') {
       const todo = services.getTodoById(record.fields.todoId);
-      const completed = services.getExecutionRoundsByTodoId(todo.id).filter((round: any) => ['implementation', 'rework'].includes(round.phase) && round.status === 'completed').at(-1);
+      const completed = services.getExecutionRoundsByTodoId(todo.id).filter((round: any) => ['implementation', 'rework'].includes(round.phase) && ['running', 'completed'].includes(round.status)).at(-1);
       if (completed && todo.worktree_path && !db!.prepare('SELECT 1 FROM smoke_implementation_tests WHERE round_id=?').get(completed.id)) {
         const result = seedTests(todo.worktree_path);
         db!.prepare('INSERT INTO smoke_implementation_tests VALUES(?,?,?)').run(todo.id, completed.id, JSON.stringify(result));
       }
     }
-    if (record.event === 'todo.started' || record.event === 'review.artifact') captureReviewHashes();
+    if (record.event === 'todo.started' || record.event === 'review.artifact' || record.event === 'cli.spawned') captureReviewHashes();
     const line = JSON.stringify({ at: record.time, event: record.event, level: record.level,
       ...Object.fromEntries(['pid', 'exitCode', 'todoId', 'roundId', 'agent', 'tool', 'durationMs'].filter(key => key in record.fields).map(key => [key, record.fields[key]])) }) + '\n';
     if (loggedBytes + Buffer.byteLength(line) <= 131072) { fs.appendFileSync(path.join(root, 'logs', 'events.jsonl'), line); loggedBytes += Buffer.byteLength(line); }
@@ -165,9 +152,7 @@ async function initialize() {
 }
 function captureReviewHashes() {
   if (!services || !db) return;
-  for (const round of rows("SELECT r.id,r.todo_id FROM todo_execution_rounds r WHERE r.phase='review' AND r.status='running'")) {
-    db.prepare('INSERT OR IGNORE INTO smoke_review_hashes VALUES(?,?,?)').run(round.todo_id, round.id, services.hashReviewExperimentConfig(services.getTodoById(round.todo_id)));
-  }
+  captureReviewStartHashes(db, todoId => services.hashReviewExperimentConfig(services.getTodoById(todoId)));
 }
 async function selectProfiles() {
   const { getToolStatus } = await import('../src/server/services/cli-status.js');

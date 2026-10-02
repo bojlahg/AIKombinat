@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { initDatabase } from '../../db/schema.js';
-import { parseOptions } from '../../../../scripts/evaluation-campaign-real-ai-support.js';
+import { parseOptions, installProcessEvidence, captureReviewStartHashes } from '../../../../scripts/evaluation-campaign-real-ai-support.js';
 import { bootstrapProfiles } from '../../../../scripts/evaluation-campaign-disposable-bootstrap.js';
 
 let db: Database.Database;
@@ -24,6 +24,21 @@ describe('disposable campaign bootstrap without inference', () => {
     vi.spyOn(accounts, 'probeProviderAccount').mockImplementation(async id => { accounts.setAccountHealth(id, 'available'); return accounts.getProviderAccount(id)!; });
   });
   afterEach(() => { vi.restoreAllMocks(); db.close(); });
+  it('persists review PID without nested connection reads and captures the actual config hash outside the trigger', async () => {
+    installProcessEvidence(db);
+    const project = q.createProject('Smoke', process.cwd(), 'main');
+    const todo = q.createTodo(project.id, 'Synthetic');
+    const round = q.createExecutionRound(todo.id, 'review', 2, 'synthetic-run', { status: 'running' });
+    expect(() => db.prepare('UPDATE todos SET process_pid=42,process_identity=? WHERE id=?').run(JSON.stringify({ pid: 42 }), todo.id)).not.toThrow();
+    expect(db.prepare('SELECT pid,round_id FROM smoke_processes').get()).toEqual({ pid: 42, round_id: round.id });
+    const { hashReviewExperimentConfig } = await import('../evaluation-campaign-definition.js');
+    captureReviewStartHashes(db, id => hashReviewExperimentConfig(q.getTodoById(id)!));
+    const original = hashReviewExperimentConfig(q.getTodoById(todo.id)!);
+    expect(db.prepare('SELECT hash FROM smoke_review_hashes').get()).toEqual({ hash: original });
+    q.updateTodo(todo.id, { max_review_rounds: 2 });
+    captureReviewStartHashes(db, id => hashReviewExperimentConfig(q.getTodoById(id)!));
+    expect(db.prepare('SELECT hash FROM smoke_review_hashes').get()).toEqual({ hash: original });
+  });
   it('ignores stale production profiles, creates ready profiles and selects exact candidates without reservations', async () => {
     const old = q.addModel('claude', 'old', 'Old');
     const source = q.createExecutionProfile({ slug: 'source', name: 'Source', description: '', executors: [{ cli_model_id: old.id, effort_value: null, priority: 0 }] });

@@ -322,8 +322,1643 @@
     "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
   },
   "readiness": "READY_WITH_LIMITATIONS",
-  "unrestrictedRetry": "automatic_approval_rejected",
+  "unrestrictedRetry": "explicitly_authorized_user_followup",
   "realRun": {
+    "status": "PASS",
+    "startedAt": "2026-10-02T07:32:25.557Z",
+    "finishedAt": "2026-10-02T07:35:32.618Z",
+    "commit": "353ec3ec42e370999f78c4c08398b6423a6d8d8e",
+    "scriptSha256": "2d265dc382e6caac66567844ea9476e06ea8e00970f7563ba3d5d50ab323352e",
+    "os": "win32 10.0.26300 x64",
+    "node": "v22.16.0",
+    "root": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-Y9vRlh",
+    "cliVersions": [],
+    "baselineSha": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+    "campaign": {
+      "id": "9648b8ea-599c-442f-9ebc-4023e4afaa88",
+      "project_id": "87b679d4-beb8-4c2f-8081-0a1655a837ef",
+      "name": "Real AI Review Acceptance",
+      "description": "",
+      "status": "running",
+      "assignment_algorithm": "sha256_weighted_v1",
+      "assignment_salt": "1d84d0a40ae2b9ae91c17f8f16fd33432bf1f32dc4c7ecdac8e78aef6d3207b6",
+      "campaign_definition_hash": "8737ebdd33fe82066af8865e14c56371eea81fadf59fd74045c52b7d841612b3",
+      "auto_enroll": 0,
+      "max_assignments": null,
+      "created_at": "2026-10-02T07:32:28.992Z",
+      "started_at": "2026-10-02T07:32:28.995Z",
+      "paused_at": null,
+      "completed_at": null,
+      "updated_at": "2026-10-02T07:32:28.995Z",
+      "arms": [
+        {
+          "id": "c65d72a8-4b04-4761-b763-3d6b3b744ee8",
+          "campaign_id": "9648b8ea-599c-442f-9ebc-4023e4afaa88",
+          "name": "Control",
+          "description": "",
+          "is_control": 1,
+          "weight": 1,
+          "sort_order": 0,
+          "is_enabled": 1,
+          "review_mode": "single",
+          "review_profile_id": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+          "review_policy_id": null,
+          "rework_profile_id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+          "max_review_rounds": 2,
+          "definition_hash": "c52b506c448fa806bcfdb762467699f2cd9812421046f51dc8ef787d31207d7f",
+          "created_at": "2026-10-02T07:32:28.992Z",
+          "updated_at": "2026-10-02T07:32:28.992Z"
+        },
+        {
+          "id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "campaign_id": "9648b8ea-599c-442f-9ebc-4023e4afaa88",
+          "name": "Experiment",
+          "description": "",
+          "is_control": 0,
+          "weight": 1,
+          "sort_order": 1,
+          "is_enabled": 1,
+          "review_mode": "consensus",
+          "review_profile_id": null,
+          "review_policy_id": "925bdb77-8abe-4e9a-8126-e42fecb81c53",
+          "rework_profile_id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+          "max_review_rounds": 2,
+          "definition_hash": "24b9fb5eed75bb7cb1abc20118de09564300bfb64be1592089bcda44fc351882",
+          "created_at": "2026-10-02T07:32:28.992Z",
+          "updated_at": "2026-10-02T07:32:28.992Z"
+        }
+      ]
+    },
+    "profiles": {
+      "implementation": {
+        "id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+        "candidates": [
+          {
+            "id": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
+            "effort": null
+          }
+        ]
+      },
+      "singleReviewer": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+      "consensusPolicy": "925bdb77-8abe-4e9a-8126-e42fecb81c53",
+      "consensusReviewers": [
+        {
+          "memberId": "2deaf5eb-a5df-4678-83f0-3516f84fee84",
+          "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692"
+        },
+        {
+          "memberId": "25bf95e0-3f95-41c8-8b6e-a542d8ff6440",
+          "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692"
+        }
+      ]
+    },
+    "candidates": [
+      {
+        "todoId": "8e4e818e-13b7-4ecd-b0f5-bf5372cb0bad",
+        "assignmentId": "230e856a-6aa4-4386-97d7-4045e40d4ddc",
+        "armId": "edb27685-467b-43e4-a975-b16f61e1fee4",
+        "control": false,
+        "bucket": 1,
+        "integrity": "clean"
+      },
+      {
+        "todoId": "6cd808d3-cffe-4058-b6cd-b7e7532295be",
+        "assignmentId": "eec17207-c2d3-4b21-b921-3140cdeebcf4",
+        "armId": "edb27685-467b-43e4-a975-b16f61e1fee4",
+        "control": false,
+        "bucket": 1,
+        "integrity": "excluded"
+      },
+      {
+        "todoId": "05d4621f-16fd-4f95-8920-7b48e28db09f",
+        "assignmentId": "4514ab6d-ba34-4308-946b-81f20864077c",
+        "armId": "edb27685-467b-43e4-a975-b16f61e1fee4",
+        "control": false,
+        "bucket": 1,
+        "integrity": "excluded"
+      },
+      {
+        "todoId": "d6bde9a5-b2aa-45e8-8422-1afeb0255ee8",
+        "assignmentId": "90860b2b-8072-4e3d-99c3-66713f8d02fa",
+        "armId": "edb27685-467b-43e4-a975-b16f61e1fee4",
+        "control": false,
+        "bucket": 1,
+        "integrity": "excluded"
+      },
+      {
+        "todoId": "fa54bdb2-9633-41d3-b59a-14071eec4555",
+        "assignmentId": "96abbca5-df07-4246-b432-04b5c0abd953",
+        "armId": "edb27685-467b-43e4-a975-b16f61e1fee4",
+        "control": false,
+        "bucket": 1,
+        "integrity": "excluded"
+      },
+      {
+        "todoId": "83832991-485e-4742-9d2f-33bf681f3001",
+        "assignmentId": "db676c31-05e8-4f7a-8b15-966bba319cf9",
+        "armId": "edb27685-467b-43e4-a975-b16f61e1fee4",
+        "control": false,
+        "bucket": 1,
+        "integrity": "excluded"
+      },
+      {
+        "todoId": "7bffbeba-b552-426f-9145-45a268a009a3",
+        "assignmentId": "0073b757-9866-4105-b818-707d93fcd303",
+        "armId": "c65d72a8-4b04-4761-b763-3d6b3b744ee8",
+        "control": true,
+        "bucket": 0,
+        "integrity": "clean"
+      }
+    ],
+    "selected": {
+      "control": {
+        "todoId": "7bffbeba-b552-426f-9145-45a268a009a3",
+        "assignmentId": "0073b757-9866-4105-b818-707d93fcd303",
+        "bucket": 0,
+        "finalStatus": "completed",
+        "processes": [
+          {
+            "ownerId": "7bffbeba-b552-426f-9145-45a268a009a3",
+            "roundId": "8eb30b95-6136-49a7-9f91-7bfa634f4f76",
+            "phase": "implementation",
+            "pid": 17232,
+            "identity": {
+              "pid": 17232,
+              "startedAt": "2026-10-02T07:32:29.5292713Z",
+              "command": "cmd.exe"
+            },
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+              "executorCandidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:32:29.11Z"
+            },
+            "exits": [
+              {
+                "code": 0,
+                "at": "2026-10-02T07:32:56.413Z",
+                "durationMs": 26886
+              }
+            ]
+          },
+          {
+            "ownerId": "7bffbeba-b552-426f-9145-45a268a009a3",
+            "roundId": "b1c50b7f-9baa-4d0c-b03c-d00b9bd3db0d",
+            "phase": "review",
+            "pid": 6704,
+            "identity": {
+              "pid": 6704,
+              "startedAt": "2026-10-02T07:32:57.6599172Z",
+              "command": "cmd.exe"
+            },
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:32:57.6Z"
+            },
+            "exits": [
+              {
+                "code": 0,
+                "at": "2026-10-02T07:34:24.715Z",
+                "durationMs": 87056
+              }
+            ]
+          }
+        ],
+        "implementationTests": [
+          {
+            "roundId": "8eb30b95-6136-49a7-9f91-7bfa634f4f76",
+            "status": "PASS",
+            "exitCode": 0,
+            "error": null
+          }
+        ],
+        "rounds": [
+          {
+            "id": "8eb30b95-6136-49a7-9f91-7bfa634f4f76",
+            "phase": "implementation",
+            "index": 1,
+            "status": "completed",
+            "startedAt": "2026-10-02T07:32:29.116Z",
+            "finishedAt": "2026-10-02T07:32:56.417Z",
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+              "executorCandidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:32:29.11Z"
+            },
+            "artifact": null,
+            "verdict": null
+          },
+          {
+            "id": "b1c50b7f-9baa-4d0c-b03c-d00b9bd3db0d",
+            "phase": "review",
+            "index": 2,
+            "status": "completed",
+            "startedAt": "2026-10-02T07:32:57.603Z",
+            "finishedAt": "2026-10-02T07:34:24.717Z",
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:32:57.6Z"
+            },
+            "artifact": {
+              "baselineCommit": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+              "reviewedHeadCommit": "6716a80d390cdd3d60c690c80b7f5f36410750d4",
+              "worktreeStateHash": "c3f44e22cccf356c25fb0dc1362a8637f180164e951c10559c6750fdb05fe01f",
+              "diffHash": "7a00c3a10faeb470a0275d5b226924685d9b03de94e38472a7bcf3273b6f3652",
+              "changedFiles": [
+                "src/math.js"
+              ],
+              "untrackedFiles": [],
+              "truncated": false
+            },
+            "verdict": "approved"
+          }
+        ],
+        "batches": [],
+        "jobs": [],
+        "attempts": [],
+        "assignment": {
+          "id": "0073b757-9866-4105-b818-707d93fcd303",
+          "campaign_id": "9648b8ea-599c-442f-9ebc-4023e4afaa88",
+          "arm_id": "c65d72a8-4b04-4761-b763-3d6b3b744ee8",
+          "todo_id": "7bffbeba-b552-426f-9145-45a268a009a3",
+          "assignment_source": "manual_todo",
+          "assignment_algorithm": "sha256_weighted_v1",
+          "assignment_hash": "c37197230442b38617efe44d111a227020995d9d28ded2a63dbf725c4e9c0766",
+          "assignment_bucket": 0,
+          "campaign_definition_hash": "8737ebdd33fe82066af8865e14c56371eea81fadf59fd74045c52b7d841612b3",
+          "arm_definition_hash": "c52b506c448fa806bcfdb762467699f2cd9812421046f51dc8ef787d31207d7f",
+          "arm_snapshot_json": "{\"id\":\"c65d72a8-4b04-4761-b763-3d6b3b744ee8\",\"name\":\"Control\",\"description\":\"\",\"is_control\":1,\"weight\":1,\"sort_order\":0,\"is_enabled\":1,\"review_mode\":\"single\",\"review_profile_id\":\"782304d2-2ace-4e84-ae70-53ac1a0eb692\",\"review_policy_id\":null,\"rework_profile_id\":\"347eca37-bf75-48fb-a1b4-8d6f3a47c6a4\",\"max_review_rounds\":2,\"review_profile_name\":\"Smoke Bootstrap Reviewer\",\"review_policy_name\":null,\"rework_profile_name\":\"Smoke Bootstrap Implementation\",\"applied_review_config\":{\"review_enabled\":1,\"review_mode\":\"single\",\"review_profile_id\":\"782304d2-2ace-4e84-ae70-53ac1a0eb692\",\"review_policy_id\":null,\"rework_profile_id\":\"347eca37-bf75-48fb-a1b4-8d6f3a47c6a4\",\"max_review_rounds\":2}}",
+          "assigned_review_config_hash": "e4467d1e53e4390888ceced36fc24559a74fd968fe163b0c2a715bdf94fd8f72",
+          "integrity_state": "clean",
+          "integrity_reason": null,
+          "assigned_at": "2026-10-02T07:32:29.04Z",
+          "first_execution_at": "2026-10-02T07:32:29.115Z",
+          "review_started_at": "2026-10-02T07:32:57.603Z",
+          "finished_at": "2026-10-02T07:34:25.734Z",
+          "campaign_name": "Real AI Review Acceptance",
+          "arm_snapshot": {
+            "id": "c65d72a8-4b04-4761-b763-3d6b3b744ee8",
+            "name": "Control",
+            "description": "",
+            "is_control": 1,
+            "weight": 1,
+            "sort_order": 0,
+            "is_enabled": 1,
+            "review_mode": "single",
+            "review_profile_id": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+            "review_policy_id": null,
+            "rework_profile_id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+            "max_review_rounds": 2,
+            "review_profile_name": "Smoke Bootstrap Reviewer",
+            "review_policy_name": null,
+            "rework_profile_name": "Smoke Bootstrap Implementation",
+            "applied_review_config": {
+              "review_enabled": 1,
+              "review_mode": "single",
+              "review_profile_id": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "review_policy_id": null,
+              "rework_profile_id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+              "max_review_rounds": 2
+            }
+          },
+          "feedback": null,
+          "explanation": {
+            "algorithm": "sha256_weighted_v1",
+            "bucket": 0,
+            "totalWeight": 2,
+            "rangeStart": 0,
+            "rangeEnd": 1
+          }
+        },
+        "reviewStartHashes": [
+          {
+            "round_id": "b1c50b7f-9baa-4d0c-b03c-d00b9bd3db0d",
+            "hash": "e4467d1e53e4390888ceced36fc24559a74fd968fe163b0c2a715bdf94fd8f72"
+          }
+        ],
+        "accountHealthAfterExecution": [
+          {
+            "id": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "health": "available"
+          },
+          {
+            "id": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "health": "available"
+          }
+        ],
+        "tests": {
+          "status": "PASS",
+          "exitCode": 0,
+          "error": null
+        },
+        "changedFiles": [
+          "src/math.js"
+        ],
+        "baseline": {
+          "repositoryIdentity": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-Y9vRlh\\seed-repo\\.worktrees\\feature-fix-the-bug-in-clamp-so-all-existing-tes",
+          "workDir": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-Y9vRlh\\seed-repo\\.worktrees\\feature-fix-the-bug-in-clamp-so-all-existing-tes",
+          "baseCommit": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+          "startingHead": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+          "startedAt": "2026-10-02T07:32:29.523Z"
+        },
+        "artifactUnchanged": true
+      },
+      "experiment": {
+        "todoId": "8e4e818e-13b7-4ecd-b0f5-bf5372cb0bad",
+        "assignmentId": "230e856a-6aa4-4386-97d7-4045e40d4ddc",
+        "bucket": 1,
+        "finalStatus": "completed",
+        "processes": [
+          {
+            "ownerId": "8e4e818e-13b7-4ecd-b0f5-bf5372cb0bad",
+            "roundId": "23721856-782c-41d6-b8b4-f7aed31613c7",
+            "phase": "implementation",
+            "pid": 27496,
+            "identity": {
+              "pid": 27496,
+              "startedAt": "2026-10-02T07:34:27.5403786Z",
+              "command": "cmd.exe"
+            },
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+              "executorCandidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:34:27.124Z"
+            },
+            "exits": [
+              {
+                "code": 0,
+                "at": "2026-10-02T07:34:55.277Z",
+                "durationMs": 27738
+              }
+            ]
+          },
+          {
+            "ownerId": "5da877a8-d653-4628-b01e-b9c352ae0094",
+            "roundId": "ba631a9e-0e11-40f8-9525-1281e693cfdc",
+            "phase": "consensus_review",
+            "pid": 31912,
+            "identity": {
+              "pid": 31912,
+              "startedAt": "2026-10-02T07:35:00.3508798Z",
+              "command": "cmd.exe"
+            },
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:35:00.345Z"
+            },
+            "exits": [
+              {
+                "code": 0,
+                "at": "2026-10-02T07:35:11.871Z",
+                "durationMs": 11522
+              }
+            ]
+          },
+          {
+            "ownerId": "8fc80237-9329-4048-b0b0-c607e0c6cf12",
+            "roundId": "1aa3f9a6-2933-40a4-aa7c-d6d571a3878c",
+            "phase": "consensus_review",
+            "pid": 19876,
+            "identity": {
+              "pid": 19876,
+              "startedAt": "2026-10-02T07:34:57.2644017Z",
+              "command": "cmd.exe"
+            },
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:34:57.261Z"
+            },
+            "exits": [
+              {
+                "code": 0,
+                "at": "2026-10-02T07:35:28.478Z",
+                "durationMs": 31215
+              }
+            ]
+          }
+        ],
+        "implementationTests": [
+          {
+            "roundId": "23721856-782c-41d6-b8b4-f7aed31613c7",
+            "status": "PASS",
+            "exitCode": 0,
+            "error": null
+          }
+        ],
+        "rounds": [
+          {
+            "id": "23721856-782c-41d6-b8b4-f7aed31613c7",
+            "phase": "implementation",
+            "index": 1,
+            "status": "completed",
+            "startedAt": "2026-10-02T07:34:27.179Z",
+            "finishedAt": "2026-10-02T07:34:55.279Z",
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+              "executorCandidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:34:27.124Z"
+            },
+            "artifact": null,
+            "verdict": null
+          },
+          {
+            "id": "84d2a3b2-665e-44ba-b623-e5b45a1e46fa",
+            "phase": "review",
+            "index": 2,
+            "status": "completed",
+            "startedAt": "2026-10-02T07:34:56.332Z",
+            "finishedAt": "2026-10-02T07:35:30.402Z",
+            "snapshot": null,
+            "artifact": {
+              "baselineCommit": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+              "reviewedHeadCommit": "7ecaa1a5e664b9ce81e64039ca0c578e0f1f061c",
+              "worktreeStateHash": "9816d09696a5b51cbbc13140fd89f917c5aec2fe29031e5cd1d1ae25a1f17a07",
+              "diffHash": "7a00c3a10faeb470a0275d5b226924685d9b03de94e38472a7bcf3273b6f3652",
+              "changedFiles": [
+                "src/math.js"
+              ],
+              "untrackedFiles": [],
+              "truncated": false
+            },
+            "verdict": "approved"
+          }
+        ],
+        "batches": [
+          {
+            "id": "853d7ee1-bb03-4d4c-916f-69db165d0a4b",
+            "status": "completed",
+            "artifact": {
+              "baselineCommit": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+              "reviewedHeadCommit": "7ecaa1a5e664b9ce81e64039ca0c578e0f1f061c",
+              "worktreeStateHash": "9816d09696a5b51cbbc13140fd89f917c5aec2fe29031e5cd1d1ae25a1f17a07",
+              "diffHash": "7a00c3a10faeb470a0275d5b226924685d9b03de94e38472a7bcf3273b6f3652",
+              "changedFiles": [
+                "src/math.js"
+              ],
+              "untrackedFiles": [],
+              "truncated": false
+            },
+            "evidenceHash": "d082baa7a3e3306464e16dbf4e2442a36976b16a3d78ace6666a3a01483cfa8c",
+            "verdict": "approved"
+          }
+        ],
+        "jobs": [
+          {
+            "id": "1aa3f9a6-2933-40a4-aa7c-d6d571a3878c",
+            "batchId": "853d7ee1-bb03-4d4c-916f-69db165d0a4b",
+            "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+            "status": "completed"
+          },
+          {
+            "id": "ba631a9e-0e11-40f8-9525-1281e693cfdc",
+            "batchId": "853d7ee1-bb03-4d4c-916f-69db165d0a4b",
+            "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+            "status": "completed"
+          }
+        ],
+        "attempts": [
+          {
+            "id": "8fc80237-9329-4048-b0b0-c607e0c6cf12",
+            "jobId": "1aa3f9a6-2933-40a4-aa7c-d6d571a3878c",
+            "status": "completed",
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:34:57.261Z"
+            },
+            "durationMs": 31218,
+            "costUsd": 0.0407368,
+            "inputTokens": 9,
+            "outputTokens": 3192
+          },
+          {
+            "id": "5da877a8-d653-4628-b01e-b9c352ae0094",
+            "jobId": "ba631a9e-0e11-40f8-9525-1281e693cfdc",
+            "status": "completed",
+            "snapshot": {
+              "configuration": "profile",
+              "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+              "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "agent": "claude",
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountStrategy": "inherited",
+              "accountPolicy": "inherited_default",
+              "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "model": "claude-haiku-4-5-20251001",
+              "effectiveModel": "claude-haiku-4-5-20251001",
+              "effort": null,
+              "resolvedAt": "2026-10-02T07:35:00.345Z"
+            },
+            "durationMs": 11526,
+            "costUsd": 0.020257700000000003,
+            "inputTokens": 9,
+            "outputTokens": 807
+          }
+        ],
+        "assignment": {
+          "id": "230e856a-6aa4-4386-97d7-4045e40d4ddc",
+          "campaign_id": "9648b8ea-599c-442f-9ebc-4023e4afaa88",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "todo_id": "8e4e818e-13b7-4ecd-b0f5-bf5372cb0bad",
+          "assignment_source": "manual_todo",
+          "assignment_algorithm": "sha256_weighted_v1",
+          "assignment_hash": "30f81cbdb826e37b20514d0d6093e08ed825bd653673d43dc90a9b7b9f6e6e58",
+          "assignment_bucket": 1,
+          "campaign_definition_hash": "8737ebdd33fe82066af8865e14c56371eea81fadf59fd74045c52b7d841612b3",
+          "arm_definition_hash": "24b9fb5eed75bb7cb1abc20118de09564300bfb64be1592089bcda44fc351882",
+          "arm_snapshot_json": "{\"id\":\"edb27685-467b-43e4-a975-b16f61e1fee4\",\"name\":\"Experiment\",\"description\":\"\",\"is_control\":0,\"weight\":1,\"sort_order\":1,\"is_enabled\":1,\"review_mode\":\"consensus\",\"review_profile_id\":null,\"review_policy_id\":\"925bdb77-8abe-4e9a-8126-e42fecb81c53\",\"rework_profile_id\":\"347eca37-bf75-48fb-a1b4-8d6f3a47c6a4\",\"max_review_rounds\":2,\"review_profile_name\":null,\"review_policy_name\":\"Disposable bootstrap unanimous\",\"rework_profile_name\":\"Smoke Bootstrap Implementation\",\"applied_review_config\":{\"review_enabled\":1,\"review_mode\":\"consensus\",\"review_profile_id\":null,\"review_policy_id\":\"925bdb77-8abe-4e9a-8126-e42fecb81c53\",\"rework_profile_id\":\"347eca37-bf75-48fb-a1b4-8d6f3a47c6a4\",\"max_review_rounds\":2}}",
+          "assigned_review_config_hash": "be8fd1aafd4ec75a850068a20164a5ed0d63cc68cdee573f1bd1e9e7a65081f6",
+          "integrity_state": "clean",
+          "integrity_reason": null,
+          "assigned_at": "2026-10-02T07:32:29Z",
+          "first_execution_at": "2026-10-02T07:34:27.179Z",
+          "review_started_at": "2026-10-02T07:34:56.332Z",
+          "finished_at": "2026-10-02T07:35:31.386Z",
+          "campaign_name": "Real AI Review Acceptance",
+          "arm_snapshot": {
+            "id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+            "name": "Experiment",
+            "description": "",
+            "is_control": 0,
+            "weight": 1,
+            "sort_order": 1,
+            "is_enabled": 1,
+            "review_mode": "consensus",
+            "review_profile_id": null,
+            "review_policy_id": "925bdb77-8abe-4e9a-8126-e42fecb81c53",
+            "rework_profile_id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+            "max_review_rounds": 2,
+            "review_profile_name": null,
+            "review_policy_name": "Disposable bootstrap unanimous",
+            "rework_profile_name": "Smoke Bootstrap Implementation",
+            "applied_review_config": {
+              "review_enabled": 1,
+              "review_mode": "consensus",
+              "review_profile_id": null,
+              "review_policy_id": "925bdb77-8abe-4e9a-8126-e42fecb81c53",
+              "rework_profile_id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+              "max_review_rounds": 2
+            }
+          },
+          "feedback": null,
+          "explanation": {
+            "algorithm": "sha256_weighted_v1",
+            "bucket": 1,
+            "totalWeight": 2,
+            "rangeStart": 1,
+            "rangeEnd": 2
+          }
+        },
+        "reviewStartHashes": [
+          {
+            "round_id": "84d2a3b2-665e-44ba-b623-e5b45a1e46fa",
+            "hash": "be8fd1aafd4ec75a850068a20164a5ed0d63cc68cdee573f1bd1e9e7a65081f6"
+          }
+        ],
+        "accountHealthAfterExecution": [
+          {
+            "id": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "health": "available"
+          },
+          {
+            "id": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "health": "available"
+          },
+          {
+            "id": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "health": "available"
+          }
+        ],
+        "tests": {
+          "status": "PASS",
+          "exitCode": 0,
+          "error": null
+        },
+        "changedFiles": [
+          "src/math.js"
+        ],
+        "baseline": {
+          "repositoryIdentity": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-Y9vRlh\\seed-repo\\.worktrees\\feature-fix-the-bug-in-clamp-so-all-existing-tes-2",
+          "workDir": "C:\\Users\\bojla\\AppData\\Local\\Temp\\aikombinat-campaign-real-ai-Y9vRlh\\seed-repo\\.worktrees\\feature-fix-the-bug-in-clamp-so-all-existing-tes-2",
+          "baseCommit": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+          "startingHead": "d27b45f3ae94ee0bc4b5a8556866fcbf5eff4725",
+          "startedAt": "2026-10-02T07:34:27.536Z"
+        },
+        "artifactUnchanged": true
+      }
+    },
+    "analytics": {
+      "arms": [
+        {
+          "id": "c65d72a8-4b04-4761-b763-3d6b3b744ee8",
+          "name": "Control",
+          "isControl": true,
+          "weight": 1,
+          "expectedPercentage": 0.5,
+          "observedCount": 1,
+          "observedPercentage": 0.14285714285714285,
+          "clean": 1,
+          "contaminated": 0,
+          "excluded": 0,
+          "attrition": {
+            "assignments": 1,
+            "started": 1,
+            "reachedReview": 1,
+            "terminal": 1,
+            "completed": 1,
+            "failed": 0,
+            "stopped": 0,
+            "completionRate": 1,
+            "failureRate": 0,
+            "approvedFinalReview": 1,
+            "needsChangesFinalReview": 0,
+            "finalReviewSamples": 1,
+            "needsChangesRate": 0,
+            "todosWithRework": 0,
+            "reworkDenominator": 1,
+            "reworkRate": 0,
+            "manualApprove": 0,
+            "manualRework": 0,
+            "avgTodoDurationMs": 116619,
+            "p50TodoDurationMs": 116619,
+            "p95TodoDurationMs": 116619,
+            "durationSamples": 1,
+            "knownTodoCostUsd": 0.22786635,
+            "todoCostKnown": 1,
+            "todoCostTotal": 1,
+            "todoCostCoverage": 1,
+            "knownTodoTokens": 736,
+            "todoTokensKnown": 1,
+            "todoTokensTotal": 1,
+            "todoTokenCoverage": 1,
+            "feedback": {
+              "responses": 0,
+              "evaluative": 0,
+              "denominator": 1,
+              "responseCoverage": 0,
+              "evaluativeCoverage": 0,
+              "helpful": 0,
+              "notHelpful": 0,
+              "mixed": 0,
+              "unknown": 0,
+              "helpfulRate": null
+            },
+            "lowSample": true
+          },
+          "itt": {
+            "assignments": 1,
+            "started": 1,
+            "reachedReview": 1,
+            "terminal": 1,
+            "completed": 1,
+            "failed": 0,
+            "stopped": 0,
+            "completionRate": 1,
+            "failureRate": 0,
+            "approvedFinalReview": 1,
+            "needsChangesFinalReview": 0,
+            "finalReviewSamples": 1,
+            "needsChangesRate": 0,
+            "todosWithRework": 0,
+            "reworkDenominator": 1,
+            "reworkRate": 0,
+            "manualApprove": 0,
+            "manualRework": 0,
+            "avgTodoDurationMs": 116619,
+            "p50TodoDurationMs": 116619,
+            "p95TodoDurationMs": 116619,
+            "durationSamples": 1,
+            "knownTodoCostUsd": 0.22786635,
+            "todoCostKnown": 1,
+            "todoCostTotal": 1,
+            "todoCostCoverage": 1,
+            "knownTodoTokens": 736,
+            "todoTokensKnown": 1,
+            "todoTokensTotal": 1,
+            "todoTokenCoverage": 1,
+            "feedback": {
+              "responses": 0,
+              "evaluative": 0,
+              "denominator": 1,
+              "responseCoverage": 0,
+              "evaluativeCoverage": 0,
+              "helpful": 0,
+              "notHelpful": 0,
+              "mixed": 0,
+              "unknown": 0,
+              "helpfulRate": null
+            },
+            "lowSample": true
+          },
+          "pp": {
+            "assignments": 1,
+            "started": 1,
+            "reachedReview": 1,
+            "terminal": 1,
+            "completed": 1,
+            "failed": 0,
+            "stopped": 0,
+            "completionRate": 1,
+            "failureRate": 0,
+            "approvedFinalReview": 1,
+            "needsChangesFinalReview": 0,
+            "finalReviewSamples": 1,
+            "needsChangesRate": 0,
+            "todosWithRework": 0,
+            "reworkDenominator": 1,
+            "reworkRate": 0,
+            "manualApprove": 0,
+            "manualRework": 0,
+            "avgTodoDurationMs": 116619,
+            "p50TodoDurationMs": 116619,
+            "p95TodoDurationMs": 116619,
+            "durationSamples": 1,
+            "knownTodoCostUsd": 0.22786635,
+            "todoCostKnown": 1,
+            "todoCostTotal": 1,
+            "todoCostCoverage": 1,
+            "knownTodoTokens": 736,
+            "todoTokensKnown": 1,
+            "todoTokensTotal": 1,
+            "todoTokenCoverage": 1,
+            "feedback": {
+              "responses": 0,
+              "evaluative": 0,
+              "denominator": 1,
+              "responseCoverage": 0,
+              "evaluativeCoverage": 0,
+              "helpful": 0,
+              "notHelpful": 0,
+              "mixed": 0,
+              "unknown": 0,
+              "helpfulRate": null
+            },
+            "lowSample": true
+          },
+          "actualIdentities": {
+            "itt": {
+              "providers": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude",
+                    "todos": 1
+                  }
+                ]
+              },
+              "accounts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+                    "todos": 1
+                  }
+                ]
+              },
+              "models": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude-haiku-4-5-20251001",
+                    "todos": 1
+                  }
+                ]
+              },
+              "efforts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "unknown",
+                    "todos": 1
+                  }
+                ]
+              }
+            },
+            "pp": {
+              "providers": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude",
+                    "todos": 1
+                  }
+                ]
+              },
+              "accounts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+                    "todos": 1
+                  }
+                ]
+              },
+              "models": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude-haiku-4-5-20251001",
+                    "todos": 1
+                  }
+                ]
+              },
+              "efforts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "unknown",
+                    "todos": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "name": "Experiment",
+          "isControl": false,
+          "weight": 1,
+          "expectedPercentage": 0.5,
+          "observedCount": 6,
+          "observedPercentage": 0.8571428571428571,
+          "clean": 1,
+          "contaminated": 0,
+          "excluded": 5,
+          "attrition": {
+            "assignments": 6,
+            "started": 1,
+            "reachedReview": 1,
+            "terminal": 1,
+            "completed": 1,
+            "failed": 0,
+            "stopped": 0,
+            "completionRate": 0.16666666666666666,
+            "failureRate": 0,
+            "approvedFinalReview": 1,
+            "needsChangesFinalReview": 0,
+            "finalReviewSamples": 1,
+            "needsChangesRate": 0,
+            "todosWithRework": 0,
+            "reworkDenominator": 1,
+            "reworkRate": 0,
+            "manualApprove": 0,
+            "manualRework": 0,
+            "avgTodoDurationMs": 64207,
+            "p50TodoDurationMs": 64207,
+            "p95TodoDurationMs": 64207,
+            "durationSamples": 1,
+            "knownTodoCostUsd": 0.0603233,
+            "todoCostKnown": 1,
+            "todoCostTotal": 6,
+            "todoCostCoverage": 0.16666666666666666,
+            "knownTodoTokens": 1984,
+            "todoTokensKnown": 1,
+            "todoTokensTotal": 6,
+            "todoTokenCoverage": 0.16666666666666666,
+            "feedback": {
+              "responses": 0,
+              "evaluative": 0,
+              "denominator": 1,
+              "responseCoverage": 0,
+              "evaluativeCoverage": 0,
+              "helpful": 0,
+              "notHelpful": 0,
+              "mixed": 0,
+              "unknown": 0,
+              "helpfulRate": null
+            },
+            "lowSample": true
+          },
+          "itt": {
+            "assignments": 1,
+            "started": 1,
+            "reachedReview": 1,
+            "terminal": 1,
+            "completed": 1,
+            "failed": 0,
+            "stopped": 0,
+            "completionRate": 1,
+            "failureRate": 0,
+            "approvedFinalReview": 1,
+            "needsChangesFinalReview": 0,
+            "finalReviewSamples": 1,
+            "needsChangesRate": 0,
+            "todosWithRework": 0,
+            "reworkDenominator": 1,
+            "reworkRate": 0,
+            "manualApprove": 0,
+            "manualRework": 0,
+            "avgTodoDurationMs": 64207,
+            "p50TodoDurationMs": 64207,
+            "p95TodoDurationMs": 64207,
+            "durationSamples": 1,
+            "knownTodoCostUsd": 0.0603233,
+            "todoCostKnown": 1,
+            "todoCostTotal": 1,
+            "todoCostCoverage": 1,
+            "knownTodoTokens": 1984,
+            "todoTokensKnown": 1,
+            "todoTokensTotal": 1,
+            "todoTokenCoverage": 1,
+            "feedback": {
+              "responses": 0,
+              "evaluative": 0,
+              "denominator": 1,
+              "responseCoverage": 0,
+              "evaluativeCoverage": 0,
+              "helpful": 0,
+              "notHelpful": 0,
+              "mixed": 0,
+              "unknown": 0,
+              "helpfulRate": null
+            },
+            "lowSample": true
+          },
+          "pp": {
+            "assignments": 1,
+            "started": 1,
+            "reachedReview": 1,
+            "terminal": 1,
+            "completed": 1,
+            "failed": 0,
+            "stopped": 0,
+            "completionRate": 1,
+            "failureRate": 0,
+            "approvedFinalReview": 1,
+            "needsChangesFinalReview": 0,
+            "finalReviewSamples": 1,
+            "needsChangesRate": 0,
+            "todosWithRework": 0,
+            "reworkDenominator": 1,
+            "reworkRate": 0,
+            "manualApprove": 0,
+            "manualRework": 0,
+            "avgTodoDurationMs": 64207,
+            "p50TodoDurationMs": 64207,
+            "p95TodoDurationMs": 64207,
+            "durationSamples": 1,
+            "knownTodoCostUsd": 0.0603233,
+            "todoCostKnown": 1,
+            "todoCostTotal": 1,
+            "todoCostCoverage": 1,
+            "knownTodoTokens": 1984,
+            "todoTokensKnown": 1,
+            "todoTokensTotal": 1,
+            "todoTokenCoverage": 1,
+            "feedback": {
+              "responses": 0,
+              "evaluative": 0,
+              "denominator": 1,
+              "responseCoverage": 0,
+              "evaluativeCoverage": 0,
+              "helpful": 0,
+              "notHelpful": 0,
+              "mixed": 0,
+              "unknown": 0,
+              "helpfulRate": null
+            },
+            "lowSample": true
+          },
+          "actualIdentities": {
+            "itt": {
+              "providers": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude",
+                    "todos": 1
+                  }
+                ]
+              },
+              "accounts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+                    "todos": 1
+                  }
+                ]
+              },
+              "models": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude-haiku-4-5-20251001",
+                    "todos": 1
+                  }
+                ]
+              },
+              "efforts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "unknown",
+                    "todos": 1
+                  }
+                ]
+              }
+            },
+            "pp": {
+              "providers": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude",
+                    "todos": 1
+                  }
+                ]
+              },
+              "accounts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+                    "todos": 1
+                  }
+                ]
+              },
+              "models": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "claude-haiku-4-5-20251001",
+                    "todos": 1
+                  }
+                ]
+              },
+              "efforts": {
+                "totalIdentities": 1,
+                "omittedIdentities": 0,
+                "items": [
+                  {
+                    "value": "unknown",
+                    "todos": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "assignments": [
+        {
+          "assignment_id": "230e856a-6aa4-4386-97d7-4045e40d4ddc",
+          "todo_id": "8e4e818e-13b7-4ecd-b0f5-bf5372cb0bad",
+          "assigned_at": "2026-10-02T07:32:29Z",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "arm_name": "Experiment",
+          "control": 0,
+          "bucket": 1,
+          "integrity_state": "clean",
+          "integrity_reason": null,
+          "started": true,
+          "reached_review": true,
+          "todo_status": "completed",
+          "final_review_verdict": "approved",
+          "rework_count": 0,
+          "known_todo_cost_usd": 0.0603233,
+          "known_todo_tokens": 1984,
+          "duration_ms": 64207,
+          "campaign_feedback": null
+        },
+        {
+          "assignment_id": "eec17207-c2d3-4b21-b921-3140cdeebcf4",
+          "todo_id": "6cd808d3-cffe-4058-b6cd-b7e7532295be",
+          "assigned_at": "2026-10-02T07:32:29.007Z",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "arm_name": "Experiment",
+          "control": 0,
+          "bucket": 1,
+          "integrity_state": "excluded",
+          "integrity_reason": "withdrawn_before_execution",
+          "started": false,
+          "reached_review": false,
+          "todo_status": "pending",
+          "final_review_verdict": null,
+          "rework_count": 0,
+          "known_todo_cost_usd": null,
+          "known_todo_tokens": null,
+          "duration_ms": null,
+          "campaign_feedback": null
+        },
+        {
+          "assignment_id": "4514ab6d-ba34-4308-946b-81f20864077c",
+          "todo_id": "05d4621f-16fd-4f95-8920-7b48e28db09f",
+          "assigned_at": "2026-10-02T07:32:29.013Z",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "arm_name": "Experiment",
+          "control": 0,
+          "bucket": 1,
+          "integrity_state": "excluded",
+          "integrity_reason": "withdrawn_before_execution",
+          "started": false,
+          "reached_review": false,
+          "todo_status": "pending",
+          "final_review_verdict": null,
+          "rework_count": 0,
+          "known_todo_cost_usd": null,
+          "known_todo_tokens": null,
+          "duration_ms": null,
+          "campaign_feedback": null
+        },
+        {
+          "assignment_id": "90860b2b-8072-4e3d-99c3-66713f8d02fa",
+          "todo_id": "d6bde9a5-b2aa-45e8-8422-1afeb0255ee8",
+          "assigned_at": "2026-10-02T07:32:29.021Z",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "arm_name": "Experiment",
+          "control": 0,
+          "bucket": 1,
+          "integrity_state": "excluded",
+          "integrity_reason": "withdrawn_before_execution",
+          "started": false,
+          "reached_review": false,
+          "todo_status": "pending",
+          "final_review_verdict": null,
+          "rework_count": 0,
+          "known_todo_cost_usd": null,
+          "known_todo_tokens": null,
+          "duration_ms": null,
+          "campaign_feedback": null
+        },
+        {
+          "assignment_id": "96abbca5-df07-4246-b432-04b5c0abd953",
+          "todo_id": "fa54bdb2-9633-41d3-b59a-14071eec4555",
+          "assigned_at": "2026-10-02T07:32:29.028Z",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "arm_name": "Experiment",
+          "control": 0,
+          "bucket": 1,
+          "integrity_state": "excluded",
+          "integrity_reason": "withdrawn_before_execution",
+          "started": false,
+          "reached_review": false,
+          "todo_status": "pending",
+          "final_review_verdict": null,
+          "rework_count": 0,
+          "known_todo_cost_usd": null,
+          "known_todo_tokens": null,
+          "duration_ms": null,
+          "campaign_feedback": null
+        },
+        {
+          "assignment_id": "db676c31-05e8-4f7a-8b15-966bba319cf9",
+          "todo_id": "83832991-485e-4742-9d2f-33bf681f3001",
+          "assigned_at": "2026-10-02T07:32:29.035Z",
+          "arm_id": "edb27685-467b-43e4-a975-b16f61e1fee4",
+          "arm_name": "Experiment",
+          "control": 0,
+          "bucket": 1,
+          "integrity_state": "excluded",
+          "integrity_reason": "withdrawn_before_execution",
+          "started": false,
+          "reached_review": false,
+          "todo_status": "pending",
+          "final_review_verdict": null,
+          "rework_count": 0,
+          "known_todo_cost_usd": null,
+          "known_todo_tokens": null,
+          "duration_ms": null,
+          "campaign_feedback": null
+        },
+        {
+          "assignment_id": "0073b757-9866-4105-b818-707d93fcd303",
+          "todo_id": "7bffbeba-b552-426f-9145-45a268a009a3",
+          "assigned_at": "2026-10-02T07:32:29.04Z",
+          "arm_id": "c65d72a8-4b04-4761-b763-3d6b3b744ee8",
+          "arm_name": "Control",
+          "control": 1,
+          "bucket": 0,
+          "integrity_state": "clean",
+          "integrity_reason": null,
+          "started": true,
+          "reached_review": true,
+          "todo_status": "completed",
+          "final_review_verdict": "approved",
+          "rework_count": 0,
+          "known_todo_cost_usd": 0.22786635,
+          "known_todo_tokens": 736,
+          "duration_ms": 116619,
+          "campaign_feedback": null
+        }
+      ]
+    },
+    "humanFeedback": {
+      "autoCreated": false,
+      "coverage": 0
+    },
+    "cleanup": {
+      "todoPids": [],
+      "reviewerAttempts": [],
+      "leases": [],
+      "reservations": [],
+      "errors": [],
+      "observedProcesses": [
+        {
+          "pid": 17232,
+          "verdict": "dead"
+        },
+        {
+          "pid": 6704,
+          "verdict": "dead"
+        },
+        {
+          "pid": 27496,
+          "verdict": "dead"
+        },
+        {
+          "pid": 31912,
+          "verdict": "dead"
+        },
+        {
+          "pid": 19876,
+          "verdict": "dead"
+        }
+      ],
+      "safe": true,
+      "retained": true
+    },
+    "limitations": [
+      "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+    ],
+    "preTest": {
+      "status": "FAIL",
+      "exitCode": 1,
+      "error": null
+    },
+    "bootstrap": {
+      "enabled": true,
+      "provider": "claude",
+      "implementationModel": "claude-haiku-4-5-20251001",
+      "reviewModel": "claude-haiku-4-5-20251001",
+      "implementationEffort": null,
+      "reviewEffort": null,
+      "accountPolicy": "inherited_default",
+      "sourceProfileMutation": false,
+      "implementationProfileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+      "reviewerProfileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+      "implementationCandidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+      "reviewerCandidateId": "5e9786a7-500b-480b-b158-08872032ee10"
+    },
+    "preflight": {
+      "cli": {
+        "tool": "claude",
+        "installed": true,
+        "version": "2.1.246 (Claude Code)",
+        "usable": true
+      },
+      "catalog": {
+        "source": "claude-documented",
+        "primarySucceeded": true,
+        "authoritative": false,
+        "refreshId": "b93f5053-29b7-449d-ae7d-e9e59190f560",
+        "modelValues": [
+          "claude-fable-5",
+          "claude-opus-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "claude-opus-4-7",
+          "claude-sonnet-4-6",
+          "claude-opus-4-6",
+          "claude-opus-4-5-20251101",
+          "claude-haiku-4-5-20251001",
+          "claude-sonnet-4-5-20250929"
+        ]
+      },
+      "accounts": [
+        {
+          "id": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+          "strategy": "inherited",
+          "health": "available",
+          "quota": "unknown"
+        }
+      ],
+      "selections": [
+        {
+          "profileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+          "status": "selected",
+          "candidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+          "evaluations": [
+            {
+              "candidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+              "cliTool": "claude",
+              "toolName": "Claude",
+              "model": "claude-haiku-4-5-20251001",
+              "modelLabel": "Claude Haiku 4.5",
+              "effort": null,
+              "priority": 0,
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountLabel": "Existing CLI Login",
+              "status": "available",
+              "reason": "available"
+            }
+          ],
+          "config": {
+            "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "providerAccountSlug": "existing-login",
+            "providerAccountLabel": "Existing CLI Login",
+            "providerAccountStrategy": "inherited",
+            "accountPolicy": "inherited_default",
+            "cliTool": "claude",
+            "source": "profile",
+            "profileId": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+            "profileSlug": "smoke-bootstrap-implementation",
+            "profileName": "Smoke Bootstrap Implementation",
+            "executorCandidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+            "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+            "requestedModel": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5-20251001",
+            "effectiveModel": "claude-haiku-4-5-20251001",
+            "modelAvailability": "available",
+            "effort": {
+              "supportedEfforts": null,
+              "resolution": "provider-default"
+            },
+            "warnings": [],
+            "resolvedAt": "2026-10-02T07:32:28.721Z"
+          }
+        },
+        {
+          "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+          "status": "selected",
+          "candidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+          "evaluations": [
+            {
+              "candidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "cliTool": "claude",
+              "toolName": "Claude",
+              "model": "claude-haiku-4-5-20251001",
+              "modelLabel": "Claude Haiku 4.5",
+              "effort": null,
+              "priority": 0,
+              "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+              "providerAccountLabel": "Existing CLI Login",
+              "status": "available",
+              "reason": "available"
+            }
+          ],
+          "config": {
+            "providerAccountId": "1f6c8f35-2c30-4aab-ab44-06d88e82e5b4",
+            "providerAccountSlug": "existing-login",
+            "providerAccountLabel": "Existing CLI Login",
+            "providerAccountStrategy": "inherited",
+            "accountPolicy": "inherited_default",
+            "cliTool": "claude",
+            "source": "profile",
+            "profileId": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+            "profileSlug": "smoke-bootstrap-reviewer",
+            "profileName": "Smoke Bootstrap Reviewer",
+            "executorCandidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+            "cliModelId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+            "requestedModel": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5-20251001",
+            "effectiveModel": "claude-haiku-4-5-20251001",
+            "modelAvailability": "available",
+            "effort": {
+              "supportedEfforts": null,
+              "resolution": "provider-default"
+            },
+            "warnings": [],
+            "resolvedAt": "2026-10-02T07:32:28.724Z"
+          }
+        }
+      ],
+      "profiles": [
+        {
+          "id": "347eca37-bf75-48fb-a1b4-8d6f3a47c6a4",
+          "name": "Smoke Bootstrap Implementation",
+          "updatedAt": "2026-10-02T07:32:28.72Z",
+          "health": "ready",
+          "usable": true,
+          "candidates": [
+            {
+              "candidateId": "c45b391f-0905-447f-8e14-b4ac0fb898ba",
+              "priority": 0,
+              "enabled": true,
+              "provider": "claude",
+              "modelReferenceId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "currentModel": {
+                "id": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "value": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "status": "available",
+                "source": "cli",
+                "lastSeenAt": "2026-10-02T07:32:27.861Z"
+              },
+              "catalogState": "current",
+              "catalogReasonCode": "latest_refresh_seen",
+              "repairKind": "none",
+              "effort": {
+                "configured": null,
+                "supported": null,
+                "state": "provider_default",
+                "valid": true
+              },
+              "account": {
+                "policy": "inherited_default",
+                "accountId": null,
+                "state": "runtime_managed"
+              },
+              "runtimeState": "available",
+              "runtimeReasonCode": "runtime_available",
+              "suggestions": []
+            }
+          ],
+          "references": {
+            "reviewPolicies": [],
+            "runningCampaigns": []
+          },
+          "runningCampaignReferences": [],
+          "reviewPolicyReferences": []
+        },
+        {
+          "id": "782304d2-2ace-4e84-ae70-53ac1a0eb692",
+          "name": "Smoke Bootstrap Reviewer",
+          "updatedAt": "2026-10-02T07:32:28.721Z",
+          "health": "ready",
+          "usable": true,
+          "candidates": [
+            {
+              "candidateId": "5e9786a7-500b-480b-b158-08872032ee10",
+              "priority": 0,
+              "enabled": true,
+              "provider": "claude",
+              "modelReferenceId": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+              "currentModel": {
+                "id": "6a6f068c-9f39-4c9b-b3d1-19753cd8420c",
+                "value": "claude-haiku-4-5-20251001",
+                "label": "Claude Haiku 4.5",
+                "status": "available",
+                "source": "cli",
+                "lastSeenAt": "2026-10-02T07:32:27.861Z"
+              },
+              "catalogState": "current",
+              "catalogReasonCode": "latest_refresh_seen",
+              "repairKind": "none",
+              "effort": {
+                "configured": null,
+                "supported": null,
+                "state": "provider_default",
+                "valid": true
+              },
+              "account": {
+                "policy": "inherited_default",
+                "accountId": null,
+                "state": "runtime_managed"
+              },
+              "runtimeState": "available",
+              "runtimeReasonCode": "runtime_available",
+              "suggestions": []
+            }
+          ],
+          "references": {
+            "reviewPolicies": [],
+            "runningCampaigns": []
+          },
+          "runningCampaignReferences": [],
+          "reviewPolicyReferences": []
+        }
+      ],
+      "reservationCount": 0
+    },
+    "excludedExtras": [
+      "6cd808d3-cffe-4058-b6cd-b7e7532295be",
+      "05d4621f-16fd-4f95-8920-7b48e28db09f",
+      "d6bde9a5-b2aa-45e8-8422-1afeb0255ee8",
+      "fa54bdb2-9633-41d3-b59a-14071eec4555",
+      "83832991-485e-4742-9d2f-33bf681f3001"
+    ],
+    "executionOrder": [
+      "7bffbeba-b552-426f-9145-45a268a009a3",
+      "8e4e818e-13b7-4ecd-b0f5-bf5372cb0bad"
+    ],
+    "realAiProcessCount": 5,
+    "processBudget": {
+      "used": 5,
+      "limit": 8,
+      "exceeded": false
+    },
+    "sourceSafety": {
+      "sourceReadOnly": true,
+      "profileMutations": false,
+      "accountMutations": false,
+      "before": {
+        "db": "da63a52bdf62b3fc863995d79f497584be3ba97c1de4c55d1d301afbafab6cfc",
+        "-wal": "b9fb9a231166ba042b91a9df5a3f6b1553d1ca0b9e059b4191dd01ebde313ffc",
+        "-shm": "3393174de62c59b01de7754831d4f98cb34ba16f4c860819327a3ac98d417075"
+      },
+      "after": {
+        "db": "da63a52bdf62b3fc863995d79f497584be3ba97c1de4c55d1d301afbafab6cfc",
+        "-wal": "b9fb9a231166ba042b91a9df5a3f6b1553d1ca0b9e059b4191dd01ebde313ffc",
+        "-shm": "3393174de62c59b01de7754831d4f98cb34ba16f4c860819327a3ac98d417075"
+      },
+      "sourceDatabaseUnchanged": true
+    },
+    "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+  },
+  "priorRestrictedRun": {
     "status": "FAIL",
     "startedAt": "2026-10-01T22:39:02.97Z",
     "finishedAt": "2026-10-01T22:39:14.144Z",
@@ -854,5 +2489,13 @@
       "sourceDatabaseUnchanged": true
     },
     "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
+  },
+  "diagnosis": {
+    "restrictedRun": "Implementation exited 1 and emitted provider-account.health immediately afterwards; the CLI manager emits this event on nonzero exit only after detecting provider authentication rejection. Exact provider text was not retained.",
+    "unrestrictedReproduction": "Same exact inherited Haiku implementation exited 0 without credential or production changes.",
+    "reviewFailure": "Failed to start Claude CLI: This database connection is busy executing a query",
+    "reviewFailureCause": "Smoke trigger called a SQLite UDF which reread the executing connection while persisting review PID.",
+    "fix": "Keep process triggers SQL-only; capture actual review configuration hashes outside the trigger. Test implementation at artifact collection while its round is still running.",
+    "tests": "Regression exercises actual SQLite review PID update and a config hash read outside the trigger; first hash remains immutable."
   }
 }
