@@ -2,7 +2,9 @@
 
 ## Result
 
-Real-world Pilot: **NOT_STARTED**. Temporary setup exercise: **CLOSED — implementation CLI failed before review**. The user requested a temporary test project and one inexpensive task; this is synthetic operational evidence, not a completed real-world Pilot or review comparison. Real-world clean terminal progress remains **0/30**, Control=0, Experiment=0.
+Real-world Pilot: **NOT_STARTED**. Temporary setup exercise: **PASS after an explicitly authorized retry**, including real implementation and two independent Consensus reviewers. The campaign remains closed. The user requested a temporary test project and one inexpensive task; this is synthetic operational evidence, not a completed real-world Pilot or review comparison. Real-world clean terminal progress remains **0/30**, Control=0, Experiment=0.
+
+The initial failed run is retained below as historical evidence. Its original counts, budget, timestamps and observations are superseded only by the separately identified [authorized retry](#authorized-retry--2026-10-02); they are not rewritten as a first-attempt success.
 
 Prerequisite Campaigns acceptance remains READY. [Delivered-fix CI](https://github.com/bojlahg/AIKombinat/actions/runs/36979939589) was independently checked: success at `6e8add0b33e60fe2e61de3f4b8e3ab1c87e320c8`. This exercise does not replace or invalidate that earlier real two-arm PASS.
 
@@ -67,3 +69,27 @@ Observed difference: none can be inferred. Only one treatment was assigned and i
 Validation scope: no production code, schema, translation or routing change. The temporary launcher is retained only as ignored local test state. Delivery includes documentation and bounded evidence; local validation results are reported in the delivery response, and delivery CI is separate from the earlier prerequisite CI.
 
 Local delivery validation passed: server/client typecheck; server 2,635 tests passed, 2 skipped (87 files, final run with two workers); client 244 tests passed (42 files); full build; ERD freshness; diff whitespace checks. Earlier server runs encountered 5-second Git test timeouts and Windows EBUSY cleanup; the final two-worker run passed without changing product/tests. Build initially encountered sandbox EPERM on existing generated artifacts and passed with authorized write access. Delivery CI has not been observed at report authoring time.
+
+## Authorized retry — 2026-10-02
+
+The user explicitly requested verification after investigating the CLI failure. The source checkout remained `5dd092acc4daa476f61853a243ca5f45b4dc1fc8`, whose [delivery CI passed](https://github.com/bojlahg/AIKombinat/actions/runs/36992347003). No production code was changed. The agent restarted the same isolated loopback application, set the same Todo's `max_turns=20`, and called the ordinary retry endpoint for failed round `60dfa72c-64e8-4a2f-84d9-4fb1983e0a93`. The closed campaign and review treatment were not edited. The already modified worktree was preserved by retry; this was not a replay on a fresh defective fixture.
+
+The local hard managed-process budget became four across all attempts: one original failed process plus three new processes. The ignored launcher observed only safe terminal-event fields (`subtype`, `is_error`, turns, duration, cost and denied tool names), without recording prompts or raw provider output in committed evidence. No additional task or automatic rerun was created.
+
+| Retry execution | PID | Result | Turns | Known cost USD |
+|---|---:|---|---:|---:|
+| Implementation | 50116 | success, exit 0 | 4 | 0.0356593 |
+| Consensus reviewer 1 | 46220 | success, exit 0, approved | 1 | 0.0566660 |
+| Consensus reviewer 2 | 42860 | success, exit 0, approved | 1 | 0.0176279 |
+
+All three terminal events reported `is_error=false` and no permission denials. Batch `b11ef8ac-a991-4936-ae00-d4c72b02b281` completed with unanimous/require-all **approved**, two distinct reviewer jobs/attempts and no judge. Review finished at 15:18:47.070 UTC+05:00. Todo `58722ff5-ae8c-441e-9c5c-ea54f95c49ad` is completed; assignment `790bd617-691f-4464-a081-6c49552b2315` remains clean with the original arm and review-config hash. The original failed round remains in history; the completed retry and review are separate rounds. Total assignment count stays one.
+
+The independent Node test passed again (1/1). The worktree was clean at reviewed commit `1943ae83f7b970d0259682c7aaea87fd2158d0bb`; artifact collection before and after reviewers retained diff hash `3142e8a45a5b6ec34423fe6d44857866cb73c93c780d6867301756c641bd9a0e`. Read-only assertions checked completed Todo, exactly two approved completed reviewer jobs/attempts, distinct process IDs, unchanged clean assignment, no judge, zero owned Todo/reviewer PIDs, zero resource leases and matching reviewed/current head. All four recorded process IDs were confirmed dead. The server was stopped through ordinary SIGTERM cleanup.
+
+Known cost for the three new processes: **$0.1099532**, coverage 3/3. Including the original failed process: **$0.1526221**, coverage 4/4. Product Todo/Campaign cost currently displays **$0.0356593**, the latest implementation amount; it does not include the two reviewer amounts or the earlier failed implementation in this sample. These product fields must not be presented as this exercise's cumulative spend. The product CSV reports 864 latest implementation input+output tokens and Todo duration 2,216,074 ms, spanning the original start through retry completion and the intervening human wait. Neither number is isolated review latency/usage. No model-price estimate or unknown-zero substitution was used.
+
+The original exit-1 subtype was not persisted by the product parser, so the original cause remains unproven. A six-turn cap was too restrictive for the first sequence of discovery, edit, shell/test and commit actions; the successful resumed retry supports increasing the test cap, but does not reconstruct the lost original subtype. Ordinary implementation/Consensus execution now demonstrably works with the larger cap. This exercise does not verify Single Review again or justify production limit/default changes.
+
+Updated temporary campaign ITT/PP: Control assigned/completed=0/0; Consensus assigned/completed=1/1, clean=1, contaminated/excluded=0/0. Human feedback remains absent and no synthetic labels were created. Real-world sample remains zero. Agreement is not correctness; no comparative quality or routing claim is supported.
+
+Safe evidence: [retry machine report](evidence/Evaluation_Campaigns_Pilot_V1_Retry.json) and the existing bounded [retry CSV export](evidence/Evaluation_Campaigns_Pilot_V1_Retry.csv). The original failed-run JSON/CSV remain unchanged. Only documentation and bounded evidence are delivered; targeted real execution, Node-test and cleanup assertions passed. Previously green regression/typecheck/build/ERD checks are unchanged because no production implementation changed.

@@ -1,0 +1,230 @@
+{
+  "scope": "User-authorized retry of temporary synthetic setup Todo, excluded from real-world Pilot",
+  "status": "PASS",
+  "applicationCommit": "5dd092acc4daa476f61853a243ca5f45b4dc1fc8",
+  "intervention": {
+    "maxTurnsBefore": 6,
+    "maxTurnsAfter": 20,
+    "processBudgetBefore": 3,
+    "processBudgetAfter": 4,
+    "newLaunchAllowance": 3
+  },
+  "todo": {
+    "id": "58722ff5-ae8c-441e-9c5c-ea54f95c49ad",
+    "status": "completed",
+    "max_turns": 20,
+    "productCostUsd": 0.0356593,
+    "productTokenUsage": {
+      "input_tokens": 33,
+      "output_tokens": 831,
+      "cache_read_input_tokens": 116273,
+      "cache_creation_input_tokens": 9347,
+      "total_cost": 0.0356593,
+      "duration_ms": 11733,
+      "num_turns": 4,
+      "context_window": 200000
+    }
+  },
+  "assignment": {
+    "id": "790bd617-691f-4464-a081-6c49552b2315",
+    "todo_id": "58722ff5-ae8c-441e-9c5c-ea54f95c49ad",
+    "arm_id": "d92ec924-e676-4b4f-b5a5-1387176144b9",
+    "integrity_state": "clean",
+    "integrity_reason": null,
+    "assigned_review_config_hash": "8901342ad64cb7a49c7cd4204a9d165e149194138cc6b9b0f358e7b052dea1bb",
+    "review_started_at": "2026-10-02T10:18:30.890Z",
+    "finished_at": "2026-10-02T10:18:47.069Z"
+  },
+  "rounds": [
+    {
+      "id": "60dfa72c-64e8-4a2f-84d9-4fb1983e0a93",
+      "phase": "implementation",
+      "round_index": 1,
+      "status": "failed",
+      "attempt_index": 1,
+      "retry_of_round_id": null,
+      "started_at": "2026-10-02T09:41:50.996Z",
+      "finished_at": "2026-10-02T09:42:10.715Z",
+      "error_message": "Claude CLI exited with code 1."
+    },
+    {
+      "id": "9977a9e7-d85a-499a-9948-522e89f08aa5",
+      "phase": "implementation",
+      "round_index": 2,
+      "status": "completed",
+      "attempt_index": 2,
+      "retry_of_round_id": "60dfa72c-64e8-4a2f-84d9-4fb1983e0a93",
+      "started_at": "2026-10-02T10:18:11.743Z",
+      "finished_at": "2026-10-02T10:18:30.092Z",
+      "error_message": null
+    },
+    {
+      "id": "a3d452e7-ed58-45de-a1f8-6b13eee40289",
+      "phase": "review",
+      "round_index": 3,
+      "status": "completed",
+      "attempt_index": 1,
+      "retry_of_round_id": null,
+      "started_at": "2026-10-02T10:18:30.890Z",
+      "finished_at": "2026-10-02T10:18:46.286Z",
+      "error_message": null
+    }
+  ],
+  "batch": {
+    "id": "b11ef8ac-a991-4936-ae00-d4c72b02b281",
+    "status": "completed",
+    "strategy": "unanimous",
+    "failure_policy": "require_all",
+    "evidence_hash": "9376dd588ffb688f1989c5a81774cef4b0a8c9a687ceab55712a81a6bdd7f95d",
+    "verdict": "approved",
+    "judge_job_id": null,
+    "started_at": "2026-10-02T10:18:30.890Z",
+    "finished_at": "2026-10-02T10:18:47.068Z"
+  },
+  "jobs": [
+    {
+      "id": "5e90c2de-f9bc-4b7b-9de8-a40099de6c59",
+      "role": "reviewer",
+      "status": "completed",
+      "verdict": "approved"
+    },
+    {
+      "id": "c92675b4-a02d-4886-8710-c3fd21769dc6",
+      "role": "reviewer",
+      "status": "completed",
+      "verdict": "approved"
+    }
+  ],
+  "attempts": [
+    {
+      "id": "76be5cbf-b231-457b-a776-258d96d7b327",
+      "review_job_id": "5e90c2de-f9bc-4b7b-9de8-a40099de6c59",
+      "attempt_index": 1,
+      "status": "completed",
+      "process_pid": 0,
+      "duration_ms": 12051,
+      "input_tokens": 9,
+      "output_tokens": 575,
+      "cost_usd": 0.056665999999999994,
+      "started_at": "2026-10-02T10:18:31.721Z",
+      "finished_at": "2026-10-02T10:18:43.772Z"
+    },
+    {
+      "id": "40bc68cc-b966-4f7d-8afb-fc8da16a1fb2",
+      "review_job_id": "c92675b4-a02d-4886-8710-c3fd21769dc6",
+      "attempt_index": 1,
+      "status": "completed",
+      "process_pid": 0,
+      "duration_ms": 11367,
+      "input_tokens": 9,
+      "output_tokens": 633,
+      "cost_usd": 0.0176279,
+      "started_at": "2026-10-02T10:18:33.348Z",
+      "finished_at": "2026-10-02T10:18:44.715Z"
+    }
+  ],
+  "processes": [
+    {
+      "owner": "58722ff5-ae8c-441e-9c5c-ea54f95c49ad",
+      "round_id": "60dfa72c-64e8-4a2f-84d9-4fb1983e0a93",
+      "phase": "implementation",
+      "pid": 34764
+    },
+    {
+      "owner": "58722ff5-ae8c-441e-9c5c-ea54f95c49ad",
+      "round_id": "9977a9e7-d85a-499a-9948-522e89f08aa5",
+      "phase": "implementation",
+      "pid": 50116
+    },
+    {
+      "owner": "76be5cbf-b231-457b-a776-258d96d7b327",
+      "round_id": "5e90c2de-f9bc-4b7b-9de8-a40099de6c59",
+      "phase": "consensus_review",
+      "pid": 46220
+    },
+    {
+      "owner": "40bc68cc-b966-4f7d-8afb-fc8da16a1fb2",
+      "round_id": "c92675b4-a02d-4886-8710-c3fd21769dc6",
+      "phase": "consensus_review",
+      "pid": 42860
+    }
+  ],
+  "results": [
+    {
+      "pid": 50116,
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 4,
+      "cost": 0.0356593,
+      "duration_ms": 11733,
+      "permission_denials": []
+    },
+    {
+      "pid": 46220,
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 1,
+      "cost": 0.056665999999999994,
+      "duration_ms": 6595,
+      "permission_denials": []
+    },
+    {
+      "pid": 42860,
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 1,
+      "cost": 0.0176279,
+      "duration_ms": 5893,
+      "permission_denials": []
+    }
+  ],
+  "knownRetryProcessCostUsd": 0.1099532,
+  "knownAllAttemptsCostUsd": 0.1526221,
+  "cleanup": {
+    "ownedTodoPids": 0,
+    "ownedReviewerPids": 0,
+    "resourceLeases": 0
+  },
+  "processChecks": [
+    {
+      "pid": 34764,
+      "dead": true
+    },
+    {
+      "pid": 50116,
+      "dead": true
+    },
+    {
+      "pid": 46220,
+      "dead": true
+    },
+    {
+      "pid": 42860,
+      "dead": true
+    }
+  ],
+  "budget": {
+    "used": 4,
+    "limit": 4
+  },
+  "artifactCheck": {
+    "head": "1943ae83f7b970d0259682c7aaea87fd2158d0bb",
+    "cleanWorktree": true,
+    "identity": {
+      "baselineCommit": "c3431d077e9221028f18b539f73923304eabcb51",
+      "reviewedHeadCommit": "1943ae83f7b970d0259682c7aaea87fd2158d0bb",
+      "worktreeStateHash": "b981415b826892b6347002f03325981f297d289ab2ef2822b9c3c8d92b299c0d",
+      "diffHash": "3142e8a45a5b6ec34423fe6d44857866cb73c93c780d6867301756c641bd9a0e",
+      "changedFiles": [
+        "greeting.js"
+      ],
+      "untrackedFiles": [],
+      "truncated": false
+    }
+  },
+  "humanFeedback": 0,
+  "realWorldCleanTerminal": 0
+}
