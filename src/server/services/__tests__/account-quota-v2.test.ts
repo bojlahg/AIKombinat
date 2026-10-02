@@ -140,7 +140,9 @@ describe('Account quota V2', () => {
       expect(env.SESSION_SECRET).toBeUndefined(); expect(env.TUNNEL_TOKEN).toBeUndefined();
       expect(env.QUOTA_ACCOUNT_A).toBeUndefined(); expect(env.QUOTA_ACCOUNT_B).toBeUndefined();
       expect(env.ANTHROPIC_API_KEY).toBe(accountId === a.id ? 'synthetic-a-secret' : 'synthetic-b-secret');
-      const child = spawn(process.execPath, ['-e', code], { cwd: workDir, env, windowsHide: true, stdio: ['pipe','pipe','pipe'] }); spawned.push(child);
+      const telemetry = JSON.stringify({ type: 'result', total_cost_usd: accountId === a.id ? .04 : .03, usage: { input_tokens: 10, output_tokens: 5 } });
+      const withUsage = code + ';process.stdout.write(' + JSON.stringify(telemetry) + ')';
+      const child = spawn(process.execPath, ['-e', withUsage], { cwd: workDir, env, windowsHide: true, stdio: ['pipe','pipe','pipe'] }); spawned.push(child);
       const exitPromise = new Promise<number>(resolve => child.once('close', code => resolve(code ?? -1)));
       launches.push({ account: accountId, pid: child.pid!, workDir, prompt, resume: args[6] });
       return { pid: child.pid!, stdout: child.stdout!, stderr: child.stderr!, stdin: child.stdin!, command: process.execPath, args: ['-e'], exitPromise };
@@ -150,6 +152,7 @@ describe('Account quota V2', () => {
     expect(launches[0].workDir).toBe(launches[1].workDir); expect(launches[0].workDir).not.toBe(project.path); expect(launches[1].prompt).toContain('Inspect current files/tests first'); expect(launches[1].resume).toBe(false);
     expect(fs.readFileSync(path.join(launches[1].workDir, 'done.txt'), 'utf8')).toBe('B completed');
     const rounds = queries.getExecutionRoundsByTodoId(item.id); expect(rounds.map(row => row.status)).toEqual(['failed','completed']);
+    expect(rounds.map(row => row.cost_usd)).toEqual([.04, .03]);
     expect(rounds[0].run_token).not.toBe(rounds[1].run_token); expect(rounds[1].retry_of_round_id).toBe(rounds[0].id);
     expect(JSON.parse(rounds[0].execution_snapshot!).providerAccountId).toBe(a.id); expect(JSON.parse(rounds[1].execution_snapshot!).providerAccountId).toBe(b.id);
     expect(quota.getAccountQuotaState(a.id).state).toBe('exhausted'); expect(quota.getAccountQuotaState(b.id).state).toBe('available');

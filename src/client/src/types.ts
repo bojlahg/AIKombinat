@@ -68,6 +68,12 @@ export interface TodoExecutionRound {
   error_message: string | null;
   retry_of_round_id?: string | null;
   attempt_index?: number;
+  duration_ms?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cost_usd?: number | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;

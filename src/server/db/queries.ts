@@ -453,6 +453,12 @@ export interface TodoExecutionRound {
   created_at: string;
   updated_at: string;
   artifact_identity: string | null;
+  duration_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cost_usd: number | null;
 }
 
 export function createExecutionRound(

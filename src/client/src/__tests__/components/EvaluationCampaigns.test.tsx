@@ -21,7 +21,7 @@ const c: api.Campaign={ id: 'campaign',project_id: 'project',name: 'Baseline',de
   { id: 'experiment',name: 'Other Single',description: '',is_control: 0,weight: 1,sort_order: 1,is_enabled: 1,review_mode: 'single',review_profile_id: 'profile',review_policy_id: null,rework_profile_id: null,max_review_rounds: null },
 ] };
 const assignment: api.CampaignAssignment={ id: 'assignment',campaign_id: c.id,campaign_name: c.name,arm_id: 'control',todo_id: 'todo',integrity_state: 'clean',integrity_reason: null,first_execution_at: null,review_started_at: null,campaign_definition_hash: 'campaign-hash',arm_definition_hash: 'arm-hash',assigned_review_config_hash: 'config-hash',arm_snapshot: c.arms[0],explanation: { algorithm: 'sha256_weighted_v1',bucket: 0,totalWeight: 2,rangeStart: 0,rangeEnd: 1 },feedback: null };
-const m: api.CampaignMetrics={ assignments: 1,started: 1,reachedReview: 1,terminal: 1,completed: 1,failed: 0,stopped: 0,completionRate: 1,failureRate: 0,approvedFinalReview: 1,needsChangesFinalReview: 0,finalReviewSamples: 1,needsChangesRate: 0,todosWithRework: 0,reworkDenominator: 1,reworkRate: 0,manualApprove: 0,manualRework: 0,avgTodoDurationMs: null,p50TodoDurationMs: null,p95TodoDurationMs: null,durationSamples: 0,knownTodoCostUsd: null,todoCostKnown: 0,todoCostTotal: 1,todoCostCoverage: 0,knownTodoTokens: null,todoTokensKnown: 0,todoTokensTotal: 1,todoTokenCoverage: 0,lowSample: true,feedback: { responses: 0,evaluative: 0,denominator: 1,helpful: 0,notHelpful: 0,mixed: 0,unknown: 0,helpfulRate: null,responseCoverage: 0,evaluativeCoverage: 0 } };
+const m: api.CampaignMetrics={ assignments: 1,started: 1,reachedReview: 1,terminal: 1,completed: 1,failed: 0,stopped: 0,completionRate: 1,failureRate: 0,approvedFinalReview: 1,needsChangesFinalReview: 0,finalReviewSamples: 1,needsChangesRate: 0,todosWithRework: 0,reworkDenominator: 1,reworkRate: 0,manualApprove: 0,manualRework: 0,avgTodoDurationMs: null,p50TodoDurationMs: null,p95TodoDurationMs: null,durationSamples: 0,knownTodoCostUsd: null,todoCostKnown: 0,todoCostTotal: 1,todoCostCoverage: 0,knownTodoTokens: null,todoTokensKnown: 0,todoTokensTotal: 1,todoTokenCoverage: 0,knownTreatmentCostUsd: null,treatmentCostAttemptsKnown: 0,treatmentCostAttemptsTotal: 1,treatmentCostCoverage: 0,knownTreatmentIoTokens: null,treatmentTokenAttemptsKnown: 0,treatmentTokenAttemptsTotal: 1,treatmentTokenCoverage: 0,treatmentCostTodosFullyCovered: 0,treatmentCostTodosStarted: 1,treatmentCostTodoCoverage: 0,avgTreatmentCostUsd: null,p50TreatmentCostUsd: null,knownCacheReadTokens: null,cacheReadCoverage: 0,knownCacheCreationTokens: null,cacheCreationCoverage: 0,knownProviderDurationMs: null,providerDurationCoverage: 0,treatmentProcessAttempts: 1,lowSample: true,feedback: { responses: 0,evaluative: 0,denominator: 1,helpful: 0,notHelpful: 0,mixed: 0,unknown: 0,helpfulRate: null,responseCoverage: 0,evaluativeCoverage: 0 } };
 const stats: api.CampaignAnalytics={ campaignId: c.id,totalAssigned: 2,arms: c.arms.map(a=>({ id: a.id!,name: a.name,isControl: !!a.is_control,weight: 1,expectedPercentage: .5,observedCount: 1,observedPercentage: .5,clean: 1,contaminated: 0,excluded: 0,attrition: m,itt: m,pp: { ...m,assignments: 0 },actualIdentities: { itt: {},pp: {} } })),comparisons: [] };
 beforeEach(()=>{
   vi.clearAllMocks();localStorage.setItem('aikombinat-lang','en');
@@ -29,6 +29,19 @@ beforeEach(()=>{
   vi.mocked(api.getCampaignAnalytics).mockResolvedValue(stats);vi.mocked(api.getCampaignAssignments).mockResolvedValue({ total: 2,limit: 100,offset: 0,hasMore: false,assignments: [] });
 });
 describe('evaluation campaign UX',()=>{
+  it('labels partial treatment cost with attempt coverage and renders unknowns as unavailable',async()=>{
+    const partial={ ...m,knownTreatmentCostUsd: .04,treatmentCostAttemptsKnown: 2,treatmentCostAttemptsTotal: 3,treatmentCostCoverage: 2/3 };
+    vi.mocked(api.getCampaignAnalytics).mockResolvedValue({ ...stats,arms: stats.arms.map(a=>({ ...a,itt: partial })) });
+    render(<I18nProvider><EvaluationCampaignsPanel projectId="project" /></I18nProvider>);
+    fireEvent.click(await screen.findByRole('button',{ name: 'Baseline' }));
+    const cost=await screen.findByText(en['campaign.knownTreatmentCostUsd']);
+    expect(within(cost.closest('tr')!).getAllByText('0.040')).toHaveLength(2);
+    expect(within(screen.getByText(en['campaign.treatmentCostCoverage']).closest('tr')!).getAllByText('66.7%')).toHaveLength(2);
+    expect(within(screen.getByText(en['campaign.p50TreatmentCostUsd']).closest('tr')!).getAllByText('—')).toHaveLength(2);
+    expect(within(screen.getByText(en['campaign.knownTreatmentIoTokens']).closest('tr')!).getAllByText('—')).toHaveLength(2);
+    expect(screen.getByText(en['campaign.costCaveat'],{ exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(en['campaign.knownTodoCostUsd'])).not.toBeInTheDocument();
+  });
   it('defaults auto enrollment on, permits opt-out, and does not reveal the arm before creation',async()=>{
     const save=vi.fn();const { container }=render(<I18nProvider><TodoForm projectId="project" initialTitle="Task" onSave={save} onCancel={vi.fn()} /></I18nProvider>);
     const participate=await screen.findByRole('checkbox',{ name: en['campaign.participate'] });expect(participate).toBeChecked();expect(screen.queryByText('Other Single')).not.toBeInTheDocument();

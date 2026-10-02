@@ -40,7 +40,7 @@ Quota observations, account health/cooldown, model availability, runtime admissi
 
 ## Analytics and denominators
 
-Analytics is a read-only projection of durable assignments, Todo status/usage, execution rounds, Consensus attempts, human actions and campaign feedback. ITT is the default; it retains contamination in its assigned arm and omits pre-start withdrawals. PP includes clean assignments. Attrition is also returned over all assignments, including exclusions.
+Analytics is a read-only projection of durable assignments, Todo status, execution rounds, Consensus attempts, human actions and campaign feedback. ITT is the default; it retains contamination in its assigned arm and omits pre-start withdrawals. PP includes clean assignments. Attrition is also returned over all assignments, including exclusions.
 
 | Metric | Population / denominator |
 | --- | --- |
@@ -50,11 +50,12 @@ Analytics is a read-only projection of durable assignments, Todo status/usage, e
 | Rework rate | Reached-review Todos with at least one started Rework divided by reached-review Todos; numerator and denominator are explicit. |
 | Manual Approve/Rework | Durable human-action counts for reached-review Todos. |
 | Todo wall time | Terminal Todos with valid implementation-start and finish timestamps; sample count plus mean/P50/P95 in milliseconds. |
-| Known Todo cost/tokens | Whole-Todo known values summed in the selected population, with separate known/total counts and coverage. All unknown yields null, never invented zero. |
+| Known treatment cost/I/O tokens | Sum over all started ordinary rounds plus Consensus reviewer/judge attempts, with known/started attempt coverage. I/O is input + output only; cache tokens are separate. All unknown yields null. |
+| Fully covered Todo cost | Average and P50 cost include only started Todos with cost coverage 1. Raw covered/started Todo counts and coverage accompany them. |
 | Feedback response/evaluation coverage | Response/evaluative count divided by reached-review Todos. |
 | Helpful rate | `helpful / (helpful + not_helpful + mixed)`; unknown is a response but not an evaluative judgment. |
 
-Review verdict, rework, manual-action and helpfulness metrics require review start in both protocols. Whole-Todo usage, wall time and attrition retain implementation-only failures because they describe the entire Todo, and are not claimed as isolated treatment cost. Single Review lacks some Consensus-only telemetry; Consensus reviewer-only cost remains diagnostic and cannot be compared directly with a missing Single Review equivalent. Coverage must be inspected before interpreting differences.
+Review verdict, rework, manual-action and helpfulness metrics require review start in both protocols. Treatment usage, wall time and attrition retain implementation-only failures. Treatment accounting includes failed attempts, retries, account failover, Single Review, rework, review-after-rework, Consensus retries and judges. Known partial sums always carry coverage; compare average/P50 cost per fully covered Todo with raw N and coverage, never unequal-arm aggregate sums as efficiency.
 
 Each experiment reports control value, arm value, arm-minus-control difference and arm/control ratio. Missing values remain null; a zero control yields a null ratio. Expected weighted and observed assignment distributions, clean/contaminated/excluded counts and a warning below 10 assignments are visible. There is no significance estimate, confidence interval, winner or routing recommendation.
 

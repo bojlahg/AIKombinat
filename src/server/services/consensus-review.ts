@@ -43,7 +43,7 @@ export interface ConsensusAttempt {
   execution_snapshot: string | null; input_payload: string | null; result_payload: string | null; error_message: string | null;
   process_pid: number; process_identity: string | null; quota_chain_id: string | null; retry_of_attempt_id: string | null;
   diversity_diagnostics_json: string | null; duration_ms: number | null; input_tokens: number | null;
-  output_tokens: number | null; cost_usd: number | null; started_at: string | null; finished_at: string | null;
+  output_tokens: number | null; cache_read_input_tokens: number | null; cache_creation_input_tokens: number | null; cost_usd: number | null; started_at: string | null; finished_at: string | null;
   created_at: string; updated_at: string;
 }
 const terminal = new Set(['completed', 'failed', 'stopped']);
@@ -263,8 +263,9 @@ export class ConsensusReviewService {
       process.stderr.on('data',(chunk: Buffer | string) => { stderr = (stderr + (typeof chunk === 'string' ? chunk : stderrDecoder.write(chunk))).slice(-16 * 1024); });
       void process.exitPromise.then(async code => {
         collector.push(stdoutDecoder.end()); stderr += stderrDecoder.end();
-        change('attempts',attempt!.id,collector.usage);
-        await this.finish(batch,job,attempt!,config,code,collector.finish(),stderr+'\n'+collector.diagnostic,collector.overflow);
+        const output = collector.finish();
+        change('attempts',attempt!.id,{ ...collector.usage });
+        await this.finish(batch,job,attempt!,config,code,output,stderr+'\n'+collector.diagnostic,collector.overflow);
       }).catch(error => logger.error('consensus-review.completion.failed',{ batchId: batch.id, attemptId: attempt!.id, msg: boundedError(error) }));
     } catch (error) {
       const fresh = consensusAttempts(job.id).find(a => a.id === attempt!.id);

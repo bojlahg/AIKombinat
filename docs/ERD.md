@@ -5,7 +5,7 @@
 <!-- CI verifies this file is in sync: npm run docs:erd:check -->
 
 Source: `src/server/db/schema.ts`
-Stats: 73 tables, 872 columns, 116 foreign keys
+Stats: 73 tables, 880 columns, 116 foreign keys
 
 ## Diagram
 
@@ -778,6 +778,12 @@ erDiagram
         DATETIME finished_at
         DATETIME created_at
         DATETIME updated_at
+        INTEGER duration_ms
+        INTEGER input_tokens
+        INTEGER output_tokens
+        INTEGER cache_read_input_tokens
+        INTEGER cache_creation_input_tokens
+        REAL cost_usd
     }
     delegation_parent_executions {
         TEXT id PK
@@ -1054,6 +1060,8 @@ erDiagram
         INTEGER input_tokens
         INTEGER output_tokens
         REAL cost_usd
+        INTEGER cache_read_input_tokens
+        INTEGER cache_creation_input_tokens
         TEXT started_at
         TEXT finished_at
         TEXT created_at

@@ -186,6 +186,47 @@ describe('integrity and feedback',()=>{
   });
 });
 describe('ITT/PP projections, pagination and migration',()=>{
+  it('exports exact retry treatment cost, excludes partial Todos from averages and preserves membership',async()=>{
+    const { persistExecutionRoundUsage }=await import('../treatment-usage.js');
+    const c=running(),todo=enroll(c),partial=enroll(c),pending=enroll(c);
+    const r1=q.createExecutionRound(todo.id,'implementation',1,randomUUID(),{ status: 'failed',startedAt: now() });
+    const r2=q.createExecutionRound(todo.id,'implementation',2,randomUUID(),{ status: 'completed',startedAt: now(),retryOfRoundId: r1.id });
+    persistExecutionRoundUsage(r1.id,{ cost_usd: .0426689,input_tokens: 10,output_tokens: 5 });
+    persistExecutionRoundUsage(r2.id,{ cost_usd: .0356593,input_tokens: 10,output_tokens: 5 });
+    const review=q.createExecutionRound(todo.id,'review',3,randomUUID(),{ status: 'completed',startedAt: now() });
+    const batch=randomUUID();
+    db.prepare(`INSERT INTO consensus_review_batches (id,todo_id,review_round_id,review_policy_id,strategy,failure_policy,min_successful_reviewers,diversity_policy,max_parallel_reviewers,status,artifact_identity_json,evidence_hash,created_at,updated_at)
+      VALUES (?,?,?,?,'majority','quorum',2,'none',2,'completed','{}','hash',?,?)`).run(batch,todo.id,review.id,policyId,now(),now());
+    for (const cost of [.0566660,.0176279]) {
+      const job=randomUUID();
+      db.prepare(`INSERT INTO consensus_review_jobs (id,batch_id,role,execution_profile_id,label,weight,priority,status,created_at,updated_at) VALUES (?,?,'reviewer',?,'Reviewer',1,0,'completed',?,?)`).run(job,batch,profileId,now(),now());
+      db.prepare(`INSERT INTO consensus_review_attempts (id,review_job_id,attempt_index,status,run_token,cost_usd,input_tokens,output_tokens,started_at,created_at,updated_at) VALUES (?,?,1,'completed',?,?,10,5,?,?,?)`).run(randomUUID(),job,randomUUID(),cost,now(),now(),now());
+    }
+    q.updateTodo(todo.id,{ total_cost_usd: .0356593,total_tokens: 999 });
+    const known=q.createExecutionRound(partial.id,'implementation',1,randomUUID(),{ status: 'completed',startedAt: now() });
+    persistExecutionRoundUsage(known.id,{ cost_usd: .01 });
+    q.createExecutionRound(partial.id,'review',2,randomUUID(),{ status: 'completed',startedAt: now() });
+    const before=[todo,partial,pending].map(t=>service.getEvaluationAssignment(t.id));
+    const spy=vi.spyOn(db,'prepare');
+    const data=analytics.getEvaluationCampaignAnalytics(c.id,projectId);
+    expect(spy.mock.calls.filter(([sql])=>String(sql).includes('WITH selected AS'))).toHaveLength(1);
+    expect(data.arms.reduce((n,a)=>n+a.itt.assignments,0)).toBe(3);
+    expect(data.arms.reduce((n,a)=>n+a.pp.assignments,0)).toBe(3);
+    expect(data.arms.reduce((n,a)=>n+a.itt.treatmentCostTodosFullyCovered,0)).toBe(1);
+    expect(data.arms.reduce((n,a)=>n+a.itt.treatmentCostTodosStarted,0)).toBe(2);
+    const covered=data.arms.find(a=>a.itt.treatmentCostTodosFullyCovered===1)!;
+    expect(covered.itt.avgTreatmentCostUsd).toBeCloseTo(.1526221,10);
+    expect(covered.itt.p50TreatmentCostUsd).toBeCloseTo(.1526221,10);
+    expect(data.arms.reduce((n,a)=>n+(a.itt.knownTreatmentCostUsd??0),0)).toBeCloseTo(.1626221,10);
+    const page=analytics.listCampaignAssignments(c.id,projectId);
+    const assignment=page.assignments.find(a=>a.todo_id===todo.id)!;
+    expect(assignment.known_treatment_cost_usd).toBeCloseTo(.1526221,10);
+    expect(assignment).toMatchObject({ treatment_cost_attempts_known: 4,treatment_cost_attempts_total: 4,treatment_cost_coverage: 1,treatment_process_attempts: 4,known_treatment_io_tokens: 60,known_todo_cost_usd: .0356593 });
+    expect(page.assignments.find(a=>a.todo_id===pending.id)).toMatchObject({ known_treatment_cost_usd: null,treatment_cost_coverage: null,treatment_process_attempts: 0 });
+    const csv=analytics.campaignCsv(page);expect(csv).toContain('known_treatment_cost_usd,treatment_cost_attempts_known,treatment_cost_attempts_total,treatment_cost_coverage');
+    expect(csv).toContain('known_treatment_io_tokens');expect(csv).toContain('known_cache_read_tokens');
+    expect([todo,partial,pending].map(t=>service.getEvaluationAssignment(t.id))).toEqual(before);
+  });
   it('keeps contamination in ITT, excludes withdrawal, handles attrition, denominators and unknown usage',()=>{
     const c=running(),clean=enroll(c),contaminated=enroll(c),excluded=enroll(c),pending=enroll(c);
     reviewed(clean);q.updateTodo(clean.id,{ total_cost_usd: .25,total_tokens: 120 });
@@ -206,7 +247,8 @@ describe('ITT/PP projections, pagination and migration',()=>{
     for (let i=0;i<100 && (!control || !experiment);i++) { const todo=enroll(c);if (service.getEvaluationAssignment(todo.id)?.arm_id===c.arms[0].id) control=todo;else experiment=todo; }
     reviewed(control!);reviewed(experiment!,'failed');q.updateTodo(control!.id,{ total_cost_usd: 0 });q.updateTodo(experiment!.id,{ total_cost_usd: .2 });
     const comparison=analytics.getEvaluationCampaignAnalytics(c.id,projectId).comparisons[0].itt;
-    expect(comparison.knownTodoCostUsd).toEqual({ controlValue: 0,armValue: .2,absoluteDifference: .2,relativeRatio: null });
+    expect(comparison.avgTreatmentCostUsd).toEqual({ controlValue: null,armValue: null,absoluteDifference: null,relativeRatio: null });
+    expect(comparison).not.toHaveProperty('knownTodoCostUsd');
   });
   it('bounds a 10k-assignment response and CSV, preserves nulls and prevents formula injection',()=>{
     const c=running(),first=enroll(c),a=service.getEvaluationAssignment(first.id)!;

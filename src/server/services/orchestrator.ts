@@ -1,3 +1,4 @@
+import { persistExecutionRoundUsage } from './treatment-usage.js';
 import { observeImplementationStart, observeReviewStart } from './evaluation-campaign-service.js';
 import { attemptedAccounts, quotaChain, setQuotaChain, prepareTodoQuotaRetry, bindFailoverTarget } from './account-failover.js';
 import fs from 'fs';
@@ -1454,9 +1455,9 @@ export class Orchestrator {
       // Start streaming logs to DB (Claude uses structured JSON, others use plain text)
       // Interactive mode outputs TUI text (not JSON), so always use plain text streaming
       if (resolvedCliTool === 'claude' && mode !== 'interactive') {
-        streamDrainPromise = logStreamer.streamJsonToDb(todoId, stdout, stderr, mode === 'verbose');
+        streamDrainPromise = logStreamer.streamJsonToDb(todoId, stdout, stderr, mode === 'verbose', currentRound?.run_token ?? todoId);
       } else {
-        streamDrainPromise = logStreamer.streamToDb(todoId, stdout, stderr);
+        streamDrainPromise = logStreamer.streamToDb(todoId, stdout, stderr, currentRound?.run_token ?? todoId);
       }
 
       // Update todo with process info (status already set to 'running' above)
@@ -1510,6 +1511,14 @@ export class Orchestrator {
         } catch { /* ignore */ }
       }
 
+      const isContextExhausted = logStreamer.isContextExhausted(currentRound?.run_token ?? todoId);
+      const tokenUsage = logStreamer.getTokenUsage(todoId, currentRound?.run_token ?? todoId);
+      if (currentRound && tokenUsage) persistExecutionRoundUsage(currentRound.id, {
+        duration_ms: tokenUsage.duration_ms, input_tokens: tokenUsage.input_tokens, output_tokens: tokenUsage.output_tokens,
+        cache_read_input_tokens: tokenUsage.cache_read_input_tokens, cache_creation_input_tokens: tokenUsage.cache_creation_input_tokens,
+        cost_usd: tokenUsage.total_cost,
+      });
+
       // Check if todo is intentionally stopping (or project is stopping)
       const currentTodo = queries.getTodoById(todoId);
       const isStopping = this.stoppingTodoIds.has(todoId) || (currentTodo && this.isStoppingProjects.has(currentTodo.project_id));
@@ -1533,10 +1542,6 @@ export class Orchestrator {
         }
 
         if (exitCode !== 0) {
-          // Check for context exhaustion before normal failure handling
-          const isContextExhausted = logStreamer.isContextExhausted(todoId);
-          const tokenUsage = logStreamer.getTokenUsage(todoId);
-
           // Check for runtime quota / rate-limit rejection (scoped to current execution)
           const combinedOutput = queries.getRecentTaskLogText(todoId, executionStartRowid, 64 * 1024);
           const classification = classifyProviderFailure(resolvedCliTool, exitCode, combinedOutput);
@@ -1648,7 +1653,6 @@ export class Orchestrator {
           });
           const doneMsg = `${adapter.displayName} completed successfully.${isContinue ? ` (round ${roundNumber})` : ''}`;
           queries.createTaskLog(todoId, 'output', doneMsg, roundNumber);
-          const tokenUsage = logStreamer.getTokenUsage(todoId);
 
           if (todo.review_enabled && currentRound) {
             const combinedOutput = resolvedCliTool === 'opencode'

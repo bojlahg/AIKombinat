@@ -95,6 +95,8 @@ export function migrateConsensusReview(db: Database.Database): void {
           input_tokens INTEGER,
           output_tokens INTEGER,
           cost_usd REAL,
+          cache_read_input_tokens INTEGER,
+          cache_creation_input_tokens INTEGER,
           started_at TEXT,
           finished_at TEXT,
           created_at TEXT NOT NULL,
@@ -105,6 +107,10 @@ export function migrateConsensusReview(db: Database.Database): void {
           WHERE process_pid > 0 OR status IN ('pending','waiting_executor','waiting_quota','waiting_resource','starting','running','recovery_required');
         CREATE INDEX IF NOT EXISTS idx_consensus_todo ON consensus_review_batches(todo_id);
       `);
+      const attemptColumns = db.prepare('PRAGMA table_info(consensus_review_attempts)').all() as { name: string }[];
+      for (const column of ['cache_read_input_tokens', 'cache_creation_input_tokens']) {
+        if (!attemptColumns.some(c => c.name === column)) db.exec(`ALTER TABLE consensus_review_attempts ADD COLUMN ${column} INTEGER`);
+      }
       for (const name of ['resource_requests', 'resource_leases']) {
         const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(name) as { sql: string };
         if (row.sql.includes("'reviewer'")) continue;

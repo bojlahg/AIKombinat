@@ -30,6 +30,8 @@ let mockClaudeStarts: Array<{
   effort?: string;
 }> = [];
 
+let mockStdouts: PassThrough[] = [];
+
 let nextExitResolvers: Array<(code: number) => void> = [];
 
 const mockGitDiff = vi.fn().mockResolvedValue('diff --git a/index.ts b/index.ts\n+ console.log("reviewed");');
@@ -43,6 +45,7 @@ vi.mock('../claude-manager.js', () => ({
 
       const stdout = new PassThrough();
       const stderr = new PassThrough();
+      mockStdouts.push(stdout);
 
       let exitResolve: (code: number) => void;
       const exitPromise = new Promise<number>((resolve) => {
@@ -134,6 +137,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     currentWorkspace = workspace;
     mockClaudeStarts = [];
     nextExitResolvers = [];
+    mockStdouts = [];
     mockGitDiff.mockReset().mockResolvedValue('diff --git a/index.ts b/index.ts\n+ console.log("reviewed");');
 
     testDb = new Database(':memory:');
@@ -180,6 +184,40 @@ describe('Execution Round Retry & Recovery V1', () => {
     workspace.cleanup();
   });
 
+  it.each([0, 1])('persists ordinary final telemetry for exit code %s', async code => {
+    const todo = queries.createTodo(project.id, 'Usage', 'Usage', 0, 'claude');
+    await orchestrator.startTodo(todo.id);
+    mockStdouts[0].write(JSON.stringify({ type: 'result', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 }, total_cost_usd: .04, duration_ms: 120 }));
+    nextExitResolvers[0](code);
+    await vi.waitFor(() => expect(queries.getTodoById(todo.id)?.status).toBe(code ? 'failed' : 'completed'));
+    expect(queries.getLatestExecutionRound(todo.id)).toMatchObject({ cost_usd: .04, input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100, cache_creation_input_tokens: 0, duration_ms: 120 });
+  });
+  it('persists final stop telemetry after streams drain, even after the round is stopped', async () => {
+    const todo = queries.createTodo(project.id, 'Stop usage', 'Usage', 0, 'claude');
+    await orchestrator.startTodo(todo.id);
+    await orchestrator.stopTodo(todo.id);
+    mockStdouts[0].write(JSON.stringify({ type: 'result', usage: { input_tokens: 0, output_tokens: 0 }, total_cost_usd: 0 }));
+    nextExitResolvers[0](1);
+    await vi.waitFor(() => expect(queries.getLatestExecutionRound(todo.id)?.cost_usd).toBe(0));
+    expect(queries.getLatestExecutionRound(todo.id)).toMatchObject({ status: 'stopped', cost_usd: 0, input_tokens: 0, output_tokens: 0 });
+  });
+  it('captures Single Review, rework and review-after-rework in separate rounds', async () => {
+    const todo = queries.createTodo(project.id, 'Pipeline usage', 'Usage', 0, 'claude');
+    queries.updateTodo(todo.id, { review_enabled: 1, review_profile_id: reviewProfile.id, rework_profile_id: reworkProfile.id, max_review_rounds: 3 });
+    await orchestrator.startTodo(todo.id);
+    const verdicts = [null, 'needs_changes', null, 'approved'];
+    for (let i = 0; i < 4; i++) {
+      await vi.waitFor(() => expect(mockStdouts).toHaveLength(i + 1));
+      const result = verdicts[i] ? JSON.stringify({ verdict: verdicts[i], summary: 'Review', issues: verdicts[i] === 'needs_changes' ? [{ severity: 'minor', description: 'Fix', files: ['index.ts'] }] : [] }) : 'Implemented';
+      if (verdicts[i]) mockStdouts[i].write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: result }] } }) + '\n');
+      mockStdouts[i].write(JSON.stringify({ type: 'result', result, usage: { input_tokens: i + 1, output_tokens: 1 }, total_cost_usd: .01 * (i + 1) }));
+      nextExitResolvers[i](0);
+    }
+    await vi.waitFor(() => expect(queries.getTodoById(todo.id)?.status).toBe('completed'));
+    const rounds = queries.getExecutionRoundsByTodoId(todo.id);
+    expect(rounds.map(r => r.phase)).toEqual(['implementation', 'review', 'rework', 'review']);
+    expect(rounds.map(r => r.cost_usd)).toEqual([.01, .02, .03, .04]);
+  });
   it('1. Failed Implementation retry -> Review starts upon completion', async () => {
     const todo = queries.createTodo(
       project.id,
@@ -211,6 +249,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     expect(mockClaudeStarts).toHaveLength(1);
 
     // Process fails with non-zero exit code
+    mockStdouts[0].write(JSON.stringify({ type: 'result', total_cost_usd: .04 }));
     nextExitResolvers[0](1);
     await new Promise((r) => setTimeout(r, 60));
 
@@ -237,6 +276,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     expect(roundsDuringRetry[1].input_payload).toBe(roundsAfterFail[0].input_payload);
 
     // Implementation retry succeeds -> auto-chains to Review
+    mockStdouts[1].write(JSON.stringify({ type: 'result', total_cost_usd: .03 }));
     nextExitResolvers[1](0);
     await new Promise((r) => setTimeout(r, 60));
 
@@ -246,6 +286,7 @@ describe('Execution Round Retry & Recovery V1', () => {
     expect(roundsAfterSuccess[1].status).toBe('completed');
     expect(roundsAfterSuccess[2].phase).toBe('review');
     expect(roundsAfterSuccess[2].status).toBe('running');
+    expect(roundsAfterSuccess.map(r => r.cost_usd)).toEqual([.04, .03, null]);
   });
 
   it('2. Failed Review retry -> approved -> Todo completed', async () => {

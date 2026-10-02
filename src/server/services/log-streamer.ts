@@ -1,3 +1,4 @@
+import { knownUsage } from './treatment-usage.js';
 import { createChildEnvironment } from '../utils/child-environment.js';
 import { spawn } from 'child_process';
 import * as queries from '../db/queries.js';
@@ -83,7 +84,7 @@ export class LogStreamer {
    * Returns a promise that resolves when both streams have drained and
    * all trailing buffer content has been written to the DB.
    */
-  streamToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream): Promise<void> {
+  streamToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream, usageKey: string = todoId): Promise<void> {
     const commitPattern = /commit\s+[0-9a-f]{7,40}/i;
     const noiseState = this.getNoiseFilter(todoId);
 
@@ -169,7 +170,7 @@ export class LogStreamer {
         done = true;
         if (stderrBuffer.trim() && !isPlainTextNoise(stderrBuffer, noiseState)) {
           if (CONTEXT_EXHAUSTION_PATTERN.test(stderrBuffer)) {
-            this.contextExhaustedMap.set(todoId, true);
+            this.contextExhaustedMap.set(usageKey, true);
           }
           const logType = classifyStderrLine(stderrBuffer.trim());
           try {
@@ -195,7 +196,7 @@ export class LogStreamer {
         for (const line of lines) {
           if (!line.trim()) continue;
           if (CONTEXT_EXHAUSTION_PATTERN.test(line)) {
-            this.contextExhaustedMap.set(todoId, true);
+            this.contextExhaustedMap.set(usageKey, true);
           }
           if (isPlainTextNoise(line, noiseState)) continue;
           const logType = classifyStderrLine(line.trim());
@@ -229,11 +230,11 @@ export class LogStreamer {
    * Returns a promise that resolves when both streams have drained and
    * all trailing buffer content has been processed and written to the DB.
    */
-  streamJsonToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream, verbose: boolean = false): Promise<void> {
+  streamJsonToDb(todoId: string, stdout: NodeJS.ReadableStream, stderr: NodeJS.ReadableStream, verbose: boolean = false, usageKey: string = todoId): Promise<void> {
     const commitPattern = /commit\s+[0-9a-f]{7,40}/i;
 
     // Initialize token usage accumulator
-    this.tokenUsageMap.set(todoId, {
+    this.tokenUsageMap.set(usageKey, {
       input_tokens: null, output_tokens: null,
       cache_read_input_tokens: null, cache_creation_input_tokens: null,
       total_cost: null, duration_ms: null, num_turns: null,
@@ -252,7 +253,7 @@ export class LogStreamer {
           if (done) return;
           done = true;
           if (buffer.trim()) {
-            this.processJsonLine(todoId, buffer.trim(), commitPattern, verbose);
+            this.processJsonLine(todoId, buffer.trim(), commitPattern, verbose, usageKey);
           }
           resolve();
         };
@@ -263,7 +264,7 @@ export class LogStreamer {
           buffer = lines.pop() || '';
           for (const line of lines) {
             if (!line.trim()) continue;
-            this.processJsonLine(todoId, line.trim(), commitPattern, verbose);
+            this.processJsonLine(todoId, line.trim(), commitPattern, verbose, usageKey);
           }
         });
 
@@ -279,14 +280,14 @@ export class LogStreamer {
   /**
    * Process a single JSON line from Claude CLI stream-json output.
    */
-  private processJsonLine(todoId: string, line: string, commitPattern: RegExp, verbose: boolean = false): void {
+  private processJsonLine(todoId: string, line: string, commitPattern: RegExp, verbose: boolean = false, usageKey: string = todoId): void {
     let event: Record<string, unknown>;
     try {
       event = JSON.parse(line);
     } catch {
       // Not valid JSON — log as raw error (fallback)
       if (CONTEXT_EXHAUSTION_PATTERN.test(line)) {
-        this.contextExhaustedMap.set(todoId, true);
+        this.contextExhaustedMap.set(usageKey, true);
       }
       try {
         this.log(todoId, 'error', line);
@@ -355,7 +356,7 @@ export class LogStreamer {
             : typeof event.message === 'string' ? event.message
             : JSON.stringify(event);
           if (CONTEXT_EXHAUSTION_PATTERN.test(errorMsg)) {
-            this.contextExhaustedMap.set(todoId, true);
+            this.contextExhaustedMap.set(usageKey, true);
           }
           try {
             this.log(todoId, 'error', errorMsg);
@@ -369,22 +370,22 @@ export class LogStreamer {
           if (event.is_error) {
             const resultText = typeof event.result === 'string' ? event.result : '';
             if (CONTEXT_EXHAUSTION_PATTERN.test(resultText)) {
-              this.contextExhaustedMap.set(todoId, true);
+              this.contextExhaustedMap.set(usageKey, true);
             }
           }
           // Extract token usage data
-          const usage = this.tokenUsageMap.get(todoId);
+          const usage = this.tokenUsageMap.get(usageKey);
           if (usage) {
             const apiUsage = event.usage as Record<string, unknown> | undefined;
             if (apiUsage) {
-              usage.input_tokens = typeof apiUsage.input_tokens === 'number' ? apiUsage.input_tokens : null;
-              usage.output_tokens = typeof apiUsage.output_tokens === 'number' ? apiUsage.output_tokens : null;
-              usage.cache_read_input_tokens = typeof apiUsage.cache_read_input_tokens === 'number' ? apiUsage.cache_read_input_tokens : null;
-              usage.cache_creation_input_tokens = typeof apiUsage.cache_creation_input_tokens === 'number' ? apiUsage.cache_creation_input_tokens : null;
+              usage.input_tokens = knownUsage(apiUsage.input_tokens);
+              usage.output_tokens = knownUsage(apiUsage.output_tokens);
+              usage.cache_read_input_tokens = knownUsage(apiUsage.cache_read_input_tokens);
+              usage.cache_creation_input_tokens = knownUsage(apiUsage.cache_creation_input_tokens);
             }
-            usage.total_cost = typeof event.total_cost_usd === 'number' ? event.total_cost_usd : null;
-            usage.duration_ms = typeof event.duration_ms === 'number' ? event.duration_ms : null;
-            usage.num_turns = typeof event.num_turns === 'number' ? event.num_turns : null;
+            usage.total_cost = knownUsage(event.total_cost_usd);
+            usage.duration_ms = knownUsage(event.duration_ms);
+            usage.num_turns = knownUsage(event.num_turns);
 
             // Extract contextWindow from modelUsage (first model entry)
             const modelUsage = event.modelUsage as Record<string, Record<string, unknown>> | undefined;
@@ -517,16 +518,16 @@ export class LogStreamer {
   /**
    * Get accumulated token usage for a task and clean up.
    */
-  getTokenUsage(todoId: string): TokenUsage | null {
+  getTokenUsage(todoId: string, usageKey: string = todoId): TokenUsage | null {
     // Always clean up the noise-filter state, even when no token usage was
     // recorded (Antigravity/Codex paths never initialize tokenUsageMap).
     this.noiseFilterMap.delete(todoId);
-    const usage = this.tokenUsageMap.get(todoId);
+    const usage = this.tokenUsageMap.get(usageKey);
     if (!usage) return null;
-    this.tokenUsageMap.delete(todoId);
-    this.contextExhaustedMap.delete(todoId);
+    this.tokenUsageMap.delete(usageKey);
+    this.contextExhaustedMap.delete(usageKey);
     // Return null if nothing was parsed
-    if (usage.input_tokens === null && usage.output_tokens === null && usage.total_cost === null) {
+    if ([usage.input_tokens, usage.output_tokens, usage.total_cost, usage.duration_ms, usage.cache_read_input_tokens, usage.cache_creation_input_tokens].every(value => value === null)) {
       return null;
     }
     return usage;

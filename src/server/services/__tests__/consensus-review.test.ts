@@ -97,6 +97,16 @@ describe('durable consensus lifecycle', () => {
     batchId = service.start(todo.id,round.id).id;return policy;
   }
   async function complete(i: number, result: ReviewResult, code = 0) { processes[i].stdout.write(JSON.stringify(result));processes[i].exit(code);await new Promise(resolve => setTimeout(resolve,30)); }
+  it('persists reviewer and judge cache usage from final lines before finalization', async () => {
+    start('judge'); await vi.waitFor(() => expect(processes).toHaveLength(3));
+    for (let i = 0; i < 4; i++) {
+      await vi.waitFor(() => expect(processes).toHaveLength(i < 3 ? 3 : 4));
+      processes[i].stdout.write(JSON.stringify({ type: 'result', result: JSON.stringify(approved), usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 }, total_cost_usd: .01 }));
+      processes[i].exit(0);
+      await vi.waitFor(() => expect(consensusJobs(batchId).flatMap(j => consensusAttempts(j.id)).filter(a => a.status === 'completed')).toHaveLength(i + 1));
+    }
+    expect(consensusJobs(batchId).flatMap(j => consensusAttempts(j.id)).every(a => a.cost_usd === .01 && a.cache_read_input_tokens === 50 && a.cache_creation_input_tokens === 0)).toBe(true);
+  });
   it('creates one round/batch, preserves dissent and chains ordinary rework exactly once', async () => {
     start();expect(service.start(todo.id,round.id).id).toBe(batchId);
     await vi.waitFor(() => expect(processes).toHaveLength(3));
@@ -288,7 +298,7 @@ describe('durable consensus lifecycle', () => {
     collector.push(JSON.stringify({ type: 'system',message: 'noise' })+'\n');
     collector.push(JSON.stringify({ type: 'assistant',message: { content: [{ type: 'text',text: JSON.stringify(approved) }] } })+'\n');
     collector.push(JSON.stringify({ type: 'result',result: JSON.stringify(approved),usage: { input_tokens: 10,output_tokens: 20 },total_cost_usd: 0.001 }));
-    expect(JSON.parse(collector.finish())).toEqual(approved);expect(collector.usage).toEqual({ input_tokens: 10,output_tokens: 20,cost_usd: 0.001 });expect(collector.overflow).toBe(false);
+    expect(JSON.parse(collector.finish())).toEqual(approved);expect(collector.usage).toEqual({ input_tokens: 10,output_tokens: 20,cost_usd: 0.001,cache_read_input_tokens: null,cache_creation_input_tokens: null });expect(collector.overflow).toBe(false);
   });
 
   it('full implementation -> consensus changes -> ordinary rework -> fresh consensus approval', async () => {

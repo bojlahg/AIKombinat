@@ -1,3 +1,5 @@
+import { knownUsage, type AttemptUsage } from './treatment-usage.js';
+
 export class ConsensusOutputCollector {
   private pending = '';
   private text = '';
@@ -5,7 +7,7 @@ export class ConsensusOutputCollector {
   private droppingLine = false;
   overflow = false;
   diagnostic = '';
-  usage: { input_tokens: number | null; output_tokens: number | null; cost_usd: number | null } = { input_tokens: null,output_tokens: null,cost_usd: null };
+  usage: AttemptUsage = { input_tokens: null,output_tokens: null,cost_usd: null,cache_read_input_tokens: null,cache_creation_input_tokens: null };
   constructor(private structured: boolean) {}
   push(chunk: string): void {
     if (!this.structured) { this.text = this.bound(this.text + chunk);return; }
@@ -34,8 +36,8 @@ export class ConsensusOutputCollector {
       } else if (data.type === 'result') {
         if (typeof data.result === 'string') this.finalText = this.bound(data.result);
         if (Array.isArray(data.errors)) this.diagnostic = data.errors.filter((e: unknown) => typeof e === 'string').join('; ').slice(-8192);
-        const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
-        this.usage = { input_tokens: finite(data.usage?.input_tokens),output_tokens: finite(data.usage?.output_tokens),cost_usd: finite(data.total_cost_usd) };
+        const finite = knownUsage;
+        this.usage = { input_tokens: finite(data.usage?.input_tokens),output_tokens: finite(data.usage?.output_tokens),cost_usd: finite(data.total_cost_usd),cache_read_input_tokens: finite(data.usage?.cache_read_input_tokens),cache_creation_input_tokens: finite(data.usage?.cache_creation_input_tokens) };
       } else if (data.verdict) this.text = this.bound(this.text + line);
     } catch { this.text = this.bound(this.text + line + '\n'); }
   }

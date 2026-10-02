@@ -1,3 +1,4 @@
+import { getCampaignTreatmentUsage, emptyTreatmentUsage, type TreatmentUsage } from './treatment-usage.js';
 import { getDatabase } from '../db/connection.js';
 import { getEvaluationCampaign } from './evaluation-campaign-service.js';
 import { evaluationResult, normalizeExecutionIdentity } from './review-evaluation-normalize.js';
@@ -7,6 +8,7 @@ import { redactString } from '../logging/redact.js';
 interface Outcome {
   id: string; todo_id: string; arm_id: string; assigned_at: string; assignment_bucket: number;
   integrity_state: string; integrity_reason: string | null; first_execution_at: string | null; review_started_at: string | null; finished_at: string | null;
+  usage: TreatmentUsage;
   status: string; total_cost_usd: number | null; total_tokens: number | null;
   result_payload: string | null; rework_count: number; manual_approve: number; manual_rework: number; feedback: string | null;
 }
@@ -23,6 +25,30 @@ const projection=`SELECT a.id,a.todo_id,a.arm_id,a.assigned_at,a.assignment_buck
   WHERE a.campaign_id=?`;
 const rate=(n: number,d: number): number | null=>d?n/d:null;
 function percentile(sorted: number[],p: number) { return sorted.length ? sorted[Math.max(0,Math.ceil(sorted.length*p)-1)] : null; }
+
+function treatmentMetrics(rows: Outcome[]) {
+  const total=rows.reduce((n,r)=>n+r.usage.processAttempts.total,0);
+  const measure=(key: 'cost' | 'ioTokens' | 'cacheReadTokens' | 'cacheCreationTokens' | 'providerDuration')=>{
+    const values=rows.map(r=>r.usage[key]);
+    const known=values.reduce((n,v)=>n+v.attemptsKnown,0);
+    return { value: known ? values.reduce((n,v)=>n+(v.known ?? 0),0) : null,known,coverage: rate(known,total) };
+  };
+  const cost=measure('cost'),tokens=measure('ioTokens'),cacheRead=measure('cacheReadTokens'),cacheCreation=measure('cacheCreationTokens'),duration=measure('providerDuration');
+  const started=rows.filter(r=>r.usage.processAttempts.total>0);
+  const covered=started.filter(r=>r.usage.cost.coverage===1).map(r=>r.usage.cost.known!).sort((a,b)=>a-b);
+  return { knownTreatmentCostUsd: cost.value,treatmentCostAttemptsKnown: cost.known,treatmentCostAttemptsTotal: total,treatmentCostCoverage: cost.coverage,
+    knownTreatmentIoTokens: tokens.value,treatmentTokenAttemptsKnown: tokens.known,treatmentTokenAttemptsTotal: total,treatmentTokenCoverage: tokens.coverage,
+    treatmentCostTodosFullyCovered: covered.length,treatmentCostTodosStarted: started.length,treatmentCostTodoCoverage: rate(covered.length,started.length),
+    avgTreatmentCostUsd: covered.length ? covered.reduce((n,v)=>n+v,0)/covered.length : null,p50TreatmentCostUsd: percentile(covered,.5),
+    knownCacheReadTokens: cacheRead.value,cacheReadAttemptsKnown: cacheRead.known,cacheReadCoverage: cacheRead.coverage,
+    knownCacheCreationTokens: cacheCreation.value,cacheCreationAttemptsKnown: cacheCreation.known,cacheCreationCoverage: cacheCreation.coverage,
+    knownProviderDurationMs: duration.value,providerDurationAttemptsKnown: duration.known,providerDurationCoverage: duration.coverage,treatmentProcessAttempts: total };
+}
+function attachUsage(rows: Outcome[], id: string, page?: { limit: number; offset: number }): Outcome[] {
+  const usages=getCampaignTreatmentUsage(id,page);
+  return rows.map(row=>({ ...row,usage: usages.get(row.todo_id) ?? emptyTreatmentUsage() }));
+}
+
 function metrics(rows: Outcome[]) {
   const reached=rows.filter(r=>r.review_started_at!==null);
   const verdicts=reached.map(r=>evaluationResult(r.result_payload)?.verdict).filter(Boolean);
@@ -37,7 +63,7 @@ function metrics(rows: Outcome[]) {
   const helpful=evaluative.filter(r=>r.feedback==='helpful').length,notHelpful=evaluative.filter(r=>r.feedback==='not_helpful').length,mixed=evaluative.filter(r=>r.feedback==='mixed').length;
   const todosWithRework=reached.filter(r=>r.rework_count>0).length;
   const approvedFinalReview=verdicts.filter(v=>v==='approved').length,needsChangesFinalReview=verdicts.filter(v=>v==='needs_changes').length;
-  return { assignments: rows.length, started: rows.filter(r=>r.first_execution_at!==null).length,reachedReview: reached.length,
+  return { ...treatmentMetrics(rows),assignments: rows.length, started: rows.filter(r=>r.first_execution_at!==null).length,reachedReview: reached.length,
     terminal: count('completed')+count('failed')+count('stopped')+count('merged'),completed: count('completed')+count('merged'),failed: count('failed'),stopped: count('stopped'),
     completionRate: rate(count('completed')+count('merged'),rows.length),failureRate: rate(count('failed'),rows.length),
     approvedFinalReview,needsChangesFinalReview,finalReviewSamples: verdicts.length,needsChangesRate: rate(needsChangesFinalReview,verdicts.length),
@@ -52,7 +78,7 @@ function metrics(rows: Outcome[]) {
 export function listCampaignAssignments(id: string,projectId: string,limit=100,offset=0) {
   const campaign=getEvaluationCampaign(id,projectId);
   const db=getDatabase();
-  const rows=db.prepare(projection+' ORDER BY a.assigned_at,a.id LIMIT ? OFFSET ?').all(id,limit,offset) as Outcome[];
+  const rows=attachUsage(db.prepare(projection+' ORDER BY a.assigned_at,a.id LIMIT ? OFFSET ?').all(id,limit,offset) as Outcome[],id,{ limit,offset });
   const total=(db.prepare('SELECT COUNT(*) n FROM evaluation_campaign_assignments WHERE campaign_id=?').get(id) as { n: number }).n;
   return { total,limit,offset,hasMore: offset+rows.length<total,assignments: rows.map(r=>({
     assignment_id: r.id,todo_id: r.todo_id,assigned_at: r.assigned_at,arm_id: r.arm_id,arm_name: redactString(campaign.arms.find(a=>a.id===r.arm_id)?.name ?? ''),
@@ -60,17 +86,25 @@ export function listCampaignAssignments(id: string,projectId: string,limit=100,o
     started: r.first_execution_at!==null,reached_review: r.review_started_at!==null,todo_status: r.status,
     final_review_verdict: evaluationResult(r.result_payload)?.verdict ?? null,rework_count: r.rework_count,
     known_todo_cost_usd: r.total_cost_usd,known_todo_tokens: r.total_tokens,
+    known_treatment_cost_usd: r.usage.cost.known,treatment_cost_attempts_known: r.usage.cost.attemptsKnown,treatment_cost_attempts_total: r.usage.cost.attemptsTotal,treatment_cost_coverage: r.usage.cost.coverage,
+    known_treatment_io_tokens: r.usage.ioTokens.known,treatment_token_attempts_known: r.usage.ioTokens.attemptsKnown,treatment_token_attempts_total: r.usage.ioTokens.attemptsTotal,treatment_token_coverage: r.usage.ioTokens.coverage,
+    known_cache_read_tokens: r.usage.cacheReadTokens.known,known_cache_creation_tokens: r.usage.cacheCreationTokens.known,
+    cache_read_attempts_known: r.usage.cacheReadTokens.attemptsKnown,cache_read_coverage: r.usage.cacheReadTokens.coverage,
+    cache_creation_attempts_known: r.usage.cacheCreationTokens.attemptsKnown,cache_creation_coverage: r.usage.cacheCreationTokens.coverage,
+    treatment_process_attempts: r.usage.processAttempts.total,known_provider_duration_ms: r.usage.providerDuration.known,
+    provider_duration_attempts_known: r.usage.providerDuration.attemptsKnown,provider_duration_coverage: r.usage.providerDuration.coverage,
+    treatment_phase_usage: r.usage.phases,
     duration_ms: r.first_execution_at && r.finished_at ? Math.max(0,Date.parse(r.finished_at)-Date.parse(r.first_execution_at)) : null,campaign_feedback: r.feedback,
   })) };
 }
 export function campaignCsv(page: ReturnType<typeof listCampaignAssignments>) {
-  const fields=['assignment_id','todo_id','assigned_at','arm_id','arm_name','control','bucket','integrity_state','integrity_reason','started','reached_review','todo_status','final_review_verdict','rework_count','known_todo_cost_usd','known_todo_tokens','duration_ms','campaign_feedback'] as const;
+  const fields=['assignment_id','todo_id','assigned_at','arm_id','arm_name','control','bucket','integrity_state','integrity_reason','started','reached_review','todo_status','final_review_verdict','rework_count','known_todo_cost_usd','known_todo_tokens','known_treatment_cost_usd','treatment_cost_attempts_known','treatment_cost_attempts_total','treatment_cost_coverage','known_treatment_io_tokens','treatment_token_attempts_known','treatment_token_attempts_total','treatment_token_coverage','known_cache_read_tokens','cache_read_attempts_known','cache_read_coverage','known_cache_creation_tokens','cache_creation_attempts_known','cache_creation_coverage','treatment_process_attempts','known_provider_duration_ms','provider_duration_attempts_known','provider_duration_coverage','duration_ms','campaign_feedback'] as const;
   return [fields.join(','),...page.assignments.map(row=>fields.map(f=>evaluationCsvCell(row[f])).join(','))].join('\r\n');
 }
 export function getEvaluationCampaignAnalytics(id: string,projectId: string) {
   const campaign=getEvaluationCampaign(id,projectId),db=getDatabase();
   return db.transaction(()=>{
-    const rows=db.prepare(projection).all(id) as Outcome[];
+    const rows=attachUsage(db.prepare(projection).all(id) as Outcome[],id);
     const identities=db.prepare(`SELECT a.arm_id,a.todo_id,a.integrity_state,r.execution_snapshot FROM evaluation_campaign_assignments a
       JOIN todo_execution_rounds r ON r.todo_id=a.todo_id WHERE a.campaign_id=? AND r.started_at IS NOT NULL AND r.execution_snapshot IS NOT NULL
       UNION ALL SELECT a.arm_id,a.todo_id,a.integrity_state,x.execution_snapshot FROM evaluation_campaign_assignments a
@@ -96,7 +130,7 @@ export function getEvaluationCampaignAnalytics(id: string,projectId: string) {
     });
     const control=arms.find(a=>a.isControl)!;
     const comparisons=arms.filter(a=>!a.isControl).map(arm=>{
-      const compare=(protocol: 'itt' | 'pp')=>Object.fromEntries(['completionRate','failureRate','reworkRate','needsChangesRate','knownTodoCostUsd','knownTodoTokens','avgTodoDurationMs','helpfulRate'].map(key=>{
+      const compare=(protocol: 'itt' | 'pp')=>Object.fromEntries(['completionRate','failureRate','reworkRate','needsChangesRate','avgTreatmentCostUsd','p50TreatmentCostUsd','avgTodoDurationMs','helpfulRate'].map(key=>{
         const value=(a: typeof arm): number | null=>key==='helpfulRate' ? a[protocol].feedback.helpfulRate : a[protocol][key as 'completionRate'];
         const controlValue=value(control),armValue=value(arm);
         return [key,{ controlValue,armValue,absoluteDifference: controlValue!==null && armValue!==null ? armValue-controlValue : null,relativeRatio: controlValue!==null && controlValue!==0 && armValue!==null ? armValue/controlValue : null }];

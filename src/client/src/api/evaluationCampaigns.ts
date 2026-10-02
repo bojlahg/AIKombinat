@@ -25,6 +25,12 @@ export interface CampaignMetrics {
   avgTodoDurationMs: number | null; p50TodoDurationMs: number | null; p95TodoDurationMs: number | null; durationSamples: number;
   knownTodoCostUsd: number | null; todoCostKnown: number; todoCostTotal: number; todoCostCoverage: number | null;
   knownTodoTokens: number | null; todoTokensKnown: number; todoTokensTotal: number; todoTokenCoverage: number | null;
+  knownTreatmentCostUsd: number | null; treatmentCostAttemptsKnown: number; treatmentCostAttemptsTotal: number; treatmentCostCoverage: number | null;
+  knownTreatmentIoTokens: number | null; treatmentTokenAttemptsKnown: number; treatmentTokenAttemptsTotal: number; treatmentTokenCoverage: number | null;
+  treatmentCostTodosFullyCovered: number; treatmentCostTodosStarted: number; treatmentCostTodoCoverage: number | null;
+  avgTreatmentCostUsd: number | null; p50TreatmentCostUsd: number | null;
+  knownCacheReadTokens: number | null; cacheReadCoverage: number | null; knownCacheCreationTokens: number | null; cacheCreationCoverage: number | null;
+  knownProviderDurationMs: number | null; providerDurationCoverage: number | null; treatmentProcessAttempts: number;
   lowSample: boolean;
   feedback: { responses: number; evaluative: number; denominator: number; helpful: number; notHelpful: number; mixed: number; unknown: number; helpfulRate: number | null; responseCoverage: number | null; evaluativeCoverage: number | null };
 }
@@ -38,7 +44,12 @@ export interface CampaignAnalytics {
 export interface Comparison { controlValue: number | null; armValue: number | null; absoluteDifference: number | null; relativeRatio: number | null; }
 export interface AssignmentPage {
   total: number; limit: number; offset: number; hasMore: boolean;
-  assignments: { assignment_id: string; todo_id: string; arm_name: string; integrity_state: string; todo_status: string; campaign_feedback: string | null }[];
+  assignments: { assignment_id: string; todo_id: string; arm_name: string; integrity_state: string; todo_status: string; campaign_feedback: string | null;
+    known_treatment_cost_usd: number | null; treatment_cost_attempts_known: number; treatment_cost_attempts_total: number; treatment_cost_coverage: number | null;
+    known_treatment_io_tokens: number | null; treatment_token_attempts_known: number; treatment_token_attempts_total: number; treatment_token_coverage: number | null;
+    known_cache_read_tokens: number | null; known_cache_creation_tokens: number | null; treatment_process_attempts: number;
+    known_provider_duration_ms: number | null;
+  }[];
 }
 const scoped=(projectId: string)=>`projectId=${encodeURIComponent(projectId)}`;
 export const listCampaigns=(projectId: string,includeArchived=false)=>get<Campaign[]>(`/api/projects/${projectId}/evaluation-campaigns?includeArchived=${includeArchived}`);
