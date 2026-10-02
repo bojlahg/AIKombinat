@@ -321,7 +321,7 @@
     },
     "notice": "THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE."
   },
-  "readiness": "READY_WITH_LIMITATIONS",
+  "readiness": "READY",
   "unrestrictedRetry": "explicitly_authorized_user_followup",
   "realRun": {
     "status": "PASS",
@@ -2497,5 +2497,19 @@
     "reviewFailureCause": "Smoke trigger called a SQLite UDF which reread the executing connection while persisting review PID.",
     "fix": "Keep process triggers SQL-only; capture actual review configuration hashes outside the trigger. Test implementation at artifact collection while its round is still running.",
     "tests": "Regression exercises actual SQLite review PID update and a config hash read outside the trigger; first hash remains immutable."
+  },
+  "deliveryFixCi": {
+    "commit": "6e8add0b33e60fe2e61de3f4b8e3ab1c87e320c8",
+    "runId": 36979939589,
+    "url": "https://github.com/bojlahg/AIKombinat/actions/runs/36979939589",
+    "conclusion": "success",
+    "runAttempt": 1,
+    "jobs": [
+      "Client Tests",
+      "Type Check",
+      "Server Tests",
+      "Build",
+      "CI Gate"
+    ]
   }
 }

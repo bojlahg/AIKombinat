@@ -1,5 +1,7 @@
 # Evaluation Campaigns V1 smoke report
 
+Current status (2026-10-02): **READY**. The explicit disposable Haiku campaign is **PASS** and the [delivered fix CI](https://github.com/bojlahg/AIKombinat/actions/runs/36979939589) for `6e8add0` is **SUCCESS**. Earlier limitations below describe historical runs.
+
 Date: 2026-10-01. Baseline: accepted Consensus Review Evaluation / Telemetry V1 on `b6b4115`. Conclusion: **READY_WITH_LIMITATIONS**, subject to the delivered commit's required GitHub CI gate. Local runtime/UI checks below do not establish comparative review quality.
 
 ## Validation
@@ -111,7 +113,7 @@ Local validation passed: server 2,634 tests (2 skipped), client 244 tests, typec
 
 ## Real-AI PASS closure — 2026-10-02
 
-**THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.** Real-AI acceptance is now **PASS**; READY promotion waits for the delivered fix commit's green CI.
+**THIS RUN IS ACCEPTANCE EVIDENCE, NOT COMPARATIVE QUALITY EVIDENCE.** Real-AI acceptance is **PASS** and Evaluation Campaigns V1 is **READY** after [delivered-fix CI](https://github.com/bojlahg/AIKombinat/actions/runs/36979939589) completed successfully for `6e8add0b33e60fe2e61de3f4b8e3ab1c87e320c8`. All five required jobs passed on run attempt 1. Reconciliation remains **READY**.
 
 The earlier restricted-shell implementation exited 1 and emitted `provider-account.health` immediately after failure. The manager emits that event for a nonzero exit only when provider output matched an authentication rejection. This identifies an inference authentication failure in that run; the exact provider text was not retained, so the underlying credential/network restriction is not further asserted. The same inherited login and exact Haiku model executed successfully outside the restricted shell after explicit user authorization. No credentials, login/logout state, production profile or account settings were changed.
 
