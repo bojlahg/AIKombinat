@@ -1,0 +1,125 @@
+{
+  "scope": "Temporary synthetic setup test; excluded from real-world Pilot sample",
+  "applicationCommit": "23efeeb360d3caa7a77796fd8b4fe31545622ee9",
+  "projectId": "294fad7f-913e-4c12-8712-ede75ba48efd",
+  "campaign": {
+    "id": "2f3a9a94-1df3-46c5-a951-739a30f8eff3",
+    "status": "completed",
+    "auto_enroll": 0,
+    "assignment_algorithm": "sha256_weighted_v1",
+    "campaign_definition_hash": "39f25df43a7d2b76d89e680d391138533115667ffc6098b2f50bfef4849b22cb",
+    "started_at": "2026-10-02T09:40:00.445Z",
+    "completed_at": "2026-10-02T09:44:10.164Z"
+  },
+  "profiles": {
+    "implementation": {
+      "id": "0e906c0c-1769-431d-ad61-e7f654012446",
+      "executors": [
+        {
+          "id": "b5e1a58d-332a-4ec7-942c-338e4df331fa",
+          "cli_model_id": "c275939f-0c4a-433f-89b8-ba70e82929b9",
+          "effort_value": null,
+          "priority": 0,
+          "is_enabled": 1,
+          "account_policy": "inherited_default",
+          "provider_account_id": null
+        }
+      ]
+    },
+    "reviewer": {
+      "id": "dd95c1a1-5a87-45ce-8069-7a582d4e68cc",
+      "executors": [
+        {
+          "id": "195b70f3-5824-46d5-9e83-41156fcd17db",
+          "cli_model_id": "c275939f-0c4a-433f-89b8-ba70e82929b9",
+          "effort_value": null,
+          "priority": 0,
+          "is_enabled": 1,
+          "account_policy": "inherited_default",
+          "provider_account_id": null
+        }
+      ]
+    }
+  },
+  "policy": {
+    "id": "5129fb2e-d558-4a1d-a227-0560848e6294",
+    "strategy": "unanimous",
+    "failure_policy": "require_all",
+    "max_parallel_reviewers": 2,
+    "judge_execution_profile_id": null,
+    "members": [
+      {
+        "execution_profile_id": "dd95c1a1-5a87-45ce-8069-7a582d4e68cc",
+        "weight": 1,
+        "priority": 0,
+        "is_enabled": 1
+      },
+      {
+        "execution_profile_id": "dd95c1a1-5a87-45ce-8069-7a582d4e68cc",
+        "weight": 1,
+        "priority": 1,
+        "is_enabled": 1
+      }
+    ]
+  },
+  "assignment": {
+    "id": "790bd617-691f-4464-a081-6c49552b2315",
+    "todo_id": "58722ff5-ae8c-441e-9c5c-ea54f95c49ad",
+    "arm_id": "d92ec924-e676-4b4f-b5a5-1387176144b9",
+    "assignment_hash": "83387ec8c51736d332f4d65fe6aa013da3bad00072f05fc833b8b7adeb9da19d",
+    "assignment_bucket": 1,
+    "assigned_review_config_hash": "8901342ad64cb7a49c7cd4204a9d165e149194138cc6b9b0f358e7b052dea1bb",
+    "integrity_state": "clean",
+    "integrity_reason": null,
+    "assigned_at": "2026-10-02T09:40:49.424Z",
+    "first_execution_at": "2026-10-02T09:41:50.995Z",
+    "review_started_at": null,
+    "finished_at": "2026-10-02T09:42:10.715Z"
+  },
+  "rounds": [
+    {
+      "id": "60dfa72c-64e8-4a2f-84d9-4fb1983e0a93",
+      "phase": "implementation",
+      "status": "failed",
+      "started_at": "2026-10-02T09:41:50.996Z",
+      "finished_at": "2026-10-02T09:42:10.715Z",
+      "error_message": "Claude CLI exited with code 1."
+    }
+  ],
+  "processEvidence": [
+    {
+      "owner": "58722ff5-ae8c-441e-9c5c-ea54f95c49ad",
+      "round_id": "60dfa72c-64e8-4a2f-84d9-4fb1983e0a93",
+      "phase": "implementation",
+      "pid": 34764
+    }
+  ],
+  "budget": {
+    "used": 1,
+    "limit": 3
+  },
+  "cleanup": {
+    "ownedTodoPids": 0,
+    "ownedReviewerPids": 0,
+    "resourceLeases": 0
+  },
+  "reviewBatches": 0,
+  "humanFeedback": 0,
+  "realWorldCleanTerminal": 0,
+  "restartChecks": {
+    "assignmentIdAndArmPreservedBeforeExecution": true,
+    "noDuplicateAssignment": true
+  },
+  "automatedTests": {
+    "nodeTestPassed": true,
+    "changedFiles": 1,
+    "insertions": 1,
+    "deletions": 1
+  },
+  "failureClassification": "unknown; CLI exit 1; no reviewer started",
+  "semanticHashes": {
+    "implementation": "be130f6599e329c52ed2b42d30d6bdb97e800155220d81f91a6814d3040edd4b",
+    "reviewer": "d3b9b58dbffba9bce103dbd9c4b82f813b6c8171136956294766ee01afcd00a3",
+    "policy": "6f129a4d96d490f4e22f2fd7d7991ca8664cba1a8f6229f6c3e9dd28fb6fa4c6"
+  }
+}

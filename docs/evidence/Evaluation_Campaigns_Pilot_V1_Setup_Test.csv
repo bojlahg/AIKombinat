@@ -1,0 +1,2 @@
+assignment_id,todo_id,assigned_at,arm_id,arm_name,control,bucket,integrity_state,integrity_reason,started,reached_review,todo_status,final_review_verdict,rework_count,known_todo_cost_usd,known_todo_tokens,duration_ms,campaign_feedback
+"790bd617-691f-4464-a081-6c49552b2315","58722ff5-ae8c-441e-9c5c-ea54f95c49ad","2026-10-02T09:40:49.424Z","d92ec924-e676-4b4f-b5a5-1387176144b9","Consensus Review","0","1","clean","","true","false","failed","","0","0.042668899999999996","883","19720",""
